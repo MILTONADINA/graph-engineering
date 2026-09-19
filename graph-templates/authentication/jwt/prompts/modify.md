@@ -1,0 +1,1 @@
+To change TTLs after generation, edit the literal `expiresIn` string in `tokens.ts` rather than re-rendering. To add a DB-backed "is this user still active" check, add it as a new middleware composed AFTER `authMiddleware` in the route chain (e.g. inside `authorization.rbac`), not inside this file — keep this node's contract stateless.

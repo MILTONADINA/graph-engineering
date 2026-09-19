@@ -1,0 +1,7 @@
+{
+  "inputs": { "accessTokenTtl": "15m", "refreshTokenTtl": "30d" },
+  "expectedOutputs": {
+    "files": ["src/utils/tokens.ts", "src/middlewares/authMiddleware.ts"],
+    "exports": ["generateAccessToken", "generateRefreshToken", "verifyRefreshToken", "authMiddleware"]
+  }
+}

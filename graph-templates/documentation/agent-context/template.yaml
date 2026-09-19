@@ -1,0 +1,71 @@
+id: documentation.agent-context
+name: Agent Context Summary
+version: 1.0.0
+description: >
+  Generates .graph/CONTEXT.md — a dense, tabular summary for an AI agent
+  resuming work on this project: which nodes have run, which of the ten
+  artifact types exist and where, and pointers to GRAPH-NODE-SPEC.md/
+  TEMPLATE-SPEC.md for the contract. Written for a machine reader, not a
+  human — documentation.architecture is this node's human-facing counterpart.
+category: documentation
+subcategory: agent-context
+status: implemented
+type: graph-node
+actions: [generate, validate]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: ".graph/CONTEXT.md" }
+
+dependencies:
+  packages: []
+  services: []
+  templates: []
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: .graph/CONTEXT.md, source: files/CONTEXT.md.template }
+  modify: []
+
+compatible_with:
+  upstream: []
+  downstream: []
+
+consumes:
+  artifacts:
+    - requirements.schema
+    - architecture.schema
+    - database.schema
+    - api.schema
+    - auth.schema
+    - storage.schema
+    - frontend.schema
+    - integration.schema
+    - test.schema
+    - deployment.schema
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-merge
+  detection: ".graph/CONTEXT.md exists — regenerated wholesale each run from .graph/manifest.json + whichever artifact files are present"
+
+validation:
+  checks:
+    - { type: file-exists, path: .graph/CONTEXT.md }
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - "Lists artifact file paths and node ids only — never inlines artifact contents that might include anything sensitive (none currently do, but this node treats that as a hard rule, not an accident of the current schemas)."
+
+documentation:
+  required: [README.md]

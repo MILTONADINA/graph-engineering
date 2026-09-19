@@ -1,0 +1,56 @@
+id: authentication.session
+name: Server-Side Session Authentication
+version: 0.1.0
+description: >
+  Server-side session-store alternative to authentication.jwt — trades the
+  stateless JWT's "no revocation before expiry" tradeoff for instant
+  revocation, at the cost of requiring a session store (e.g. Redis) and
+  making every request a store lookup. Not yet implemented in this library;
+  registered so the graph documents the gap. Prefer authentication.jwt unless
+  instant session revocation is a hard requirement.
+category: authentication
+subcategory: session
+status: planned
+type: graph-node
+actions: [generate]
+
+inputs: []
+outputs: []
+
+dependencies:
+  packages: []
+  services: [session-store]
+  templates: []
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify: []
+
+compatible_with:
+  upstream: [project.node-express]
+  downstream: [authorization.rbac]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [auth.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "not applicable — planned"
+
+validation:
+  checks: []
+
+testing:
+  strategy: none
+
+security:
+  considerations:
+    - "Mutually exclusive with authentication.jwt — an application picks one session strategy, not both (see dependencies.templates relationship: conflicts on authentication.jwt once this node is implemented)."
+
+documentation:
+  required: []

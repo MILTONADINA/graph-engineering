@@ -1,0 +1,5 @@
+[
+  { "name": "read_artifact", "description": "Reads requirements.json" },
+  { "name": "write_artifact", "description": "Writes storage.schema.json" },
+  { "name": "invoke_node", "description": "Runs storage.aws-s3 / storage.upload / storage.file-validation / storage.presigned-url / storage.download / storage.delete" }
+]

@@ -1,0 +1,25 @@
+id: ai.security-agent
+name: Security Agent
+version: 1.0.0
+description: >
+  Cross-cutting review: CORS config, secret handling, storage.file-validation
+  + authorization.rbac pairing, and a focused re-read of
+  ai.validation-agent's security-category findings.
+category: ai
+subcategory: security-agent
+status: implemented
+type: ai-agent
+role: >
+  Narrower and more focused than ai.validation-agent's general sweep — this
+  agent specifically owns the "security problems" check category and goes
+  deeper on it than a single validation pass would.
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+tools: [read_project_files, run_validators]
+handoff_to: [ai.code-review-agent]
+validation:
+  checks: ["CORS_ORIGIN is never '*' when credentials: true is set", "every storage.upload invocation has a paired storage.file-validation invocation"]
+documentation:
+  required: [README.md]

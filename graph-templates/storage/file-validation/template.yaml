@@ -1,0 +1,73 @@
+id: storage.file-validation
+name: Upload File Validation
+version: 1.0.0
+description: >
+  MIME-type allowlist + size-limit middleware, reconfiguring storage.upload's
+  bare multer instance (which accepts anything, unbounded) into one that
+  rejects disallowed types/oversized files before the buffer is fully read.
+  Closes the single largest security gap the reference app leaves open
+  (REFERENCE_ARCHITECTURE.md §8: "No file-type/size validation on upload").
+category: storage
+subcategory: file-validation
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs:
+  - { name: allowedMimeTypes, type: "array<string>", required: false, default: ["image/png", "image/jpeg", "image/webp", "application/pdf"] }
+  - { name: maxSizeBytes, type: number, required: false, default: 5242880, description: "5 MiB default" }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/middlewares/fileValidation.ts, src/config/multer.config.ts (modified)" }
+  - { name: exports, type: array<string>, description: "fileFilter, upload (reconfigured)" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: storage.upload, relationship: extends }
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/middlewares/fileValidation.ts, source: files/fileValidation.ts.template }
+  modify:
+    - { path: src/config/multer.config.ts, operation: replace-file, source: files/multer.config.reconfigured.ts.template, note: "Replaces storage.upload's bare `upload` export with one that applies limits + fileFilter." }
+
+compatible_with:
+  upstream: [storage.upload, backend.error-handler]
+  downstream: [backend.express]
+
+consumes:
+  artifacts: [storage.schema]
+produces:
+  artifacts: [storage.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/middlewares/fileValidation.ts exists and src/config/multer.config.ts imports it"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/middlewares/fileValidation.ts }
+    - { type: exports, path: src/middlewares/fileValidation.ts, names: [fileFilter] }
+    - { type: file-contains, path: src/config/multer.config.ts, pattern: "fileFilter" }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/fileValidation.test.ts
+  command: "npm test -- fileValidation"
+
+security:
+  considerations:
+    - "This is the single highest-value security node in storage/ — unvalidated uploads are the #1 real gap the reference app leaves open. Treat pairing this with storage.upload as required for any endpoint reachable by untrusted users, not optional hardening."
+    - "MIME checking here trusts the client-supplied Content-Type header (multer's file.mimetype) — this is a filter against accidental/careless uploads, not a defense against a deliberately spoofed Content-Type. Applications with a stricter threat model should additionally sniff the file's actual magic bytes server-side after upload (e.g. via a library that inspects the buffer) before trusting the type — note this as a follow-up hardening step, not implemented by this node."
+    - "Archive/compressed MIME types (zip, gzip, tar, rar, 7z) are excluded from the default allowlist — allowing them opens a decompression-bomb denial-of-service vector (a small compressed file expanding to gigabytes) unless the application specifically needs archive uploads and adds its own decompression size guard."
+    - "maxSizeBytes is enforced via multer's own `limits.fileSize` option, which rejects an oversized upload while still streaming (before the full buffer is held in memory) — do not implement size checking by reading the whole buffer first and checking `.length`, that defeats the point of the limit for memory-storage uploads."
+
+documentation:
+  required: [README.md]

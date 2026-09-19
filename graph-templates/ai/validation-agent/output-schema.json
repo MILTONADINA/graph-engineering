@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["valid", "errors", "warnings", "repairs"],
+  "properties": {
+    "valid": { "type": "boolean" },
+    "errors": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "warnings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "repairs": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["rule", "message"],
+      "properties": {
+        "rule": { "type": "string", "description": "One of the 11 check categories, e.g. missing-dependencies" },
+        "nodeId": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}

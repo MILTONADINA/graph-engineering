@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "template.schema.json",
+  "title": "create-graph-app Template",
+  "description": "Metadata contract every templates/<category>/<name>/template.yaml must satisfy. See docs/architecture.md for why this is smaller than graph-templates/TEMPLATE-SPEC.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "category", "description", "provides"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z]+\\.[a-z0-9-]+$",
+      "description": "Dotted category.name, matches the template's directory path, e.g. frontend.nextjs"
+    },
+    "name": { "type": "string", "description": "Human-readable name shown in prompts, e.g. \"Next.js\"" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "category": { "type": "string", "enum": ["frontend", "backend", "database", "storage", "authentication", "authorization", "api", "testing", "devops"] },
+    "description": { "type": "string" },
+    "requires": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Capability strings this template needs some OTHER selected template to provide, e.g. \"frontend\". Never a template id — see architecture.md."
+    },
+    "provides": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Capability strings this template satisfies, e.g. [\"frontend\", \"react\", \"routing\"]."
+    },
+    "compatibleWith": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Template ids this one is known to work well with. Advisory — used for prompt ordering/suggestions, not enforced."
+    },
+    "conflictsWith": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Template ids that must never be selected alongside this one. Enforced — the resolver hard-errors."
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": { "dependencies": [], "devDependencies": [] },
+      "properties": {
+        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/packageRef" }, "default": [] },
+        "devDependencies": { "type": "array", "items": { "$ref": "#/$defs/packageRef" }, "default": [] }
+      }
+    },
+    "scripts": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": { "type": "string" },
+      "description": "npm scripts this template contributes to its target app's package.json, e.g. { \"dev\": \"tsx watch src/index.ts\" }. Merged by config-generator.ts — package.json is generated from structured metadata (dependencies + scripts), never from a files[] operation, so there is exactly one code path that writes it."
+    },
+    "environment": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "required", "secret"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+          "required": { "type": "boolean" },
+          "secret": { "type": "boolean" },
+          "description": { "type": "string" },
+          "default": { "type": "string", "description": "A safe, non-secret example value written to .env.example, e.g. \"http://localhost:3000\"." }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/fileOperation" }
+    },
+    "documentation": {
+      "type": "string",
+      "description": "Path to this template's own doc fragment, relative to the template's directory, e.g. \"docs/nextjs.md\"."
+    },
+    "targetApp": {
+      "type": "string",
+      "enum": ["web", "api", "root"],
+      "default": "root",
+      "description": "Which generated workspace this template's files belong under in a multi-app (apps/web, apps/api) layout. \"root\" means the project root (single-app projects, or root-level shared config)."
+    }
+  },
+  "$defs": {
+    "packageRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string", "description": "A semver range, e.g. \"^14.2.0\"." },
+        "when": {
+          "type": "string",
+          "description": "Same three-form condition syntax as a file operation's `when` (see fileOperation.when) — omit for a dependency that's always installed. Lets a template avoid installing packages a particular config combination doesn't need, e.g. tailwindcss only when frontend.ui!=none."
+        }
+      }
+    },
+    "fileOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op"],
+      "properties": {
+        "op": { "type": "string", "enum": ["copy", "create", "template", "append", "merge", "conditional"] },
+        "src": { "type": "string", "description": "Source path relative to the template's files/ directory. Required for copy/template/append; ignored for create/merge." },
+        "dest": { "type": "string", "description": "Destination path relative to the target workspace root (see targetApp). Required for every op except conditional (whose nested `then` operations each have their own)." },
+        "content": { "type": "string", "description": "Inline content for op: create when no src file is used." },
+        "mergeStrategy": {
+          "type": "string",
+          "enum": ["gitignore-lines", "tsconfig-json"],
+          "description": "Required when op: merge — names the composer.ts strategy that merges this template's contribution into a file another template may have also written. package.json and .env.example are NOT mergeable file targets — they're generated entirely from structured metadata (dependencies/scripts/environment) by config-generator.ts, so there is exactly one code path that writes each."
+        },
+        "when": {
+          "type": "string",
+          "description": "A condition over a dotted ProjectConfig path — required when op: conditional. Three forms: \"a.b\" (truthy), \"a.b=value\" (equality), \"a.b!=value\" (inequality — the form to use for enum-shaped fields like frontend.ui, since \"unset\" is the literal string \"none\", not undefined, and is therefore truthy under a bare truthy check). See src/utils/render.ts."
+        },
+        "then": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileOperation" },
+          "description": "Nested operations run only when `when` is truthy — required when op: conditional."
+        }
+      }
+    }
+  }
+}

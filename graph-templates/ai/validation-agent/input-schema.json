@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "projectRoot": { "type": "string", "description": "Path to the generated project" },
+    "mode": { "enum": ["node-scoped", "full-graph"], "default": "full-graph" },
+    "artifacts": { "type": "object", "description": "Whichever artifact instances currently exist, keyed by artifactType" }
+  }
+}

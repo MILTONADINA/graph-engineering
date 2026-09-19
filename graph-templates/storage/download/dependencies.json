@@ -1,0 +1,1 @@
+{ "packages": [], "services": [], "templates": [{ "id": "storage.aws-s3", "relationship": "requires" }, { "id": "backend.error-handler", "relationship": "requires" }] }

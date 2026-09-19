@@ -1,0 +1,68 @@
+id: frontend.nextjs
+name: Typed API Client
+version: 1.0.0
+description: >
+  A typed fetch wrapper (apiFetch, ApiError) matching the exact response
+  envelopes backend.api-response/backend.error-handler/backend.express define
+  ({ message, data }, { message, data, pagination }, { error: { message, status } }).
+  Always sends credentials: 'include' so the backend's httpOnly auth cookies are
+  forwarded automatically — this client never touches a token directly. Every
+  other frontend/* template imports apiFetch instead of calling fetch() raw.
+category: frontend
+subcategory: nextjs
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "lib/apiClient.ts" }
+  - { name: exports, type: array<string>, description: "apiFetch, ApiError, ApiSuccess, ApiPaginated" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: project.nextjs, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: lib/apiClient.ts, source: files/apiClient.ts }
+  modify: []
+
+compatible_with:
+  upstream: [project.nextjs]
+  downstream: [frontend.authentication, frontend.tables, frontend.forms, frontend.dashboards]
+
+consumes:
+  artifacts: [api.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "lib/apiClient.ts exists and exports apiFetch"
+
+validation:
+  checks:
+    - { type: file-exists, path: lib/apiClient.ts }
+    - { type: exports, path: lib/apiClient.ts, names: [apiFetch, ApiError] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/apiClient.test.ts
+  command: "npm test -- apiClient"
+
+security:
+  considerations:
+    - "credentials: 'include' is set unconditionally — never add an option to disable it for an authenticated call, and never fall back to reading a token out of localStorage/document.cookie if a request 401s. A 401 means \"not logged in,\" full stop; the caller (frontend.authentication's useAuth) is what redirects to /login."
+    - "apiFetch never logs the raw response body of a non-2xx result beyond the parsed { message, status } — the backend's own errorHandler already decides what's safe to expose; the client shouldn't try to extract more from a response that wasn't meant to have more."
+    - "This client makes same-origin-looking calls to a different origin (NEXT_PUBLIC_API_URL). If the browser blocks the cookie due to CORS/SameSite misconfiguration, apiFetch will surface it as an ordinary 401, not a distinguishable network error — see project.nextjs's README for the CORS_ORIGIN/sameSite requirements this depends on."
+
+documentation:
+  required: [README.md]

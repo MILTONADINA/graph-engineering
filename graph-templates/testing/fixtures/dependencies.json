@@ -1,0 +1,8 @@
+{
+  "packages": [],
+  "services": [],
+  "templates": [
+    { "id": "project.node-express", "relationship": "requires" },
+    { "id": "authentication.password", "relationship": "extends" }
+  ]
+}

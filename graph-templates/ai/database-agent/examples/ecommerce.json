@@ -1,0 +1,27 @@
+{
+  "output": {
+    "$schema": "../../artifacts/database.schema.json",
+    "artifactType": "database.schema",
+    "version": "1.0.0",
+    "metadata": { "generatedBy": "ai.database-agent", "generatedAt": "2026-01-15T10:10:00Z", "projectName": "acme-shop", "sourceArtifacts": ["requirements.json", "architecture.json"] },
+    "data": {
+      "dialect": "postgresql",
+      "orm": "drizzle",
+      "enums": [],
+      "tables": [
+        {
+          "name": "products",
+          "columns": [
+            { "name": "name", "type": "varchar(200)", "notNull": true },
+            { "name": "description", "type": "text" },
+            { "name": "priceCents", "type": "integer", "notNull": true },
+            { "name": "imageUrl", "type": "varchar(2048)" }
+          ],
+          "indexes": [],
+          "tenantScoped": false
+        }
+      ],
+      "migrations": []
+    }
+  }
+}

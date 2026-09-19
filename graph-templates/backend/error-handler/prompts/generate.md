@@ -1,0 +1,1 @@
+1. Verify `project.node-express` has run (`.graph/manifest.json` has that node). 2. Write `src/middlewares/errorMiddleware.ts` verbatim from `files/errorMiddleware.ts`. 3. Apply both `files.modify` marker replacements to `src/app.ts`. 4. Run `npm run build`. 5. Report `files` + `exports`.

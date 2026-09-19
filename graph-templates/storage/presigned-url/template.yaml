@@ -1,0 +1,71 @@
+id: storage.presigned-url
+name: Presigned Upload/Download URLs
+version: 1.0.0
+description: >
+  Time-limited signed URLs for both upload and download, consolidating the
+  brief's separate "presigned upload"/"presigned download" asks into one node
+  (a getUploadUrl + getDownloadUrl pair) since both are the same
+  getSignedUrl(command, { expiresIn }) mechanism differing only in which S3
+  command they sign. getDownloadUrl ports the reference app's existing
+  FileUpload.getSignedUrl verbatim; getUploadUrl is new.
+category: storage
+subcategory: presigned-url
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs:
+  - { name: defaultExpirySeconds, type: number, required: false, default: 3600 }
+  - { name: maxExpirySeconds, type: number, required: false, default: 86400, description: "Hard upper bound regardless of what a caller requests (24h default)" }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/repository/PresignedUrl.ts" }
+  - { name: exports, type: array<string>, description: "PresignedUrl" }
+
+dependencies:
+  packages:
+    - { name: "@aws-sdk/s3-request-presigner", version: "^3.1128.0" }
+  services: []
+  templates:
+    - { id: storage.aws-s3, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/repository/PresignedUrl.ts, source: files/PresignedUrl.ts.template }
+  modify: []
+
+compatible_with:
+  upstream: [storage.aws-s3]
+  downstream: [backend.express]
+
+consumes:
+  artifacts: [storage.schema]
+produces:
+  artifacts: [storage.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/repository/PresignedUrl.ts exists"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/repository/PresignedUrl.ts }
+    - { type: exports, path: src/repository/PresignedUrl.ts, names: [PresignedUrl] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/presignedUrl.test.ts
+  command: "npm test -- presignedUrl"
+
+security:
+  considerations:
+    - "expiresIn is always clamped to maxExpirySeconds server-side, even if a caller requests longer — an unbounded presigned URL is effectively a permanent public link to a private object, defeating the point of keeping the bucket private."
+    - "A presigned upload URL grants write access to exactly one key for its lifetime — always generate a fresh, randomized key per upload (same convention as storage.upload) rather than letting a caller choose an arbitrary key, or they could overwrite another object."
+    - "Presigned URLs are bearer credentials — anyone with the URL can use it until it expires. Never log them at INFO level or return them in a response that gets cached/logged upstream (CDN/proxy access logs)."
+
+documentation:
+  required: [README.md]

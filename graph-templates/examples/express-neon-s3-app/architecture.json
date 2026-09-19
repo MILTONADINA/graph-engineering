@@ -1,0 +1,85 @@
+{
+  "$schema": "../../artifacts/architecture.schema.json",
+  "artifactType": "architecture",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.architect-agent",
+    "generatedAt": "2026-01-15T10:05:00Z",
+    "projectName": "acme-shop",
+    "sourceArtifacts": ["requirements.json"]
+  },
+  "data": {
+    "projectName": "acme-shop",
+    "stack": {
+      "backend": "express",
+      "frontend": "none",
+      "database": "neon-postgres",
+      "storage": "aws-s3",
+      "authentication": "jwt",
+      "authorization": "rbac",
+      "deployment": "docker"
+    },
+    "nodes": [
+      { "id": "project.node-express", "order": 0, "inputs": { "projectName": "acme-shop", "port": 3000, "corsOrigin": "http://localhost:3000" } },
+      { "id": "backend.error-handler", "order": 1, "inputs": {} },
+      { "id": "backend.api-response", "order": 2, "inputs": {} },
+      { "id": "backend.middleware", "order": 3, "inputs": {} },
+      { "id": "backend.validation", "order": 4, "inputs": {} },
+      { "id": "backend.pagination", "order": 5, "inputs": { "defaultPageSize": 20, "maxPageSize": 100 } },
+      { "id": "database.neon-postgres.connection", "order": 6, "inputs": {} },
+      { "id": "database.migrations", "order": 7, "inputs": {} },
+      { "id": "database.transactions", "order": 8, "inputs": {} },
+      { "id": "storage.aws-s3", "order": 9, "inputs": {} },
+      { "id": "storage.upload", "order": 10, "inputs": { "keyPrefix": "uploads" } },
+      { "id": "storage.file-validation", "order": 11, "inputs": { "allowedMimeTypes": ["image/png", "image/jpeg", "image/webp"], "maxSizeBytes": 5242880 } },
+      { "id": "storage.presigned-url", "order": 12, "inputs": { "defaultExpirySeconds": 3600, "maxExpirySeconds": 86400 } },
+      { "id": "storage.delete", "order": 13, "inputs": {} },
+      { "id": "authentication.jwt", "order": 14, "inputs": { "accessTokenTtl": "15m", "refreshTokenTtlDays": 30 } },
+      { "id": "authentication.password", "order": 15, "inputs": { "minPasswordLength": 12 } },
+      { "id": "authorization.rbac", "order": 16, "inputs": {} },
+      { "id": "backend.repository", "order": 17, "inputs": {
+        "entityName": "Product",
+        "tableName": "products",
+        "fields": [
+          { "name": "name", "drizzleType": "varchar('name', { length: 200 })", "notNull": true },
+          { "name": "description", "drizzleType": "varchar('description', { length: 2000 })" },
+          { "name": "priceCents", "drizzleType": "integer('price_cents')", "notNull": true },
+          { "name": "sku", "drizzleType": "varchar('sku', { length: 64 })", "notNull": true, "unique": true },
+          { "name": "status", "drizzleType": "varchar('status', { length: 32 })", "notNull": true },
+          { "name": "imageKey", "drizzleType": "varchar('image_key', { length: 2048 })" }
+        ]
+      } },
+      { "id": "backend.service", "order": 18, "inputs": { "entityName": "Product" } },
+      { "id": "backend.controller", "order": 19, "inputs": { "entityName": "Product" } },
+      { "id": "backend.express", "order": 20, "inputs": { "entityName": "Product", "tableName": "products", "requiresAuth": true } },
+      { "id": "api.crud", "order": 21, "inputs": {
+        "entityName": "Product",
+        "tableName": "products",
+        "fields": [
+          { "name": "name", "drizzleType": "varchar('name', { length: 200 })", "notNull": true },
+          { "name": "description", "drizzleType": "varchar('description', { length: 2000 })" },
+          { "name": "priceCents", "drizzleType": "integer('price_cents')", "notNull": true },
+          { "name": "sku", "drizzleType": "varchar('sku', { length: 64 })", "notNull": true, "unique": true },
+          { "name": "status", "drizzleType": "varchar('status', { length: 32 })", "notNull": true },
+          { "name": "imageKey", "drizzleType": "varchar('image_key', { length: 2048 })" }
+        ],
+        "filterableFields": ["status", "sku"],
+        "sortableFields": ["priceCents", "name"],
+        "requiresAuth": true
+      } },
+      { "id": "testing.unit", "order": 22, "inputs": {} },
+      { "id": "testing.mocks", "order": 23, "inputs": {} },
+      { "id": "testing.integration", "order": 24, "inputs": {} },
+      { "id": "testing.api", "order": 25, "inputs": {} },
+      { "id": "testing.fixtures", "order": 26, "inputs": {} },
+      { "id": "devops.docker", "order": 27, "inputs": { "port": 3000, "nodeVersion": 20 } },
+      { "id": "devops.github-actions", "order": 28, "inputs": {} },
+      { "id": "devops.environments", "order": 29, "inputs": {} },
+      { "id": "documentation.setup", "order": 30, "inputs": {} },
+      { "id": "documentation.api", "order": 31, "inputs": {} },
+      { "id": "documentation.architecture", "order": 32, "inputs": {} },
+      { "id": "documentation.agent-context", "order": 33, "inputs": {} }
+    ],
+    "edges": []
+  }
+}

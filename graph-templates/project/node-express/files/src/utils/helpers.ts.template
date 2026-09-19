@@ -1,0 +1,44 @@
+import { config } from 'dotenv';
+config({ path: '.env.local' });
+config();
+
+interface EnvironmentVariables {
+  PORT: number;
+  NODE_ENV: 'development' | 'production';
+  CORS_ORIGIN: string;
+  // ENV-VAR-FIELDS: downstream nodes insert one `NAME: type;` line above this comment
+}
+
+export enum HttpStatusCodes {
+  OK = 200,
+  CREATED = 201,
+  BAD_REQUEST = 400,
+  UNAUTHORIZED = 401,
+  FORBIDDEN = 403,
+  NOT_FOUND = 404,
+  CONFLICT = 409,
+  INTERNAL_SERVER_ERROR = 500,
+  BAD_GATEWAY = 502,
+}
+
+// database.neon-postgres.connection, authentication.jwt, and storage.aws-s3
+// each append their own required env var names to this array and their own
+// field(s) to EnvironmentVariables/SECRETS below via the `modify` action.
+const requiredEnvironmentVariables: readonly string[] = [];
+
+const missingEnvironmentVariables = requiredEnvironmentVariables.filter(
+  (name) => !process.env[name],
+);
+
+if (missingEnvironmentVariables.length > 0) {
+  throw new Error(
+    `Missing required environment variables: ${missingEnvironmentVariables.join(', ')}`,
+  );
+}
+
+export const SECRETS: EnvironmentVariables = {
+  PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : {{input.port}},
+  NODE_ENV: (process.env.NODE_ENV as 'development' | 'production') ?? 'development',
+  CORS_ORIGIN: process.env.CORS_ORIGIN ?? '{{input.corsOrigin}}',
+  // ENV-VAR-VALUES: downstream nodes insert one `NAME: <resolved value>,` line above this comment
+};

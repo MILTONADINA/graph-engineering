@@ -1,0 +1,34 @@
+{
+  "$schema": "../../artifacts/api.schema.json",
+  "artifactType": "api.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.api-agent",
+    "generatedAt": "2026-01-15T10:20:00Z",
+    "projectName": "acme-shop",
+    "sourceArtifacts": ["architecture.json", "database.json"]
+  },
+  "data": {
+    "basePath": "/api",
+    "responseEnvelope": {
+      "success": "{ message, data }",
+      "error": "{ error: { message, status } }"
+    },
+    "routes": [
+      { "method": "GET", "path": "/", "handler": "app.healthCheck", "auth": "none", "statusCodes": [200] },
+      { "method": "POST", "path": "/api/auth/register", "handler": "authenticationController.register", "auth": "none", "requestSchema": { "email": "string", "password": "string(min 12)", "firstName": "string", "lastName": "string", "phone": "string?" }, "statusCodes": [201, 400, 409] },
+      { "method": "POST", "path": "/api/auth/login", "handler": "authenticationController.login", "auth": "none", "requestSchema": { "email": "string", "password": "string" }, "statusCodes": [200, 401, 403] },
+      { "method": "GET", "path": "/api/auth/me", "handler": "authenticationController.me", "auth": "required", "statusCodes": [200, 401] },
+      { "method": "POST", "path": "/api/auth/logout", "handler": "authenticationController.logout", "auth": "required", "statusCodes": [200] },
+      { "method": "POST", "path": "/api/auth/refresh", "handler": "authRefreshController.refresh", "auth": "none", "statusCodes": [200, 401] },
+      { "method": "POST", "path": "/api/auth/forgot-password", "handler": "authenticationController.forgotPassword", "auth": "none", "requestSchema": { "email": "string" }, "statusCodes": [200] },
+      { "method": "POST", "path": "/api/auth/reset-password/:resetToken", "handler": "authenticationController.resetPassword", "auth": "none", "requestSchema": { "password": "string(min 12)", "confirmPassword": "string" }, "statusCodes": [200, 400] },
+      { "method": "POST", "path": "/api/auth/verify-email/:verifyToken", "handler": "authenticationController.verifyEmail", "auth": "none", "statusCodes": [200, 400] },
+      { "method": "GET", "path": "/api/products", "handler": "productController.list", "entity": "products", "auth": "none", "pagination": true, "filtering": ["status", "sku"], "sorting": ["priceCents", "name"], "statusCodes": [200] },
+      { "method": "GET", "path": "/api/products/:id", "handler": "productController.getById", "entity": "products", "auth": "none", "statusCodes": [200, 404] },
+      { "method": "POST", "path": "/api/products", "handler": "productController.create", "entity": "products", "auth": "required", "roles": ["admin"], "requestSchema": { "name": "string", "priceCents": "number", "sku": "string", "status": "string" }, "statusCodes": [201, 400, 401, 403] },
+      { "method": "PUT", "path": "/api/products/:id", "handler": "productController.update", "entity": "products", "auth": "required", "roles": ["admin"], "statusCodes": [200, 400, 401, 403, 404] },
+      { "method": "DELETE", "path": "/api/products/:id", "handler": "productController.remove", "entity": "products", "auth": "required", "roles": ["admin"], "statusCodes": [200, 401, 403, 404] }
+    ]
+  }
+}

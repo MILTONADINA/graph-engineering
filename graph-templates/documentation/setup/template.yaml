@@ -1,0 +1,62 @@
+id: documentation.setup
+name: Setup / Quick Start Documentation
+version: 1.0.0
+description: >
+  Inserts or replaces a "## Quick Start" section in the project's root
+  README.md — install, env setup, migrate (if database.neon-postgres.connection
+  ran), run — generalized to whichever nodes .graph/manifest.json shows
+  actually ran, modeled on reference-app/README.md's own Quick Start section.
+category: documentation
+subcategory: setup
+status: implemented
+type: graph-node
+actions: [generate, modify, validate]
+
+inputs:
+  - { name: projectName, type: string, required: true }
+
+outputs:
+  - { name: files, type: array<string>, description: "README.md (created or modified)" }
+
+dependencies:
+  packages: []
+  services: []
+  templates: []
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: README.md, source: files/README.quickstart-only.md.template }
+  modify:
+    - { path: README.md, operation: insert-before-marker, marker: "<!-- END QUICK START -->", template: "(see files/README.quickstart-only.md.template for the section body)" }
+
+compatible_with:
+  upstream: [project.node-express]
+  downstream: []
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "README.md contains a '## Quick Start' section bounded by <!-- QUICK START --> / <!-- END QUICK START --> markers — replaced in place, content outside the markers is left untouched"
+
+validation:
+  checks:
+    - { type: file-exists, path: README.md }
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - "Never writes example .env values with anything but placeholders — same discipline as devops.environments."
+
+documentation:
+  required: [README.md]

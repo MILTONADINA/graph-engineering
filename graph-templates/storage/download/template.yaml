@@ -1,0 +1,67 @@
+id: storage.download
+name: Stream File Download
+version: 1.0.0
+description: >
+  Streams an S3 object straight through to the HTTP response (as opposed to
+  redirecting the client to a presigned URL, storage.presigned-url's job).
+  Useful when the server needs to control/inspect the response (e.g. force a
+  Content-Disposition, apply a transform) rather than hand the client a
+  direct link to storage.
+category: storage
+subcategory: download
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/repository/FileDownload.ts" }
+  - { name: exports, type: array<string>, description: "FileDownload" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: storage.aws-s3, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/repository/FileDownload.ts, source: files/FileDownload.ts }
+  modify: []
+
+compatible_with:
+  upstream: [storage.aws-s3, backend.error-handler]
+  downstream: [backend.express]
+
+consumes:
+  artifacts: [storage.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/repository/FileDownload.ts exists"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/repository/FileDownload.ts }
+    - { type: exports, path: src/repository/FileDownload.ts, names: [FileDownload] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/download.test.ts
+  command: "npm test -- download"
+
+security:
+  considerations:
+    - "The object key must come from a trusted source (your own database, e.g. an entity's fileKey column looked up by an id the caller is authorized for) — never accept a raw S3 key as a client-supplied path/query parameter. Doing so lets any authenticated caller read any object in the bucket by guessing/enumerating keys, a path-traversal-equivalent vulnerability for object storage."
+    - "This node performs no authorization check itself — pair with the route's own auth/ownership check (authorization.rbac / authorization.tenant-isolation) before calling streamToResponse."
+
+documentation:
+  required: [README.md]

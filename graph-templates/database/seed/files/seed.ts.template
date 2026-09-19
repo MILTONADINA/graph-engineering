@@ -1,0 +1,28 @@
+import { database } from '../config/database';
+import { SECRETS } from '../utils/helpers';
+import {
+{{#each input.entities}}
+  {{this.tableExportName}},
+{{/each}}
+} from '../config/schema';
+
+if (SECRETS.NODE_ENV === 'production') {
+  throw new Error('Refusing to run the seed script against a production environment.');
+}
+
+async function seed(): Promise<void> {
+{{#each input.entities}}
+  await database.insert({{this.tableExportName}}).values({{json this.sampleRows}});
+  console.log('Seeded {{this.entityName}}: {{this.sampleRows.length}} row(s)');
+{{/each}}
+}
+
+seed()
+  .then(() => {
+    console.log('Seed complete.');
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('Seed failed:', error);
+    process.exit(1);
+  });

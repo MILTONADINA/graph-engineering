@@ -1,0 +1,16 @@
+# Example: the brief's own worked scenario (§2, §6, §48) — Next.js + Zustand +
+# shadcn/ui frontend, Express + Neon + S3 backend. Reproduce with:
+#   npx create-graph-app --config examples/fullstack.project.config.yaml
+project:
+  name: my-fullstack-app
+  type: fullstack
+frontend:
+  framework: nextjs
+  stateManagement: zustand
+  ui: shadcn
+backend:
+  framework: express
+database:
+  provider: neon-postgres
+storage:
+  provider: aws-s3

@@ -1,0 +1,27 @@
+{
+  "name": "{{input.projectName}}",
+  "version": "1.0.0",
+  "description": "{{input.description}}",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p {{input.port}}",
+    "build": "next build",
+    "start": "next start -p {{input.port}}",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/react": "^16.0.0",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "jsdom": "^24.1.1",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

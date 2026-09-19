@@ -1,0 +1,25 @@
+id: ai.integration-agent
+name: Integration Agent
+version: 1.0.0
+description: >
+  Invokes integrations.* nodes (stripe, email, webhooks, third-party-api).
+  LIGHTER TREATMENT + currently has nothing implemented to invoke — the
+  integrations/ category is entirely status: planned in this registry.
+category: ai
+subcategory: integration-agent
+status: implemented
+type: ai-agent
+role: >
+  Placeholder role until at least one integrations.* node is implemented.
+  Its job, once nodes exist, will be to wire third-party services and
+  record them in integration.schema.json.
+consumes:
+  artifacts: [requirements.schema]
+produces:
+  artifacts: [integration.schema]
+tools: [read_artifact, write_artifact]
+handoff_to: [ai.testing-agent]
+validation:
+  checks: []
+documentation:
+  required: [README.md]

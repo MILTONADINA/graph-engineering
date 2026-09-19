@@ -1,0 +1,1 @@
+{ "inputs": { "defaultPageSize": 20, "maxPageSize": 100 }, "expectedOutputs": { "files": ["src/utils/pagination.ts"], "exports": ["parseListQuery"] } }

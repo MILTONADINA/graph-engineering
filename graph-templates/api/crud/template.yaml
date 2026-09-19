@@ -1,0 +1,86 @@
+id: api.crud
+name: CRUD Resource (composed)
+version: 1.0.0
+description: >
+  The flagship API-category node: given one entity, composes
+  backend.repository -> backend.service -> backend.controller -> backend.express
+  in sequence with one shared entityName/tableName/fields input, then patches
+  the generated repository's findMany() to apply an ALLOWLISTED subset of
+  backend.pagination's parsed filters/sortBy as real Drizzle where/orderBy
+  clauses (backend.repository's own findMany ignores filters/sortBy entirely —
+  this node is what turns "parsed query params" into "safe, applied query").
+  This is where the original brief's separately-named api/pagination,
+  api/filtering, api/sorting capabilities actually live — see the three
+  `planned` stub templates next to this one, which point back here.
+category: api
+subcategory: crud
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs:
+  - { name: entityName, type: string, required: true, description: "PascalCase singular, e.g. Product" }
+  - { name: tableName, type: string, required: true, description: "snake_case plural, e.g. products — also the URL segment" }
+  - { name: fields, type: "array<object>", required: true, description: "Same shape as backend.repository's fields: [{ name, drizzleType, notNull, unique }]" }
+  - { name: filterableFields, type: "array<string>", required: false, default: [], description: "Allowlist of field names safe to filter GET /list by (?name=value)" }
+  - { name: sortableFields, type: "array<string>", required: false, default: [], description: "Allowlist of field names safe to sort GET /list by (?sortBy=name)" }
+  - { name: requiresAuth, type: boolean, required: false, default: false, description: "Passed through to backend.express — gates POST/PUT/DELETE" }
+
+outputs:
+  - { name: files, type: array<string>, description: "Union of every composed node's files, plus the patched repository." }
+  - { name: routes, type: array<string>, description: "From backend.express" }
+  - { name: filterableFields, type: array<string> }
+  - { name: sortableFields, type: array<string> }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: backend.repository, relationship: requires }
+    - { id: backend.service, relationship: requires }
+    - { id: backend.controller, relationship: requires }
+    - { id: backend.express, relationship: requires }
+    - { id: backend.pagination, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify:
+    - { path: "src/repository/{{input.entityName}}.ts", operation: merge-import, target: "import { eq, sql } from 'drizzle-orm';", add: [and, asc, desc] }
+    - { path: "src/repository/{{input.entityName}}.ts", operation: replace-method, method: findMany, source: files/findMany.enhanced.ts.template }
+
+compatible_with:
+  upstream: [database.neon-postgres.connection, backend.error-handler, backend.api-response, backend.middleware, backend.validation]
+  downstream: [testing.api, ai.api-agent]
+
+consumes:
+  artifacts: [database.schema, api.schema]
+produces:
+  artifacts: [api.schema, database.schema]
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "src/repository/<Entity>.ts's findMany already references FILTERABLE_FIELDS -> this node's patch already applied, re-running is a no-op unless filterableFields/sortableFields changed"
+
+validation:
+  checks:
+    - { type: file-exists, path: "src/routes/{{input.entityNameCamel}}Routes.ts" }
+    - { type: contains, path: "src/repository/{{input.entityName}}.ts", pattern: "FILTERABLE_FIELDS" }
+    - { type: build, command: "npm run build" }
+    - { type: no-unlisted-column-passthrough, description: "Static check: findMany() must never reference options.filters[key] or options.sortBy as a bare Drizzle column/identifier outside the FILTERABLE_FIELDS/SORTABLE_FIELDS lookup maps." }
+
+testing:
+  strategy: api
+  location: "tests/{{input.entityName}}CrudFiltering.test.ts"
+  command: "npm test -- CrudFiltering"
+
+security:
+  considerations:
+    - "filters/sortBy become COLUMN IDENTIFIERS in the generated query, not query values — Drizzle's query builder parameterizes values (preventing classic SQL injection) but does nothing to protect an identifier built from unvalidated input. This node never lets a client-supplied string reach eq()/orderBy() directly: every filter/sort key is looked up in a closed map (FILTERABLE_FIELDS/SORTABLE_FIELDS) built from this node's own inputs, and an unlisted key is silently dropped, never passed through, never used to construct a dynamic column reference (e.g. via sql.identifier or bracket-property access into the table object)."
+    - "Silently dropping unrecognized filter/sort keys (rather than erroring 400) is a deliberate choice — it fails toward 'ignore the extra param' rather than 'leak which keys are valid via error messages', avoiding a schema-probing oracle for an attacker guessing column names."
+    - "requiresAuth only gates writes by default (see backend.express) — if this entity's reads are also sensitive, pass requiresAuth and additionally hand-edit the two GET routes, or wait for authorization.tenant-isolation if the sensitivity is per-tenant rather than per-user."
+
+documentation:
+  required: [README.md]

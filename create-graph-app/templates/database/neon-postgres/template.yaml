@@ -1,0 +1,32 @@
+id: database.neon-postgres
+name: Neon PostgreSQL
+version: 1.0.0
+category: database
+description: >
+  Neon serverless Postgres via Drizzle ORM — a WebSocket-backed connection
+  pool, a starter schema file, and drizzle-kit migration config. Ported from
+  the reference application's src/config/database.ts (see
+  ../../../../REFERENCE_ARCHITECTURE.md §4) and graph-templates/database/neon-postgres.
+requires: ["backend"]
+provides: ["database"]
+compatibleWith: ["backend.express"]
+conflictsWith: []
+targetApp: api
+dependencies:
+  dependencies:
+    - { name: "@neondatabase/serverless", version: "^0.9.4" }
+    - { name: drizzle-orm, version: "^0.33.0" }
+    - { name: ws, version: "^8.21.3" }
+  devDependencies:
+    - { name: drizzle-kit, version: "^0.24.2" }
+    - { name: "@types/ws", version: "^8.18.1" }
+scripts:
+  dbGenerate: "drizzle-kit generate"
+  dbMigrate: "drizzle-kit migrate"
+environment:
+  - { name: DATABASE_URL, required: true, secret: true, description: "Neon pooled Postgres connection string (from your Neon project dashboard)" }
+files:
+  - { op: copy, src: src/config/database.ts, dest: src/config/database.ts }
+  - { op: copy, src: src/config/schema.ts, dest: src/config/schema.ts }
+  - { op: copy, src: drizzle.config.ts, dest: drizzle.config.ts }
+documentation: docs/neon-postgres.md

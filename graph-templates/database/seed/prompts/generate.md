@@ -1,0 +1,1 @@
+1. If `src/scripts/seed.ts` already exists, switch to `modify.md`. 2. Render `files/seed.ts.template`, expanding one import + one insert block per entry in `entities`. 3. Add the `seed` npm script (`files.modify`, merge-json). 4. Run `npm run build`.

@@ -1,0 +1,71 @@
+id: authorization.tenant-isolation
+name: Tenant Isolation
+version: 1.0.0
+description: >
+  For multi-tenant applications: a requireTenant middleware that reads a
+  tenantId claim off the authenticated user and attaches req.tenantId, plus a
+  composable Drizzle helper (withTenantScope) showing the pattern a
+  backend.repository-generated class should follow to scope its queries. This
+  node supplies the plumbing; it does not retroactively rewrite any existing
+  repository's queries — see README for the honest scope boundary.
+category: authorization
+subcategory: tenant-isolation
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/middlewares/tenantMiddleware.ts, src/utils/tenantScope.ts" }
+  - { name: exports, type: array<string>, description: "requireTenant, withTenantScope" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: authentication.jwt, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/middlewares/tenantMiddleware.ts, source: files/tenantMiddleware.ts }
+    - { path: src/utils/tenantScope.ts, source: files/tenantScope.ts }
+  modify: []
+
+compatible_with:
+  upstream: [authentication.jwt]
+  downstream: [backend.repository, backend.express, api.crud]
+
+consumes:
+  artifacts: [database.schema, auth.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/middlewares/tenantMiddleware.ts exists and exports requireTenant"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/middlewares/tenantMiddleware.ts }
+    - { type: file-exists, path: src/utils/tenantScope.ts }
+    - { type: exports, path: src/middlewares/tenantMiddleware.ts, names: [requireTenant] }
+    - { type: exports, path: src/utils/tenantScope.ts, names: [withTenantScope] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/tenantMiddleware.test.ts
+  command: "npm test -- tenantMiddleware"
+
+security:
+  considerations:
+    - "The #1 multi-tenant bug class is a query that forgets the tenant filter — one repository method missing withTenantScope leaks cross-tenant data. This node supplies req.tenantId and the scoping helper; it does NOT automatically retrofit every backend.repository method with a tenant filter. Each entity's generation must explicitly opt a table into tenantScoped: true (database.schema.json) and call withTenantScope in its repository — this is a real, stated scope boundary, not an oversight."
+    - "tools/validate-graph is intended to flag a tenantScoped: true table whose repository code never references tenantId — treat any such warning as a security bug, not a style nit."
+    - "requireTenant throws APIError(401) if tenantId is missing from the authenticated user's claims — never falls back to a default/global tenant."
+
+documentation:
+  required: [README.md]

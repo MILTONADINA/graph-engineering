@@ -1,0 +1,1 @@
+This node's output is intentionally static (one error format). A "modify" request here almost always means a caller wants a *different* envelope shape — treat that as a new template/version (`backend.error-handler@2.0.0`) rather than mutating this one in place, since `api.crud` and other generated code hard-codes `{ error: { message, status } }`.

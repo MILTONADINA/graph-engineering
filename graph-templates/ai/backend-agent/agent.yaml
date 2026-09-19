@@ -1,0 +1,39 @@
+id: ai.backend-agent
+name: Backend Agent
+version: 1.0.0
+description: >
+  Consumes database.schema.json + architecture.json, invokes the backend.*
+  graph nodes (or api.crud) for every entity, and records the resulting
+  routes into api.schema.json. Decides, per entity, whether the granular
+  four-node chain or the single api.crud composition node is the right call.
+category: ai
+subcategory: backend-agent
+status: implemented
+type: ai-agent
+
+role: >
+  The agent that actually invokes backend.repository / backend.service /
+  backend.controller / backend.express (or api.crud) for every entity in
+  database.schema.json, wiring each entity's fields, auth requirement, and
+  filterable/sortable columns.
+
+consumes:
+  artifacts: [database.schema, architecture.schema]
+produces:
+  artifacts: [api.schema]
+
+tools:
+  - read_artifact
+  - write_artifact
+  - invoke_node
+  - read_template_registry
+
+handoff_to: [ai.testing-agent, ai.frontend-agent]
+
+validation:
+  checks:
+    - "every database.schema table has at least one route in api.schema"
+    - "every invoked node's declared outputs.files actually exist on disk"
+
+documentation:
+  required: [README.md]

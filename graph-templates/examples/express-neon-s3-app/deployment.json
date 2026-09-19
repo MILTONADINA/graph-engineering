@@ -1,0 +1,31 @@
+{
+  "$schema": "../../artifacts/deployment.schema.json",
+  "artifactType": "deployment.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.devops-agent",
+    "generatedAt": "2026-01-15T10:35:00Z",
+    "projectName": "acme-shop",
+    "sourceArtifacts": ["architecture.json"]
+  },
+  "data": {
+    "target": "docker",
+    "dockerfile": "Dockerfile",
+    "ciProvider": "github-actions",
+    "ciFile": ".github/workflows/ci.yml",
+    "requiredEnvVars": [
+      { "name": "PORT", "required": false, "secret": false, "description": "HTTP port, default 3000", "usedBy": ["project.node-express"] },
+      { "name": "NODE_ENV", "required": false, "secret": false, "description": "development | production", "usedBy": ["project.node-express"] },
+      { "name": "CORS_ORIGIN", "required": false, "secret": false, "description": "Comma-separated allowed origins", "usedBy": ["project.node-express"] },
+      { "name": "DATABASE_URL", "required": true, "secret": true, "description": "Neon pooled Postgres connection string", "usedBy": ["database.neon-postgres.connection"] },
+      { "name": "AWS_ENDPOINT_URL_S3", "required": true, "secret": false, "description": "S3-compatible endpoint", "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_REGION", "required": true, "secret": false, "description": "Storage region", "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_ACCESS_KEY_ID", "required": true, "secret": true, "description": "Access key", "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_SECRET_ACCESS_KEY", "required": true, "secret": true, "description": "Secret key", "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_BUCKET_NAME", "required": false, "secret": false, "description": "Target bucket, default 'media'", "usedBy": ["storage.aws-s3"] },
+      { "name": "ACCESS_TOKEN_SECRET", "required": true, "secret": true, "description": "HMAC secret signing access JWTs", "usedBy": ["authentication.jwt"] },
+      { "name": "SALT_ROUNDS", "required": false, "secret": false, "description": "bcrypt cost factor, default 12", "usedBy": ["authentication.password"] }
+    ],
+    "healthCheckPath": "/"
+  }
+}

@@ -1,0 +1,68 @@
+id: backend.service
+name: Entity Service
+version: 1.0.0
+description: >
+  Generates a business-logic class for one entity that wraps its
+  backend.repository and takes/returns plain data — never Express Request/Response.
+  This is the deliberate fix for the reference app's authService.ts coupling
+  services directly to (req, res) (REFERENCE_ARCHITECTURE.md §8), so services
+  stay unit-testable and reusable outside HTTP (e.g. from a queue worker).
+category: backend
+subcategory: service
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs:
+  - { name: entityName, type: string, required: true, description: "Must match the entityName used for backend.repository, e.g. Product" }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/services/<entity>Service.ts" }
+  - { name: exports, type: array<string>, description: "<Entity>Service" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: backend.repository, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: "src/services/{{input.entityNameCamel}}Service.ts", source: files/EntityService.ts.template }
+  modify: []
+
+compatible_with:
+  upstream: [backend.repository, backend.error-handler]
+  downstream: [backend.controller, api.crud, testing.unit]
+
+consumes:
+  artifacts: [database.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/services/<entity>Service.ts exists"
+
+validation:
+  checks:
+    - { type: file-exists, path: "src/services/{{input.entityNameCamel}}Service.ts" }
+    - { type: exports, path: "src/services/{{input.entityNameCamel}}Service.ts", names: ["{{input.entityName}}Service"] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: "tests/{{input.entityName}}Service.test.ts"
+  command: "npm test -- {{input.entityName}}Service"
+
+security:
+  considerations:
+    - "No req/res coupling means no accidental leakage of Express internals (cookies, headers) into business logic — this class only ever sees/returns the entity's own data shape."
+    - "Authorization checks (role/tenant) belong in the controller or a middleware upstream of it, not in the service — keeps this class's contract 'given a valid, authorized request, do the work'."
+
+documentation:
+  required: [README.md]

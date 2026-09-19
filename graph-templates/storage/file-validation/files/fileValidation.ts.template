@@ -1,0 +1,17 @@
+import { Request } from 'express';
+import multer, { FileFilterCallback } from 'multer';
+
+export const ALLOWED_MIME_TYPES: readonly string[] = {{json input.allowedMimeTypes}};
+export const MAX_SIZE_BYTES = {{input.maxSizeBytes}};
+
+export const fileFilter = (
+  req: Request,
+  file: Express.Multer.File,
+  callback: FileFilterCallback,
+): void => {
+  if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    callback(new Error(`Unsupported file type: ${file.mimetype}`));
+    return;
+  }
+  callback(null, true);
+};

@@ -1,0 +1,39 @@
+id: ai.frontend-agent
+name: Frontend Agent
+version: 2.0.0
+description: >
+  Consumes architecture.json + api.schema.json + auth.schema.json, produces
+  frontend.schema.json (pages/components per route) AND invokes the now-real
+  frontend.* code-generation nodes (project.nextjs, frontend.nextjs,
+  frontend.authentication, frontend.forms, frontend.tables) to actually build
+  the UI those pages describe. Promoted from lighter to full treatment now that
+  those nodes are implemented (frontend.dashboards/frontend.react remain
+  planned — see Scope note below).
+category: ai
+subcategory: frontend-agent
+status: implemented
+type: ai-agent
+role: >
+  Plans pages/components per api.schema.json route, then sequences the concrete
+  frontend.* nodes that build them: project.nextjs (root, always first) ->
+  frontend.nextjs (API client, always second) -> frontend.authentication (if
+  auth.schema.json's strategy is not none) -> frontend.forms (if any planned
+  page is kind: form) -> frontend.tables (if any planned page is kind: table).
+  frontend.dashboards is planned — a page needing kind: dashboard is recorded
+  in frontend.schema.json but not generated; state this gap plainly rather than
+  hand-assembling one from the other nodes' output.
+consumes:
+  artifacts: [architecture.schema, api.schema, auth.schema]
+produces:
+  artifacts: [frontend.schema]
+tools: [read_template_registry, read_artifact, write_artifact, resolve_dependencies]
+handoff_to: [ai.testing-agent]
+validation:
+  checks:
+    - "every api.schema route with auth: required has a page with requiresAuth: true"
+    - "if any page has kind: form, frontend.forms is in architecture.json's selected nodes"
+    - "if any page has kind: table, frontend.tables is in architecture.json's selected nodes"
+    - "if auth.schema.json's strategy is not none, frontend.authentication is in architecture.json's selected nodes"
+    - "no page has kind: dashboard treated as generated — frontend.dashboards is planned; such pages are recorded, not built"
+documentation:
+  required: [README.md]

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entityName", "tableName"],
+  "properties": {
+    "entityName": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9]*$" },
+    "tableName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "requiresAuth": { "type": "boolean", "default": false }
+  }
+}

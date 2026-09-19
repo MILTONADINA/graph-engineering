@@ -1,0 +1,27 @@
+export interface ParsedListQuery {
+  page: number;
+  pageSize: number;
+  sortBy?: string;
+  sortDir: 'asc' | 'desc';
+  filters: Record<string, string>;
+}
+
+const RESERVED_PARAMS = new Set(['page', 'pageSize', 'sortBy', 'sortDir']);
+const DEFAULT_PAGE_SIZE = {{input.defaultPageSize}};
+const MAX_PAGE_SIZE = {{input.maxPageSize}};
+
+export function parseListQuery(query: Record<string, unknown>): ParsedListQuery {
+  const page = Math.max(1, Number(query.page) || 1);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(query.pageSize) || DEFAULT_PAGE_SIZE));
+  const sortBy = typeof query.sortBy === 'string' ? query.sortBy : undefined;
+  const sortDir: 'asc' | 'desc' = query.sortDir === 'desc' ? 'desc' : 'asc';
+
+  const filters: Record<string, string> = {};
+  for (const [key, value] of Object.entries(query)) {
+    if (!RESERVED_PARAMS.has(key) && typeof value === 'string') {
+      filters[key] = value;
+    }
+  }
+
+  return { page, pageSize, sortBy, sortDir, filters };
+}

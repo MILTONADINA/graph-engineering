@@ -1,0 +1,8 @@
+{
+  "packages": [],
+  "services": [],
+  "templates": [
+    { "id": "database.neon-postgres.connection", "relationship": "requires" },
+    { "id": "backend.repository", "relationship": "extends" }
+  ]
+}

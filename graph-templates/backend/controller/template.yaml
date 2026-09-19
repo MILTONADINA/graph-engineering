@@ -1,0 +1,71 @@
+id: backend.controller
+name: Entity Controller
+version: 1.0.0
+description: >
+  Generates the thin Express-facing controller layer the reference app never
+  had (routes called services directly). Translates HTTP <-> service calls
+  using sendSuccess/sendPaginated (backend.api-response) and parseListQuery
+  (backend.pagination); methods are async arrow class fields (stable `this`,
+  passable directly as Express handlers) and never try/catch — they rely on
+  backend.middleware's asyncHandler at the route layer.
+category: backend
+subcategory: controller
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs:
+  - { name: entityName, type: string, required: true, description: "Must match backend.service's entityName" }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/controllers/<entity>Controller.ts" }
+  - { name: exports, type: array<string>, description: "<Entity>Controller" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: backend.service, relationship: requires }
+    - { id: backend.api-response, relationship: requires }
+    - { id: backend.pagination, relationship: requires }
+    - { id: backend.middleware, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: "src/controllers/{{input.entityNameCamel}}Controller.ts", source: files/EntityController.ts.template }
+  modify: []
+
+compatible_with:
+  upstream: [backend.service, backend.api-response, backend.pagination, backend.middleware]
+  downstream: [backend.express, api.crud, testing.api]
+
+consumes:
+  artifacts: [api.schema]
+produces:
+  artifacts: [api.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/controllers/<entity>Controller.ts exists"
+
+validation:
+  checks:
+    - { type: file-exists, path: "src/controllers/{{input.entityNameCamel}}Controller.ts" }
+    - { type: exports, path: "src/controllers/{{input.entityNameCamel}}Controller.ts", names: ["{{input.entityName}}Controller"] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: api
+  location: "tests/{{input.entityName}}Controller.test.ts"
+  command: "npm test -- {{input.entityName}}Controller"
+
+security:
+  considerations:
+    - "Controllers never construct their own error responses — every failure path is a thrown APIError caught by asyncHandler + backend.error-handler, so the response shape can never drift resource-to-resource."
+    - "Controllers pass req.body/req.params straight through to the service; backend.validation middleware at the route layer is what makes that safe — a route wired without it is a bug, not this node's responsibility to catch at generate time."
+
+documentation:
+  required: [README.md]

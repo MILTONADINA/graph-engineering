@@ -1,0 +1,1 @@
+{ "packages": [{ "name": "vitest", "version": "^2.0.5", "dev": true }], "services": [], "templates": [{ "id": "project.node-express", "relationship": "requires" }] }

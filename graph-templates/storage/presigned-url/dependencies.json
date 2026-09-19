@@ -1,0 +1,5 @@
+{
+  "packages": [{ "name": "@aws-sdk/s3-request-presigner", "version": "^3.1128.0" }],
+  "services": [],
+  "templates": [{ "id": "storage.aws-s3", "relationship": "requires" }]
+}

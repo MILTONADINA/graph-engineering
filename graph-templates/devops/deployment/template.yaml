@@ -1,0 +1,60 @@
+id: devops.deployment
+name: Deployment Orchestrator
+version: 0.1.0
+description: >
+  Planned. A higher-level composition node analogous to api.crud — given a
+  target (docker/serverless/vm), invokes devops.docker + devops.github-actions
+  + a target-specific node (e.g. devops.aws, also planned) in the right order
+  and reconciles their combined output into one deployment.schema.json. Not
+  yet implemented; devops.docker and devops.github-actions are usable
+  independently in the meantime.
+category: devops
+subcategory: deployment
+status: planned
+type: graph-node
+actions: []
+
+inputs: []
+outputs: []
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: devops.docker, relationship: requires }
+    - { id: devops.github-actions, relationship: requires }
+    - { id: devops.aws, relationship: extends }
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify: []
+
+compatible_with:
+  upstream: [devops.docker, devops.github-actions]
+  downstream: []
+
+consumes:
+  artifacts: [deployment.schema]
+produces:
+  artifacts: [deployment.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "not applicable — planned"
+
+validation:
+  checks: []
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations: []
+
+documentation:
+  required: []

@@ -1,0 +1,53 @@
+{
+  "name": "create-graph-app",
+  "version": "0.1.0",
+  "description": "Interactive full-stack project initializer — a composable template registry (Next.js, Zustand, shadcn/ui, Express, Neon Postgres, AWS S3) consumable by this CLI today and by an AI orchestration engine later.",
+  "keywords": ["cli", "scaffolding", "generator", "nextjs", "express", "postgres", "create-app", "template"],
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "create-graph-app": "dist/cli/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./registry": "./dist/registry/index.js",
+    "./resolver": "./dist/resolver/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "schemas",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "start": "node dist/cli/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build && npm run test",
+    "pack:check": "node scripts/check-pack-contents.js"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "commander": "^12.1.0",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

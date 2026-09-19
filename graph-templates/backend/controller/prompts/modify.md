@@ -1,0 +1,1 @@
+To add a non-CRUD endpoint (e.g. `activate`), add a new arrow-function class field calling the corresponding new `backend.service` method — keep the same "parse request → call service → sendSuccess" shape, never inline business logic here.

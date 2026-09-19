@@ -1,0 +1,44 @@
+id: ai.architect-agent
+name: Architecture Agent
+version: 1.0.0
+description: >
+  Consumes requirements.json and produces architecture.json: the stack
+  decision (backend/frontend/database/storage/authentication/authorization/
+  deployment) and the resolved, dependency-ordered list of graph node ids
+  to execute. The most structurally important agent in the pipeline — every
+  other agent's work is scoped by what this one selects.
+category: ai
+subcategory: architect-agent
+status: implemented
+type: ai-agent
+
+role: >
+  Translates "what the application must do" (requirements.json) into "which
+  graph nodes, in which order, build it" (architecture.json). Consults
+  TEMPLATE-REGISTRY.md / template-registry.json to know what is implemented
+  vs. planned, and refuses to select a planned node for a generate action.
+
+consumes:
+  artifacts: [requirements.schema]
+produces:
+  artifacts: [architecture.schema]
+
+tools:
+  - read_template_registry
+  - read_artifact
+  - write_artifact
+  - list_graph_nodes
+  - resolve_dependencies
+
+handoff_to: [ai.database-agent, ai.backend-agent, ai.storage-agent, ai.authentication-agent]
+
+validation:
+  checks:
+    - "every node in data.nodes has status: implemented in the registry"
+    - "data.nodes is topologically sorted with respect to every selected node's dependencies.templates[relationship=requires]"
+    - "no two selected nodes have a conflicts relationship"
+    - "stack.authentication is not none if any requirements.json feature has requiresAuth: true"
+    - "stack.storage is not none if any requirements.json feature has requiresFileStorage: true"
+
+documentation:
+  required: [README.md]

@@ -1,0 +1,43 @@
+import { APIError } from '../middlewares/errorMiddleware';
+import { HttpStatusCodes } from '../utils/helpers';
+import { PaginationMeta } from '../utils/apiResponse';
+import {
+  {{input.entityName}}Repository,
+  {{input.entityName}}Row,
+  New{{input.entityName}},
+  ListOptions,
+} from '../repository/{{input.entityName}}';
+
+export class {{input.entityName}}Service {
+  private readonly repository = new {{input.entityName}}Repository();
+
+  async create(data: Omit<New{{input.entityName}}, 'id' | 'createdAt' | 'updatedAt'>): Promise<{{input.entityName}}Row> {
+    return this.repository.create(data);
+  }
+
+  async getById(id: string): Promise<{{input.entityName}}Row> {
+    const row = await this.repository.findById(id);
+    if (!row) {
+      throw new APIError('{{input.entityName}} not found', HttpStatusCodes.NOT_FOUND);
+    }
+    return row;
+  }
+
+  async list(options: ListOptions): Promise<{ rows: {{input.entityName}}Row[]; meta: PaginationMeta }> {
+    const { rows, total } = await this.repository.findMany(options);
+    const page = options.page ?? 1;
+    const pageSize = options.pageSize ?? 20;
+    return {
+      rows,
+      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    };
+  }
+
+  async update(id: string, data: Partial<New{{input.entityName}}>): Promise<{{input.entityName}}Row> {
+    return this.repository.update(id, data);
+  }
+
+  async remove(id: string): Promise<void> {
+    return this.repository.remove(id);
+  }
+}

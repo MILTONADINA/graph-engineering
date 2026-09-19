@@ -1,0 +1,35 @@
+<!-- QUICK START -->
+## Quick Start
+
+### 1. Install dependencies
+
+```sh
+npm install
+```
+
+### 2. Configure environment variables
+
+Copy `.env.example` to `.env.local` and fill in the values (see `docs/ENVIRONMENT.md` if `devops.environments` has run).
+
+{{#if project.hasDatabase}}
+### 3. Set up the database
+
+```sh
+npm run dbGenerate
+npm run dbMigrate
+```
+{{/if}}
+
+### {{#if project.hasDatabase}}4{{else}}3{{/if}}. Run
+
+```sh
+npm run dev
+```
+
+For a production-style local run:
+
+```sh
+npm run build
+npm start
+```
+<!-- END QUICK START -->

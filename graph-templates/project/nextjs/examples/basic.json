@@ -1,0 +1,7 @@
+{
+  "inputs": { "projectName": "acme-shop-web", "description": "Acme Shop storefront", "port": 3001, "apiBaseUrl": "http://localhost:3000" },
+  "expectedOutputs": {
+    "files": ["package.json", "tsconfig.json", "next.config.ts", ".env.example", ".gitignore", "vitest.config.ts", "vitest.setup.ts", "app/layout.tsx", "app/page.tsx", "app/globals.css", "lib/env.ts", ".graph/manifest.json"],
+    "entrypoint": "app/layout.tsx"
+  }
+}

@@ -1,0 +1,6 @@
+[
+  { "name": "read_artifact", "description": "Reads database.schema.json / architecture.json" },
+  { "name": "write_artifact", "description": "Writes/updates api.schema.json" },
+  { "name": "invoke_node", "description": "Runs a graph node's generate/modify action (api.crud, backend.repository, etc.)" },
+  { "name": "read_template_registry", "description": "Confirms a node is implemented before invoking it" }
+]

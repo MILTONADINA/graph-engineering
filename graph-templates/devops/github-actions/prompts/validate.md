@@ -1,0 +1,1 @@
+file-exists `.github/workflows/ci.yml` → confirm `migrate-database`'s `if:` condition is still present and unmodified (a missing gate here is a security regression, flag it as an error not a warning) → `npm run build`.

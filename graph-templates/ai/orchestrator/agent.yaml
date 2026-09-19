@@ -1,0 +1,27 @@
+id: ai.orchestrator
+name: Orchestrator
+version: 1.0.0
+description: >
+  PLANNED. The top-level loop that sequences every other agent per the
+  requirement -> artifact -> node -> template -> code -> validation -> test
+  -> artifact lifecycle. Not implemented as a template in this library —
+  it is meant to be implemented by whatever system consumes this registry
+  (e.g. Claude Code itself, following GRAPH-NODE-SPEC.md), not shipped as
+  a static generated artifact the way code-generation nodes are.
+category: ai
+subcategory: orchestrator
+status: planned
+type: ai-agent
+role: >
+  Would call ai.requirements-agent -> ai.architect-agent -> (fan-out:
+  ai.database-agent, ai.storage-agent, ai.authentication-agent) ->
+  ai.backend-agent -> ai.frontend-agent -> ai.testing-agent ->
+  ai.validation-agent (repair loop) -> ai.devops-agent ->
+  ai.documentation-agent -> ai.validation-agent (final) ->
+  ai.code-review-agent -> Complete.
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+tools: []
+handoff_to: []

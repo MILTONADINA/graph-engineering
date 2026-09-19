@@ -1,0 +1,37 @@
+id: ai.storage-agent
+name: Storage Agent
+version: 1.0.0
+description: >
+  Consumes requirements.json (features flagged requiresFileStorage), invokes
+  storage.aws-s3 + storage.upload + storage.file-validation (+ storage.delete/
+  storage.presigned-url as needed), and produces storage.schema.json.
+category: ai
+subcategory: storage-agent
+status: implemented
+type: ai-agent
+
+role: >
+  Decides bucket/upload configuration per file-handling feature and always
+  pairs an upload capability with validation — never leaves an upload path
+  unvalidated.
+
+consumes:
+  artifacts: [requirements.schema]
+produces:
+  artifacts: [storage.schema]
+
+tools:
+  - read_artifact
+  - write_artifact
+  - invoke_node
+
+handoff_to: [ai.testing-agent]
+
+validation:
+  checks:
+    - "every bucket has access: private"
+    - "every uploadUseCase with presigned in [upload, both] has a storage.presigned-url invocation"
+    - "storage.upload is never invoked without storage.file-validation"
+
+documentation:
+  required: [README.md]

@@ -1,0 +1,8 @@
+{
+  "packages": [{ "name": "drizzle-orm", "version": "^0.33.0" }],
+  "services": [],
+  "templates": [
+    { "id": "database.neon-postgres.connection", "relationship": "requires" },
+    { "id": "backend.error-handler", "relationship": "requires" }
+  ]
+}

@@ -1,0 +1,77 @@
+import { eq, sql } from 'drizzle-orm';
+import { database } from '../config/database';
+import { {{input.tableExportName}} } from '../config/schema';
+import { APIError } from '../middlewares/errorMiddleware';
+import { HttpStatusCodes } from '../utils/helpers';
+
+export type {{input.entityName}}Row = typeof {{input.tableExportName}}.$inferSelect;
+export type New{{input.entityName}} = typeof {{input.tableExportName}}.$inferInsert;
+
+export interface ListOptions {
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+}
+
+export interface ListResult {
+  rows: {{input.entityName}}Row[];
+  total: number;
+}
+
+export class {{input.entityName}}Repository {
+  async create(data: Omit<New{{input.entityName}}, 'id' | 'createdAt' | 'updatedAt'>): Promise<{{input.entityName}}Row> {
+    const [row] = await database.insert({{input.tableExportName}}).values(data).returning();
+    return row;
+  }
+
+  async findById(id: string): Promise<{{input.entityName}}Row | undefined> {
+    const [row] = await database
+      .select()
+      .from({{input.tableExportName}})
+      .where(eq({{input.tableExportName}}.id, id))
+      .limit(1);
+    return row;
+  }
+
+  async findMany(options: ListOptions = {}): Promise<ListResult> {
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
+
+    const rows = await database
+      .select()
+      .from({{input.tableExportName}})
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+
+    const [{ count }] = await database
+      .select({ count: sql<number>`count(*)::int` })
+      .from({{input.tableExportName}});
+
+    return { rows, total: count };
+  }
+
+  async update(id: string, data: Partial<New{{input.entityName}}>): Promise<{{input.entityName}}Row> {
+    const [row] = await database
+      .update({{input.tableExportName}})
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq({{input.tableExportName}}.id, id))
+      .returning();
+
+    if (!row) {
+      throw new APIError('{{input.entityName}} not found', HttpStatusCodes.NOT_FOUND);
+    }
+    return row;
+  }
+
+  async remove(id: string): Promise<void> {
+    const deleted = await database
+      .delete({{input.tableExportName}})
+      .where(eq({{input.tableExportName}}.id, id))
+      .returning({ id: {{input.tableExportName}}.id });
+
+    if (deleted.length === 0) {
+      throw new APIError('{{input.entityName}} not found', HttpStatusCodes.NOT_FOUND);
+    }
+  }
+}

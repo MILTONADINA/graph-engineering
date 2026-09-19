@@ -1,0 +1,35 @@
+{
+  "$schema": "../../artifacts/test.schema.json",
+  "artifactType": "test.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.testing-agent",
+    "generatedAt": "2026-01-15T10:25:00Z",
+    "projectName": "acme-shop",
+    "sourceArtifacts": ["architecture.json"]
+  },
+  "data": {
+    "framework": "vitest",
+    "suites": [
+      { "nodeId": "project.node-express", "kind": "api", "file": "tests/health-check.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.error-handler", "kind": "unit", "file": "tests/errorHandler.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.middleware", "kind": "unit", "file": "tests/asyncHandler.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.pagination", "kind": "unit", "file": "tests/pagination.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.validation", "kind": "unit", "file": "tests/validationMiddleware.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.repository", "kind": "unit", "file": "tests/ProductRepository.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.service", "kind": "unit", "file": "tests/ProductService.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.controller", "kind": "api", "file": "tests/ProductController.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "backend.express", "kind": "api", "file": "tests/ProductRoutes.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "api.crud", "kind": "api", "file": "tests/ProductCrudFiltering.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "authentication.jwt", "kind": "unit", "file": "tests/authMiddleware.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "authentication.password", "kind": "api", "file": "tests/authentication.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "authorization.rbac", "kind": "unit", "file": "tests/rbacMiddleware.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "storage.upload", "kind": "unit", "file": "tests/upload.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "storage.file-validation", "kind": "unit", "file": "tests/fileValidation.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "storage.presigned-url", "kind": "unit", "file": "tests/presignedUrl.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "storage.delete", "kind": "unit", "file": "tests/delete.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" },
+      { "nodeId": "database.neon-postgres.connection", "kind": "integration", "file": "tests/database-connection.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:30:00Z" }
+    ],
+    "coverageGaps": ["database.migrations", "database.transactions", "database.seed"]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entityName", "tableName", "fields"],
+  "properties": {
+    "entityName": { "type": "string", "pattern": "^[A-Z][a-zA-Z0-9]*$" },
+    "tableName": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "drizzleType"],
+        "properties": {
+          "name": { "type": "string" },
+          "drizzleType": { "type": "string" },
+          "notNull": { "type": "boolean", "default": false },
+          "unique": { "type": "boolean", "default": false }
+        }
+      }
+    }
+  }
+}

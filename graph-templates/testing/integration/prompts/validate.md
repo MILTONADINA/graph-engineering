@@ -1,0 +1,1 @@
+file-exists → exports [getTestDatabase, truncateAllTables] → `npm run build` → `npm test -- testDatabase` (the production-guard test must pass without a real database connection, since it should throw before connecting).

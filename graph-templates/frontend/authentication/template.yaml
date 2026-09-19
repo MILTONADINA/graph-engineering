@@ -1,0 +1,77 @@
+id: frontend.authentication
+name: Auth Context + Login/Register Pages
+version: 1.0.0
+description: >
+  A React context (AuthProvider/useAuth) that hydrates the current user by
+  calling GET /api/auth/me on mount (the only way a client can know "am I
+  logged in" when the access token lives in an httpOnly cookie it can never
+  read), plus login and register pages wired to authentication.password's
+  routes through frontend.nextjs's apiFetch. Wraps the app's root layout in
+  AuthProvider via a files.modify on project.nextjs's marked layout.tsx.
+category: frontend
+subcategory: authentication
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs:
+  - { name: redirectAfterLogin, type: string, required: false, default: "/" }
+
+outputs:
+  - { name: files, type: array<string> }
+  - { name: exports, type: array<string>, description: "AuthProvider, useAuth" }
+  - { name: routes, type: array<string>, description: "/login, /register" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: frontend.nextjs, relationship: requires }
+    - { id: authentication.password, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: lib/auth/AuthContext.tsx, source: files/AuthContext.tsx.template }
+    - { path: app/login/page.tsx, source: files/app/login/page.tsx.template }
+    - { path: app/register/page.tsx, source: files/app/register/page.tsx.template }
+  modify:
+    - { path: app/layout.tsx, operation: insert-before-marker, marker: '// (frontend.authentication''s `modify` action inserts an AuthProvider import here)', template: "import { AuthProvider } from '../lib/auth/AuthContext';" }
+    - { path: app/layout.tsx, operation: replace-marker, marker: '{/* (frontend.authentication''s `modify` action wraps {children} with <AuthProvider>) */}', replacement: "<AuthProvider>{children}</AuthProvider>" }
+
+compatible_with:
+  upstream: [frontend.nextjs, authentication.password]
+  downstream: [frontend.tables, frontend.dashboards]
+
+consumes:
+  artifacts: [auth.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "lib/auth/AuthContext.tsx exists and exports useAuth"
+
+validation:
+  checks:
+    - { type: file-exists, path: lib/auth/AuthContext.tsx }
+    - { type: exports, path: lib/auth/AuthContext.tsx, names: [AuthProvider, useAuth] }
+    - { type: file-exists, path: app/login/page.tsx }
+    - { type: file-exists, path: app/register/page.tsx }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/AuthContext.test.tsx
+  command: "npm test -- AuthContext"
+
+security:
+  considerations:
+    - "AuthProvider never stores a token — it stores only the user object GET /api/auth/me returns, and treats a 401 from that call as 'logged out', not an error to surface."
+    - "The register page's success state never logs the user in automatically — the reference app's flow requires email verification first (authentication.password's constant-response, single-use-token design); don't shortcut this by calling login() right after register()."
+    - "Never render user-role-gated UI purely client-side as an authorization boundary — this context is for *display* (show/hide a nav link); the backend's authorization.rbac is what actually enforces access. A hidden button is not a security control."
+
+documentation:
+  required: [README.md]

@@ -1,0 +1,66 @@
+id: testing.unit
+name: Unit Test Setup (Vitest)
+version: 1.0.0
+description: >
+  Configures Vitest for the project and documents the unit-testing convention
+  already used throughout graph-templates: mock the repository layer (Drizzle
+  `database` calls) and test service/controller logic in isolation — see
+  backend.service's own bundled test (tests/EntityService.test.ts) as the
+  canonical worked example. This is infrastructure only; it does not generate
+  entity-specific tests itself (backend.repository/service/controller/express
+  each ship their own).
+category: testing
+subcategory: unit
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "vitest.config.ts" }
+
+dependencies:
+  packages:
+    - { name: vitest, version: "^2.0.5", dev: true }
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: vitest.config.ts, source: files/vitest.config.ts }
+  modify: []
+
+compatible_with:
+  upstream: [project.node-express]
+  downstream: [backend.repository, backend.service, backend.controller, testing.mocks]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [test.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "vitest.config.ts exists at project root"
+
+validation:
+  checks:
+    - { type: file-exists, path: vitest.config.ts }
+    - { type: build, command: "npm test -- --run --reporter=basic" }
+
+testing:
+  strategy: unit
+  location: "n/a — this node configures the test runner other nodes' tests use"
+  command: "npm test"
+
+security:
+  considerations:
+    - "Unit tests must never require real credentials (DATABASE_URL, AWS keys) — every dependency the code under test needs should be mocked (see testing.mocks), so this suite can run in CI with zero secrets configured."
+
+documentation:
+  required: [README.md]

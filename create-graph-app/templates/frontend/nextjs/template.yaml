@@ -1,0 +1,69 @@
+id: frontend.nextjs
+name: Next.js
+version: 1.0.0
+category: frontend
+description: >
+  A TypeScript Next.js 14 (App Router) frontend, plus a typed API client
+  (apiFetch/ApiError) that always sends credentials so a future auth
+  template's httpOnly cookies are forwarded automatically. Optionally wires
+  base Tailwind CSS when a UI system is selected. No reference-app precedent
+  (the reference application ships no frontend) — see
+  ../../../../REFERENCE_ARCHITECTURE.md's "not yet started" note and
+  graph-templates/project/nextjs + graph-templates/frontend/nextjs, which this
+  is adapted from as one cohesive template.
+requires: []
+provides: ["frontend", "react", "routing"]
+compatibleWith: ["frontend.zustand", "frontend.shadcn"]
+conflictsWith: []
+targetApp: web
+dependencies:
+  dependencies:
+    - { name: next, version: "^14.2.0" }
+    - { name: react, version: "^18.3.0" }
+    - { name: react-dom, version: "^18.3.0" }
+  devDependencies:
+    - { name: typescript, version: "^5.5.4" }
+    - { name: "@types/react", version: "^18.3.0" }
+    - { name: "@types/react-dom", version: "^18.3.0" }
+    - { name: "@types/node", version: "^20.14.0" }
+    - { name: vitest, version: "^2.0.5" }
+    - { name: jsdom, version: "^24.1.1" }
+    - { name: tailwindcss, version: "^3.4.7", when: "frontend.ui!=none" }
+    - { name: postcss, version: "^8.4.40", when: "frontend.ui!=none" }
+    - { name: autoprefixer, version: "^10.4.19", when: "frontend.ui!=none" }
+scripts:
+  dev: "next dev -p 3001"
+  build: "next build"
+  start: "next start -p 3001"
+  test: "vitest run"
+environment:
+  - { name: NEXT_PUBLIC_API_URL, required: true, secret: false, description: "Base URL of your backend API (read client-side, so it is NOT secret-safe — never put a real secret behind a NEXT_PUBLIC_ variable)", default: "http://localhost:3000" }
+files:
+  - { op: template, src: app/layout.tsx, dest: app/layout.tsx }
+  - { op: copy, src: app/page.tsx, dest: app/page.tsx }
+  - { op: copy, src: next.config.js, dest: next.config.js }
+  - { op: copy, src: tsconfig.json, dest: tsconfig.json }
+  - { op: copy, src: gitignore, dest: .gitignore }
+  - { op: copy, src: lib/env.ts, dest: lib/env.ts }
+  - { op: copy, src: lib/apiClient.ts, dest: lib/apiClient.ts }
+  - { op: copy, src: vitest.config.ts, dest: vitest.config.ts }
+  - { op: copy, src: tests/apiClient.test.ts, dest: tests/apiClient.test.ts }
+  # Exactly one of these three fires — each owns app/globals.css and
+  # tailwind.config.ts outright, so frontend.shadcn (which needs its own
+  # themed versions of both) never collides with this template's writes.
+  # See docs/architecture.md and frontend.shadcn's template.yaml.
+  - op: conditional
+    when: "frontend.ui=tailwind"
+    then:
+      - { op: copy, src: app/globals.tailwind.css, dest: app/globals.css }
+      - { op: copy, src: tailwind.config.ts, dest: tailwind.config.ts }
+      - { op: copy, src: postcss.config.js, dest: postcss.config.js }
+  - op: conditional
+    when: "frontend.ui=none"
+    then:
+      - { op: copy, src: app/globals.css, dest: app/globals.css }
+  - op: conditional
+    when: "frontend.ui=shadcn"
+    then:
+      - { op: copy, src: postcss.config.js, dest: postcss.config.js }
+documentation: docs/nextjs.md

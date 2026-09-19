@@ -1,0 +1,60 @@
+'use client';
+
+import { useCallback, useState } from 'react';
+import { ApiError } from '../apiClient';
+
+export type FieldErrors<T> = Partial<Record<keyof T, string>>;
+
+export interface UseFormStateResult<T> {
+  values: T;
+  errors: FieldErrors<T>;
+  formError: string | null;
+  isSubmitting: boolean;
+  setValue: <K extends keyof T>(field: K, value: T[K]) => void;
+  handleChange: <K extends keyof T>(field: K) => (event: React.ChangeEvent<HTMLInputElement>) => void;
+  handleSubmit: (onSubmit: (values: T) => Promise<void>) => (event: React.FormEvent) => Promise<void>;
+}
+
+/**
+ * Generic form state: field values, per-field errors, submit-in-flight, and a
+ * top-level formError populated from a thrown ApiError's message. Validation
+ * itself is the caller's responsibility (e.g. a Zod schema's safeParse) — this
+ * hook only manages state and error surfacing, matching backend.validation's
+ * "validation happens before the request is trusted, not inside this hook".
+ */
+export function useFormState<T extends Record<string, unknown>>(initialValues: T): UseFormStateResult<T> {
+  const [values, setValues] = useState<T>(initialValues);
+  const [errors, setErrors] = useState<FieldErrors<T>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const setValue = useCallback(<K extends keyof T>(field: K, value: T[K]) => {
+    setValues((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev) => ({ ...prev, [field]: undefined }));
+  }, []);
+
+  const handleChange = useCallback(
+    <K extends keyof T>(field: K) => (event: React.ChangeEvent<HTMLInputElement>) => {
+      setValue(field, event.target.value as T[K]);
+    },
+    [setValue],
+  );
+
+  const handleSubmit = useCallback(
+    (onSubmit: (values: T) => Promise<void>) => async (event: React.FormEvent) => {
+      event.preventDefault();
+      setFormError(null);
+      setIsSubmitting(true);
+      try {
+        await onSubmit(values);
+      } catch (error) {
+        setFormError(error instanceof ApiError ? error.message : 'Something went wrong');
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [values],
+  );
+
+  return { values, errors, formError, isSubmitting, setValue, handleChange, handleSubmit };
+}

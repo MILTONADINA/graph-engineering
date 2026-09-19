@@ -1,0 +1,28 @@
+{
+  "$schema": "../../artifacts/requirements.schema.json",
+  "artifactType": "requirements",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.requirements-agent",
+    "generatedAt": "2026-02-03T08:50:00Z",
+    "projectName": "multi-tenant-saas"
+  },
+  "data": {
+    "projectName": "multi-tenant-saas",
+    "summary": "A multi-tenant project-management SaaS: each tenant's users manage Projects and attached Invoice documents. Demonstrates the SAME template library used for the auth-only express-neon-s3-app example, reused for a structurally different domain — tenant-scoped entities, role-based access, and a Next.js frontend (artifact-only in this example; frontend.* code-generation templates are not yet implemented, see frontend.schema.json).",
+    "entities": [
+      { "name": "Tenant", "description": "An organization/workspace.", "attributes": ["name", "plan"] },
+      { "name": "Project", "description": "A tenant-scoped unit of work.", "attributes": ["tenantId", "name", "status"] },
+      { "name": "Invoice", "description": "A tenant-scoped billing document, optionally with an attached PDF in object storage.", "attributes": ["tenantId", "projectId", "amountCents", "status", "fileKey"] }
+    ],
+    "features": [
+      { "id": "F1", "title": "Tenant-scoped register/login (JWT + refresh)", "priority": "must", "requiresAuth": false },
+      { "id": "F2", "title": "CRUD Projects, scoped to the caller's tenant", "priority": "must", "requiresAuth": true },
+      { "id": "F3", "title": "CRUD Invoices, scoped to the caller's tenant, admin-only delete", "priority": "must", "requiresAuth": true },
+      { "id": "F4", "title": "Attach a PDF to an Invoice via private object storage", "priority": "should", "requiresAuth": true, "requiresFileStorage": true },
+      { "id": "F5", "title": "Filter/sort the Project and Invoice lists", "priority": "should", "requiresAuth": true }
+    ],
+    "nonFunctional": { "multiTenant": true, "expectedScale": "production" },
+    "constraints": ["Cross-tenant data access must be impossible even under an application bug, not just prevented by the UI"]
+  }
+}

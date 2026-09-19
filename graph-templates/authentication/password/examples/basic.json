@@ -1,0 +1,19 @@
+{
+  "inputs": { "minPasswordLength": 12 },
+  "expectedOutputs": {
+    "files": [
+      "src/repository/Authentication.ts",
+      "src/services/authenticationService.ts",
+      "src/controllers/authenticationController.ts",
+      "src/routes/authenticationRoutes.ts"
+    ],
+    "routes": [
+      "POST /api/auth/register",
+      "POST /api/auth/login",
+      "POST /api/auth/forgot-password",
+      "POST /api/auth/reset-password/:resetToken",
+      "POST /api/auth/verify-email/:verifyToken",
+      "POST /api/auth/logout"
+    ]
+  }
+}

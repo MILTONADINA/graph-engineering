@@ -1,0 +1,1 @@
+Write `src/middlewares/tenantMiddleware.ts` and `src/utils/tenantScope.ts` verbatim. Run `npm run build`. Note in the generation report that any `tenantScoped: true` entity generated afterward must have its `backend.repository` calls to `withTenantScope` added explicitly — this node does not do that automatically.

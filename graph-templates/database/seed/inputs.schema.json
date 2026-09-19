@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entities"],
+  "properties": {
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entityName", "tableExportName", "sampleRows"],
+        "properties": {
+          "entityName": { "type": "string" },
+          "tableExportName": { "type": "string" },
+          "sampleRows": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    }
+  }
+}

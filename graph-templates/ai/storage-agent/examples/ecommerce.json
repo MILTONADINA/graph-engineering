@@ -1,0 +1,15 @@
+{
+  "output": {
+    "$schema": "../../artifacts/storage.schema.json",
+    "artifactType": "storage.schema",
+    "version": "1.0.0",
+    "metadata": { "generatedBy": "ai.storage-agent", "generatedAt": "2026-01-15T10:12:00Z", "projectName": "acme-shop", "sourceArtifacts": ["requirements.json"] },
+    "data": {
+      "provider": "aws-s3",
+      "buckets": [{ "name": "media", "access": "private", "envVar": "AWS_BUCKET_NAME" }],
+      "uploadUseCases": [
+        { "name": "product-image", "keyPrefix": "products/", "allowedMimeTypes": ["image/png", "image/jpeg", "image/webp"], "maxSizeBytes": 5242880, "presigned": "download", "urlExpirySeconds": 3600 }
+      ]
+    }
+  }
+}

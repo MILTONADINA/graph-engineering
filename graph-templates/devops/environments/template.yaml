@@ -1,0 +1,66 @@
+id: devops.environments
+name: Environment Variable Aggregator
+version: 1.0.0
+description: >
+  Reads every selected node's environment.variables (from the project's
+  resolved architecture.json, cross-referenced against template-registry.json)
+  and writes one consolidated .env.example plus docs/ENVIRONMENT.md, superseding
+  project.node-express's minimal starter .env.example. Conceptually the last
+  node to run in any graph, since it needs to see what every other node declared.
+category: devops
+subcategory: environments
+status: implemented
+type: graph-node
+actions: [generate, modify, validate]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: ".env.example (rewritten), docs/ENVIRONMENT.md" }
+  - { name: variableCount, type: number }
+
+dependencies:
+  packages: []
+  services: []
+  templates: []
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: .env.example, source: files/.env.example.reference-stack.template }
+    - { path: docs/ENVIRONMENT.md, source: files/ENVIRONMENT.md.reference-stack.template }
+  modify: []
+
+compatible_with:
+  upstream: [project.node-express, database.neon-postgres.connection, storage.aws-s3, authentication.jwt, authentication.password]
+  downstream: [devops.docker, devops.github-actions]
+
+consumes:
+  artifacts: [architecture.schema]
+produces:
+  artifacts: [deployment.schema]
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "docs/ENVIRONMENT.md exists — re-running re-derives it from the current architecture.json rather than appending"
+
+validation:
+  checks:
+    - { type: file-exists, path: .env.example }
+    - { type: file-exists, path: docs/ENVIRONMENT.md }
+    - { type: env-example-covers-required, path: .env.example }
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - ".env.example must NEVER contain real secret values — only variable names, each set to a placeholder or left blank. This node writes names/placeholders only, sourced from environment.variables[].name, never from a live .env's actual values."
+    - "docs/ENVIRONMENT.md marks each variable's secret: true/false so a human reviewing it knows at a glance which ones need a secret manager rather than a plain config file in deployment."
+
+documentation:
+  required: [README.md]

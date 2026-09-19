@@ -1,0 +1,8 @@
+{
+  "packages": [],
+  "services": [],
+  "templates": [
+    { "id": "frontend.nextjs", "relationship": "requires" },
+    { "id": "authentication.password", "relationship": "requires" }
+  ]
+}

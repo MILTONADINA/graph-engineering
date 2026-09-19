@@ -1,0 +1,32 @@
+id: storage.aws-s3
+name: AWS S3
+version: 1.0.0
+category: storage
+description: >
+  Object storage via AWS S3 (or any S3-compatible endpoint) — an S3 client,
+  upload/download/delete helpers, and presigned URLs for both directions.
+  Ported from the reference application's src/config/s3-client.ts and
+  src/repository/FileUpload.ts (see ../../../../REFERENCE_ARCHITECTURE.md §5)
+  and graph-templates/storage/* — bundled here as one cohesive template. Fixes
+  the reference app's swallowed-upload-error bug: this version throws.
+requires: ["backend"]
+provides: ["object-storage"]
+compatibleWith: ["backend.express"]
+conflictsWith: []
+targetApp: api
+dependencies:
+  dependencies:
+    - { name: "@aws-sdk/client-s3", version: "^3.600.0" }
+    - { name: "@aws-sdk/s3-request-presigner", version: "^3.600.0" }
+  devDependencies: []
+scripts: {}
+environment:
+  - { name: AWS_REGION, required: true, secret: false, description: "S3 bucket region, e.g. us-east-1" }
+  - { name: AWS_ACCESS_KEY_ID, required: true, secret: true, description: "IAM access key with S3 permissions" }
+  - { name: AWS_SECRET_ACCESS_KEY, required: true, secret: true, description: "IAM secret key" }
+  - { name: AWS_BUCKET_NAME, required: true, secret: false, description: "Target bucket name", default: "media" }
+  - { name: AWS_ENDPOINT_URL_S3, required: false, secret: false, description: "Only set this for an S3-compatible provider that isn't AWS itself (e.g. Neon Object Storage, Cloudflare R2) — leave unset for real AWS S3" }
+files:
+  - { op: copy, src: src/config/s3Client.ts, dest: src/config/s3Client.ts }
+  - { op: copy, src: src/utils/storage.ts, dest: src/utils/storage.ts }
+documentation: docs/aws-s3.md

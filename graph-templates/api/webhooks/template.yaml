@@ -1,0 +1,50 @@
+id: api.webhooks
+name: Inbound Webhook Receiver
+version: 0.1.0
+description: >
+  Genuinely distinct future capability — an inbound webhook route needs
+  signature verification (e.g. HMAC against a provider secret), raw-body
+  parsing (before express.json() consumes the stream, which most webhook
+  signature schemes require), and idempotency-key deduplication, none of
+  which api.crud provides or should be stretched to provide. Planned: a
+  provider-agnostic verifyAndParseWebhook(secret, rawBody, signatureHeader)
+  helper plus a route scaffold, aligned with integrations.webhooks
+  (integrations/ category, also planned).
+category: api
+subcategory: webhooks
+status: planned
+type: graph-node
+actions: []
+inputs: []
+outputs: []
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+environment:
+  variables: []
+files:
+  create: []
+  modify: []
+compatible_with:
+  upstream: []
+  downstream: []
+consumes:
+  artifacts: [integration.schema]
+produces:
+  artifacts: [integration.schema]
+idempotency:
+  strategy: detect-and-skip
+  detection: "n/a — planned stub, never generated"
+validation:
+  checks: []
+testing:
+  strategy: unit
+  location: "n/a"
+  command: "n/a"
+security:
+  considerations:
+    - "A webhook route must verify the provider's signature before trusting the payload, and must be idempotent (replay-safe) since providers retry on timeout — both are unimplemented placeholders here, not yet a false sense of coverage."
+documentation:
+  required: [template.yaml]

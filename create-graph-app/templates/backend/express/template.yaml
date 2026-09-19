@@ -1,0 +1,59 @@
+id: backend.express
+name: Express.js
+version: 1.0.0
+category: backend
+description: >
+  A TypeScript Express API — global middleware (cors/helmet/morgan/cookie-parser),
+  centralized error handling (APIError + errorHandler), async route wrapping,
+  Zod request validation, and a health check. Adapted from the reference
+  application analyzed in ../../../../REFERENCE_ARCHITECTURE.md and from
+  graph-templates/backend/*'s already-ported version of the same code —
+  bundled here as one cohesive template rather than graph-templates' dozen
+  fine-grained composable nodes (see docs/architecture.md "Relationship to
+  graph-templates/").
+requires: []
+provides: ["backend"]
+compatibleWith: ["database.neon-postgres", "storage.aws-s3"]
+conflictsWith: []
+targetApp: api
+dependencies:
+  dependencies:
+    - { name: express, version: "^4.19.2" }
+    - { name: cors, version: "^2.8.5" }
+    - { name: helmet, version: "^7.1.0" }
+    - { name: morgan, version: "^1.10.0" }
+    - { name: cookie-parser, version: "^1.4.7" }
+    - { name: dotenv, version: "^16.6.1" }
+    - { name: zod, version: "^3.23.8" }
+  devDependencies:
+    - { name: typescript, version: "^5.5.4" }
+    - { name: tsx, version: "^4.16.0" }
+    - { name: "@types/express", version: "^4.17.21" }
+    - { name: "@types/cors", version: "^2.8.17" }
+    - { name: "@types/cookie-parser", version: "^1.4.7" }
+    - { name: "@types/morgan", version: "^1.9.9" }
+    - { name: "@types/node", version: "^20.14.0" }
+    - { name: vitest, version: "^2.0.5" }
+    - { name: supertest, version: "^7.0.0" }
+    - { name: "@types/supertest", version: "^6.0.2" }
+scripts:
+  dev: "tsx watch src/app.ts"
+  build: "tsc"
+  start: "node dist/app.js"
+  test: "vitest run"
+environment:
+  - { name: PORT, required: false, secret: false, description: "HTTP port, default 3000", default: "3000" }
+  - { name: NODE_ENV, required: false, secret: false, description: "development | production", default: "development" }
+  - { name: CORS_ORIGIN, required: false, secret: false, description: "Comma-separated allowed origins", default: "http://localhost:3001" }
+files:
+  - { op: copy, src: src/app.ts, dest: src/app.ts }
+  - { op: copy, src: src/utils/env.ts, dest: src/utils/env.ts }
+  - { op: copy, src: src/utils/httpStatus.ts, dest: src/utils/httpStatus.ts }
+  - { op: copy, src: src/middlewares/errorMiddleware.ts, dest: src/middlewares/errorMiddleware.ts }
+  - { op: copy, src: src/middlewares/asyncHandler.ts, dest: src/middlewares/asyncHandler.ts }
+  - { op: copy, src: src/middlewares/validationMiddleware.ts, dest: src/middlewares/validationMiddleware.ts }
+  - { op: copy, src: tsconfig.json, dest: tsconfig.json }
+  - { op: copy, src: gitignore, dest: .gitignore }
+  - { op: copy, src: vitest.config.ts, dest: vitest.config.ts }
+  - { op: copy, src: tests/health.test.ts, dest: tests/health.test.ts }
+documentation: docs/express.md

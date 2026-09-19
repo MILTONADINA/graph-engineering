@@ -1,0 +1,7 @@
+{
+  "inputs": {
+    "manifest": { "nodes": { "project.node-express": { "version": "1.0.0", "generatedAt": "2026-01-15T10:00:00Z" } } },
+    "artifact": { "architecture": { "present": true }, "requirements": { "present": false } }
+  },
+  "expectedOutputs": { "files": [".graph/CONTEXT.md"] }
+}

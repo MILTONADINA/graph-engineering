@@ -1,0 +1,1 @@
+Read `api.schema.json`'s `data.routes[]`. Render one Markdown table row per route (method, path, auth, roles joined by comma). Write `docs/API.md`, overwriting any previous version wholesale (this file is fully derived, never hand-edited).

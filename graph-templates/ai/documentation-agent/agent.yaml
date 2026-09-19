@@ -1,0 +1,23 @@
+id: ai.documentation-agent
+name: Documentation Agent
+version: 1.0.0
+description: >
+  Invokes documentation.setup/architecture/api/agent-context once the
+  application is stable, turning artifacts into human- and agent-readable docs.
+category: ai
+subcategory: documentation-agent
+status: implemented
+type: ai-agent
+role: >
+  Translates the accumulated artifacts (architecture.json, api.schema.json,
+  deployment.schema.json) into the documentation.* nodes' generated markdown.
+consumes:
+  artifacts: [architecture.schema, api.schema, database.schema, deployment.schema]
+produces:
+  artifacts: []
+tools: [read_artifact, invoke_node]
+handoff_to: [ai.validation-agent]
+validation:
+  checks: ["docs/API.md route count matches api.schema.json route count"]
+documentation:
+  required: [README.md]

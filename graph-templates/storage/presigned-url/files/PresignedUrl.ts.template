@@ -1,0 +1,30 @@
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { s3Client, storageBucket } from '../config/s3-client';
+
+const DEFAULT_EXPIRY_SECONDS = {{input.defaultExpirySeconds}};
+const MAX_EXPIRY_SECONDS = {{input.maxExpirySeconds}};
+
+function clampExpiry(expiresIn?: number): number {
+  return Math.min(MAX_EXPIRY_SECONDS, Math.max(1, expiresIn ?? DEFAULT_EXPIRY_SECONDS));
+}
+
+class PresignedUrlRepository {
+  async getUploadUrl(key: string, contentType: string, expiresIn?: number): Promise<string> {
+    return getSignedUrl(
+      s3Client,
+      new PutObjectCommand({ Bucket: storageBucket, Key: key, ContentType: contentType }),
+      { expiresIn: clampExpiry(expiresIn) },
+    );
+  }
+
+  async getDownloadUrl(key: string, expiresIn?: number): Promise<string> {
+    return getSignedUrl(
+      s3Client,
+      new GetObjectCommand({ Bucket: storageBucket, Key: key }),
+      { expiresIn: clampExpiry(expiresIn) },
+    );
+  }
+}
+
+export const PresignedUrl = new PresignedUrlRepository();

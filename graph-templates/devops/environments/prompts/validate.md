@@ -1,0 +1,1 @@
+file-exists both outputs → for every node in `architecture.json`, every `required: true` variable it declares must appear in `.env.example`. A missing one means this node ran before the node that declared it, or wasn't re-run after a new node was added — re-run `generate`.

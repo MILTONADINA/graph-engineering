@@ -1,0 +1,65 @@
+id: backend.middleware
+name: Async Route Handler Wrapper
+version: 1.0.0
+description: >
+  A single asyncHandler(fn) wrapper that forwards a rejected promise from an
+  async Express handler to next(err) instead of crashing the process or
+  requiring every handler to repeat try/catch. Generalizes the reference app's
+  inline try/catch-per-method pattern so generated controllers can just throw
+  APIError and rely on backend.error-handler to format the response.
+category: backend
+subcategory: middleware
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/middlewares/asyncHandler.ts" }
+  - { name: exports, type: array<string>, description: "asyncHandler" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/middlewares/asyncHandler.ts, source: files/asyncHandler.ts }
+  modify: []
+
+compatible_with:
+  upstream: [backend.error-handler]
+  downstream: [backend.controller, backend.express]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/middlewares/asyncHandler.ts exists and exports asyncHandler"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/middlewares/asyncHandler.ts }
+    - { type: exports, path: src/middlewares/asyncHandler.ts, names: [asyncHandler] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/asyncHandler.test.ts
+  command: "npm test -- asyncHandler"
+
+security:
+  considerations:
+    - "This node only forwards errors to `next` — it never suppresses them. A handler that swallows its own errors (like the reference app's FileUpload.uploadFileToS3 returning null) defeats this wrapper; new code should throw, not swallow."
+
+documentation:
+  required: [README.md]

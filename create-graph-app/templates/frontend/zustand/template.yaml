@@ -1,0 +1,23 @@
+id: frontend.zustand
+name: Zustand
+version: 1.0.0
+category: frontend
+description: >
+  Adds Zustand state management — a starter store under stores/ demonstrating
+  the create() pattern. New in this system (no reference-app precedent);
+  minimal by design, since Zustand's entire value proposition is not needing
+  boilerplate (no providers, no actions/reducers ceremony).
+requires: ["frontend"]
+provides: ["state-management"]
+compatibleWith: ["frontend.nextjs"]
+conflictsWith: []
+targetApp: web
+dependencies:
+  dependencies:
+    - { name: zustand, version: "^4.5.4" }
+  devDependencies: []
+scripts: {}
+environment: []
+files:
+  - { op: copy, src: stores/exampleStore.ts, dest: stores/exampleStore.ts }
+documentation: docs/zustand.md

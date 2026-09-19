@@ -1,0 +1,4 @@
+[
+  { "name": "write_artifact", "description": "Writes requirements.json conforming to artifacts/requirements.schema.json" },
+  { "name": "ask_clarifying_question", "description": "Surfaces an ambiguity to the human instead of guessing" }
+]

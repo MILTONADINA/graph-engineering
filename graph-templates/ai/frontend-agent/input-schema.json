@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["architecture", "api"],
+  "properties": {
+    "architecture": { "$ref": "../../artifacts/architecture.schema.json" },
+    "api": { "$ref": "../../artifacts/api.schema.json" },
+    "auth": { "$ref": "../../artifacts/auth.schema.json" }
+  }
+}

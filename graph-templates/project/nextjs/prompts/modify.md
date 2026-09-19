@@ -1,0 +1,1 @@
+No first-class `modify` action — like `project.node-express`, this node's files are meant to be extended by other nodes, not re-templated. To change `port`/`apiBaseUrl` after generation, edit the literal values in `package.json`'s `dev`/`start` scripts and `.env.example` directly rather than re-rendering.

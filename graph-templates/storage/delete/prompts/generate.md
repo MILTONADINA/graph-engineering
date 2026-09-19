@@ -1,0 +1,1 @@
+1. Add `DeleteObjectCommand` to `FileUpload.ts`'s existing `@aws-sdk/client-s3` import. 2. Insert `files/deleteFile.method.ts`'s content as a new method inside the `FileUpload` class body (before its closing brace). 3. Run `npm run build`.

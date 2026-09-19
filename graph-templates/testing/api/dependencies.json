@@ -1,0 +1,8 @@
+{
+  "packages": [
+    { "name": "supertest", "version": "^7.0.0", "dev": true },
+    { "name": "@types/supertest", "version": "^6.0.2", "dev": true }
+  ],
+  "services": [],
+  "templates": [{ "id": "project.node-express", "relationship": "requires" }]
+}

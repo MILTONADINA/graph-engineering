@@ -1,0 +1,13 @@
+{
+  "inputs": { "entityName": "Product", "tableName": "products", "requiresAuth": true },
+  "expectedOutputs": {
+    "files": ["src/routes/productRoutes.ts", "src/app.ts"],
+    "routes": [
+      "GET /api/products",
+      "GET /api/products/:id",
+      "POST /api/products",
+      "PUT /api/products/:id",
+      "DELETE /api/products/:id"
+    ]
+  }
+}

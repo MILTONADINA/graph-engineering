@@ -1,0 +1,35 @@
+import { Request, Response } from 'express';
+import { {{input.entityName}}Service } from '../services/{{input.entityNameCamel}}Service';
+import { sendSuccess, sendPaginated } from '../utils/apiResponse';
+import { HttpStatusCodes } from '../utils/helpers';
+import { parseListQuery } from '../utils/pagination';
+
+export class {{input.entityName}}Controller {
+  private readonly service = new {{input.entityName}}Service();
+
+  create = async (req: Request, res: Response): Promise<Response> => {
+    const row = await this.service.create(req.body);
+    return sendSuccess(res, row, '{{input.entityName}} created', HttpStatusCodes.CREATED);
+  };
+
+  getById = async (req: Request, res: Response): Promise<Response> => {
+    const row = await this.service.getById(req.params.id);
+    return sendSuccess(res, row);
+  };
+
+  list = async (req: Request, res: Response): Promise<Response> => {
+    const { page, pageSize, sortBy, sortDir } = parseListQuery(req.query);
+    const { rows, meta } = await this.service.list({ page, pageSize, sortBy, sortDir });
+    return sendPaginated(res, rows, meta);
+  };
+
+  update = async (req: Request, res: Response): Promise<Response> => {
+    const row = await this.service.update(req.params.id, req.body);
+    return sendSuccess(res, row, '{{input.entityName}} updated');
+  };
+
+  remove = async (req: Request, res: Response): Promise<Response> => {
+    await this.service.remove(req.params.id);
+    return sendSuccess(res, null, '{{input.entityName}} deleted');
+  };
+}

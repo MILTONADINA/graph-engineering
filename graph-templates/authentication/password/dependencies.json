@@ -1,0 +1,16 @@
+{
+  "packages": [
+    { "name": "bcrypt", "version": "^5.1.1" },
+    { "name": "@types/bcrypt", "version": "^5.0.2", "dev": true },
+    { "name": "email-validator", "version": "^2.0.4" }
+  ],
+  "services": [],
+  "templates": [
+    { "id": "authentication.jwt", "relationship": "requires" },
+    { "id": "backend.error-handler", "relationship": "requires" },
+    { "id": "backend.validation", "relationship": "requires" },
+    { "id": "backend.api-response", "relationship": "requires" },
+    { "id": "backend.middleware", "relationship": "requires" },
+    { "id": "database.neon-postgres.connection", "relationship": "requires" }
+  ]
+}

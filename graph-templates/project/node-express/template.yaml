@@ -1,0 +1,109 @@
+id: project.node-express
+name: Node + Express Project Scaffold
+version: 1.0.0
+description: >
+  Bootstraps a TypeScript Express project: package.json, tsconfig, the Express
+  app entrypoint with global middleware (cors/helmet/morgan/cookie-parser),
+  health-check route, 404 handler, centralized error handler wiring, and the
+  fail-fast SECRETS/env-validation convention from the reference app. Every
+  other backend/database/storage/auth node modifies files this node creates.
+category: project
+subcategory: node-express
+status: implemented
+
+type: graph-node
+actions: [generate, detect, validate]
+
+inputs:
+  - name: projectName
+    type: string
+    required: true
+    description: package.json "name" field.
+  - name: description
+    type: string
+    required: false
+    default: ""
+  - name: port
+    type: number
+    required: false
+    default: 3000
+  - name: corsOrigin
+    type: string
+    required: false
+    default: "http://localhost:3000"
+
+outputs:
+  - name: files
+    type: array<string>
+    description: package.json, tsconfig.json, .env.example, .gitignore, src/app.ts, src/utils/helpers.ts, .graph/manifest.json
+  - name: entrypoint
+    type: string
+    description: "src/app.ts"
+
+dependencies:
+  packages:
+    - { name: express, version: "^4.19.2" }
+    - { name: cors, version: "^2.8.5" }
+    - { name: helmet, version: "^7.1.0" }
+    - { name: morgan, version: "^1.10.0" }
+    - { name: cookie-parser, version: "^1.4.7" }
+    - { name: dotenv, version: "^16.6.1" }
+    - { name: typescript, version: "^5.5.4", dev: true }
+    - { name: ts-node, version: "^10.9.2", dev: true }
+    - { name: nodemon, version: "^3.1.4", dev: true }
+    - { name: "@types/express", version: "^4.17.21", dev: true }
+    - { name: "@types/cors", version: "^2.8.17", dev: true }
+    - { name: "@types/cookie-parser", version: "^1.4.7", dev: true }
+    - { name: "@types/morgan", version: "^1.9.9", dev: true }
+  services: []
+  templates: []
+
+environment:
+  variables:
+    - { name: PORT, required: false, secret: false, description: "HTTP port, default 3000", usedBy: [project.node-express] }
+    - { name: NODE_ENV, required: false, secret: false, description: "development | production", usedBy: [project.node-express] }
+    - { name: CORS_ORIGIN, required: false, secret: false, description: "Comma-separated allowed origins", usedBy: [project.node-express] }
+
+files:
+  create:
+    - { path: package.json, source: files/package.json.template }
+    - { path: tsconfig.json, source: files/tsconfig.json }
+    - { path: .env.example, source: files/.env.example.template }
+    - { path: .gitignore, source: files/.gitignore }
+    - { path: src/app.ts, source: files/src/app.ts.template }
+    - { path: src/utils/helpers.ts, source: files/src/utils/helpers.ts.template }
+    - { path: .graph/manifest.json, source: files/.graph/manifest.json.template }
+  modify: []
+
+compatible_with:
+  upstream: []
+  downstream: [database.neon-postgres.connection, storage.aws-s3, authentication.jwt, backend.middleware]
+
+consumes:
+  artifacts: [architecture.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "package.json exists at project root"
+
+validation:
+  checks:
+    - { type: file-exists, path: package.json }
+    - { type: file-exists, path: src/app.ts }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: integration
+  location: tests/health-check.test.ts
+  command: "npm test -- health-check"
+
+security:
+  considerations:
+    - "helmet() sets baseline security headers; do not remove without replacing."
+    - "CORS_ORIGIN must be an explicit allowlist, never '*', once credentials: true is used downstream (authentication.jwt cookies rely on this)."
+    - "SECRETS validation fails fast at import time — never let the process start with a missing required secret."
+
+documentation:
+  required: [README.md]

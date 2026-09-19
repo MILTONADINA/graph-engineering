@@ -1,0 +1,95 @@
+id: project.nextjs
+name: Next.js Project Scaffold
+version: 1.0.0
+description: >
+  Bootstraps a TypeScript Next.js 14 (App Router) project as a separate frontend
+  app that talks to the Express backend over HTTP with credentials: 'include'
+  (matching authentication.jwt's httpOnly-cookie design — no token ever touches
+  browser JS). Unlike project.node-express, there is no reference-app precedent
+  for this: the reference application ships no frontend at all, so this node is a
+  deliberate, from-scratch addition (see REFERENCE_ARCHITECTURE.md's "not yet
+  started" note) rather than a port. Root node for every frontend/* template.
+category: project
+subcategory: nextjs
+status: implemented
+type: graph-node
+actions: [generate, detect, validate]
+
+inputs:
+  - { name: projectName, type: string, required: true, description: "package.json \"name\" field." }
+  - { name: description, type: string, required: false, default: "" }
+  - { name: port, type: number, required: false, default: 3001, description: "Next dev server port — defaults off 3000 to avoid colliding with project.node-express." }
+  - { name: apiBaseUrl, type: string, required: false, default: "http://localhost:3000", description: "Base URL of the Express backend (project.node-express)." }
+
+outputs:
+  - { name: files, type: array<string> }
+  - { name: entrypoint, type: string, description: "app/layout.tsx" }
+
+dependencies:
+  packages:
+    - { name: next, version: "^14.2.0" }
+    - { name: react, version: "^18.3.0" }
+    - { name: react-dom, version: "^18.3.0" }
+    - { name: typescript, version: "^5.5.4", dev: true }
+    - { name: "@types/react", version: "^18.3.0", dev: true }
+    - { name: "@types/react-dom", version: "^18.3.0", dev: true }
+    - { name: "@types/node", version: "^20.14.0", dev: true }
+    - { name: vitest, version: "^2.0.5", dev: true }
+    - { name: jsdom, version: "^24.1.1", dev: true }
+    - { name: "@testing-library/react", version: "^16.0.0", dev: true }
+    - { name: "@testing-library/jest-dom", version: "^6.4.8", dev: true }
+  services: []
+  templates: []
+
+environment:
+  variables:
+    - { name: NEXT_PUBLIC_API_URL, required: true, secret: false, description: "Base URL of the Express API this frontend calls. NEXT_PUBLIC_-prefixed because it's read from the browser (fetch calls run client-side).", usedBy: [project.nextjs, frontend.nextjs] }
+
+files:
+  create:
+    - { path: package.json, source: files/package.json.template }
+    - { path: tsconfig.json, source: files/tsconfig.json }
+    - { path: next.config.ts, source: files/next.config.ts }
+    - { path: .env.example, source: files/.env.example.template }
+    - { path: .gitignore, source: files/.gitignore }
+    - { path: vitest.config.ts, source: files/vitest.config.ts }
+    - { path: vitest.setup.ts, source: files/vitest.setup.ts }
+    - { path: app/layout.tsx, source: files/app/layout.tsx.template }
+    - { path: app/page.tsx, source: files/app/page.tsx }
+    - { path: app/globals.css, source: files/app/globals.css }
+    - { path: lib/env.ts, source: files/lib/env.ts.template }
+    - { path: .graph/manifest.json, source: files/.graph/manifest.json.template }
+  modify: []
+
+compatible_with:
+  upstream: []
+  downstream: [frontend.nextjs, frontend.authentication, frontend.forms, frontend.tables, frontend.dashboards]
+
+consumes:
+  artifacts: [architecture.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "package.json exists at project root and declares a dependency on \"next\""
+
+validation:
+  checks:
+    - { type: file-exists, path: package.json }
+    - { type: file-exists, path: app/layout.tsx }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/HomePage.test.tsx
+  command: "npm test -- HomePage"
+
+security:
+  considerations:
+    - "NEXT_PUBLIC_API_URL is, by Next.js's own design, inlined into the client JS bundle at build time — never put a secret behind a NEXT_PUBLIC_ variable; it is not private once shipped."
+    - "This app never stores the access/refresh token itself (no localStorage, no non-httpOnly cookie) — every authenticated fetch relies on credentials: 'include' sending the backend's httpOnly cookies automatically. Do not add client-side token storage; it would reopen the XSS-token-theft surface authentication.jwt's cookie design specifically closes."
+    - "CORS: the Express backend's CORS_ORIGIN (project.node-express) must include this app's origin, and authentication.jwt/authentication.password's cookies must be sameSite: 'lax' or the browser will not send them on a different-origin fetch even with credentials: 'include' if sameSite: 'strict' were used instead — confirm the two apps' origins and cookie settings agree before wiring frontend.authentication."
+
+documentation:
+  required: [README.md]

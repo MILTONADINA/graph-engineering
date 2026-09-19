@@ -1,0 +1,58 @@
+id: devops.aws
+name: AWS Deployment (ECS / App Runner / Lambda)
+version: 0.1.0
+description: >
+  Planned. Deploys the devops.docker image to an AWS compute target (ECS
+  Fargate, App Runner, or Lambda via a container image) — not yet implemented.
+  A future implementation should reuse devops.docker's image unmodified and
+  add only the target-specific deploy manifest (task definition, apprunner.yaml,
+  or Lambda container config), not a parallel Dockerfile.
+category: devops
+subcategory: aws
+status: planned
+type: graph-node
+actions: []
+
+inputs: []
+outputs: []
+
+dependencies:
+  packages: []
+  services: [aws]
+  templates:
+    - { id: devops.docker, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify: []
+
+compatible_with:
+  upstream: [devops.docker, devops.github-actions]
+  downstream: []
+
+consumes:
+  artifacts: [deployment.schema]
+produces:
+  artifacts: [deployment.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "not applicable — planned"
+
+validation:
+  checks: []
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - "Deferred until implemented — will need to cover IAM least-privilege for the deploy role, secret injection via AWS Secrets Manager/Parameter Store (never plaintext task-definition env vars for secret: true variables)."
+
+documentation:
+  required: []

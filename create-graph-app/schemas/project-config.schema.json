@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "project-config.schema.json",
+  "title": "project.config.yaml",
+  "description": "The reproducibility source of truth this CLI reads and writes — both the interactive wizard and --non-interactive/--config paths produce exactly this shape and hand it to the same generate() function. See docs/architecture.md 'Configuration'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "Also the target directory name and the root package.json name." },
+        "type": { "type": "string", "enum": ["fullstack", "backend", "frontend"] }
+      }
+    },
+    "frontend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framework": { "type": "string", "enum": ["nextjs", "none"], "default": "none" },
+        "stateManagement": { "type": "string", "enum": ["zustand", "none"], "default": "none" },
+        "ui": { "type": "string", "enum": ["shadcn", "tailwind", "none"], "default": "none" }
+      }
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framework": { "type": "string", "enum": ["express", "none"], "default": "none" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string", "enum": ["neon-postgres", "none"], "default": "none" }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string", "enum": ["aws-s3", "none"], "default": "none" }
+      }
+    }
+  }
+}

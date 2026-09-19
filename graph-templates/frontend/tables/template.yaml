@@ -1,0 +1,70 @@
+id: frontend.tables
+name: Paginated Data Table
+version: 1.0.0
+description: >
+  useQueryTable<T>(basePath) + <DataTable> — fetches one page of an
+  api.crud-backed list endpoint and manages page/sortBy/sortDir/filters as URL
+  query params, matching exactly what backend.pagination's parseListQuery reads
+  off req.query and what api.crud's findMany allowlist enforces. The hook and
+  the presentational component are separate so a project can swap in its own
+  table UI while keeping the fetch/state logic.
+category: frontend
+subcategory: tables
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs:
+  - { name: defaultPageSize, type: number, required: false, default: 20 }
+
+outputs:
+  - { name: files, type: array<string>, description: "lib/tables/useQueryTable.ts, components/DataTable.tsx" }
+  - { name: exports, type: array<string>, description: "useQueryTable, DataTable" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: frontend.nextjs, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: lib/tables/useQueryTable.ts, source: files/useQueryTable.ts.template }
+    - { path: components/DataTable.tsx, source: files/DataTable.tsx.template }
+  modify: []
+
+compatible_with:
+  upstream: [frontend.nextjs]
+  downstream: [frontend.dashboards]
+
+consumes:
+  artifacts: [api.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "lib/tables/useQueryTable.ts exists and exports useQueryTable"
+
+validation:
+  checks:
+    - { type: file-exists, path: lib/tables/useQueryTable.ts }
+    - { type: file-exists, path: components/DataTable.tsx }
+    - { type: exports, path: lib/tables/useQueryTable.ts, names: [useQueryTable] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/useQueryTable.test.ts
+  command: "npm test -- useQueryTable"
+
+security:
+  considerations:
+    - "This hook sends whatever filter/sort keys it's given as raw query params — it does not itself allowlist them. The security boundary is entirely server-side: api.crud's findMany only applies keys present in its filterableFields/sortableFields allowlist and silently ignores everything else (see api.crud's README). Never treat client-side filter UI as a security control, and never build a page that lets a user type an arbitrary column name into a filter box expecting the server to reject it loudly — it won't reject, it will just ignore."
+    - "meta.totalPages/page come from the server response, not computed client-side — never let pagination controls compute their own bounds from a stale rows.length, which could drift from the server's actual count under concurrent writes."
+
+documentation:
+  required: [README.md]

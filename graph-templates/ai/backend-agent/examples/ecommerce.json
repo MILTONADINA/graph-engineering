@@ -1,0 +1,22 @@
+{
+  "invocations": [
+    { "node": "api.crud", "inputs": { "entityName": "Product", "tableName": "products", "requiresAuth": true, "filterableFields": ["name"], "sortableFields": ["priceCents", "name"] } }
+  ],
+  "output": {
+    "$schema": "../../artifacts/api.schema.json",
+    "artifactType": "api.schema",
+    "version": "1.0.0",
+    "metadata": { "generatedBy": "ai.backend-agent", "generatedAt": "2026-01-15T10:15:00Z", "projectName": "acme-shop", "sourceArtifacts": ["database.schema.json", "architecture.json"] },
+    "data": {
+      "basePath": "/api",
+      "responseEnvelope": { "success": "{ message, data }", "error": "{ error: { message, status } }" },
+      "routes": [
+        { "method": "GET", "path": "/api/products", "handler": "productController.list", "entity": "products", "auth": "none", "pagination": true, "filtering": ["name"], "sorting": ["priceCents", "name"] },
+        { "method": "GET", "path": "/api/products/:id", "handler": "productController.getById", "entity": "products", "auth": "none" },
+        { "method": "POST", "path": "/api/products", "handler": "productController.create", "entity": "products", "auth": "required" },
+        { "method": "PUT", "path": "/api/products/:id", "handler": "productController.update", "entity": "products", "auth": "required" },
+        { "method": "DELETE", "path": "/api/products/:id", "handler": "productController.remove", "entity": "products", "auth": "required" }
+      ]
+    }
+  }
+}

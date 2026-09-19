@@ -1,0 +1,62 @@
+{
+  "$schema": "../../artifacts/database.schema.json",
+  "artifactType": "database.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.database-agent",
+    "generatedAt": "2026-02-03T09:05:00Z",
+    "projectName": "multi-tenant-saas",
+    "sourceArtifacts": ["architecture.json", "requirements.json"]
+  },
+  "data": {
+    "dialect": "postgresql",
+    "orm": "drizzle",
+    "enums": [
+      { "name": "project_status", "values": ["active", "archived"] },
+      { "name": "invoice_status", "values": ["draft", "sent", "paid", "void"] }
+    ],
+    "tables": [
+      {
+        "name": "tenants",
+        "columns": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "default": "gen_random_uuid()" },
+          { "name": "name", "type": "varchar(200)", "notNull": true },
+          { "name": "plan", "type": "varchar(32)", "notNull": true, "default": "free" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ],
+        "tenantScoped": false
+      },
+      {
+        "name": "projects",
+        "columns": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "default": "gen_random_uuid()" },
+          { "name": "tenant_id", "type": "uuid", "notNull": true, "references": { "table": "tenants", "column": "id", "onDelete": "cascade" } },
+          { "name": "name", "type": "varchar(200)", "notNull": true },
+          { "name": "status", "type": "project_status", "notNull": true, "default": "active" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" },
+          { "name": "updated_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ],
+        "indexes": [{ "name": "projects_tenant_id_idx", "columns": ["tenant_id"] }],
+        "tenantScoped": true
+      },
+      {
+        "name": "invoices",
+        "columns": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "default": "gen_random_uuid()" },
+          { "name": "tenant_id", "type": "uuid", "notNull": true, "references": { "table": "tenants", "column": "id", "onDelete": "cascade" } },
+          { "name": "project_id", "type": "uuid", "notNull": true, "references": { "table": "projects", "column": "id", "onDelete": "cascade" } },
+          { "name": "amount_cents", "type": "integer", "notNull": true },
+          { "name": "status", "type": "invoice_status", "notNull": true, "default": "draft" },
+          { "name": "file_key", "type": "varchar(2048)" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" },
+          { "name": "updated_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ],
+        "indexes": [{ "name": "invoices_tenant_id_idx", "columns": ["tenant_id"] }],
+        "tenantScoped": true
+      }
+    ],
+    "migrations": [
+      { "file": "0000_init.sql", "appliedTables": ["tenants", "projects", "invoices", "users", "user_profiles", "auth_tokens", "refresh_tokens"] }
+    ]
+  }
+}

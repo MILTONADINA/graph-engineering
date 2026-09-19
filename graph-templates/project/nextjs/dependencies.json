@@ -1,0 +1,17 @@
+{
+  "packages": [
+    { "name": "next", "version": "^14.2.0" },
+    { "name": "react", "version": "^18.3.0" },
+    { "name": "react-dom", "version": "^18.3.0" },
+    { "name": "typescript", "version": "^5.5.4", "dev": true },
+    { "name": "@types/react", "version": "^18.3.0", "dev": true },
+    { "name": "@types/react-dom", "version": "^18.3.0", "dev": true },
+    { "name": "@types/node", "version": "^20.14.0", "dev": true },
+    { "name": "vitest", "version": "^2.0.5", "dev": true },
+    { "name": "jsdom", "version": "^24.1.1", "dev": true },
+    { "name": "@testing-library/react", "version": "^16.0.0", "dev": true },
+    { "name": "@testing-library/jest-dom", "version": "^6.4.8", "dev": true }
+  ],
+  "services": [],
+  "templates": []
+}

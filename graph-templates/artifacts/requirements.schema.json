@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "requirements.schema.json",
+  "title": "Requirements Artifact",
+  "description": "Structured output of ai/requirements-agent: what the application must do, before any architecture decisions are made.",
+  "type": "object",
+  "required": ["$schema", "artifactType", "version", "metadata", "data"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "artifactType": { "const": "requirements" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectName", "summary", "entities", "features"],
+      "properties": {
+        "projectName": { "type": "string" },
+        "summary": { "type": "string", "description": "One-paragraph plain-language description of the application." },
+        "entities": {
+          "type": "array",
+          "description": "Core domain nouns the application manages, before schema design.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "description"],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "attributes": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "priority"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "description": { "type": "string" },
+              "priority": { "enum": ["must", "should", "could"] },
+              "requiresAuth": { "type": "boolean" },
+              "requiresFileStorage": { "type": "boolean" }
+            }
+          }
+        },
+        "nonFunctional": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "multiTenant": { "type": "boolean" },
+            "expectedScale": { "enum": ["prototype", "small-team", "production", "high-scale"] },
+            "compliance": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Hard constraints from the requester, e.g. 'must use Neon Postgres', 'no vendor lock-in on storage'."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "required": ["generatedBy", "generatedAt", "projectName"],
+      "properties": {
+        "generatedBy": { "type": "string" },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "projectName": { "type": "string" },
+        "sourceArtifacts": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

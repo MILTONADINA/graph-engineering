@@ -1,0 +1,1 @@
+Rarely needs modification — it is a single generic wrapper. To add transaction options (e.g. isolation level), extend the signature to accept an optional second `options` argument passed through to `database.transaction`, don't change the existing single-argument call sites.

@@ -1,0 +1,66 @@
+id: testing.mocks
+name: Shared Mocking Utilities
+version: 1.0.0
+description: >
+  Factors out the vi.mock('.../config/database', ...) chainable-mock pattern
+  already duplicated inline in backend.repository's and backend.service's
+  bundled tests into one reusable createMockDatabase(rows) helper. Existing
+  nodes' bundled tests are NOT retroactively edited by this node — see README
+  "Interaction with backend.repository" for when to switch a regenerated
+  entity's test over to the shared helper.
+category: testing
+subcategory: mocks
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "tests/mocks/mockDatabase.ts" }
+  - { name: exports, type: array<string>, description: "createMockDatabase" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: testing.unit, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: tests/mocks/mockDatabase.ts, source: files/mockDatabase.ts }
+  modify: []
+
+compatible_with:
+  upstream: [testing.unit]
+  downstream: [backend.repository, backend.service]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [test.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "tests/mocks/mockDatabase.ts exists and exports createMockDatabase"
+
+validation:
+  checks:
+    - { type: file-exists, path: tests/mocks/mockDatabase.ts }
+    - { type: exports, path: tests/mocks/mockDatabase.ts, names: [createMockDatabase] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/mockDatabase.test.ts
+  command: "npm test -- mockDatabase"
+
+security:
+  considerations:
+    - "A mock database must never be reachable from non-test code — this file lives under tests/ specifically so it's excluded from the production build (tsconfig's rootDir/include is src/**/*.ts only; tests/ is never compiled into dist/)."
+
+documentation:
+  required: [README.md]

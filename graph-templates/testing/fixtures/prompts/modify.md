@@ -1,0 +1,1 @@
+To add a factory for a new entity: append a `DEFAULT_<ENTITY>_FIXTURE` constant and a `build<Entity>Fixture` function calling `buildFixture`, following `buildUserFixture`'s shape exactly. Never touch the existing `buildFixture`/`buildUserFixture` exports — other tests import them by name.

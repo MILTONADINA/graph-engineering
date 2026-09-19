@@ -1,0 +1,1 @@
+{ "inputs": { "defaultBucketName": "media" }, "expectedOutputs": { "files": ["src/config/s3-client.ts"], "exports": ["s3Client", "storageBucket"] } }

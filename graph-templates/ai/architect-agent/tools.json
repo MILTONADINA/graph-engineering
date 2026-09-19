@@ -1,0 +1,7 @@
+[
+  { "name": "read_template_registry", "description": "Reads template-registry.json — every node id, status, category, dependencies" },
+  { "name": "read_artifact", "description": "Reads requirements.json" },
+  { "name": "write_artifact", "description": "Writes architecture.json" },
+  { "name": "list_graph_nodes", "description": "Lists nodes filtered by category/status/tag" },
+  { "name": "resolve_dependencies", "description": "Given a set of node ids, returns the transitive closure over `requires` edges plus a valid topological order, or reports a cycle" }
+]

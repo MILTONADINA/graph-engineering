@@ -1,0 +1,16 @@
+{
+  "inputs": {
+    "artifact": {
+      "data": {
+        "routes": [
+          { "method": "GET", "path": "/api/products", "auth": "none", "roles": [] },
+          { "method": "POST", "path": "/api/products", "auth": "required", "roles": ["admin"] }
+        ]
+      }
+    }
+  },
+  "expectedOutputs": {
+    "files": ["docs/API.md"],
+    "markdown": "| Method | Path | Auth | Roles |\n|---|---|---|---|\n| GET | /api/products | none |  |\n| POST | /api/products | required | admin |\n"
+  }
+}

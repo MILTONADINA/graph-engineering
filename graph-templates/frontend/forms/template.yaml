@@ -1,0 +1,66 @@
+id: frontend.forms
+name: Form State Hook
+version: 1.0.0
+description: >
+  useFormState<T> — generic field values, per-field errors, submit-in-flight,
+  and a top-level error message populated from a thrown ApiError. Validation
+  itself stays the caller's responsibility (e.g. a Zod schema client-side
+  mirroring the backend's backend.validation schema) — this hook only manages
+  state and surfaces errors, so it composes with any validation approach
+  instead of hard-coding one.
+category: frontend
+subcategory: forms
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "lib/forms/useFormState.ts" }
+  - { name: exports, type: array<string>, description: "useFormState, FieldErrors, UseFormStateResult" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: frontend.nextjs, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: lib/forms/useFormState.ts, source: files/useFormState.ts.template }
+  modify: []
+
+compatible_with:
+  upstream: [frontend.nextjs]
+  downstream: [frontend.authentication, frontend.dashboards]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "lib/forms/useFormState.ts exists and exports useFormState"
+
+validation:
+  checks:
+    - { type: file-exists, path: lib/forms/useFormState.ts }
+    - { type: exports, path: lib/forms/useFormState.ts, names: [useFormState] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/useFormState.test.tsx
+  command: "npm test -- useFormState"
+
+security:
+  considerations:
+    - "This hook never sends a request itself — the caller's onSubmit does, via apiFetch (frontend.nextjs), which is what actually enforces credentials: 'include' and envelope parsing. useFormState has no security surface of its own beyond not leaking raw error objects (it stores only .message from a caught ApiError, matching backend.error-handler's own discipline of never exposing more than message/status)."
+
+documentation:
+  required: [README.md]

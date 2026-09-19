@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "frontend.schema.json",
+  "title": "Frontend Schema Artifact",
+  "description": "Structured output of ai/frontend-agent: pages, components, and which api.schema routes each one consumes.",
+  "type": "object",
+  "required": ["$schema", "artifactType", "version", "metadata", "data"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "artifactType": { "const": "frontend.schema" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "metadata": { "$ref": "requirements.schema.json#/$defs/metadata" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["framework", "pages"],
+      "properties": {
+        "framework": { "enum": ["nextjs", "react"] },
+        "pages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["route", "name"],
+            "properties": {
+              "route": { "type": "string" },
+              "name": { "type": "string" },
+              "requiresAuth": { "type": "boolean" },
+              "consumesApiRoutes": { "type": "array", "items": { "type": "string" }, "description": "References to api.schema.json data.routes[].path" },
+              "components": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "kind"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "enum": ["form", "table", "dashboard", "authentication", "generic"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

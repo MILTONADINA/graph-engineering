@@ -1,0 +1,9 @@
+# Example: a backend-only API — no apps/ nesting, everything at the project root.
+#   npx create-graph-app --config examples/backend-only.project.config.yaml
+project:
+  name: my-api
+  type: backend
+backend:
+  framework: express
+database:
+  provider: neon-postgres

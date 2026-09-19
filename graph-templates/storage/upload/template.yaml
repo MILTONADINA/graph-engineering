@@ -1,0 +1,72 @@
+id: storage.upload
+name: Buffered File Upload
+version: 1.0.0
+description: >
+  Direct (non-presigned) file upload: multer memoryStorage + PutObjectCommand,
+  ported from the reference app's multer.config.ts + FileUpload.ts, with one
+  deliberate fix — uploadFileToS3 now throws APIError instead of swallowing
+  the error and returning null (REFERENCE_ARCHITECTURE.md §8/§9: new code
+  should throw-and-centralize like the rest of the app, not silently fail).
+category: storage
+subcategory: upload
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs:
+  - { name: keyPrefix, type: string, required: false, default: uploads }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/config/multer.config.ts, src/repository/FileUpload.ts" }
+  - { name: exports, type: array<string>, description: "upload, FileUpload (default instance), uploadFileToS3" }
+
+dependencies:
+  packages:
+    - { name: multer, version: "^1.4.5-lts.1" }
+    - { name: "@types/multer", version: "^1.4.12", dev: true }
+  services: []
+  templates:
+    - { id: storage.aws-s3, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/config/multer.config.ts, source: files/multer.config.ts }
+    - { path: src/repository/FileUpload.ts, source: files/FileUpload.ts.template }
+  modify: []
+
+compatible_with:
+  upstream: [storage.aws-s3, backend.error-handler]
+  downstream: [storage.file-validation, storage.delete, backend.express]
+
+consumes:
+  artifacts: [storage.schema]
+produces:
+  artifacts: [storage.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/repository/FileUpload.ts exists and exports uploadFileToS3"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/repository/FileUpload.ts }
+    - { type: exports, path: src/repository/FileUpload.ts, names: [uploadFileToS3] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/upload.test.ts
+  command: "npm test -- upload"
+
+security:
+  considerations:
+    - "Diverges from the reference app: uploadFileToS3 throws APIError(502) on failure instead of returning null — a silently-null upload is a correctness bug waiting to happen (callers forget to check), and it breaks the app's otherwise-consistent throw-and-centralize error convention."
+    - "This node alone applies NO file-size or MIME-type limit — multer accepts anything, unbounded, until paired with storage.file-validation. Treat that pairing as required for any endpoint accepting uploads from untrusted users, not optional hardening."
+    - "Keys are namespaced under keyPrefix (default uploads/) and randomized with a UUID — prevents both collisions and key enumeration (a caller can't guess another user's object key from a sequential id)."
+
+documentation:
+  required: [README.md]

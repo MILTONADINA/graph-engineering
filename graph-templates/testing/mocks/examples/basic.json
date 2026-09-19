@@ -1,0 +1,1 @@
+{ "inputs": {}, "expectedOutputs": { "files": ["tests/mocks/mockDatabase.ts"], "exports": ["createMockDatabase"] } }

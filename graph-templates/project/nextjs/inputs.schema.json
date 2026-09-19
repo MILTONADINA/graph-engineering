@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["projectName"],
+  "properties": {
+    "projectName": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "description": { "type": "string", "default": "" },
+    "port": { "type": "integer", "default": 3001, "minimum": 1, "maximum": 65535 },
+    "apiBaseUrl": { "type": "string", "default": "http://localhost:3000" }
+  }
+}

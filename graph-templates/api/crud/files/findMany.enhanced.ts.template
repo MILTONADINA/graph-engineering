@@ -1,0 +1,40 @@
+  async findMany(options: ListOptions = {}): Promise<ListResult> {
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));
+
+    // Closed allowlists — the only column references filters/sortBy are ever
+    // allowed to resolve to. A key not present here is silently ignored,
+    // never forwarded into a query. See api.crud's template.yaml "security".
+    const FILTERABLE_FIELDS: Record<string, any> = {
+{{#each input.filterableFields}}
+      {{this}}: {{../input.tableExportName}}.{{this}},
+{{/each}}
+    };
+    const SORTABLE_FIELDS: Record<string, any> = {
+{{#each input.sortableFields}}
+      {{this}}: {{../input.tableExportName}}.{{this}},
+{{/each}}
+    };
+
+    const whereClauses = Object.entries(options.filters ?? {})
+      .filter(([key]) => key in FILTERABLE_FIELDS)
+      .map(([key, value]) => eq(FILTERABLE_FIELDS[key], value));
+    const whereClause = whereClauses.length > 0 ? and(...whereClauses) : undefined;
+
+    const sortColumn = options.sortBy ? SORTABLE_FIELDS[options.sortBy] : undefined;
+    const orderClause = sortColumn ? (options.sortDir === 'desc' ? desc(sortColumn) : asc(sortColumn)) : undefined;
+
+    let query = database.select().from({{input.tableExportName}}).$dynamic();
+    if (whereClause) query = query.where(whereClause);
+    if (orderClause) query = query.orderBy(orderClause);
+    const rows = await query.limit(pageSize).offset((page - 1) * pageSize);
+
+    let countQuery = database
+      .select({ count: sql<number>`count(*)::int` })
+      .from({{input.tableExportName}})
+      .$dynamic();
+    if (whereClause) countQuery = countQuery.where(whereClause);
+    const [{ count }] = await countQuery;
+
+    return { rows, total: count };
+  }

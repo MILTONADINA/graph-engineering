@@ -1,0 +1,33 @@
+{
+  "inputs": {
+    "entityName": "Product",
+    "tableName": "products",
+    "fields": [
+      { "name": "name", "drizzleType": "varchar('name', { length: 200 })", "notNull": true },
+      { "name": "status", "drizzleType": "varchar('status', { length: 32 })", "notNull": true },
+      { "name": "priceCents", "drizzleType": "integer('price_cents')", "notNull": true }
+    ],
+    "filterableFields": ["status"],
+    "sortableFields": ["priceCents"],
+    "requiresAuth": true
+  },
+  "expectedOutputs": {
+    "files": [
+      "src/repository/Product.ts",
+      "src/config/schema.ts",
+      "src/services/productService.ts",
+      "src/controllers/productController.ts",
+      "src/routes/productRoutes.ts",
+      "src/app.ts"
+    ],
+    "routes": [
+      "GET /api/products",
+      "GET /api/products/:id",
+      "POST /api/products",
+      "PUT /api/products/:id",
+      "DELETE /api/products/:id"
+    ],
+    "filterableFields": ["status"],
+    "sortableFields": ["priceCents"]
+  }
+}

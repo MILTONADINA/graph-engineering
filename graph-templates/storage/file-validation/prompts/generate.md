@@ -1,0 +1,1 @@
+1. Render `files/fileValidation.ts.template`, expanding `{{json input.allowedMimeTypes}}` into a JS array literal. 2. Replace `src/config/multer.config.ts` with the rendered `files/multer.config.reconfigured.ts.template`. 3. Run `npm run build`.

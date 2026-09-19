@@ -1,0 +1,17 @@
+import express from 'express';
+import { {{input.entityName}}Controller } from '../controllers/{{input.entityNameCamel}}Controller';
+import { asyncHandler } from '../middlewares/asyncHandler';
+{{#if input.requiresAuth}}
+import { authMiddleware } from '../middlewares/authMiddleware';
+{{/if}}
+
+const router = express.Router();
+const controller = new {{input.entityName}}Controller();
+
+router.get('/', asyncHandler(controller.list));
+router.get('/:id', asyncHandler(controller.getById));
+router.post('/', {{#if input.requiresAuth}}authMiddleware, {{/if}}asyncHandler(controller.create));
+router.put('/:id', {{#if input.requiresAuth}}authMiddleware, {{/if}}asyncHandler(controller.update));
+router.delete('/:id', {{#if input.requiresAuth}}authMiddleware, {{/if}}asyncHandler(controller.remove));
+
+export const {{input.entityNameCamel}}Routes = router;

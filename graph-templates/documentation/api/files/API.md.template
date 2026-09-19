@@ -1,0 +1,9 @@
+# API Reference
+
+Rendered from `api.schema.json`. Regenerate with `documentation.api` whenever a route changes — don't hand-edit this file, edit the routes and re-run.
+
+| Method | Path | Auth | Roles |
+|---|---|---|---|
+{{#each artifact.data.routes}}
+| {{this.method}} | {{this.path}} | {{this.auth}} | {{this.roles}} |
+{{/each}}

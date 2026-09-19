@@ -1,0 +1,1 @@
+To add a field to the user profile (e.g. a username), extend `userProfileTable` in `schema.ts` directly (one new column line, same convention as `backend.repository`'s `modify`), then thread it through `RegisterInput`/`createUser`/`toPublicUser` in `Authentication.ts` — don't regenerate the whole repository file.

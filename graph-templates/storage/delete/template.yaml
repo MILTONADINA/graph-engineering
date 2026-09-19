@@ -1,0 +1,66 @@
+id: storage.delete
+name: Delete Object
+version: 1.0.0
+description: >
+  Appends a deleteFile(key) method to storage.upload's FileUpload repository
+  using DeleteObjectCommand, throwing APIError on failure rather than
+  swallowing it (same discipline as storage.upload's own fix).
+category: storage
+subcategory: delete
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/repository/FileUpload.ts (modified)" }
+  - { name: exports, type: array<string>, description: "deleteFile (method on FileUpload)" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: storage.upload, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify:
+    - { path: src/repository/FileUpload.ts, operation: append-to-class, className: FileUpload, source: files/deleteFile.method.ts }
+
+compatible_with:
+  upstream: [storage.upload, backend.error-handler]
+  downstream: [backend.express, authorization.rbac]
+
+consumes:
+  artifacts: [storage.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/repository/FileUpload.ts exports a class whose instance has a deleteFile method"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/repository/FileUpload.ts }
+    - { type: exports, path: src/repository/FileUpload.ts, names: [uploadFileToS3, deleteFile] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/delete.test.ts
+  command: "npm test -- delete"
+
+security:
+  considerations:
+    - "Same key-provenance requirement as storage.download: the key passed to deleteFile must come from a trusted, authorization-checked lookup, never directly from client input — an unchecked deleteFile is an arbitrary-object-deletion vulnerability."
+    - "This node does not check that the caller owns/is authorized for the object being deleted — that check belongs in the calling route, composed with authorization.rbac or authorization.tenant-isolation."
+    - "Deletion is irreversible (S3 has no default trash/undo) — callers that need recoverability should implement soft-delete at the database-record level (marking the row deleted) before actually calling deleteFile, or enable bucket versioning at the infrastructure level (outside this node's scope)."
+
+documentation:
+  required: [README.md]

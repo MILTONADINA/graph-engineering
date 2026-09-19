@@ -1,0 +1,65 @@
+id: database.transactions
+name: Transaction Helper
+version: 1.0.0
+description: >
+  A thin withTransaction(fn) wrapper around Drizzle's database.transaction,
+  documenting when a backend.repository method needs one: any multi-table
+  write, the same shape as the reference app's AuthenticationRepository.createUser
+  (insert into users, then user_profiles, in one transaction).
+category: database
+subcategory: transactions
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/utils/withTransaction.ts" }
+  - { name: exports, type: array<string>, description: "withTransaction" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: database.neon-postgres.connection, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/utils/withTransaction.ts, source: files/withTransaction.ts }
+  modify: []
+
+compatible_with:
+  upstream: [database.neon-postgres.connection]
+  downstream: [backend.repository]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/utils/withTransaction.ts exists and exports withTransaction"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/utils/withTransaction.ts }
+    - { type: exports, path: src/utils/withTransaction.ts, names: [withTransaction] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/withTransaction.test.ts
+  command: "npm test -- withTransaction"
+
+security:
+  considerations:
+    - "A failure partway through fn must roll back every write in it — that's Drizzle's transaction guarantee, not something this wrapper adds; the wrapper only exists so backend.repository methods don't each re-import database.transaction directly."
+    - "Never split a multi-table write that must be atomic (e.g. user + profile) across two separate top-level queries outside a transaction — a crash between them leaves inconsistent data, exactly the bug this node exists to prevent."
+
+documentation:
+  required: [README.md]

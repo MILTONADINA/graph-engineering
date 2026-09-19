@@ -1,0 +1,31 @@
+{
+  "$schema": "../../artifacts/requirements.schema.json",
+  "artifactType": "requirements",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.requirements-agent",
+    "generatedAt": "2026-01-15T10:00:00Z",
+    "projectName": "express-neon-s3-app"
+  },
+  "data": {
+    "projectName": "express-neon-s3-app",
+    "summary": "A TypeScript Express backend with Neon Postgres, JWT authentication (access + revocable refresh tokens), S3-compatible file storage, and a role-gated product catalog — this is the reference application (Archive.zip) re-expressed as a composed graph, demonstrating that the template library can reproduce it faithfully while fixing the gaps REFERENCE_ARCHITECTURE.md documents (swallowed upload errors, unimplemented refresh token, no file validation, no RBAC enforcement), plus a full CRUD resource the reference app never had, to exercise api.crud end to end.",
+    "entities": [
+      { "name": "User", "description": "An account with email/password auth.", "attributes": ["email", "passwordHash", "role", "status", "emailVerifiedAt"] },
+      { "name": "UserProfile", "description": "1:1 profile data split from the auth record.", "attributes": ["firstName", "lastName", "phone", "avatarUrl"] },
+      { "name": "Product", "description": "A catalog item admins manage; publicly listable/browsable.", "attributes": ["name", "description", "priceCents", "sku", "status", "imageKey"] }
+    ],
+    "features": [
+      { "id": "F1", "title": "Register / verify email", "priority": "must", "requiresAuth": false },
+      { "id": "F2", "title": "Login / logout", "priority": "must", "requiresAuth": false },
+      { "id": "F3", "title": "Forgot / reset password", "priority": "must", "requiresAuth": false },
+      { "id": "F4", "title": "Refresh access token", "priority": "must", "requiresAuth": false },
+      { "id": "F5", "title": "Upload a file to private object storage", "priority": "should", "requiresAuth": true, "requiresFileStorage": true },
+      { "id": "F6", "title": "Get a time-limited link to a stored file", "priority": "should", "requiresAuth": true, "requiresFileStorage": true },
+      { "id": "F7", "title": "Browse products (public), paginated/filterable/sortable", "priority": "must", "requiresAuth": false },
+      { "id": "F8", "title": "Create/update/delete a product (admin only)", "priority": "must", "requiresAuth": true }
+    ],
+    "nonFunctional": { "multiTenant": false, "expectedScale": "small-team" },
+    "constraints": ["Must use Neon serverless Postgres", "Must use S3-compatible object storage (not necessarily AWS)"]
+  }
+}

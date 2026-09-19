@@ -1,0 +1,1 @@
+1. `test.schema.json` validates against its schema. 2. Every `architecture.json` node id is either in a `suites[].nodeId` or in `coverageGaps` — no silent omission. 3. Every `suites[].status !== 'not-run'` has a `lastRunAt` timestamp (proof it was actually executed).

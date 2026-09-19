@@ -1,0 +1,1 @@
+Render `files/ci.yml.template` with `nodeVersion`/`mainBranch` substituted to `.github/workflows/ci.yml`. Remind the caller to add `DATABASE_URL`/`ACCESS_TOKEN_SECRET`/etc. as repository secrets in GitHub settings — this node cannot set those itself.

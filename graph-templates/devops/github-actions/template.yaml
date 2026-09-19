@@ -1,0 +1,69 @@
+id: devops.github-actions
+name: GitHub Actions CI
+version: 1.0.0
+description: >
+  A CI workflow (build + test on every PR/push to main) plus a separately
+  workflow_dispatch-gated job for applying database migrations — migrations
+  are never auto-applied on a merge, only on an explicit manual trigger, so a
+  bad migration can't ride along with an unrelated code change.
+category: devops
+subcategory: github-actions
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate]
+
+inputs:
+  - { name: nodeVersion, type: string, required: false, default: "20", description: "Should match devops.docker's nodeVersion if both are present" }
+  - { name: mainBranch, type: string, required: false, default: main }
+
+outputs:
+  - { name: files, type: array<string>, description: ".github/workflows/ci.yml" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+    - { id: testing.unit, relationship: extends }
+    - { id: testing.api, relationship: extends }
+    - { id: database.migrations, relationship: extends }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: .github/workflows/ci.yml, source: files/ci.yml.template }
+  modify: []
+
+compatible_with:
+  upstream: [project.node-express, devops.docker, testing.unit, testing.api, database.migrations]
+  downstream: [devops.deployment]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [deployment.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: ".github/workflows/ci.yml exists"
+
+validation:
+  checks:
+    - { type: file-exists, path: .github/workflows/ci.yml }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - "Every credential the workflow needs is read via ${{ secrets.X }} from GitHub's encrypted secret store — never a literal value in the YAML."
+    - "The database-migration job requires workflow_dispatch (a human clicking Run workflow) — it is never a step of the automatic build/test job, so a merged PR alone can never alter the production schema."
+    - "npm ci (not npm install) is used for reproducible, lockfile-pinned installs in CI."
+
+documentation:
+  required: [README.md]

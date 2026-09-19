@@ -1,0 +1,16 @@
+{
+  "inputs": {
+    "entityName": "Product",
+    "tableName": "products",
+    "fields": [
+      { "name": "name", "drizzleType": "varchar('name', { length: 200 })", "notNull": true },
+      { "name": "priceCents", "drizzleType": "integer('price_cents')", "notNull": true },
+      { "name": "sku", "drizzleType": "varchar('sku', { length: 64 })", "notNull": true, "unique": true }
+    ]
+  },
+  "expectedOutputs": {
+    "files": ["src/repository/Product.ts", "src/config/schema.ts"],
+    "exports": ["ProductRepository"],
+    "tableExportName": "productTable"
+  }
+}

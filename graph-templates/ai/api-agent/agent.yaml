@@ -1,0 +1,28 @@
+id: ai.api-agent
+name: API Agent
+version: 1.0.0
+description: >
+  LIGHTER TREATMENT: in this registry, most of the generic "API agent" role
+  is subsumed by ai.backend-agent + the api.crud node. This agent's narrower
+  actual job here is deciding api.crud's filterableFields/sortableFields
+  allowlists and populating api.schema.json's responseEnvelope/requestSchema
+  fields with detail ai.backend-agent doesn't fill in by default.
+category: ai
+subcategory: api-agent
+status: implemented
+type: ai-agent
+role: >
+  Refines api.schema.json after ai.backend-agent's initial pass: fills in
+  requestSchema (from backend.validation's Zod schemas), confirms filtering/
+  sorting allowlists match what api.crud actually wired, and catches any
+  route ai.backend-agent recorded inconsistently with the real generated code.
+consumes:
+  artifacts: [api.schema, database.schema]
+produces:
+  artifacts: [api.schema]
+tools: [read_artifact, write_artifact, read_project_files]
+handoff_to: [ai.documentation-agent, ai.testing-agent]
+validation:
+  checks: ["every route with a body has a requestSchema entry"]
+documentation:
+  required: [README.md]

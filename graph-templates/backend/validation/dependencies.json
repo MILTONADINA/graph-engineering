@@ -1,0 +1,1 @@
+{ "packages": [{ "name": "zod", "version": "^3.23.8" }], "services": [], "templates": [{ "id": "backend.error-handler", "relationship": "requires" }] }

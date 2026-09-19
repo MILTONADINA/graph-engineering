@@ -1,0 +1,4 @@
+{
+  "inputs": { "allowedMimeTypes": ["image/png", "image/jpeg"], "maxSizeBytes": 2097152 },
+  "expectedOutputs": { "files": ["src/middlewares/fileValidation.ts", "src/config/multer.config.ts"], "exports": ["fileFilter"] }
+}

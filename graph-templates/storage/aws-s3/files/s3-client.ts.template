@@ -1,0 +1,14 @@
+import { S3Client } from '@aws-sdk/client-s3';
+import { SECRETS } from '../utils/helpers';
+
+export const storageBucket = SECRETS.AWS_BUCKET_NAME;
+
+export const s3Client = new S3Client({
+  endpoint: SECRETS.AWS_ENDPOINT_URL_S3,
+  region: SECRETS.AWS_REGION,
+  credentials: {
+    accessKeyId: SECRETS.AWS_ACCESS_KEY_ID,
+    secretAccessKey: SECRETS.AWS_SECRET_ACCESS_KEY,
+  },
+  forcePathStyle: true,
+});

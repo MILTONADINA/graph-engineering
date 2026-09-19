@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "integration.schema.json",
+  "title": "Integration Schema Artifact",
+  "description": "Structured output of ai/integration-agent: third-party services wired in (payments, email, webhooks) and their env/config surface.",
+  "type": "object",
+  "required": ["$schema", "artifactType", "version", "metadata", "data"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "artifactType": { "const": "integration.schema" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "metadata": { "$ref": "requirements.schema.json#/$defs/metadata" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["integrations"],
+      "properties": {
+        "integrations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "kind", "nodeId"],
+            "properties": {
+              "name": { "type": "string" },
+              "kind": { "enum": ["payments", "email", "webhook-inbound", "webhook-outbound", "third-party-api"] },
+              "nodeId": { "type": "string", "description": "Graph node id, e.g. integrations.stripe" },
+              "envVars": { "type": "array", "items": { "type": "string" } },
+              "webhookRoutes": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

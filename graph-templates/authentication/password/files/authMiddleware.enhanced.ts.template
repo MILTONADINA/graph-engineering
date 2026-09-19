@@ -1,0 +1,26 @@
+export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  const token = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice(7)
+    : req.cookies?.access_token;
+
+  if (!token) {
+    return res.status(HttpStatusCodes.UNAUTHORIZED).json({ message: 'Authentication required' });
+  }
+
+  try {
+    const payload = jwt.verify(token, SECRETS.ACCESS_TOKEN_SECRET) as Partial<AccessTokenPayload>;
+    if (payload.type !== 'access' || typeof payload.sub !== 'string' || typeof payload.role !== 'string') {
+      return res.status(HttpStatusCodes.UNAUTHORIZED).json({ message: 'Invalid token' });
+    }
+
+    const user = await authenticationRepository.findUserById(payload.sub);
+    if (!user || user.status !== 'active') {
+      return res.status(HttpStatusCodes.UNAUTHORIZED).json({ message: 'Invalid token' });
+    }
+
+    req.user = { id: user.id, role: user.role, email: user.email };
+    return next();
+  } catch {
+    return res.status(HttpStatusCodes.UNAUTHORIZED).json({ message: 'Invalid token' });
+  }
+};

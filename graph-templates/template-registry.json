@@ -1,0 +1,2137 @@
+{
+  "$schema": "template-registry.schema.json",
+  "generatedAt": "2026-09-17T21:08:07.249Z",
+  "templateCount": 55,
+  "templates": [
+    {
+      "id": "api.crud",
+      "name": "CRUD Resource (composed)",
+      "version": "1.0.0",
+      "category": "api",
+      "subcategory": "crud",
+      "status": "implemented",
+      "description": "The flagship API-category node: given one entity, composes backend.repository -> backend.service -> backend.controller -> backend.express in sequence with one shared entityName/tableName/fields input, then patches the generated repository's findMany() to apply an ALLOWLISTED subset of backend.pagination's parsed filters/sortBy as real Drizzle where/orderBy clauses (backend.repository's own findMany ignores filters/sortBy entirely — this node is what turns \"parsed query params\" into \"safe, applied query\"). This is where the original brief's separately-named api/pagination, api/filtering, api/sorting capabilities actually live — see the three `planned` stub templates next to this one, which point back here.",
+      "tags": [
+        "api",
+        "crud",
+        "drizzle",
+        "pagination",
+        "filtering",
+        "sorting"
+      ],
+      "inputs": [
+        "entityName",
+        "tableName",
+        "fields",
+        "filterableFields",
+        "sortableFields",
+        "requiresAuth"
+      ],
+      "outputs": [
+        "files",
+        "routes",
+        "filterableFields",
+        "sortableFields"
+      ],
+      "dependsOn": [
+        {
+          "id": "backend.repository",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.service",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.controller",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.express",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.pagination",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "backend.error-handler",
+        "backend.api-response",
+        "backend.middleware",
+        "backend.validation",
+        "testing.api",
+        "ai.api-agent",
+        "backend.repository",
+        "backend.service",
+        "backend.controller",
+        "backend.express",
+        "backend.pagination"
+      ],
+      "path": "api/crud"
+    },
+    {
+      "id": "api.filtering",
+      "name": "API Filtering (see api.crud)",
+      "version": "0.1.0",
+      "category": "api",
+      "subcategory": "filtering",
+      "status": "planned",
+      "description": "Not separately implemented. Column-level filtering (with an allowlist security model) lives in api.crud's findMany patch. This stub exists only so the registry documents where the capability the original brief named \"API Filtering\" actually lives, rather than silently omitting it.",
+      "tags": [
+        "api",
+        "filtering",
+        "crud"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "api.crud",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "api.crud"
+      ],
+      "path": "api/filtering"
+    },
+    {
+      "id": "api.pagination",
+      "name": "API Pagination (see api.crud)",
+      "version": "0.1.0",
+      "category": "api",
+      "subcategory": "pagination",
+      "status": "planned",
+      "description": "Not separately implemented. Pagination query-parsing lives in backend.pagination (parseListQuery) and LIMIT/OFFSET application lives in backend.repository/api.crud's findMany. This stub exists only so the registry documents where the capability the original brief named \"API Pagination\" actually lives, rather than silently omitting it.",
+      "tags": [
+        "api",
+        "pagination",
+        "crud"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "backend.pagination",
+          "relationship": "requires"
+        },
+        {
+          "id": "api.crud",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "backend.pagination",
+        "api.crud"
+      ],
+      "path": "api/pagination"
+    },
+    {
+      "id": "api.search",
+      "name": "Full-Text / Fuzzy Search",
+      "version": "0.1.0",
+      "category": "api",
+      "subcategory": "search",
+      "status": "planned",
+      "description": "Genuinely distinct future capability (Postgres tsvector/pg_trgm full-text or fuzzy search across one or more entities) — not implemented; not faked as a thin wrapper over api.crud's exact-match filtering, which it is not a substitute for. Planned: a search index column/migration, a query-parsing node analogous to backend.pagination, and a ranked-results response shape distinct from api.schema.json's plain route list.",
+      "tags": [
+        "api",
+        "search",
+        "crud",
+        "postgres",
+        "pagination",
+        "filtering",
+        "migration"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "database.neon-postgres.connection"
+      ],
+      "path": "api/search"
+    },
+    {
+      "id": "api.sorting",
+      "name": "API Sorting (see api.crud)",
+      "version": "0.1.0",
+      "category": "api",
+      "subcategory": "sorting",
+      "status": "planned",
+      "description": "Not separately implemented. Column-level sorting (with an allowlist security model) lives in api.crud's findMany patch. This stub exists only so the registry documents where the capability the original brief named \"API Sorting\" actually lives, rather than silently omitting it.",
+      "tags": [
+        "api",
+        "sorting",
+        "crud"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "api.crud",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "api.crud"
+      ],
+      "path": "api/sorting"
+    },
+    {
+      "id": "api.webhooks",
+      "name": "Inbound Webhook Receiver",
+      "version": "0.1.0",
+      "category": "api",
+      "subcategory": "webhooks",
+      "status": "planned",
+      "description": "Genuinely distinct future capability — an inbound webhook route needs signature verification (e.g. HMAC against a provider secret), raw-body parsing (before express.json() consumes the stream, which most webhook signature schemes require), and idempotency-key deduplication, none of which api.crud provides or should be stretched to provide. Planned: a provider-agnostic verifyAndParseWebhook(secret, rawBody, signatureHeader) helper plus a route scaffold, aligned with integrations.webhooks (integrations/ category, also planned).",
+      "tags": [
+        "api",
+        "webhooks",
+        "crud",
+        "webhook"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express"
+      ],
+      "path": "api/webhooks"
+    },
+    {
+      "id": "authentication.jwt",
+      "name": "JWT Access + Refresh Tokens",
+      "version": "1.0.0",
+      "category": "authentication",
+      "subcategory": "jwt",
+      "status": "implemented",
+      "description": "Token issuance/verification, ported from the reference app's authMiddleware.ts (Bearer header OR httpOnly cookie -> verify -> req.user). Also fills the gap REFERENCE_ARCHITECTURE.md §8 flags — a refresh token the reference README promises but never implements — by folding it into this node rather than a separate \"authentication.refresh-token\" template (same consolidation pattern used elsewhere in this library, e.g. storage.presigned-url folding upload+download). Access tokens are short-lived stateless JWTs (can't be revoked before expiry); refresh tokens are opaque, hashed, DB-backed, and revocable — the same hash-and-store-once idiom the reference app already uses for its auth_tokens (email verification / password reset) table.",
+      "tags": [
+        "authentication",
+        "jwt",
+        "jsonwebtoken",
+        "auth",
+        "storage",
+        "presigned",
+        "upload",
+        "download",
+        "refresh",
+        "password"
+      ],
+      "inputs": [
+        "accessTokenTtl",
+        "refreshTokenTtlDays"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.middleware",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [
+        {
+          "name": "ACCESS_TOKEN_SECRET",
+          "required": true,
+          "secret": true,
+          "description": "HMAC secret signing access JWTs.",
+          "usedBy": [
+            "authentication.jwt"
+          ]
+        }
+      ],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "backend.error-handler",
+        "backend.middleware",
+        "authentication.password",
+        "backend.express",
+        "authorization.rbac",
+        "authorization.tenant-isolation"
+      ],
+      "path": "authentication/jwt"
+    },
+    {
+      "id": "authentication.oauth",
+      "name": "OAuth2 Login (Google/GitHub)",
+      "version": "0.1.0",
+      "category": "authentication",
+      "subcategory": "oauth",
+      "status": "planned",
+      "description": "Third-party OAuth2 login (Google/GitHub, etc.). Not yet implemented in this library. Once built, it would extend authentication.jwt rather than replace it: after a successful OAuth callback, it issues the same access/refresh tokens authentication.jwt already defines, skipping password verification entirely for that login path.",
+      "tags": [
+        "authentication",
+        "oauth",
+        "auth",
+        "jwt",
+        "refresh",
+        "password"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "authentication.jwt",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "authentication.jwt"
+      ],
+      "path": "authentication/oauth"
+    },
+    {
+      "id": "authentication.password",
+      "name": "Password Authentication (Register/Login/Reset)",
+      "version": "1.0.0",
+      "category": "authentication",
+      "subcategory": "password",
+      "status": "implemented",
+      "description": "Full register/login/logout/forgot-password/reset-password/verify-email flow, restructured through the repository -> service -> controller -> route layers (backend.repository/service/controller/express conventions) instead of the reference app's services-coupled-to-(req,res) pattern. Business logic (bcrypt hashing, single-use hashed tokens, constant-response forgot-password) is ported faithfully; the layering is the deliberate improvement.",
+      "tags": [
+        "authentication",
+        "password",
+        "bcrypt",
+        "email-validator",
+        "auth"
+      ],
+      "inputs": [
+        "minPasswordLength"
+      ],
+      "outputs": [
+        "files",
+        "exports",
+        "routes"
+      ],
+      "dependsOn": [
+        {
+          "id": "authentication.jwt",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.validation",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.api-response",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.middleware",
+          "relationship": "requires"
+        },
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [
+        {
+          "name": "SALT_ROUNDS",
+          "required": false,
+          "secret": false,
+          "description": "bcrypt cost factor, default 12, enforced >= 10",
+          "usedBy": [
+            "authentication.password"
+          ]
+        }
+      ],
+      "compatibleNodes": [
+        "authentication.jwt",
+        "database.neon-postgres.connection",
+        "authorization.rbac",
+        "authorization.tenant-isolation",
+        "backend.error-handler",
+        "backend.validation",
+        "backend.api-response",
+        "backend.middleware"
+      ],
+      "path": "authentication/password"
+    },
+    {
+      "id": "authentication.session",
+      "name": "Server-Side Session Authentication",
+      "version": "0.1.0",
+      "category": "authentication",
+      "subcategory": "session",
+      "status": "planned",
+      "description": "Server-side session-store alternative to authentication.jwt — trades the stateless JWT's \"no revocation before expiry\" tradeoff for instant revocation, at the cost of requiring a session store (e.g. Redis) and making every request a store lookup. Not yet implemented in this library; registered so the graph documents the gap. Prefer authentication.jwt unless instant session revocation is a hard requirement.",
+      "tags": [
+        "authentication",
+        "session",
+        "auth",
+        "jwt"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "authorization.rbac"
+      ],
+      "path": "authentication/session"
+    },
+    {
+      "id": "authorization.permissions",
+      "name": "Permission Matrix",
+      "version": "0.1.0",
+      "category": "authorization",
+      "subcategory": "permissions",
+      "status": "planned",
+      "description": "A granular resource:action permission-matrix alternative/extension to authorization.rbac's fixed role list — e.g. `products:delete`, `orders:refund` as individually grantable permissions rather than baking everything into a small role enum. Not yet implemented in this library.",
+      "tags": [
+        "authorization",
+        "permissions",
+        "auth",
+        "rbac",
+        "delete",
+        "permission",
+        "role"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "authorization.rbac",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "authentication.jwt",
+        "authorization.rbac"
+      ],
+      "path": "authorization/permissions"
+    },
+    {
+      "id": "authorization.rbac",
+      "name": "Role-Based Access Control",
+      "version": "1.0.0",
+      "category": "authorization",
+      "subcategory": "rbac",
+      "status": "implemented",
+      "description": "The reference app has a `role` column (customer/admin) on `users` that nothing checks. This node adds the missing enforcement: a requireRole(...) middleware factory reading req.user.role (set by authentication.jwt's authMiddleware) and rejecting anything not in the allowlist.",
+      "tags": [
+        "authorization",
+        "rbac",
+        "auth",
+        "jwt",
+        "role"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "authentication.jwt",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "authentication.jwt",
+        "backend.error-handler",
+        "backend.express",
+        "api.crud"
+      ],
+      "path": "authorization/rbac"
+    },
+    {
+      "id": "authorization.roles",
+      "name": "Dynamic Role Definitions",
+      "version": "0.1.0",
+      "category": "authorization",
+      "subcategory": "roles",
+      "status": "planned",
+      "description": "Application-defined, runtime-configurable roles (a roles table + role assignment) as opposed to authorization.rbac's hardcoded customer/admin enum — for applications that need to let an admin create new roles without a code change/migration. Not yet implemented in this library.",
+      "tags": [
+        "authorization",
+        "roles",
+        "auth",
+        "rbac",
+        "migration",
+        "role"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "authorization.rbac",
+          "relationship": "extends"
+        },
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "authentication.jwt",
+        "database.neon-postgres.connection",
+        "authorization.rbac"
+      ],
+      "path": "authorization/roles"
+    },
+    {
+      "id": "authorization.tenant-isolation",
+      "name": "Tenant Isolation",
+      "version": "1.0.0",
+      "category": "authorization",
+      "subcategory": "tenant-isolation",
+      "status": "implemented",
+      "description": "For multi-tenant applications: a requireTenant middleware that reads a tenantId claim off the authenticated user and attaches req.tenantId, plus a composable Drizzle helper (withTenantScope) showing the pattern a backend.repository-generated class should follow to scope its queries. This node supplies the plumbing; it does not retroactively rewrite any existing repository's queries — see README for the honest scope boundary.",
+      "tags": [
+        "authorization",
+        "tenant-isolation",
+        "auth",
+        "drizzle",
+        "tenant"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "authentication.jwt",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "authentication.jwt",
+        "backend.repository",
+        "backend.express",
+        "api.crud"
+      ],
+      "path": "authorization/tenant-isolation"
+    },
+    {
+      "id": "backend.api-response",
+      "name": "API Response Envelope",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "api-response",
+      "status": "implemented",
+      "description": "Closes the gap noted in REFERENCE_ARCHITECTURE.md §6/§8: the reference app's error responses are consistent ({ error: { message, status } } via backend.error-handler) but success responses are ad hoc. This node adds sendSuccess/sendPaginated helpers so every controller emits one predictable envelope shape.",
+      "tags": [
+        "backend",
+        "api-response"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "backend.error-handler",
+        "backend.controller",
+        "api.crud"
+      ],
+      "path": "backend/api-response"
+    },
+    {
+      "id": "backend.controller",
+      "name": "Entity Controller",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "controller",
+      "status": "implemented",
+      "description": "Generates the thin Express-facing controller layer the reference app never had (routes called services directly). Translates HTTP <-> service calls using sendSuccess/sendPaginated (backend.api-response) and parseListQuery (backend.pagination); methods are async arrow class fields (stable `this`, passable directly as Express handlers) and never try/catch — they rely on backend.middleware's asyncHandler at the route layer.",
+      "tags": [
+        "backend",
+        "controller",
+        "ci",
+        "pagination"
+      ],
+      "inputs": [
+        "entityName"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "backend.service",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.api-response",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.pagination",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.middleware",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "backend.service",
+        "backend.api-response",
+        "backend.pagination",
+        "backend.middleware",
+        "backend.express",
+        "api.crud",
+        "testing.api"
+      ],
+      "path": "backend/controller"
+    },
+    {
+      "id": "backend.error-handler",
+      "name": "Centralized Error Handler",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "error-handler",
+      "status": "implemented",
+      "description": "The APIError class and centralized Express error-handling middleware from the reference app's errorMiddleware.ts. Every service/controller in this template library throws APIError(message, status) and lets this single middleware format the response — the one error-handling idiom the reference app's two competing patterns (throw vs. repository.handleError) should converge on for new code.",
+      "tags": [
+        "backend",
+        "error-handler"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "backend.service",
+        "backend.controller",
+        "api.crud",
+        "authentication.password",
+        "storage.upload"
+      ],
+      "path": "backend/error-handler"
+    },
+    {
+      "id": "backend.express",
+      "name": "Entity Route",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "express",
+      "status": "implemented",
+      "description": "Generates an express.Router() for one entity (GET list, GET :id, POST, PUT :id, DELETE :id), each handler wrapped in asyncHandler, optionally gated by authMiddleware, and mounts it into src/app.ts at the same `// Import routes` / `// Routes` markers project.node-express reserved — the same shape as the reference app's authRoutes.ts + its app.use('/api/auth', ...) line.",
+      "tags": [
+        "backend",
+        "express",
+        "auth",
+        "delete"
+      ],
+      "inputs": [
+        "entityName",
+        "tableName",
+        "requiresAuth"
+      ],
+      "outputs": [
+        "files",
+        "routes"
+      ],
+      "dependsOn": [
+        {
+          "id": "backend.controller",
+          "relationship": "requires"
+        },
+        {
+          "id": "authentication.jwt",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "backend.controller",
+        "authentication.jwt",
+        "testing.api",
+        "api.crud"
+      ],
+      "path": "backend/express"
+    },
+    {
+      "id": "backend.middleware",
+      "name": "Async Route Handler Wrapper",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "middleware",
+      "status": "implemented",
+      "description": "A single asyncHandler(fn) wrapper that forwards a rejected promise from an async Express handler to next(err) instead of crashing the process or requiring every handler to repeat try/catch. Generalizes the reference app's inline try/catch-per-method pattern so generated controllers can just throw APIError and rely on backend.error-handler to format the response.",
+      "tags": [
+        "backend",
+        "middleware"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "backend.error-handler",
+        "backend.controller",
+        "backend.express"
+      ],
+      "path": "backend/middleware"
+    },
+    {
+      "id": "backend.pagination",
+      "name": "List Query Parsing",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "pagination",
+      "status": "implemented",
+      "description": "parseListQuery(query) reads page/pageSize/sortBy/sortDir/free-form filter params off req.query into a typed, bounded shape (page >= 1, 1 <= pageSize <= 100). Pairs with backend.api-response's PaginationMeta and backend.repository's ListOptions — this node defines the query-parsing half, api.crud wires the result to entity-specific filterable/sortable columns.",
+      "tags": [
+        "backend",
+        "pagination",
+        "crud",
+        "ci"
+      ],
+      "inputs": [
+        "defaultPageSize",
+        "maxPageSize"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "backend.controller",
+        "api.crud"
+      ],
+      "path": "backend/pagination"
+    },
+    {
+      "id": "backend.repository",
+      "name": "Entity Repository (Drizzle)",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "repository",
+      "status": "implemented",
+      "description": "Generates a Drizzle-backed repository class for one entity — create, findById, findMany (paginated), update, remove — following the reference app's AuthenticationRepository conventions (class per aggregate, eq()-based lookups, APIError on not-found). Also appends the entity's pgTable definition to src/config/schema.ts. This is the node the original brief's \"database.repository\" and \"database.CRUD entity\" map to — kept in `backend/` because it is a backend- layer concern (query shape, error semantics) that happens to read the schema database.neon-postgres.connection owns, not a database-connection concern itself.",
+      "tags": [
+        "backend",
+        "repository",
+        "drizzle-orm",
+        "crud",
+        "auth",
+        "postgres",
+        "drizzle"
+      ],
+      "inputs": [
+        "entityName",
+        "tableName",
+        "fields"
+      ],
+      "outputs": [
+        "files",
+        "exports",
+        "tableExportName"
+      ],
+      "dependsOn": [
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "backend.error-handler",
+        "backend.service",
+        "api.crud",
+        "testing.unit"
+      ],
+      "path": "backend/repository"
+    },
+    {
+      "id": "backend.service",
+      "name": "Entity Service",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "service",
+      "status": "implemented",
+      "description": "Generates a business-logic class for one entity that wraps its backend.repository and takes/returns plain data — never Express Request/Response. This is the deliberate fix for the reference app's authService.ts coupling services directly to (req, res) (REFERENCE_ARCHITECTURE.md §8), so services stay unit-testable and reusable outside HTTP (e.g. from a queue worker).",
+      "tags": [
+        "backend",
+        "service",
+        "auth",
+        "test"
+      ],
+      "inputs": [
+        "entityName"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "backend.repository",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "backend.repository",
+        "backend.error-handler",
+        "backend.controller",
+        "api.crud",
+        "testing.unit"
+      ],
+      "path": "backend/service"
+    },
+    {
+      "id": "backend.validation",
+      "name": "Request Validation Middleware (Zod)",
+      "version": "1.0.0",
+      "category": "backend",
+      "subcategory": "validation",
+      "status": "implemented",
+      "description": "Closes the gap noted in REFERENCE_ARCHITECTURE.md §8: the reference app's request validation is hand-rolled once inside AuthenticationRepository.validateUserData and not reusable. This node adds validateBody/validateParams middleware factories backed by Zod schemas, in the same fail-fast spirit as the SECRETS env validation in project.node-express.",
+      "tags": [
+        "backend",
+        "validation",
+        "zod",
+        "auth"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "backend.error-handler",
+        "backend.express",
+        "api.crud",
+        "authentication.password"
+      ],
+      "path": "backend/validation"
+    },
+    {
+      "id": "database.migrations",
+      "name": "Drizzle Migration Workflow",
+      "version": "1.0.0",
+      "category": "database",
+      "subcategory": "migrations",
+      "status": "implemented",
+      "description": "Not a code-generating node — this documents and guards the drizzle-kit migration workflow that database.neon-postgres.connection's npm scripts (dbGenerate/dbMigrate) drive. Ensures src/migrations/ exists with a README explaining the workflow so an agent never hand-writes migration SQL.",
+      "tags": [
+        "database",
+        "migrations",
+        "postgres",
+        "drizzle",
+        "migration"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "backend.repository",
+        "devops.github-actions"
+      ],
+      "path": "database/migrations"
+    },
+    {
+      "id": "database.neon-postgres.connection",
+      "name": "Neon PostgreSQL Connection (Drizzle)",
+      "version": "1.0.0",
+      "category": "database",
+      "subcategory": "neon-postgres",
+      "status": "implemented",
+      "description": "The Neon serverless Postgres connection layer, taken directly from the reference app's src/config/database.ts and drizzle.config.ts: a WebSocket- backed Pool wrapped by drizzle-orm's neon-serverless driver, plus the base (table-free) schema.ts that backend.repository nodes append pgTable definitions to, and drizzle-kit configuration for migrations.",
+      "tags": [
+        "database",
+        "neon-postgres",
+        "serverless",
+        "drizzle-orm",
+        "ws",
+        "drizzle-kit",
+        "postgres",
+        "drizzle",
+        "migration"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [
+        {
+          "name": "DATABASE_URL",
+          "required": true,
+          "secret": true,
+          "description": "Neon pooled Postgres connection string. Accepts NEON_DATABASE_URL as an alias, matching the reference app's convention.",
+          "usedBy": [
+            "database.neon-postgres.connection"
+          ]
+        }
+      ],
+      "compatibleNodes": [
+        "project.node-express",
+        "backend.repository",
+        "database.migrations",
+        "database.transactions",
+        "database.seed"
+      ],
+      "path": "database/neon-postgres"
+    },
+    {
+      "id": "database.seed",
+      "name": "Database Seed Script",
+      "version": "1.0.0",
+      "category": "database",
+      "subcategory": "seed",
+      "status": "implemented",
+      "description": "Generates a standalone src/scripts/seed.ts that inserts example rows for one or more entities backend.repository created, runnable via `npm run seed`. Refuses to run when NODE_ENV is production, since a seed script is a destructive/idempotent-unsafe operation that must never touch a live database.",
+      "tags": [
+        "database",
+        "seed"
+      ],
+      "inputs": [
+        "entities"
+      ],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.repository",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "backend.repository",
+        "testing.integration"
+      ],
+      "path": "database/seed"
+    },
+    {
+      "id": "database.transactions",
+      "name": "Transaction Helper",
+      "version": "1.0.0",
+      "category": "database",
+      "subcategory": "transactions",
+      "status": "implemented",
+      "description": "A thin withTransaction(fn) wrapper around Drizzle's database.transaction, documenting when a backend.repository method needs one: any multi-table write, the same shape as the reference app's AuthenticationRepository.createUser (insert into users, then user_profiles, in one transaction).",
+      "tags": [
+        "database",
+        "transactions",
+        "auth",
+        "drizzle",
+        "transaction"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "backend.repository"
+      ],
+      "path": "database/transactions"
+    },
+    {
+      "id": "devops.aws",
+      "name": "AWS Deployment (ECS / App Runner / Lambda)",
+      "version": "0.1.0",
+      "category": "devops",
+      "subcategory": "aws",
+      "status": "planned",
+      "description": "Planned. Deploys the devops.docker image to an AWS compute target (ECS Fargate, App Runner, or Lambda via a container image) — not yet implemented. A future implementation should reuse devops.docker's image unmodified and add only the target-specific deploy manifest (task definition, apprunner.yaml, or Lambda container config), not a parallel Dockerfile.",
+      "tags": [
+        "devops",
+        "aws",
+        "docker",
+        "ci"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "devops.docker",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "devops.docker",
+        "devops.github-actions"
+      ],
+      "path": "devops/aws"
+    },
+    {
+      "id": "devops.deployment",
+      "name": "Deployment Orchestrator",
+      "version": "0.1.0",
+      "category": "devops",
+      "subcategory": "deployment",
+      "status": "planned",
+      "description": "Planned. A higher-level composition node analogous to api.crud — given a target (docker/serverless/vm), invokes devops.docker + devops.github-actions + a target-specific node (e.g. devops.aws, also planned) in the right order and reconciles their combined output into one deployment.schema.json. Not yet implemented; devops.docker and devops.github-actions are usable independently in the meantime.",
+      "tags": [
+        "devops",
+        "deployment",
+        "crud",
+        "docker",
+        "ci"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "devops.docker",
+          "relationship": "requires"
+        },
+        {
+          "id": "devops.github-actions",
+          "relationship": "requires"
+        },
+        {
+          "id": "devops.aws",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "devops.docker",
+        "devops.github-actions",
+        "devops.aws"
+      ],
+      "path": "devops/deployment"
+    },
+    {
+      "id": "devops.docker",
+      "name": "Docker Build",
+      "version": "1.0.0",
+      "category": "devops",
+      "subcategory": "docker",
+      "status": "implemented",
+      "description": "A multi-stage Dockerfile (build stage compiles TypeScript, slim node:alpine runtime stage ships only dist/ + production node_modules), .dockerignore, and a docker-compose.yml for local runs. Targets Neon serverless Postgres (no bundled Postgres container) and S3-compatible object storage, matching the reference stack — the runtime image never contains source TypeScript, dev dependencies, or .env files.",
+      "tags": [
+        "devops",
+        "docker",
+        "s3",
+        "storage",
+        "postgres",
+        "ci"
+      ],
+      "inputs": [
+        "port",
+        "nodeVersion"
+      ],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "database.neon-postgres.connection",
+        "storage.aws-s3",
+        "devops.github-actions",
+        "devops.deployment"
+      ],
+      "path": "devops/docker"
+    },
+    {
+      "id": "devops.environments",
+      "name": "Environment Variable Aggregator",
+      "version": "1.0.0",
+      "category": "devops",
+      "subcategory": "environments",
+      "status": "implemented",
+      "description": "Reads every selected node's environment.variables (from the project's resolved architecture.json, cross-referenced against template-registry.json) and writes one consolidated .env.example plus docs/ENVIRONMENT.md, superseding project.node-express's minimal starter .env.example. Conceptually the last node to run in any graph, since it needs to see what every other node declared.",
+      "tags": [
+        "devops",
+        "environments"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "variableCount"
+      ],
+      "dependsOn": [],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "database.neon-postgres.connection",
+        "storage.aws-s3",
+        "authentication.jwt",
+        "authentication.password",
+        "devops.docker",
+        "devops.github-actions"
+      ],
+      "path": "devops/environments"
+    },
+    {
+      "id": "devops.github-actions",
+      "name": "GitHub Actions CI",
+      "version": "1.0.0",
+      "category": "devops",
+      "subcategory": "github-actions",
+      "status": "implemented",
+      "description": "A CI workflow (build + test on every PR/push to main) plus a separately workflow_dispatch-gated job for applying database migrations — migrations are never auto-applied on a merge, only on an explicit manual trigger, so a bad migration can't ride along with an unrelated code change.",
+      "tags": [
+        "devops",
+        "github-actions",
+        "ci",
+        "test",
+        "migration"
+      ],
+      "inputs": [
+        "nodeVersion",
+        "mainBranch"
+      ],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        },
+        {
+          "id": "testing.unit",
+          "relationship": "extends"
+        },
+        {
+          "id": "testing.api",
+          "relationship": "extends"
+        },
+        {
+          "id": "database.migrations",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "devops.docker",
+        "testing.unit",
+        "testing.api",
+        "database.migrations",
+        "devops.deployment"
+      ],
+      "path": "devops/github-actions"
+    },
+    {
+      "id": "documentation.agent-context",
+      "name": "Agent Context Summary",
+      "version": "1.0.0",
+      "category": "documentation",
+      "subcategory": "agent-context",
+      "status": "implemented",
+      "description": "Generates .graph/CONTEXT.md — a dense, tabular summary for an AI agent resuming work on this project: which nodes have run, which of the ten artifact types exist and where, and pointers to GRAPH-NODE-SPEC.md/ TEMPLATE-SPEC.md for the contract. Written for a machine reader, not a human — documentation.architecture is this node's human-facing counterpart.",
+      "tags": [
+        "documentation",
+        "agent-context",
+        "ci"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [],
+      "environment": [],
+      "compatibleNodes": [],
+      "path": "documentation/agent-context"
+    },
+    {
+      "id": "documentation.api",
+      "name": "API Documentation",
+      "version": "1.0.0",
+      "category": "documentation",
+      "subcategory": "api",
+      "status": "implemented",
+      "description": "Renders docs/API.md — one Markdown table (method, path, auth, roles) — from the api.schema.json artifact's data.routes array. Purely a rendering step; it never invents route information, it only formats what api.crud/backend.express already recorded there.",
+      "tags": [
+        "documentation",
+        "api",
+        "crud",
+        "auth",
+        "role"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [
+        {
+          "id": "api.crud",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "api.crud",
+        "backend.express",
+        "documentation.agent-context"
+      ],
+      "path": "documentation/api"
+    },
+    {
+      "id": "documentation.architecture",
+      "name": "Architecture Documentation",
+      "version": "1.0.0",
+      "category": "documentation",
+      "subcategory": "architecture",
+      "status": "implemented",
+      "description": "Renders docs/ARCHITECTURE.md from architecture.json — a human-readable record of which stack was chosen and which graph nodes actually ran, in what order. This is the human-facing counterpart to documentation.agent-context, which renders the same underlying information for an agent instead.",
+      "tags": [
+        "documentation",
+        "architecture",
+        "ci"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [],
+      "environment": [],
+      "compatibleNodes": [
+        "documentation.agent-context"
+      ],
+      "path": "documentation/architecture"
+    },
+    {
+      "id": "documentation.setup",
+      "name": "Setup / Quick Start Documentation",
+      "version": "1.0.0",
+      "category": "documentation",
+      "subcategory": "setup",
+      "status": "implemented",
+      "description": "Inserts or replaces a \"## Quick Start\" section in the project's root README.md — install, env setup, migrate (if database.neon-postgres.connection ran), run — generalized to whichever nodes .graph/manifest.json shows actually ran, modeled on reference-app/README.md's own Quick Start section.",
+      "tags": [
+        "documentation",
+        "setup",
+        "postgres"
+      ],
+      "inputs": [
+        "projectName"
+      ],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express"
+      ],
+      "path": "documentation/setup"
+    },
+    {
+      "id": "frontend.authentication",
+      "name": "Auth Context + Login/Register Pages",
+      "version": "1.0.0",
+      "category": "frontend",
+      "subcategory": "authentication",
+      "status": "implemented",
+      "description": "A React context (AuthProvider/useAuth) that hydrates the current user by calling GET /api/auth/me on mount (the only way a client can know \"am I logged in\" when the access token lives in an httpOnly cookie it can never read), plus login and register pages wired to authentication.password's routes through frontend.nextjs's apiFetch. Wraps the app's root layout in AuthProvider via a files.modify on project.nextjs's marked layout.tsx.",
+      "tags": [
+        "frontend",
+        "authentication",
+        "auth",
+        "password"
+      ],
+      "inputs": [
+        "redirectAfterLogin"
+      ],
+      "outputs": [
+        "files",
+        "exports",
+        "routes"
+      ],
+      "dependsOn": [
+        {
+          "id": "frontend.nextjs",
+          "relationship": "requires"
+        },
+        {
+          "id": "authentication.password",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "frontend.nextjs",
+        "authentication.password",
+        "frontend.tables",
+        "frontend.dashboards"
+      ],
+      "path": "frontend/authentication"
+    },
+    {
+      "id": "frontend.dashboards",
+      "name": "Dashboard Layout",
+      "version": "0.1.0",
+      "category": "frontend",
+      "subcategory": "dashboards",
+      "status": "planned",
+      "description": "Planned. A dashboard shell (sidebar nav gated by useAuth's user.role, stat tiles, a page layout composing frontend.tables' DataTable + frontend.forms' useFormState for settings/profile forms) — the natural next composition once frontend.authentication + frontend.tables + frontend.forms exist individually. Not yet implemented: it's a composition of already-implemented pieces rather than new primitives, so it's lower priority than the pieces it would compose.",
+      "tags": [
+        "frontend",
+        "dashboards",
+        "auth",
+        "role"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [
+        {
+          "id": "frontend.authentication",
+          "relationship": "requires"
+        },
+        {
+          "id": "frontend.tables",
+          "relationship": "requires"
+        },
+        {
+          "id": "frontend.forms",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "frontend.authentication",
+        "frontend.tables",
+        "frontend.forms"
+      ],
+      "path": "frontend/dashboards"
+    },
+    {
+      "id": "frontend.forms",
+      "name": "Form State Hook",
+      "version": "1.0.0",
+      "category": "frontend",
+      "subcategory": "forms",
+      "status": "implemented",
+      "description": "useFormState<T> — generic field values, per-field errors, submit-in-flight, and a top-level error message populated from a thrown ApiError. Validation itself stays the caller's responsibility (e.g. a Zod schema client-side mirroring the backend's backend.validation schema) — this hook only manages state and surfaces errors, so it composes with any validation approach instead of hard-coding one.",
+      "tags": [
+        "frontend",
+        "forms",
+        "validation"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "frontend.nextjs",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "frontend.nextjs",
+        "frontend.authentication",
+        "frontend.dashboards"
+      ],
+      "path": "frontend/forms"
+    },
+    {
+      "id": "frontend.nextjs",
+      "name": "Typed API Client",
+      "version": "1.0.0",
+      "category": "frontend",
+      "subcategory": "nextjs",
+      "status": "implemented",
+      "description": "A typed fetch wrapper (apiFetch, ApiError) matching the exact response envelopes backend.api-response/backend.error-handler/backend.express define ({ message, data }, { message, data, pagination }, { error: { message, status } }). Always sends credentials: 'include' so the backend's httpOnly auth cookies are forwarded automatically — this client never touches a token directly. Every other frontend/* template imports apiFetch instead of calling fetch() raw.",
+      "tags": [
+        "frontend",
+        "nextjs",
+        "auth",
+        "pagination"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.nextjs",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.nextjs",
+        "frontend.authentication",
+        "frontend.tables",
+        "frontend.forms",
+        "frontend.dashboards"
+      ],
+      "path": "frontend/nextjs"
+    },
+    {
+      "id": "frontend.react",
+      "name": "Plain React (Vite) Project Scaffold",
+      "version": "0.1.0",
+      "category": "frontend",
+      "subcategory": "react",
+      "status": "planned",
+      "description": "Planned. A non-Next.js React SPA scaffold (Vite + React + TypeScript) for projects that want a pure client-rendered app instead of Next.js's App Router/SSR (e.g. an internal admin tool with no SEO/SSR requirement). Would need its own project.* root node (project.vite-react, not yet registered) since it has a different build tool and routing story than project.nextjs — frontend.forms/frontend.tables's hooks are framework-agnostic React and would likely be reusable as-is; frontend.nextjs's apiClient has no Next.js-specific code either, so a future frontend.react node may turn out to just be \"frontend.nextjs's apiClient, renamed and duplicated\" rather than new code — worth checking before implementing to avoid needless duplication.",
+      "tags": [
+        "frontend",
+        "react",
+        "ci"
+      ],
+      "inputs": [],
+      "outputs": [],
+      "dependsOn": [],
+      "environment": [],
+      "compatibleNodes": [
+        "frontend.forms",
+        "frontend.tables"
+      ],
+      "path": "frontend/react"
+    },
+    {
+      "id": "frontend.tables",
+      "name": "Paginated Data Table",
+      "version": "1.0.0",
+      "category": "frontend",
+      "subcategory": "tables",
+      "status": "implemented",
+      "description": "useQueryTable<T>(basePath) + <DataTable> — fetches one page of an api.crud-backed list endpoint and manages page/sortBy/sortDir/filters as URL query params, matching exactly what backend.pagination's parseListQuery reads off req.query and what api.crud's findMany allowlist enforces. The hook and the presentational component are separate so a project can swap in its own table UI while keeping the fetch/state logic.",
+      "tags": [
+        "frontend",
+        "tables",
+        "crud",
+        "pagination"
+      ],
+      "inputs": [
+        "defaultPageSize"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "frontend.nextjs",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "frontend.nextjs",
+        "frontend.dashboards"
+      ],
+      "path": "frontend/tables"
+    },
+    {
+      "id": "project.nextjs",
+      "name": "Next.js Project Scaffold",
+      "version": "1.0.0",
+      "category": "project",
+      "subcategory": "nextjs",
+      "status": "implemented",
+      "description": "Bootstraps a TypeScript Next.js 14 (App Router) project as a separate frontend app that talks to the Express backend over HTTP with credentials: 'include' (matching authentication.jwt's httpOnly-cookie design — no token ever touches browser JS). Unlike project.node-express, there is no reference-app precedent for this: the reference application ships no frontend at all, so this node is a deliberate, from-scratch addition (see REFERENCE_ARCHITECTURE.md's \"not yet started\" note) rather than a port. Root node for every frontend/* template.",
+      "tags": [
+        "project",
+        "nextjs",
+        "next",
+        "react",
+        "react-dom",
+        "typescript",
+        "node",
+        "vitest",
+        "jsdom",
+        "jest-dom",
+        "auth",
+        "jwt"
+      ],
+      "inputs": [
+        "projectName",
+        "description",
+        "port",
+        "apiBaseUrl"
+      ],
+      "outputs": [
+        "files",
+        "entrypoint"
+      ],
+      "dependsOn": [],
+      "environment": [
+        {
+          "name": "NEXT_PUBLIC_API_URL",
+          "required": true,
+          "secret": false,
+          "description": "Base URL of the Express API this frontend calls. NEXT_PUBLIC_-prefixed because it's read from the browser (fetch calls run client-side).",
+          "usedBy": [
+            "project.nextjs",
+            "frontend.nextjs"
+          ]
+        }
+      ],
+      "compatibleNodes": [
+        "frontend.nextjs",
+        "frontend.authentication",
+        "frontend.forms",
+        "frontend.tables",
+        "frontend.dashboards"
+      ],
+      "path": "project/nextjs"
+    },
+    {
+      "id": "project.node-express",
+      "name": "Node + Express Project Scaffold",
+      "version": "1.0.0",
+      "category": "project",
+      "subcategory": "node-express",
+      "status": "implemented",
+      "description": "Bootstraps a TypeScript Express project: package.json, tsconfig, the Express app entrypoint with global middleware (cors/helmet/morgan/cookie-parser), health-check route, 404 handler, centralized error handler wiring, and the fail-fast SECRETS/env-validation convention from the reference app. Every other backend/database/storage/auth node modifies files this node creates.",
+      "tags": [
+        "project",
+        "node-express",
+        "express",
+        "cors",
+        "helmet",
+        "morgan",
+        "cookie-parser",
+        "dotenv",
+        "typescript",
+        "ts-node",
+        "nodemon",
+        "auth",
+        "storage",
+        "validation"
+      ],
+      "inputs": [
+        "projectName",
+        "description",
+        "port",
+        "corsOrigin"
+      ],
+      "outputs": [
+        "files",
+        "entrypoint"
+      ],
+      "dependsOn": [],
+      "environment": [
+        {
+          "name": "PORT",
+          "required": false,
+          "secret": false,
+          "description": "HTTP port, default 3000",
+          "usedBy": [
+            "project.node-express"
+          ]
+        },
+        {
+          "name": "NODE_ENV",
+          "required": false,
+          "secret": false,
+          "description": "development | production",
+          "usedBy": [
+            "project.node-express"
+          ]
+        },
+        {
+          "name": "CORS_ORIGIN",
+          "required": false,
+          "secret": false,
+          "description": "Comma-separated allowed origins",
+          "usedBy": [
+            "project.node-express"
+          ]
+        }
+      ],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "storage.aws-s3",
+        "authentication.jwt",
+        "backend.middleware"
+      ],
+      "path": "project/node-express"
+    },
+    {
+      "id": "storage.aws-s3",
+      "name": "S3-Compatible Storage Client",
+      "version": "1.0.0",
+      "category": "storage",
+      "subcategory": "aws-s3",
+      "status": "implemented",
+      "description": "The S3-compatible client from the reference app's s3-client.ts — a module-level S3Client pointed at an S3-compatible endpoint (AWS_ENDPOINT_URL_S3, not the implicit AWS default, so it also targets Neon Object Storage or any other S3-compatible provider), forcePathStyle: true, fails fast if any credential is missing. Every other storage.* node builds on this client.",
+      "tags": [
+        "storage",
+        "aws-s3",
+        "client-s3",
+        "s3",
+        "ci"
+      ],
+      "inputs": [
+        "defaultBucketName"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [
+        {
+          "name": "AWS_ENDPOINT_URL_S3",
+          "required": true,
+          "secret": false,
+          "description": "S3-compatible endpoint URL",
+          "usedBy": [
+            "storage.aws-s3"
+          ]
+        },
+        {
+          "name": "AWS_REGION",
+          "required": true,
+          "secret": false,
+          "description": "Storage region",
+          "usedBy": [
+            "storage.aws-s3"
+          ]
+        },
+        {
+          "name": "AWS_ACCESS_KEY_ID",
+          "required": true,
+          "secret": true,
+          "description": "Access key",
+          "usedBy": [
+            "storage.aws-s3"
+          ]
+        },
+        {
+          "name": "AWS_SECRET_ACCESS_KEY",
+          "required": true,
+          "secret": true,
+          "description": "Secret key",
+          "usedBy": [
+            "storage.aws-s3"
+          ]
+        },
+        {
+          "name": "AWS_BUCKET_NAME",
+          "required": false,
+          "secret": false,
+          "description": "Target bucket, defaults to 'media'",
+          "usedBy": [
+            "storage.aws-s3"
+          ]
+        }
+      ],
+      "compatibleNodes": [
+        "project.node-express",
+        "storage.upload",
+        "storage.download",
+        "storage.presigned-url",
+        "storage.delete"
+      ],
+      "path": "storage/aws-s3"
+    },
+    {
+      "id": "storage.delete",
+      "name": "Delete Object",
+      "version": "1.0.0",
+      "category": "storage",
+      "subcategory": "delete",
+      "status": "implemented",
+      "description": "Appends a deleteFile(key) method to storage.upload's FileUpload repository using DeleteObjectCommand, throwing APIError on failure rather than swallowing it (same discipline as storage.upload's own fix).",
+      "tags": [
+        "storage",
+        "delete",
+        "ci",
+        "upload"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "storage.upload",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "storage.upload",
+        "backend.error-handler",
+        "backend.express",
+        "authorization.rbac"
+      ],
+      "path": "storage/delete"
+    },
+    {
+      "id": "storage.download",
+      "name": "Stream File Download",
+      "version": "1.0.0",
+      "category": "storage",
+      "subcategory": "download",
+      "status": "implemented",
+      "description": "Streams an S3 object straight through to the HTTP response (as opposed to redirecting the client to a presigned URL, storage.presigned-url's job). Useful when the server needs to control/inspect the response (e.g. force a Content-Disposition, apply a transform) rather than hand the client a direct link to storage.",
+      "tags": [
+        "storage",
+        "download",
+        "s3",
+        "presigned"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "storage.aws-s3",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "storage.aws-s3",
+        "backend.error-handler",
+        "backend.express"
+      ],
+      "path": "storage/download"
+    },
+    {
+      "id": "storage.file-validation",
+      "name": "Upload File Validation",
+      "version": "1.0.0",
+      "category": "storage",
+      "subcategory": "file-validation",
+      "status": "implemented",
+      "description": "MIME-type allowlist + size-limit middleware, reconfiguring storage.upload's bare multer instance (which accepts anything, unbounded) into one that rejects disallowed types/oversized files before the buffer is fully read. Closes the single largest security gap the reference app leaves open (REFERENCE_ARCHITECTURE.md §8: \"No file-type/size validation on upload\").",
+      "tags": [
+        "storage",
+        "file-validation",
+        "validation",
+        "upload"
+      ],
+      "inputs": [
+        "allowedMimeTypes",
+        "maxSizeBytes"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "storage.upload",
+          "relationship": "extends"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "storage.upload",
+        "backend.error-handler",
+        "backend.express"
+      ],
+      "path": "storage/file-validation"
+    },
+    {
+      "id": "storage.presigned-url",
+      "name": "Presigned Upload/Download URLs",
+      "version": "1.0.0",
+      "category": "storage",
+      "subcategory": "presigned-url",
+      "status": "implemented",
+      "description": "Time-limited signed URLs for both upload and download, consolidating the brief's separate \"presigned upload\"/\"presigned download\" asks into one node (a getUploadUrl + getDownloadUrl pair) since both are the same getSignedUrl(command, { expiresIn }) mechanism differing only in which S3 command they sign. getDownloadUrl ports the reference app's existing FileUpload.getSignedUrl verbatim; getUploadUrl is new.",
+      "tags": [
+        "storage",
+        "presigned-url",
+        "s3-request-presigner",
+        "s3",
+        "presigned",
+        "upload",
+        "download"
+      ],
+      "inputs": [
+        "defaultExpirySeconds",
+        "maxExpirySeconds"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "storage.aws-s3",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "storage.aws-s3",
+        "backend.express"
+      ],
+      "path": "storage/presigned-url"
+    },
+    {
+      "id": "storage.upload",
+      "name": "Buffered File Upload",
+      "version": "1.0.0",
+      "category": "storage",
+      "subcategory": "upload",
+      "status": "implemented",
+      "description": "Direct (non-presigned) file upload: multer memoryStorage + PutObjectCommand, ported from the reference app's multer.config.ts + FileUpload.ts, with one deliberate fix — uploadFileToS3 now throws APIError instead of swallowing the error and returning null (REFERENCE_ARCHITECTURE.md §8/§9: new code should throw-and-centralize like the rest of the app, not silently fail).",
+      "tags": [
+        "storage",
+        "upload",
+        "multer",
+        "s3",
+        "presigned"
+      ],
+      "inputs": [
+        "keyPrefix"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "storage.aws-s3",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "storage.aws-s3",
+        "backend.error-handler",
+        "storage.file-validation",
+        "storage.delete",
+        "backend.express"
+      ],
+      "path": "storage/upload"
+    },
+    {
+      "id": "testing.api",
+      "name": "API Route Test Setup (Supertest)",
+      "version": "1.0.0",
+      "category": "testing",
+      "subcategory": "api",
+      "status": "implemented",
+      "description": "Supertest-based end-to-end route tests against the real Express app object — the pattern already used by project.node-express's own health-check test and backend.express's route tests (both import `app` from src/app.ts and never bind a real port, since app.ts guards app.listen() behind `if (require.main === module)` specifically so it is safe to import in tests). This node's job is the devDependency + documenting that convention; entity-specific API tests ship with backend.express/api.crud themselves.",
+      "tags": [
+        "testing",
+        "api",
+        "supertest",
+        "crud",
+        "ci",
+        "test"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "backend.express",
+        "api.crud"
+      ],
+      "path": "testing/api"
+    },
+    {
+      "id": "testing.fixtures",
+      "name": "Test Data Factories",
+      "version": "1.0.0",
+      "category": "testing",
+      "subcategory": "fixtures",
+      "status": "implemented",
+      "description": "A generic buildFixture<T>(overrides, defaults) helper plus one concrete example, buildUserFixture, matching the reference app's User shape (reference-app/src/utils/types.ts). Keeps test setup DRY — every test that needs \"a user\" or \"a product\" calls the factory with only the fields it cares about instead of hand-writing a full object literal per test.",
+      "tags": [
+        "testing",
+        "fixtures",
+        "test"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        },
+        {
+          "id": "authentication.password",
+          "relationship": "extends"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "authentication.password",
+        "testing.unit",
+        "testing.integration",
+        "testing.api"
+      ],
+      "path": "testing/fixtures"
+    },
+    {
+      "id": "testing.integration",
+      "name": "Integration Test Database Setup",
+      "version": "1.0.0",
+      "category": "testing",
+      "subcategory": "integration",
+      "status": "implemented",
+      "description": "Tests that hit a REAL Postgres database, as opposed to testing.unit's mocked repository layer. Provides a testDatabase helper that connects to TEST_DATABASE_URL and truncates every application table between tests, with a loud refusal to run against NODE_ENV=production or a missing TEST_DATABASE_URL fallback to the real DATABASE_URL.",
+      "tags": [
+        "testing",
+        "integration",
+        "postgres",
+        "test"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [
+        {
+          "name": "TEST_DATABASE_URL",
+          "required": false,
+          "secret": true,
+          "description": "Connection string for a disposable test database. If unset, falls back to DATABASE_URL with a loud console warning.",
+          "usedBy": [
+            "testing.integration"
+          ]
+        }
+      ],
+      "compatibleNodes": [
+        "database.neon-postgres.connection",
+        "backend.repository",
+        "api.crud"
+      ],
+      "path": "testing/integration"
+    },
+    {
+      "id": "testing.mocks",
+      "name": "Shared Mocking Utilities",
+      "version": "1.0.0",
+      "category": "testing",
+      "subcategory": "mocks",
+      "status": "implemented",
+      "description": "Factors out the vi.mock('.../config/database', ...) chainable-mock pattern already duplicated inline in backend.repository's and backend.service's bundled tests into one reusable createMockDatabase(rows) helper. Existing nodes' bundled tests are NOT retroactively edited by this node — see README \"Interaction with backend.repository\" for when to switch a regenerated entity's test over to the shared helper.",
+      "tags": [
+        "testing",
+        "mocks",
+        "test"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "testing.unit",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "testing.unit",
+        "backend.repository",
+        "backend.service"
+      ],
+      "path": "testing/mocks"
+    },
+    {
+      "id": "testing.unit",
+      "name": "Unit Test Setup (Vitest)",
+      "version": "1.0.0",
+      "category": "testing",
+      "subcategory": "unit",
+      "status": "implemented",
+      "description": "Configures Vitest for the project and documents the unit-testing convention already used throughout graph-templates: mock the repository layer (Drizzle `database` calls) and test service/controller logic in isolation — see backend.service's own bundled test (tests/EntityService.test.ts) as the canonical worked example. This is infrastructure only; it does not generate entity-specific tests itself (backend.repository/service/controller/express each ship their own).",
+      "tags": [
+        "testing",
+        "unit",
+        "vitest",
+        "drizzle",
+        "ci",
+        "test"
+      ],
+      "inputs": [],
+      "outputs": [
+        "files"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.node-express",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [],
+      "compatibleNodes": [
+        "project.node-express",
+        "backend.repository",
+        "backend.service",
+        "backend.controller",
+        "testing.mocks"
+      ],
+      "path": "testing/unit"
+    }
+  ]
+}

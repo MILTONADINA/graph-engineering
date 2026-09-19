@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "database.schema.json",
+  "title": "Database Schema Artifact",
+  "description": "Structured output of ai/database-agent: tables, columns, relationships, and migration state.",
+  "type": "object",
+  "required": ["$schema", "artifactType", "version", "metadata", "data"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "artifactType": { "const": "database.schema" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "metadata": { "$ref": "requirements.schema.json#/$defs/metadata" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dialect", "tables"],
+      "properties": {
+        "dialect": { "enum": ["postgresql", "mysql"] },
+        "orm": { "enum": ["drizzle", "prisma", "none"], "default": "drizzle" },
+        "enums": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "values"],
+            "properties": {
+              "name": { "type": "string" },
+              "values": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "columns"],
+            "properties": {
+              "name": { "type": "string" },
+              "columns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "type"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string", "description": "e.g. uuid, varchar(320), timestamp with time zone, numeric" },
+                    "primaryKey": { "type": "boolean" },
+                    "notNull": { "type": "boolean" },
+                    "unique": { "type": "boolean" },
+                    "default": { "type": "string" },
+                    "references": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "table": { "type": "string" },
+                        "column": { "type": "string" },
+                        "onDelete": { "enum": ["cascade", "restrict", "set null", "no action"] }
+                      }
+                    }
+                  }
+                }
+              },
+              "indexes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "columns"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "columns": { "type": "array", "items": { "type": "string" } },
+                    "unique": { "type": "boolean" }
+                  }
+                }
+              },
+              "tenantScoped": { "type": "boolean", "description": "True if this table carries a tenant/org id column enforced by authorization.tenant-isolation." }
+            }
+          }
+        },
+        "migrations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "appliedTables"],
+            "properties": {
+              "file": { "type": "string" },
+              "appliedTables": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

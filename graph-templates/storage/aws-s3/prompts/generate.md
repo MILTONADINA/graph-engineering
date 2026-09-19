@@ -1,0 +1,1 @@
+1. `npm install @aws-sdk/client-s3`. 2. Write `src/config/s3-client.ts`. 3. Apply the three `files.modify` operations to `src/utils/helpers.ts` (interface fields, SECRETS values, required-vars array entries). 4. Run `npm run build`.

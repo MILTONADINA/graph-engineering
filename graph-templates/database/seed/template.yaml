@@ -1,0 +1,73 @@
+id: database.seed
+name: Database Seed Script
+version: 1.0.0
+description: >
+  Generates a standalone src/scripts/seed.ts that inserts example rows for
+  one or more entities backend.repository created, runnable via `npm run seed`.
+  Refuses to run when NODE_ENV is production, since a seed script is a
+  destructive/idempotent-unsafe operation that must never touch a live database.
+category: database
+subcategory: seed
+status: implemented
+type: graph-node
+actions: [generate, modify, validate]
+
+inputs:
+  - name: entities
+    type: "array<object>"
+    required: true
+    description: "[{ entityName, tableExportName, sampleRows: array<object> }] — one entry per entity to seed."
+
+outputs:
+  - { name: files, type: array<string>, description: "src/scripts/seed.ts, package.json (modified)" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: database.neon-postgres.connection, relationship: requires }
+    - { id: backend.repository, relationship: extends }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/scripts/seed.ts, source: files/seed.ts.template }
+  modify:
+    - { path: package.json, operation: merge-json, template: "{ \"scripts\": { \"seed\": \"ts-node ./src/scripts/seed.ts\" } }" }
+
+compatible_with:
+  upstream: [database.neon-postgres.connection, backend.repository]
+  downstream: [testing.integration]
+
+consumes:
+  artifacts: [database.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "src/scripts/seed.ts exists — if so, `modify` appends a new entity's seed block rather than overwriting the file"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/scripts/seed.ts }
+    - { type: build, command: "npm run build" }
+    - type: content-contains
+      path: src/scripts/seed.ts
+      pattern: "NODE_ENV"
+      description: "The production guard must be present — a seed script with no environment check fails validation."
+
+testing:
+  strategy: integration
+  location: tests/seed.test.ts
+  command: "npm test -- seed"
+
+security:
+  considerations:
+    - "The generated script's first statement checks SECRETS.NODE_ENV !== 'production' and throws if it is — a seed script run against a production DATABASE_URL is a data-corruption incident waiting to happen, so this is not optional/configurable."
+    - "Sample data must never include real credentials or PII — sampleRows are literal fixture data supplied by the caller, this node does not fetch or fabricate real-looking personal data."
+
+documentation:
+  required: [README.md]

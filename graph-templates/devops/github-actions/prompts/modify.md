@@ -1,0 +1,1 @@
+To add a new secret-consuming step, add it under the `env:` block of the relevant job rather than introducing a new top-level `env:` at workflow scope — keeps secret exposure scoped to the step that needs it.

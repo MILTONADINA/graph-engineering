@@ -1,0 +1,1 @@
+If the backend's response envelope changes shape (e.g. a new field added to `PaginationMeta`), update the corresponding interface in this file directly — every downstream `frontend/*` consumer imports these types by name, so keep the export names stable even if their shape grows.

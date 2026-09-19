@@ -1,0 +1,1 @@
+1. `storage.schema.json` validates against its schema. 2. No bucket has `access: "public"` without a corresponding note in `metadata`/README explaining why. 3. Every `uploadUseCases[]` entry has `allowedMimeTypes` and `maxSizeBytes` set (never omitted). 4. `storage.upload` was invoked wherever `storage.file-validation` was — never one without the other.

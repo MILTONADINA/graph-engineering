@@ -1,0 +1,11 @@
+{
+  "packages": [
+    { "name": "jsonwebtoken", "version": "^9.0.2" },
+    { "name": "@types/jsonwebtoken", "version": "^9.0.6", "dev": true }
+  ],
+  "services": [],
+  "templates": [
+    { "id": "project.node-express", "relationship": "requires" },
+    { "id": "backend.error-handler", "relationship": "requires" }
+  ]
+}

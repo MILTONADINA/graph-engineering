@@ -1,0 +1,19 @@
+import type { Metadata } from 'next';
+import './globals.css';
+// (frontend.authentication's `modify` action inserts an AuthProvider import here)
+
+export const metadata: Metadata = {
+  title: '{{input.projectName}}',
+  description: '{{input.description}}',
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        {/* (frontend.authentication's `modify` action wraps {children} with <AuthProvider>) */}
+        {children}
+      </body>
+    </html>
+  );
+}

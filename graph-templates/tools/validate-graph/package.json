@@ -1,0 +1,10 @@
+{
+  "name": "validate-graph",
+  "version": "1.0.0",
+  "description": "Validates a generated project's resolved graph (architecture.json + .graph/manifest.json) against template-registry.json — the ai.validation-agent's mechanical backend.",
+  "main": "index.js",
+  "bin": { "validate-graph": "./index.js" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": {},
+  "license": "MIT"
+}

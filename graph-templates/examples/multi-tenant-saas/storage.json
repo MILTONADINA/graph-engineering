@@ -1,0 +1,25 @@
+{
+  "$schema": "../../artifacts/storage.schema.json",
+  "artifactType": "storage.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.storage-agent",
+    "generatedAt": "2026-02-03T09:08:00Z",
+    "projectName": "multi-tenant-saas",
+    "sourceArtifacts": ["requirements.json"]
+  },
+  "data": {
+    "provider": "aws-s3",
+    "buckets": [{ "name": "saas-media", "access": "private", "envVar": "AWS_BUCKET_NAME" }],
+    "uploadUseCases": [
+      {
+        "name": "invoice-pdf",
+        "keyPrefix": "tenant-uploads",
+        "allowedMimeTypes": ["application/pdf"],
+        "maxSizeBytes": 10485760,
+        "presigned": "download",
+        "urlExpirySeconds": 900
+      }
+    ]
+  }
+}

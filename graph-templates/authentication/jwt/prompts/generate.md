@@ -1,0 +1,1 @@
+1. `npm install jsonwebtoken` + `@types/jsonwebtoken`. 2. Render `files/tokens.ts.template`. 3. Write `files/authMiddleware.ts` verbatim. 4. Apply the three `files.modify` operations to `src/utils/helpers.ts`. 5. Run `npm run build`.

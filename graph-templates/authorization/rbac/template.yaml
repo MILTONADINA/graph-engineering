@@ -1,0 +1,66 @@
+id: authorization.rbac
+name: Role-Based Access Control
+version: 1.0.0
+description: >
+  The reference app has a `role` column (customer/admin) on `users` that
+  nothing checks. This node adds the missing enforcement: a requireRole(...)
+  middleware factory reading req.user.role (set by authentication.jwt's
+  authMiddleware) and rejecting anything not in the allowlist.
+category: authorization
+subcategory: rbac
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/middlewares/rbacMiddleware.ts" }
+  - { name: exports, type: array<string>, description: "requireRole" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: authentication.jwt, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/middlewares/rbacMiddleware.ts, source: files/rbacMiddleware.ts }
+  modify: []
+
+compatible_with:
+  upstream: [authentication.jwt, backend.error-handler]
+  downstream: [backend.express, api.crud]
+
+consumes:
+  artifacts: [auth.schema]
+produces:
+  artifacts: [auth.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/middlewares/rbacMiddleware.ts exists and exports requireRole"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/middlewares/rbacMiddleware.ts }
+    - { type: exports, path: src/middlewares/rbacMiddleware.ts, names: [requireRole] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/rbacMiddleware.test.ts
+  command: "npm test -- rbacMiddleware"
+
+security:
+  considerations:
+    - "requireRole must run AFTER authMiddleware in a route's middleware chain — it reads req.user, which only exists post-auth. If misordered, requireRole defensively checks `if (!req.user)` first and throws APIError(401), rather than crashing on `undefined.role` or (worse) silently passing an unauthenticated request through."
+    - "Every write/delete route on a resource with role-sensitive access must list requireRole explicitly — this node does not infer which routes need it from the schema."
+
+documentation:
+  required: [README.md]

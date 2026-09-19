@@ -1,0 +1,68 @@
+id: backend.error-handler
+name: Centralized Error Handler
+version: 1.0.0
+description: >
+  The APIError class and centralized Express error-handling middleware from the
+  reference app's errorMiddleware.ts. Every service/controller in this template
+  library throws APIError(message, status) and lets this single middleware format
+  the response — the one error-handling idiom the reference app's two competing
+  patterns (throw vs. repository.handleError) should converge on for new code.
+category: backend
+subcategory: error-handler
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/middlewares/errorMiddleware.ts" }
+  - { name: exports, type: array<string>, description: "errorHandler, APIError" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/middlewares/errorMiddleware.ts, source: files/errorMiddleware.ts }
+  modify:
+    - { path: src/app.ts, operation: replace-marker, marker: '// (backend.error-handler''s `modify` action replaces this block with', replacement: "import { errorHandler } from './middlewares/errorMiddleware';" }
+    - { path: src/app.ts, operation: replace-marker, marker: '// (backend.error-handler''s `modify` action replaces this fallback with `app.use(errorHandler);`)', replacement: "app.use(errorHandler);" }
+
+compatible_with:
+  upstream: [project.node-express]
+  downstream: [backend.service, backend.controller, api.crud, authentication.password, storage.upload]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/middlewares/errorMiddleware.ts exists and exports APIError"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/middlewares/errorMiddleware.ts }
+    - { type: exports, path: src/middlewares/errorMiddleware.ts, names: [errorHandler, APIError] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/errorHandler.test.ts
+  command: "npm test -- errorHandler"
+
+security:
+  considerations:
+    - "Never leak err.stack or internal details in the JSON response body — only message/status. Log the stack server-side (console.error) as the reference app does."
+    - "Default unhandled errors to 500, never guess a more specific status — a wrong 4xx can leak information about internal state."
+
+documentation:
+  required: [README.md]

@@ -1,0 +1,70 @@
+import express, { NextFunction, Request, Response } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import cookieParser from 'cookie-parser';
+
+// Import routes
+// (backend.express.route nodes insert one `import { xRoutes } from './routes/xRoutes';` line here)
+
+// Import middlewares
+// (backend.error-handler's `modify` action replaces this block with
+//  `import { errorHandler } from './middlewares/errorMiddleware';`)
+
+// helper functions
+import { HttpStatusCodes, SECRETS } from './utils/helpers';
+
+// Create Express app
+const app = express();
+
+// Middleware
+const allowedOrigins = SECRETS.CORS_ORIGIN.split(',').map((origin) => origin.trim());
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
+app.use(helmet());
+app.use(morgan('dev'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+// Routes
+// (backend.express.route nodes insert one `app.use('/api/x', xRoutes);` line here)
+
+// Health check route
+app.get('/', async (req: Request, res: Response) => {
+  try {
+    res.status(HttpStatusCodes.OK).json({
+      status: 'OK',
+      message: 'Server is running',
+    });
+  } catch (error) {
+    res.status(HttpStatusCodes.INTERNAL_SERVER_ERROR).json({
+      status: 'ERROR',
+      message: 'There was an error while processing your request',
+    });
+  }
+});
+
+// 404 Route
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.status(HttpStatusCodes.NOT_FOUND).json({ message: 'Route not found' });
+});
+
+// Error handling middleware
+// (backend.error-handler's `modify` action replaces this fallback with `app.use(errorHandler);`)
+app.use((err: Error & { status?: number }, req: Request, res: Response, next: NextFunction) => {
+  const status = err.status ?? HttpStatusCodes.INTERNAL_SERVER_ERROR;
+  res.status(status).json({ error: { message: err.message || 'Something went wrong', status } });
+});
+
+const PORT = SECRETS.PORT;
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
+}
+
+export default app;

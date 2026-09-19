@@ -1,0 +1,66 @@
+id: testing.fixtures
+name: Test Data Factories
+version: 1.0.0
+description: >
+  A generic buildFixture<T>(overrides, defaults) helper plus one concrete
+  example, buildUserFixture, matching the reference app's User shape
+  (reference-app/src/utils/types.ts). Keeps test setup DRY — every test that
+  needs "a user" or "a product" calls the factory with only the fields it
+  cares about instead of hand-writing a full object literal per test.
+category: testing
+subcategory: fixtures
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "tests/fixtures/factories.ts" }
+  - { name: exports, type: array<string>, description: "buildFixture, buildUserFixture" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+    - { id: authentication.password, relationship: extends }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: tests/fixtures/factories.ts, source: files/factories.ts }
+  modify: []
+
+compatible_with:
+  upstream: [project.node-express, authentication.password]
+  downstream: [testing.unit, testing.integration, testing.api]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [test.schema]
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "tests/fixtures/factories.ts exists — if so, append a new build<Entity>Fixture rather than overwrite"
+
+validation:
+  checks:
+    - { type: file-exists, path: tests/fixtures/factories.ts }
+    - { type: exports, path: tests/fixtures/factories.ts, names: [buildFixture, buildUserFixture] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/factories.test.ts
+  command: "npm test -- factories"
+
+security:
+  considerations:
+    - "Fixture defaults must never be real credentials or PII — buildUserFixture's default password/email are obviously synthetic (test@example.com, a fixed non-production-looking string), never a value that could be mistaken for or reused as a real secret."
+
+documentation:
+  required: [README.md]

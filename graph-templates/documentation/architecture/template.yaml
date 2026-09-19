@@ -1,0 +1,61 @@
+id: documentation.architecture
+name: Architecture Documentation
+version: 1.0.0
+description: >
+  Renders docs/ARCHITECTURE.md from architecture.json — a human-readable
+  record of which stack was chosen and which graph nodes actually ran, in
+  what order. This is the human-facing counterpart to
+  documentation.agent-context, which renders the same underlying information
+  for an agent instead.
+category: documentation
+subcategory: architecture
+status: implemented
+type: graph-node
+actions: [generate, validate]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "docs/ARCHITECTURE.md" }
+
+dependencies:
+  packages: []
+  services: []
+  templates: []
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: docs/ARCHITECTURE.md, source: files/ARCHITECTURE.md.template }
+  modify: []
+
+compatible_with:
+  upstream: []
+  downstream: [documentation.agent-context]
+
+consumes:
+  artifacts: [architecture.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "docs/ARCHITECTURE.md exists — regenerated wholesale from the current architecture.json each run"
+
+validation:
+  checks:
+    - { type: file-exists, path: docs/ARCHITECTURE.md }
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - "Stack/node choices are not secrets — safe to commit and publish alongside the rest of the docs."
+
+documentation:
+  required: [README.md]

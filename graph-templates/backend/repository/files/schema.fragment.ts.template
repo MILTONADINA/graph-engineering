@@ -1,0 +1,9 @@
+
+export const {{input.tableExportName}} = pgTable('{{input.tableName}}', {
+  id: uuid('id').primaryKey().defaultRandom(),
+{{#each input.fields}}
+  {{this.name}}: {{this.drizzleType}}{{#if this.notNull}}.notNull(){{/if}}{{#if this.unique}}.unique(){{/if}},
+{{/each}}
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

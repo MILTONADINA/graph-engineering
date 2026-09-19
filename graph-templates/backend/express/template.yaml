@@ -1,0 +1,72 @@
+id: backend.express
+name: Entity Route
+version: 1.0.0
+description: >
+  Generates an express.Router() for one entity (GET list, GET :id, POST, PUT :id,
+  DELETE :id), each handler wrapped in asyncHandler, optionally gated by
+  authMiddleware, and mounts it into src/app.ts at the same
+  `// Import routes` / `// Routes` markers project.node-express reserved —
+  the same shape as the reference app's authRoutes.ts + its app.use('/api/auth', ...) line.
+category: backend
+subcategory: express
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs:
+  - { name: entityName, type: string, required: true }
+  - { name: tableName, type: string, required: true, description: "Used as the URL path segment, e.g. products -> /api/products" }
+  - { name: requiresAuth, type: boolean, required: false, default: false, description: "Gate write routes (POST/PUT/DELETE) behind authentication.jwt's authMiddleware" }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/routes/<entity>Routes.ts, app.ts (modified)" }
+  - { name: routes, type: array<string>, description: "e.g. GET /api/products, POST /api/products, ..." }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: backend.controller, relationship: requires }
+    - { id: authentication.jwt, relationship: extends }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: "src/routes/{{input.entityNameCamel}}Routes.ts", source: files/EntityRoutes.ts.template }
+  modify:
+    - { path: src/app.ts, operation: insert-before-marker, marker: "// Import routes", template: "import { {{input.entityNameCamel}}Routes } from './routes/{{input.entityNameCamel}}Routes';" }
+    - { path: src/app.ts, operation: insert-before-marker, marker: "// Health check route", template: "app.use('/api/{{input.tableName}}', {{input.entityNameCamel}}Routes);" }
+
+compatible_with:
+  upstream: [backend.controller, authentication.jwt]
+  downstream: [testing.api, api.crud]
+
+consumes:
+  artifacts: [api.schema]
+produces:
+  artifacts: [api.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/routes/<entity>Routes.ts exists and app.ts already imports it"
+
+validation:
+  checks:
+    - { type: file-exists, path: "src/routes/{{input.entityNameCamel}}Routes.ts" }
+    - { type: mounted-in, path: src/app.ts, pattern: "/api/{{input.tableName}}" }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: api
+  location: "tests/{{input.entityName}}Routes.test.ts"
+  command: "npm test -- {{input.entityName}}Routes"
+
+security:
+  considerations:
+    - "requiresAuth: true only gates the routes this node generates — it does not retroactively protect routes another node already mounted. Each entity decides its own auth requirement explicitly."
+    - "Route registration order matters in Express: this node inserts before the health-check/404 fallback, same position the reference app's authRoutes hold, so a later 404 fallback can never shadow it."
+
+documentation:
+  required: [README.md]

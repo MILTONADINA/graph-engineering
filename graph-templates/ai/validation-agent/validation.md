@@ -1,0 +1,1 @@
+Self-check only: the agent's OWN output must match `output-schema.json` — `valid`/`errors`/`warnings`/`repairs` all present, `valid` is `false` whenever `errors` is non-empty and `true` only when it's empty. There's no external "validate the validator" step beyond that — this agent IS the validation step for everything else.

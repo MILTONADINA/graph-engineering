@@ -1,0 +1,24 @@
+{
+  "input": { "description": "A small online shop where customers can browse products, add them to a cart, and check out. Admins manage the product catalog. Product images need to be uploaded.", "projectName": "acme-shop" },
+  "output": {
+    "$schema": "../../artifacts/requirements.schema.json",
+    "artifactType": "requirements",
+    "version": "1.0.0",
+    "metadata": { "generatedBy": "ai.requirements-agent", "generatedAt": "2026-01-15T10:00:00Z", "projectName": "acme-shop", "sourceArtifacts": [] },
+    "data": {
+      "projectName": "acme-shop",
+      "summary": "A small e-commerce shop for browsing and purchasing products, with admin-managed catalog and image uploads.",
+      "entities": [
+        { "name": "Product", "description": "An item for sale", "attributes": ["name", "description", "priceCents", "imageUrl"] },
+        { "name": "Order", "description": "A customer's purchase", "attributes": ["items", "total", "status"] }
+      ],
+      "features": [
+        { "id": "browse-products", "title": "Browse products", "priority": "must", "requiresAuth": false, "requiresFileStorage": false },
+        { "id": "manage-catalog", "title": "Admin manages product catalog", "priority": "must", "requiresAuth": true, "requiresFileStorage": true },
+        { "id": "checkout", "title": "Customer checkout", "priority": "must", "requiresAuth": true, "requiresFileStorage": false }
+      ],
+      "nonFunctional": { "multiTenant": false, "expectedScale": "small-team", "compliance": [] },
+      "constraints": []
+    }
+  }
+}

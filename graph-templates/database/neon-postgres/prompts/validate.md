@@ -1,0 +1,1 @@
+file-exists x3 → exports [database, pool] → `npm run build`. If build fails referencing `SECRETS.DATABASE_URL`, the `helpers.ts` modify step was skipped — re-apply it rather than regenerating `database.ts`.

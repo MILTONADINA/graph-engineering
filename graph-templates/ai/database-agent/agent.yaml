@@ -1,0 +1,39 @@
+id: ai.database-agent
+name: Database Agent
+version: 1.0.0
+description: >
+  Consumes requirements.json (entities) + architecture.json (stack), produces
+  database.schema.json: per-entity column types/constraints and tenant-scoping
+  decisions. Its output is designed to translate directly into backend.repository
+  node inputs (entityName/tableName/fields).
+category: ai
+subcategory: database-agent
+status: implemented
+type: ai-agent
+
+role: >
+  Decides what each entity's table looks like: columns, types, constraints,
+  indexes, and whether it needs tenant scoping. Bridges the gap between
+  requirements.json's informal `attributes: string[]` and the typed Drizzle
+  column definitions backend.repository actually needs.
+
+consumes:
+  artifacts: [requirements.schema, architecture.schema]
+produces:
+  artifacts: [database.schema]
+
+tools:
+  - read_artifact
+  - write_artifact
+  - invoke_node
+
+handoff_to: [ai.backend-agent]
+
+validation:
+  checks:
+    - "every requirements.json entity has a corresponding data.tables entry"
+    - "every table has an id-shaped primary key column"
+    - "tenantScoped is true on every table when architecture.json stack indicates multiTenant"
+
+documentation:
+  required: [README.md]

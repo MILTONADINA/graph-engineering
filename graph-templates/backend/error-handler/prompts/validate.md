@@ -1,0 +1,1 @@
+Run `validation.checks` in order: file-exists → exports [errorHandler, APIError] → `npm run build`. If `app.ts` still contains the literal marker comment text, the `modify` step from `generate.md` was skipped — re-apply it rather than regenerating this node's own files.

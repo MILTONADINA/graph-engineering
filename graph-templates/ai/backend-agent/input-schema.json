@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["database", "architecture"],
+  "properties": {
+    "database": { "$ref": "../../artifacts/database.schema.json" },
+    "architecture": { "$ref": "../../artifacts/architecture.schema.json" }
+  }
+}

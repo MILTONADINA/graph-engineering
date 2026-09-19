@@ -1,0 +1,7 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    ports:
+      - "{{input.port}}:{{input.port}}"
+    restart: unless-stopped

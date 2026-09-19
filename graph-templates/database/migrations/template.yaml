@@ -1,0 +1,66 @@
+id: database.migrations
+name: Drizzle Migration Workflow
+version: 1.0.0
+description: >
+  Not a code-generating node — this documents and guards the drizzle-kit
+  migration workflow that database.neon-postgres.connection's npm scripts
+  (dbGenerate/dbMigrate) drive. Ensures src/migrations/ exists with a README
+  explaining the workflow so an agent never hand-writes migration SQL.
+category: database
+subcategory: migrations
+status: implemented
+type: graph-node
+actions: [generate, validate]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/migrations/.gitkeep, src/migrations/README.md" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: database.neon-postgres.connection, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/migrations/.gitkeep, source: files/gitkeep }
+    - { path: src/migrations/README.md, source: files/README-migrations.md }
+  modify: []
+
+compatible_with:
+  upstream: [database.neon-postgres.connection, backend.repository]
+  downstream: [devops.github-actions]
+
+consumes:
+  artifacts: [database.schema]
+produces:
+  artifacts: [database.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/migrations/README.md exists"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/migrations/README.md }
+    - type: migration-pending-check
+      command: "npx drizzle-kit generate"
+      description: "Must produce no new migration file when schema.ts and src/migrations/ are already in sync."
+
+testing:
+  strategy: integration
+  location: tests/migrations.test.ts
+  command: "npm test -- migrations"
+
+security:
+  considerations:
+    - "npm run dbMigrate applies SQL directly to DATABASE_URL — never run it unattended against a production connection string. Gate it behind manual approval or a CI job that requires review (see devops.github-actions), not an agent's own generate/modify loop."
+    - "Migration files are generated output, not hand-edited — a hand-edited migration can silently diverge from schema.ts and break dbGenerate's drift detection this node's validation.checks relies on."
+
+documentation:
+  required: [README.md]

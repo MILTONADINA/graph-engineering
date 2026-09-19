@@ -1,0 +1,38 @@
+id: ai.requirements-agent
+name: Requirements Agent
+version: 1.0.0
+description: >
+  Turns a natural-language project description into a structured requirements.json
+  artifact: entities, features (must/should/could), non-functional requirements,
+  and hard constraints. Makes no stack or architecture decisions — that is
+  ai.architect-agent's job.
+category: ai
+subcategory: requirements-agent
+status: implemented
+type: ai-agent
+
+role: >
+  First node in the orchestration pipeline. Reads a human's plain-language
+  description of an application and produces requirements.json — the only
+  artifact with no upstream dependency, everything else in the pipeline
+  traces back to it via metadata.sourceArtifacts.
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [requirements.schema]
+
+tools:
+  - write_artifact
+  - ask_clarifying_question
+
+handoff_to: [ai.architect-agent]
+
+validation:
+  checks:
+    - "data.entities is non-empty"
+    - "data.features is non-empty and every feature has a priority"
+    - "every feature.id is unique"
+
+documentation:
+  required: [README.md]

@@ -1,0 +1,1 @@
+1. `npm install` the five dependency packages. 2. Write `database.ts`, `schema.ts`, `drizzle.config.ts` verbatim from `files/`. 3. Apply the four `files.modify` operations to `src/utils/helpers.ts` and `package.json`. 4. Run `npm run build`. 5. Report `files` and `exports`.

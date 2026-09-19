@@ -1,0 +1,1 @@
+To change the default page size after generation, edit the literal default in `useQueryTable`'s signature directly. To customize row rendering, use `Column<T>.render` at the call site rather than modifying `DataTable.tsx` itself.

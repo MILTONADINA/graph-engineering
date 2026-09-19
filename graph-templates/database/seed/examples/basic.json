@@ -1,0 +1,12 @@
+{
+  "inputs": {
+    "entities": [
+      {
+        "entityName": "Product",
+        "tableExportName": "productTable",
+        "sampleRows": [{ "name": "Widget", "priceCents": 1999, "sku": "WID-001" }]
+      }
+    ]
+  },
+  "expectedOutputs": { "files": ["src/scripts/seed.ts", "package.json"] }
+}

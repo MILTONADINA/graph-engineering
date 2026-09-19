@@ -1,0 +1,65 @@
+id: backend.api-response
+name: API Response Envelope
+version: 1.0.0
+description: >
+  Closes the gap noted in REFERENCE_ARCHITECTURE.md §6/§8: the reference app's
+  error responses are consistent ({ error: { message, status } } via
+  backend.error-handler) but success responses are ad hoc. This node adds
+  sendSuccess/sendPaginated helpers so every controller emits one predictable
+  envelope shape.
+category: backend
+subcategory: api-response
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/utils/apiResponse.ts" }
+  - { name: exports, type: array<string>, description: "sendSuccess, sendPaginated" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/utils/apiResponse.ts, source: files/apiResponse.ts }
+  modify: []
+
+compatible_with:
+  upstream: [project.node-express, backend.error-handler]
+  downstream: [backend.controller, api.crud]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [api.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/utils/apiResponse.ts exists and exports sendSuccess"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/utils/apiResponse.ts }
+    - { type: exports, path: src/utils/apiResponse.ts, names: [sendSuccess, sendPaginated] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/apiResponse.test.ts
+  command: "npm test -- apiResponse"
+
+security:
+  considerations:
+    - "sendSuccess never echoes fields the caller didn't explicitly pass in `data` — controllers are responsible for excluding sensitive fields (e.g. passwordHash) before calling it, this helper does not filter."
+
+documentation:
+  required: [README.md]

@@ -1,0 +1,38 @@
+{
+  "input": "graph-templates/ai/requirements-agent/examples/ecommerce.json's output",
+  "output": {
+    "$schema": "../../artifacts/architecture.schema.json",
+    "artifactType": "architecture",
+    "version": "1.0.0",
+    "metadata": { "generatedBy": "ai.architect-agent", "generatedAt": "2026-01-15T10:05:00Z", "projectName": "acme-shop", "sourceArtifacts": ["requirements.json"] },
+    "data": {
+      "projectName": "acme-shop",
+      "stack": { "backend": "express", "frontend": "none", "database": "neon-postgres", "storage": "aws-s3", "authentication": "jwt", "authorization": "rbac", "deployment": "docker" },
+      "nodes": [
+        { "id": "project.node-express", "order": 0, "inputs": { "projectName": "acme-shop" } },
+        { "id": "backend.error-handler", "order": 1 },
+        { "id": "backend.middleware", "order": 2 },
+        { "id": "backend.api-response", "order": 3 },
+        { "id": "backend.pagination", "order": 4 },
+        { "id": "backend.validation", "order": 5 },
+        { "id": "database.neon-postgres.connection", "order": 6 },
+        { "id": "authentication.jwt", "order": 7 },
+        { "id": "authentication.password", "order": 8 },
+        { "id": "authorization.rbac", "order": 9 },
+        { "id": "storage.aws-s3", "order": 10 },
+        { "id": "storage.upload", "order": 11 },
+        { "id": "storage.file-validation", "order": 12 },
+        { "id": "backend.repository", "order": 13, "inputs": { "entityName": "Product", "tableName": "products", "fields": [
+          { "name": "name", "drizzleType": "varchar('name', { length: 200 })", "notNull": true },
+          { "name": "priceCents", "drizzleType": "integer('price_cents')", "notNull": true }
+        ] } },
+        { "id": "backend.service", "order": 14, "inputs": { "entityName": "Product" } },
+        { "id": "backend.controller", "order": 15, "inputs": { "entityName": "Product" } },
+        { "id": "backend.express", "order": 16, "inputs": { "entityName": "Product", "tableName": "products", "requiresAuth": true } },
+        { "id": "api.crud", "order": 17, "inputs": { "entityName": "Product", "tableName": "products", "requiresAuth": true } },
+        { "id": "devops.docker", "order": 18 }
+      ],
+      "edges": []
+    }
+  }
+}

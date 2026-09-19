@@ -1,0 +1,11 @@
+{
+  "packages": [
+    { "name": "multer", "version": "^1.4.5-lts.1" },
+    { "name": "@types/multer", "version": "^1.4.12", "dev": true }
+  ],
+  "services": [],
+  "templates": [
+    { "id": "storage.aws-s3", "relationship": "requires" },
+    { "id": "backend.error-handler", "relationship": "requires" }
+  ]
+}

@@ -1,0 +1,1 @@
+file-exists `package.json` → file-exists `app/layout.tsx` → `npm run build`. A build failure after only this node has run indicates a broken template, not a downstream conflict (nothing has modified these files yet).

@@ -1,0 +1,1 @@
+Re-run `generate` whenever a new node is added to the graph — this node's `idempotency.strategy` is `detect-and-merge`, meaning it always re-derives its two output files from the current `architecture.json` rather than appending, so it never drifts from what's actually selected.

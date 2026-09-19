@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requirements", "architecture"],
+  "properties": {
+    "requirements": { "$ref": "../../artifacts/requirements.schema.json" },
+    "architecture": { "$ref": "../../artifacts/architecture.schema.json" }
+  }
+}

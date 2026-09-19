@@ -1,0 +1,78 @@
+id: backend.repository
+name: Entity Repository (Drizzle)
+version: 1.0.0
+description: >
+  Generates a Drizzle-backed repository class for one entity — create, findById,
+  findMany (paginated), update, remove — following the reference app's
+  AuthenticationRepository conventions (class per aggregate, eq()-based lookups,
+  APIError on not-found). Also appends the entity's pgTable definition to
+  src/config/schema.ts. This is the node the original brief's "database.repository"
+  and "database.CRUD entity" map to — kept in `backend/` because it is a backend-
+  layer concern (query shape, error semantics) that happens to read the schema
+  database.neon-postgres.connection owns, not a database-connection concern itself.
+category: backend
+subcategory: repository
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs:
+  - { name: entityName, type: string, required: true, description: "PascalCase singular, e.g. Product" }
+  - { name: tableName, type: string, required: true, description: "snake_case plural table name, e.g. products" }
+  - { name: fields, type: "array<object>", required: true, description: "[{ name, drizzleType, notNull, unique }] — drizzleType is a literal Drizzle column expression, e.g. varchar('name', { length: 200 })" }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/repository/<Entity>.ts, schema.ts (modified)" }
+  - { name: exports, type: array<string>, description: "<Entity>Repository, <entity>Table" }
+  - { name: tableExportName, type: string }
+
+dependencies:
+  packages:
+    - { name: drizzle-orm, version: "^0.33.0" }
+  services: []
+  templates:
+    - { id: database.neon-postgres.connection, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: "src/repository/{{input.entityName}}.ts", source: files/EntityRepository.ts.template }
+  modify:
+    - { path: src/config/schema.ts, operation: append, source: files/schema.fragment.ts.template }
+
+compatible_with:
+  upstream: [database.neon-postgres.connection, backend.error-handler]
+  downstream: [backend.service, api.crud, testing.unit]
+
+consumes:
+  artifacts: [database.schema]
+produces:
+  artifacts: [database.schema]
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "src/repository/<Entity>.ts exists — if so, run `modify` (e.g. add a field) instead of regenerating"
+
+validation:
+  checks:
+    - { type: file-exists, path: "src/repository/{{input.entityName}}.ts" }
+    - { type: exports, path: "src/repository/{{input.entityName}}.ts", names: ["{{input.entityName}}Repository"] }
+    - { type: build, command: "npm run build" }
+    - { type: migration-pending-check, command: "npm run dbGenerate -- --check" }
+
+testing:
+  strategy: unit
+  location: "tests/{{input.entityName}}Repository.test.ts"
+  command: "npm test -- {{input.entityName}}Repository"
+
+security:
+  considerations:
+    - "Every query is parameterized through Drizzle's query builder — never string-concatenate SQL (prevents SQL injection by construction)."
+    - "update()/remove() must always scope by primary key from a trusted source (route param validated by backend.validation), never a raw client-supplied filter object."
+    - "If the table is tenant-scoped, pair with authorization.tenant-isolation — this node alone does not add a tenant_id filter."
+
+documentation:
+  required: [README.md]

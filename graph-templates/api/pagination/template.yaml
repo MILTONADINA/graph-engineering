@@ -1,0 +1,47 @@
+id: api.pagination
+name: API Pagination (see api.crud)
+version: 0.1.0
+description: >
+  Not separately implemented. Pagination query-parsing lives in
+  backend.pagination (parseListQuery) and LIMIT/OFFSET application lives in
+  backend.repository/api.crud's findMany. This stub exists only so the
+  registry documents where the capability the original brief named
+  "API Pagination" actually lives, rather than silently omitting it.
+category: api
+subcategory: pagination
+status: planned
+type: graph-node
+actions: []
+inputs: []
+outputs: []
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: backend.pagination, relationship: requires }
+    - { id: api.crud, relationship: requires }
+environment:
+  variables: []
+files:
+  create: []
+  modify: []
+compatible_with:
+  upstream: []
+  downstream: []
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+idempotency:
+  strategy: detect-and-skip
+  detection: "n/a — planned stub, never generated"
+validation:
+  checks: []
+testing:
+  strategy: unit
+  location: "n/a"
+  command: "n/a"
+security:
+  considerations: []
+documentation:
+  required: [template.yaml]

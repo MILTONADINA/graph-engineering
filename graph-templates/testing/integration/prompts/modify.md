@@ -1,0 +1,1 @@
+Rarely needs modification. To point at a different truncation strategy (e.g. transaction-rollback-per-test instead of truncate), add a new export rather than changing `truncateAllTables`'s signature — existing suites call it positionally with a table-name array.

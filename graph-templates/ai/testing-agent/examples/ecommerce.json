@@ -1,0 +1,16 @@
+{
+  "output": {
+    "$schema": "../../artifacts/test.schema.json",
+    "artifactType": "test.schema",
+    "version": "1.0.0",
+    "metadata": { "generatedBy": "ai.testing-agent", "generatedAt": "2026-01-15T10:20:00Z", "projectName": "acme-shop", "sourceArtifacts": ["architecture.json"] },
+    "data": {
+      "framework": "vitest",
+      "suites": [
+        { "nodeId": "api.crud", "kind": "unit", "file": "tests/unit/ProductRepository.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:19:00Z" },
+        { "nodeId": "api.crud", "kind": "api", "file": "tests/api/ProductRoutes.test.ts", "status": "passing", "lastRunAt": "2026-01-15T10:19:30Z" }
+      ],
+      "coverageGaps": ["database.neon-postgres.connection"]
+    }
+  }
+}

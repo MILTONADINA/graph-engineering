@@ -1,0 +1,17 @@
+import { Request } from 'express';
+import multer from 'multer';
+import { fileFilter, MAX_SIZE_BYTES } from '../middlewares/fileValidation';
+
+export interface MulterRequest extends Request {
+  files: {
+    [fieldname: string]: Express.Multer.File[];
+  };
+}
+
+const storage = multer.memoryStorage();
+
+export const upload = multer({
+  storage,
+  limits: { fileSize: MAX_SIZE_BYTES },
+  fileFilter,
+});

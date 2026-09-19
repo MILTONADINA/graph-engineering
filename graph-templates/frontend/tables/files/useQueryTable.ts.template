@@ -1,0 +1,94 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { apiFetch, ApiError, ApiPaginated, PaginationMeta } from '../apiClient';
+
+export type SortDir = 'asc' | 'desc';
+
+export interface UseQueryTableResult<T> {
+  rows: T[];
+  meta: PaginationMeta | null;
+  page: number;
+  setPage: (page: number) => void;
+  sortBy: string | undefined;
+  sortDir: SortDir;
+  setSort: (field: string) => void;
+  filters: Record<string, string>;
+  setFilter: (key: string, value: string) => void;
+  isLoading: boolean;
+  error: string | null;
+  refetch: () => void;
+}
+
+/**
+ * Fetches one page of a backend.pagination/api.crud-backed list endpoint and
+ * manages page/sortBy/sortDir/filters as URL query params, matching exactly
+ * what backend.pagination's parseListQuery reads off req.query. filterableFields
+ * enforcement happens server-side (api.crud's allowlist) — this hook sends
+ * whatever filters it's given, the server is what silently drops anything not
+ * allowlisted.
+ */
+export function useQueryTable<T>(basePath: string, initialPageSize = {{input.defaultPageSize}}): UseQueryTableResult<T> {
+  const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [rows, setRows] = useState<T[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refetchToken, setRefetchToken] = useState(0);
+
+  const setSort = useCallback((field: string) => {
+    setSortBy((prevField) => {
+      if (prevField === field) {
+        setSortDir((prevDir) => (prevDir === 'asc' ? 'desc' : 'asc'));
+        return field;
+      }
+      setSortDir('asc');
+      return field;
+    });
+  }, []);
+
+  const setFilter = useCallback((key: string, value: string) => {
+    setPage(1);
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const refetch = useCallback(() => setRefetchToken((n) => n + 1), []);
+
+  useEffect(() => {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(initialPageSize) });
+    if (sortBy) {
+      params.set('sortBy', sortBy);
+      params.set('sortDir', sortDir);
+    }
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) params.set(key, value);
+    }
+
+    let cancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    apiFetch<ApiPaginated<T>>(`${basePath}?${params.toString()}`)
+      .then((result) => {
+        if (cancelled) return;
+        setRows(result.data);
+        setMeta(result.pagination);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof ApiError ? err.message : 'Failed to load data');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [basePath, page, sortBy, sortDir, filters, refetchToken, initialPageSize]);
+
+  return { rows, meta, page, setPage, sortBy, sortDir, setSort, filters, setFilter, isLoading, error, refetch };
+}

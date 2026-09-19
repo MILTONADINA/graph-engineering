@@ -1,0 +1,67 @@
+id: backend.validation
+name: Request Validation Middleware (Zod)
+version: 1.0.0
+description: >
+  Closes the gap noted in REFERENCE_ARCHITECTURE.md §8: the reference app's
+  request validation is hand-rolled once inside AuthenticationRepository.validateUserData
+  and not reusable. This node adds validateBody/validateParams middleware
+  factories backed by Zod schemas, in the same fail-fast spirit as the
+  SECRETS env validation in project.node-express.
+category: backend
+subcategory: validation
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "src/middlewares/validationMiddleware.ts" }
+  - { name: exports, type: array<string>, description: "validateBody, validateParams, validateQuery" }
+
+dependencies:
+  packages:
+    - { name: zod, version: "^3.23.8" }
+  services: []
+  templates:
+    - { id: backend.error-handler, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/middlewares/validationMiddleware.ts, source: files/validationMiddleware.ts }
+  modify: []
+
+compatible_with:
+  upstream: [backend.error-handler]
+  downstream: [backend.express, api.crud, authentication.password]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [api.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/middlewares/validationMiddleware.ts exists and exports validateBody"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/middlewares/validationMiddleware.ts }
+    - { type: exports, path: src/middlewares/validationMiddleware.ts, names: [validateBody, validateParams, validateQuery] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/validationMiddleware.test.ts
+  command: "npm test -- validationMiddleware"
+
+security:
+  considerations:
+    - "A failed validation always throws APIError with 400 and never reaches the route handler or the database — input validation happens before any query is built, which is the primary SQL-injection/type-confusion defense layer above Drizzle's own parameterization."
+    - "Zod's .safeParse never throws — this node always checks `.success` explicitly rather than relying on try/catch, so a validation bug fails loud (400) rather than silently passing through."
+
+documentation:
+  required: [README.md]

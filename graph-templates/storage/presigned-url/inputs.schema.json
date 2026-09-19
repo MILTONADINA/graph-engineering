@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "defaultExpirySeconds": { "type": "integer", "default": 3600, "minimum": 1 },
+    "maxExpirySeconds": { "type": "integer", "default": 86400, "minimum": 1 }
+  }
+}

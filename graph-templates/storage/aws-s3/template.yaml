@@ -1,0 +1,78 @@
+id: storage.aws-s3
+name: S3-Compatible Storage Client
+version: 1.0.0
+description: >
+  The S3-compatible client from the reference app's s3-client.ts — a module-level
+  S3Client pointed at an S3-compatible endpoint (AWS_ENDPOINT_URL_S3, not the
+  implicit AWS default, so it also targets Neon Object Storage or any other
+  S3-compatible provider), forcePathStyle: true, fails fast if any credential
+  is missing. Every other storage.* node builds on this client.
+category: storage
+subcategory: aws-s3
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs:
+  - { name: defaultBucketName, type: string, required: false, default: media, description: "Fallback bucket name if AWS_BUCKET_NAME is unset" }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/config/s3-client.ts" }
+  - { name: exports, type: array<string>, description: "s3Client, storageBucket" }
+
+dependencies:
+  packages:
+    - { name: "@aws-sdk/client-s3", version: "^3.1128.0" }
+  services: [s3-compatible-storage]
+  templates:
+    - { id: project.node-express, relationship: requires }
+
+environment:
+  variables:
+    - { name: AWS_ENDPOINT_URL_S3, required: true, secret: false, description: "S3-compatible endpoint URL", usedBy: [storage.aws-s3] }
+    - { name: AWS_REGION, required: true, secret: false, description: "Storage region", usedBy: [storage.aws-s3] }
+    - { name: AWS_ACCESS_KEY_ID, required: true, secret: true, description: "Access key", usedBy: [storage.aws-s3] }
+    - { name: AWS_SECRET_ACCESS_KEY, required: true, secret: true, description: "Secret key", usedBy: [storage.aws-s3] }
+    - { name: AWS_BUCKET_NAME, required: false, secret: false, description: "Target bucket, defaults to 'media'", usedBy: [storage.aws-s3] }
+
+files:
+  create:
+    - { path: src/config/s3-client.ts, source: files/s3-client.ts.template }
+  modify:
+    - { path: src/utils/helpers.ts, operation: insert-before-marker, marker: "// ENV-VAR-FIELDS:", template: "  AWS_ENDPOINT_URL_S3: string;\n  AWS_REGION: string;\n  AWS_ACCESS_KEY_ID: string;\n  AWS_SECRET_ACCESS_KEY: string;\n  AWS_BUCKET_NAME: string;" }
+    - { path: src/utils/helpers.ts, operation: insert-before-marker, marker: "// ENV-VAR-VALUES:", template: "  AWS_ENDPOINT_URL_S3: process.env.AWS_ENDPOINT_URL_S3!,\n  AWS_REGION: process.env.AWS_REGION!,\n  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID!,\n  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY!,\n  AWS_BUCKET_NAME: process.env.AWS_BUCKET_NAME ?? '{{input.defaultBucketName}}',"}
+    - { path: src/utils/helpers.ts, operation: insert-into-array, marker: "requiredEnvironmentVariables: readonly string[] = [", template: "'AWS_ENDPOINT_URL_S3', 'AWS_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'," }
+
+compatible_with:
+  upstream: [project.node-express]
+  downstream: [storage.upload, storage.download, storage.presigned-url, storage.delete]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [storage.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/config/s3-client.ts exists and exports s3Client"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/config/s3-client.ts }
+    - { type: exports, path: src/config/s3-client.ts, names: [s3Client, storageBucket] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/s3-client.test.ts
+  command: "npm test -- s3-client"
+
+security:
+  considerations:
+    - "Endpoint is S3-COMPATIBLE, not hardcoded to AWS — this is a deliberate reference-app design choice (works with Neon Object Storage per neon.ts, or any S3-compatible provider), not an oversight. Do not special-case AWS-only SDK features."
+    - "forcePathStyle: true is required by most non-AWS S3-compatible providers — do not remove it when swapping providers."
+    - "Credentials are read from SECRETS (fail-fast at boot) — never hardcode or default them; this node deliberately requires all four core vars with no fallback."
+    - "Buckets are private by default — nothing in this node grants public read; reads always go through storage.presigned-url or storage.download."
+
+documentation:
+  required: [README.md]

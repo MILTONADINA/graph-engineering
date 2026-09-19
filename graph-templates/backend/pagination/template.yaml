@@ -1,0 +1,68 @@
+id: backend.pagination
+name: List Query Parsing
+version: 1.0.0
+description: >
+  parseListQuery(query) reads page/pageSize/sortBy/sortDir/free-form filter
+  params off req.query into a typed, bounded shape (page >= 1, 1 <= pageSize
+  <= 100). Pairs with backend.api-response's PaginationMeta and
+  backend.repository's ListOptions — this node defines the query-parsing half,
+  api.crud wires the result to entity-specific filterable/sortable columns.
+category: backend
+subcategory: pagination
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs:
+  - { name: defaultPageSize, type: number, required: false, default: 20 }
+  - { name: maxPageSize, type: number, required: false, default: 100 }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/utils/pagination.ts" }
+  - { name: exports, type: array<string>, description: "parseListQuery, ParsedListQuery" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: src/utils/pagination.ts, source: files/pagination.ts.template }
+  modify: []
+
+compatible_with:
+  upstream: [project.node-express]
+  downstream: [backend.controller, api.crud]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [api.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/utils/pagination.ts exists and exports parseListQuery"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/utils/pagination.ts }
+    - { type: exports, path: src/utils/pagination.ts, names: [parseListQuery] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/pagination.test.ts
+  command: "npm test -- pagination"
+
+security:
+  considerations:
+    - "pageSize is hard-capped (default 100) regardless of what the client requests — an unbounded pageSize is a denial-of-service vector against the database."
+    - "Free-form filter keys are collected but NOT applied to any query by this node — api.crud/backend.repository must explicitly allowlist which keys map to real, indexed columns before using them in a WHERE clause, to avoid an injection-by-column-name surface."
+
+documentation:
+  required: [README.md]

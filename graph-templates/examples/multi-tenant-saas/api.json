@@ -1,0 +1,30 @@
+{
+  "$schema": "../../artifacts/api.schema.json",
+  "artifactType": "api.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.backend-agent",
+    "generatedAt": "2026-02-03T09:10:00Z",
+    "projectName": "multi-tenant-saas",
+    "sourceArtifacts": ["database.schema.json", "architecture.json"]
+  },
+  "data": {
+    "basePath": "/api",
+    "responseEnvelope": { "success": "{ message, data }", "error": "{ error: { message, status } }" },
+    "routes": [
+      { "method": "GET", "path": "/api/projects", "handler": "projectController.list", "entity": "projects", "auth": "required", "pagination": true, "filtering": ["status", "tenantId"], "sorting": ["name", "createdAt"] },
+      { "method": "GET", "path": "/api/projects/:id", "handler": "projectController.getById", "entity": "projects", "auth": "required" },
+      { "method": "POST", "path": "/api/projects", "handler": "projectController.create", "entity": "projects", "auth": "required" },
+      { "method": "PUT", "path": "/api/projects/:id", "handler": "projectController.update", "entity": "projects", "auth": "required" },
+      { "method": "DELETE", "path": "/api/projects/:id", "handler": "projectController.remove", "entity": "projects", "auth": "required", "roles": ["admin"] },
+      { "method": "GET", "path": "/api/invoices", "handler": "invoiceController.list", "entity": "invoices", "auth": "required", "pagination": true, "filtering": ["status", "projectId"], "sorting": ["amountCents", "createdAt"] },
+      { "method": "GET", "path": "/api/invoices/:id", "handler": "invoiceController.getById", "entity": "invoices", "auth": "required" },
+      { "method": "POST", "path": "/api/invoices", "handler": "invoiceController.create", "entity": "invoices", "auth": "required" },
+      { "method": "PUT", "path": "/api/invoices/:id", "handler": "invoiceController.update", "entity": "invoices", "auth": "required" },
+      { "method": "DELETE", "path": "/api/invoices/:id", "handler": "invoiceController.remove", "entity": "invoices", "auth": "required", "roles": ["admin"] },
+      { "method": "POST", "path": "/api/auth/register", "handler": "authenticationController.register", "auth": "none" },
+      { "method": "POST", "path": "/api/auth/login", "handler": "authenticationController.login", "auth": "none" },
+      { "method": "POST", "path": "/api/auth/refresh", "handler": "authRefreshRoutes", "auth": "none" }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "inputs": { "redirectAfterLogin": "/dashboard" },
+  "expectedOutputs": {
+    "files": ["lib/auth/AuthContext.tsx", "app/login/page.tsx", "app/register/page.tsx", "app/layout.tsx"],
+    "exports": ["AuthProvider", "useAuth"],
+    "routes": ["/login", "/register"]
+  }
+}

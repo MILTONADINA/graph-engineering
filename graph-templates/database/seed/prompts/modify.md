@@ -1,0 +1,1 @@
+To seed a newly added entity, insert one new `import { <tableExportName> } from '../config/schema';` line and one new `await database.insert(<tableExportName>).values(...)` block inside the existing `seed()` function — never regenerate the whole file, which would drop seed logic for entities not in the current `entities` input.

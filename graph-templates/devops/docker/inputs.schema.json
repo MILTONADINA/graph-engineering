@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "port": { "type": "integer", "default": 3000 },
+    "nodeVersion": { "type": "string", "default": "20" }
+  }
+}

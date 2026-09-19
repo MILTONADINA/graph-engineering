@@ -1,0 +1,1 @@
+{ "inputs": { "keyPrefix": "uploads" }, "expectedOutputs": { "files": ["src/config/multer.config.ts", "src/repository/FileUpload.ts"], "exports": ["upload", "uploadFileToS3"] } }

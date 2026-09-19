@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "allowedMimeTypes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["image/png", "image/jpeg", "image/webp", "application/pdf"]
+    },
+    "maxSizeBytes": { "type": "integer", "default": 5242880, "minimum": 1 }
+  }
+}

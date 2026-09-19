@@ -1,0 +1,17 @@
+# Environment Variables
+
+Illustrative for the reference-stack graph (`project.node-express` + `database.neon-postgres.connection` + `storage.aws-s3` + `authentication.password`/`authentication.jwt`). A real `devops.environments` run derives this table from `architecture.json`'s selected `nodes[]`, not this fixed list — a different graph produces a different table.
+
+| Name | Required | Secret | Description | Used by |
+|---|---|---|---|---|
+| `PORT` | no | no | HTTP port, default 3000 | project.node-express |
+| `NODE_ENV` | no | no | development \| production | project.node-express |
+| `CORS_ORIGIN` | no | no | Comma-separated allowed origins | project.node-express |
+| `DATABASE_URL` | yes | yes | Neon pooled Postgres connection string | database.neon-postgres.connection |
+| `AWS_ENDPOINT_URL_S3` | yes | no | S3-compatible endpoint | storage.aws-s3 |
+| `AWS_REGION` | yes | no | Storage region | storage.aws-s3 |
+| `AWS_ACCESS_KEY_ID` | yes | yes | S3 access key | storage.aws-s3 |
+| `AWS_SECRET_ACCESS_KEY` | yes | yes | S3 secret key | storage.aws-s3 |
+| `AWS_BUCKET_NAME` | no | no | Target bucket, default `media` | storage.aws-s3 |
+| `ACCESS_TOKEN_SECRET` | yes | yes | JWT signing secret | authentication.jwt |
+| `SALT_ROUNDS` | no | no | bcrypt cost factor, default 12, floor 10 | authentication.password |

@@ -1,0 +1,1 @@
+file-exists `src/migrations/README.md` → run `npx drizzle-kit generate` and confirm no new file was created (schema/migrations in sync). A new file appearing means a `backend.repository` change wasn't followed by `npm run dbGenerate`.

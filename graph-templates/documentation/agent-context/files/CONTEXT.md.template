@@ -1,0 +1,30 @@
+# Agent Context
+
+Machine-oriented summary for an agent resuming work on this project. See `graph-templates/GRAPH-NODE-SPEC.md` and `graph-templates/TEMPLATE-SPEC.md` for the node/template contract this project's `.graph/manifest.json` conforms to.
+
+## Nodes executed
+
+| Node id | Version | Generated at |
+|---|---|---|
+{{#each manifest.nodes}}
+| {{@key}} | {{this.version}} | {{this.generatedAt}} |
+{{/each}}
+
+## Artifacts present
+
+| Artifact | Path | Present |
+|---|---|---|
+| requirements.schema | requirements.json | {{artifact.requirements.present}} |
+| architecture.schema | architecture.json | {{artifact.architecture.present}} |
+| database.schema | database.schema.json | {{artifact.database.present}} |
+| api.schema | api.schema.json | {{artifact.api.present}} |
+| auth.schema | auth.schema.json | {{artifact.auth.present}} |
+| storage.schema | storage.schema.json | {{artifact.storage.present}} |
+| frontend.schema | frontend.schema.json | {{artifact.frontend.present}} |
+| integration.schema | integration.schema.json | {{artifact.integration.present}} |
+| test.schema | test.schema.json | {{artifact.test.present}} |
+| deployment.schema | deployment.schema.json | {{artifact.deployment.present}} |
+
+## Next steps
+
+Run `node tools/validate-graph/index.js . graph-templates` before adding new nodes, to catch drift early.

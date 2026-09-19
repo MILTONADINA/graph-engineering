@@ -1,0 +1,12 @@
+{
+  "output": {
+    "valid": false,
+    "errors": [
+      { "rule": "missing-environment-variables", "nodeId": "storage.aws-s3", "message": "AWS_BUCKET_NAME is required but not set in .env.local" }
+    ],
+    "warnings": [
+      { "rule": "missing-tests", "nodeId": "database.neon-postgres.connection", "message": "No integration suite covers the live database connection (see test.schema.json coverageGaps)" }
+    ],
+    "repairs": []
+  }
+}

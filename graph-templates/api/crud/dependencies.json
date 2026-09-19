@@ -1,0 +1,11 @@
+{
+  "packages": [],
+  "services": [],
+  "templates": [
+    { "id": "backend.repository", "relationship": "requires" },
+    { "id": "backend.service", "relationship": "requires" },
+    { "id": "backend.controller", "relationship": "requires" },
+    { "id": "backend.express", "relationship": "requires" },
+    { "id": "backend.pagination", "relationship": "requires" }
+  ]
+}

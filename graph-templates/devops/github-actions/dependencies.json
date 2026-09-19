@@ -1,0 +1,10 @@
+{
+  "packages": [],
+  "services": [],
+  "templates": [
+    { "id": "project.node-express", "relationship": "requires" },
+    { "id": "testing.unit", "relationship": "extends" },
+    { "id": "testing.api", "relationship": "extends" },
+    { "id": "database.migrations", "relationship": "extends" }
+  ]
+}

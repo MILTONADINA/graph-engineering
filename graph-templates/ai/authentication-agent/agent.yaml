@@ -1,0 +1,23 @@
+id: ai.authentication-agent
+name: Authentication Agent
+version: 1.0.0
+description: >
+  Invokes authentication.password + authentication.jwt (+ authorization.rbac
+  when roles are needed), produces auth.schema.json.
+category: ai
+subcategory: authentication-agent
+status: implemented
+type: ai-agent
+role: >
+  Decides token TTLs, role set, and whether tenant isolation is layered on
+  top, then invokes the concrete authentication.*/authorization.* nodes.
+consumes:
+  artifacts: [requirements.schema, architecture.schema]
+produces:
+  artifacts: [auth.schema]
+tools: [read_artifact, write_artifact, invoke_node]
+handoff_to: [ai.backend-agent, ai.testing-agent]
+validation:
+  checks: ["strategy matches architecture.json stack.authentication", "roles is non-empty when authorization.rbac was invoked"]
+documentation:
+  required: [README.md]

@@ -1,0 +1,28 @@
+{
+  "input": "an api.schema.json with GET /api/products (public, paginated) and POST/PUT/DELETE /api/products (auth: required, roles: [admin]), plus an auth.schema.json with strategy: jwt",
+  "output": {
+    "$schema": "../../artifacts/frontend.schema.json",
+    "artifactType": "frontend.schema",
+    "version": "1.0.0",
+    "metadata": {
+      "generatedBy": "ai.frontend-agent",
+      "generatedAt": "2026-01-15T10:22:00Z",
+      "projectName": "acme-shop",
+      "sourceArtifacts": ["architecture.json", "api.json", "auth.json"]
+    },
+    "data": {
+      "framework": "nextjs",
+      "pages": [
+        { "route": "/products", "name": "ProductCatalog", "requiresAuth": false, "consumesApiRoutes": ["/api/products"], "components": ["DataTable"] },
+        { "route": "/admin/products/new", "name": "NewProduct", "requiresAuth": true, "consumesApiRoutes": ["/api/products"], "components": ["useFormState"] },
+        { "route": "/login", "name": "Login", "requiresAuth": false, "consumesApiRoutes": ["/api/auth/login"], "components": ["AuthContext"] }
+      ],
+      "components": [
+        { "name": "DataTable", "kind": "table" },
+        { "name": "useFormState", "kind": "form" },
+        { "name": "AuthContext", "kind": "authentication" }
+      ]
+    }
+  },
+  "resolvedNodeSequence": ["project.nextjs", "frontend.nextjs", "frontend.authentication", "frontend.forms", "frontend.tables"]
+}

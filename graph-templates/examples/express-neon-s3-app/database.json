@@ -1,0 +1,91 @@
+{
+  "$schema": "../../artifacts/database.schema.json",
+  "artifactType": "database.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.database-agent",
+    "generatedAt": "2026-01-15T10:10:00Z",
+    "projectName": "acme-shop",
+    "sourceArtifacts": ["architecture.json"]
+  },
+  "data": {
+    "dialect": "postgresql",
+    "orm": "drizzle",
+    "enums": [
+      { "name": "user_role", "values": ["customer", "admin"] },
+      { "name": "user_status", "values": ["active", "suspended"] },
+      { "name": "auth_token_type", "values": ["email_verification", "password_reset"] }
+    ],
+    "tables": [
+      {
+        "name": "users",
+        "columns": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "default": "gen_random_uuid()" },
+          { "name": "email", "type": "varchar(320)", "notNull": true, "unique": true },
+          { "name": "password_hash", "type": "varchar(255)", "notNull": true },
+          { "name": "role", "type": "user_role", "notNull": true, "default": "customer" },
+          { "name": "status", "type": "user_status", "notNull": true, "default": "active" },
+          { "name": "email_verified_at", "type": "timestamp with time zone" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" },
+          { "name": "updated_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ]
+      },
+      {
+        "name": "user_profiles",
+        "columns": [
+          { "name": "user_id", "type": "uuid", "primaryKey": true, "references": { "table": "users", "column": "id", "onDelete": "cascade" } },
+          { "name": "first_name", "type": "varchar(100)", "notNull": true },
+          { "name": "last_name", "type": "varchar(100)", "notNull": true },
+          { "name": "phone", "type": "varchar(32)" },
+          { "name": "avatar_url", "type": "varchar(2048)" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" },
+          { "name": "updated_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ]
+      },
+      {
+        "name": "auth_tokens",
+        "columns": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "default": "gen_random_uuid()" },
+          { "name": "user_id", "type": "uuid", "notNull": true, "references": { "table": "users", "column": "id", "onDelete": "cascade" } },
+          { "name": "type", "type": "auth_token_type", "notNull": true },
+          { "name": "token_hash", "type": "varchar(64)", "notNull": true },
+          { "name": "expires_at", "type": "timestamp with time zone", "notNull": true },
+          { "name": "consumed_at", "type": "timestamp with time zone" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ],
+        "indexes": [{ "name": "auth_tokens_token_hash_idx", "columns": ["token_hash"], "unique": true }]
+      },
+      {
+        "name": "refresh_tokens",
+        "columns": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "default": "gen_random_uuid()" },
+          { "name": "user_id", "type": "uuid", "notNull": true, "references": { "table": "users", "column": "id", "onDelete": "cascade" } },
+          { "name": "token_hash", "type": "varchar(64)", "notNull": true, "unique": true },
+          { "name": "expires_at", "type": "timestamp with time zone", "notNull": true },
+          { "name": "revoked_at", "type": "timestamp with time zone" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ]
+      },
+      {
+        "name": "products",
+        "tenantScoped": false,
+        "columns": [
+          { "name": "id", "type": "uuid", "primaryKey": true, "default": "gen_random_uuid()" },
+          { "name": "name", "type": "varchar(200)", "notNull": true },
+          { "name": "description", "type": "varchar(2000)" },
+          { "name": "price_cents", "type": "integer", "notNull": true },
+          { "name": "sku", "type": "varchar(64)", "notNull": true, "unique": true },
+          { "name": "status", "type": "varchar(32)", "notNull": true },
+          { "name": "image_key", "type": "varchar(2048)" },
+          { "name": "created_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" },
+          { "name": "updated_at", "type": "timestamp with time zone", "notNull": true, "default": "now()" }
+        ]
+      }
+    ],
+    "migrations": [
+      { "file": "0000_init.sql", "appliedTables": ["users", "user_profiles", "auth_tokens"] },
+      { "file": "0001_refresh_tokens.sql", "appliedTables": ["refresh_tokens"] },
+      { "file": "0002_products.sql", "appliedTables": ["products"] }
+    ]
+  }
+}

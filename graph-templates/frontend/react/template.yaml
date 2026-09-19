@@ -1,0 +1,61 @@
+id: frontend.react
+name: Plain React (Vite) Project Scaffold
+version: 0.1.0
+description: >
+  Planned. A non-Next.js React SPA scaffold (Vite + React + TypeScript) for
+  projects that want a pure client-rendered app instead of Next.js's App
+  Router/SSR (e.g. an internal admin tool with no SEO/SSR requirement). Would
+  need its own project.* root node (project.vite-react, not yet registered)
+  since it has a different build tool and routing story than project.nextjs —
+  frontend.forms/frontend.tables's hooks are framework-agnostic React and would
+  likely be reusable as-is; frontend.nextjs's apiClient has no Next.js-specific
+  code either, so a future frontend.react node may turn out to just be
+  "frontend.nextjs's apiClient, renamed and duplicated" rather than new code —
+  worth checking before implementing to avoid needless duplication.
+category: frontend
+subcategory: react
+status: planned
+type: graph-node
+actions: [generate]
+
+inputs: []
+outputs: []
+
+dependencies:
+  packages: []
+  services: []
+  templates: []
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify: []
+
+compatible_with:
+  upstream: []
+  downstream: [frontend.forms, frontend.tables]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "n/a — planned"
+
+validation:
+  checks: []
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations: []
+
+documentation:
+  required: []

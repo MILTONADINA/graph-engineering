@@ -1,0 +1,24 @@
+id: ai.devops-agent
+name: DevOps Agent
+version: 1.0.0
+description: >
+  Invokes devops.docker + devops.github-actions (+ devops.environments),
+  produces deployment.schema.json.
+category: ai
+subcategory: devops-agent
+status: implemented
+type: ai-agent
+role: >
+  Wires containerization and CI once the application is otherwise complete
+  and tested — always runs after ai.testing-agent, never before (a Dockerfile
+  for code that doesn't build yet is premature).
+consumes:
+  artifacts: [architecture.schema, test.schema]
+produces:
+  artifacts: [deployment.schema]
+tools: [read_artifact, write_artifact, invoke_node]
+handoff_to: [ai.validation-agent]
+validation:
+  checks: ["requiredEnvVars matches devops.environments output", "docker build check passes or is explicitly skipped with a reason"]
+documentation:
+  required: [README.md]

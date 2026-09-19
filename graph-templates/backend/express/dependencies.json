@@ -1,0 +1,8 @@
+{
+  "packages": [],
+  "services": [],
+  "templates": [
+    { "id": "backend.controller", "relationship": "requires" },
+    { "id": "authentication.jwt", "relationship": "extends" }
+  ]
+}

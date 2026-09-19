@@ -1,0 +1,26 @@
+id: ai.code-review-agent
+name: Code Review Agent
+version: 1.0.0
+description: >
+  Reviews generated diffs against the conventions documented in
+  REFERENCE_ARCHITECTURE.md §7/§9 (preserved vs. added conventions) before
+  a node's output is considered final. The last stop in the repair lifecycle
+  before Complete.
+category: ai
+subcategory: code-review-agent
+status: implemented
+type: ai-agent
+role: >
+  A convention-conformance check, distinct from ai.validation-agent's
+  correctness/security check — this agent asks "does this look like it
+  belongs in this codebase," not "does this work."
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+tools: [read_project_files, run_validators]
+handoff_to: []
+validation:
+  checks: ["every thrown error is an APIError, not a raw Error or inline res.json()", "every async route handler is wrapped in asyncHandler"]
+documentation:
+  required: [README.md]

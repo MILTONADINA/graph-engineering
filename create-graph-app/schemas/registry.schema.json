@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "registry.schema.json",
+  "title": "Registry Snapshot",
+  "description": "The shape of a serialized registry snapshot — what `create-graph-app list --json` prints and what a future AI agent would fetch/parse to query available templates without running the CLI. Each entry is a template.schema.json instance plus its resolved source path; this is a query index, not a second source of truth (the template.yaml files remain authoritative — see tools' parity test in tests/registry.test.ts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["generatedAt", "cliVersion", "templates"],
+  "properties": {
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "cliVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "templates": {
+      "type": "array",
+      "items": {
+        "allOf": [{ "$ref": "template.schema.json" }],
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to the template's directory, relative to the package's templates/ root." }
+        }
+      }
+    }
+  }
+}

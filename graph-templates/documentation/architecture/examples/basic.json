@@ -1,0 +1,11 @@
+{
+  "inputs": {
+    "artifact": {
+      "data": {
+        "stack": { "backend": "express", "database": "neon-postgres", "storage": "aws-s3" },
+        "nodes": [{ "id": "project.node-express", "order": 0 }, { "id": "database.neon-postgres.connection", "order": 1 }]
+      }
+    }
+  },
+  "expectedOutputs": { "files": ["docs/ARCHITECTURE.md"] }
+}

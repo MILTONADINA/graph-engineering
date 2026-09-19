@@ -1,0 +1,61 @@
+id: frontend.dashboards
+name: Dashboard Layout
+version: 0.1.0
+description: >
+  Planned. A dashboard shell (sidebar nav gated by useAuth's user.role, stat
+  tiles, a page layout composing frontend.tables' DataTable + frontend.forms'
+  useFormState for settings/profile forms) — the natural next composition once
+  frontend.authentication + frontend.tables + frontend.forms exist individually.
+  Not yet implemented: it's a composition of already-implemented pieces rather
+  than new primitives, so it's lower priority than the pieces it would compose.
+category: frontend
+subcategory: dashboards
+status: planned
+type: graph-node
+actions: [generate]
+
+inputs: []
+outputs: []
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: frontend.authentication, relationship: requires }
+    - { id: frontend.tables, relationship: requires }
+    - { id: frontend.forms, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify: []
+
+compatible_with:
+  upstream: [frontend.authentication, frontend.tables, frontend.forms]
+  downstream: []
+
+consumes:
+  artifacts: [auth.schema, api.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "n/a — planned"
+
+validation:
+  checks: []
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - "Once implemented: role-gated nav items are a display convenience only, same caveat as frontend.authentication's README — the backend's authorization.rbac is the actual enforcement, never this layout."
+
+documentation:
+  required: []

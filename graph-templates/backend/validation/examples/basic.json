@@ -1,0 +1,1 @@
+{ "inputs": {}, "expectedOutputs": { "files": ["src/middlewares/validationMiddleware.ts"], "exports": ["validateBody", "validateParams", "validateQuery"] } }

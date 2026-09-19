@@ -1,0 +1,31 @@
+{
+  "$schema": "../../artifacts/deployment.schema.json",
+  "artifactType": "deployment.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.devops-agent",
+    "generatedAt": "2026-02-03T09:25:00Z",
+    "projectName": "multi-tenant-saas",
+    "sourceArtifacts": ["architecture.json"]
+  },
+  "data": {
+    "target": "docker",
+    "dockerfile": "Dockerfile",
+    "ciProvider": "github-actions",
+    "ciFile": ".github/workflows/ci.yml",
+    "requiredEnvVars": [
+      { "name": "PORT", "required": false, "secret": false, "usedBy": ["project.node-express"] },
+      { "name": "NODE_ENV", "required": false, "secret": false, "usedBy": ["project.node-express"] },
+      { "name": "CORS_ORIGIN", "required": false, "secret": false, "usedBy": ["project.node-express"] },
+      { "name": "DATABASE_URL", "required": true, "secret": true, "usedBy": ["database.neon-postgres.connection"] },
+      { "name": "ACCESS_TOKEN_SECRET", "required": true, "secret": true, "usedBy": ["authentication.jwt"] },
+      { "name": "SALT_ROUNDS", "required": false, "secret": false, "usedBy": ["authentication.password"] },
+      { "name": "AWS_ENDPOINT_URL_S3", "required": true, "secret": false, "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_REGION", "required": true, "secret": false, "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_ACCESS_KEY_ID", "required": true, "secret": true, "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_SECRET_ACCESS_KEY", "required": true, "secret": true, "usedBy": ["storage.aws-s3"] },
+      { "name": "AWS_BUCKET_NAME", "required": false, "secret": false, "usedBy": ["storage.aws-s3"] }
+    ],
+    "healthCheckPath": "/"
+  }
+}

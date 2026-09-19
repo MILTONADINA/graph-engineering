@@ -1,0 +1,34 @@
+id: frontend.shadcn
+name: shadcn/ui
+version: 1.0.0
+category: frontend
+description: >
+  Wires shadcn/ui's conventions into the generated Next.js app: components.json,
+  the themed Tailwind CSS variables + config shadcn's own CLI expects, the
+  cn() class-merge helper, and one example component (Button) demonstrating
+  the pattern. Owns app/globals.css and tailwind.config.ts outright (see
+  frontend.nextjs's template.yaml comment) since shadcn needs specific CSS
+  custom properties frontend.nextjs's own plain-Tailwind path doesn't set up.
+requires: ["frontend"]
+provides: ["ui-system"]
+compatibleWith: ["frontend.nextjs"]
+conflictsWith: []
+targetApp: web
+dependencies:
+  dependencies:
+    - { name: "class-variance-authority", version: "^0.7.0" }
+    - { name: clsx, version: "^2.1.1" }
+    - { name: "tailwind-merge", version: "^2.4.0" }
+    - { name: "lucide-react", version: "^0.408.0" }
+    - { name: "@radix-ui/react-slot", version: "^1.1.0" }
+  devDependencies:
+    - { name: "tailwindcss-animate", version: "^1.0.7" }
+scripts: {}
+environment: []
+files:
+  - { op: copy, src: components.json, dest: components.json }
+  - { op: copy, src: lib/utils.ts, dest: lib/utils.ts }
+  - { op: copy, src: components/ui/button.tsx, dest: components/ui/button.tsx }
+  - { op: copy, src: app/globals.css, dest: app/globals.css }
+  - { op: copy, src: tailwind.config.ts, dest: tailwind.config.ts }
+documentation: docs/shadcn.md

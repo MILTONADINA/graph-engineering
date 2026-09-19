@@ -1,0 +1,28 @@
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { randomUUID } from 'crypto';
+import { basename } from 'path';
+import { s3Client, storageBucket } from '../config/s3-client';
+import { APIError } from '../middlewares/errorMiddleware';
+import { HttpStatusCodes } from '../utils/helpers';
+
+class FileUpload {
+  async uploadFileToS3(file: Express.Multer.File): Promise<string> {
+    const key = `{{input.keyPrefix}}/${randomUUID()}-${basename(file.originalname)}`;
+
+    try {
+      await s3Client.send(new PutObjectCommand({
+        Bucket: storageBucket,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }));
+      return key;
+    } catch (error) {
+      console.error('Error uploading file to object storage:', error);
+      throw new APIError('Failed to upload file', HttpStatusCodes.BAD_GATEWAY);
+    }
+  }
+}
+
+export default new FileUpload();
+export { FileUpload };

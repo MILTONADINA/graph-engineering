@@ -1,0 +1,1 @@
+1. Derive `entityNameCamel` = camelCase(`entityName`). 2. Confirm `src/repository/<entityName>.ts` exists (from `backend.repository`) — fail loudly if not. 3. Render `files/EntityService.ts.template` to `src/services/<entityNameCamel>Service.ts`. 4. Run `npm run build`.

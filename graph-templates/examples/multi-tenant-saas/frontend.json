@@ -1,0 +1,25 @@
+{
+  "$schema": "../../artifacts/frontend.schema.json",
+  "artifactType": "frontend.schema",
+  "version": "1.0.0",
+  "metadata": {
+    "generatedBy": "ai.frontend-agent",
+    "generatedAt": "2026-02-03T09:12:00Z",
+    "projectName": "multi-tenant-saas",
+    "sourceArtifacts": ["architecture.json", "api.schema.json"]
+  },
+  "data": {
+    "framework": "nextjs",
+    "pages": [
+      { "route": "/login", "name": "LoginPage", "requiresAuth": false, "consumesApiRoutes": ["/api/auth/login"], "components": ["AuthForm"] },
+      { "route": "/projects", "name": "ProjectsPage", "requiresAuth": true, "consumesApiRoutes": ["/api/projects"], "components": ["DataTable", "FilterBar"] },
+      { "route": "/projects/[id]/invoices", "name": "InvoicesPage", "requiresAuth": true, "consumesApiRoutes": ["/api/invoices"], "components": ["DataTable", "UploadButton"] }
+    ],
+    "components": [
+      { "name": "AuthForm", "kind": "authentication" },
+      { "name": "DataTable", "kind": "table" },
+      { "name": "FilterBar", "kind": "form" },
+      { "name": "UploadButton", "kind": "form" }
+    ]
+  }
+}

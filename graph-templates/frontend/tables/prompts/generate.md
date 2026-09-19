@@ -1,0 +1,1 @@
+1. Render `files/useQueryTable.ts.template` to `lib/tables/useQueryTable.ts` with `defaultPageSize` substituted. 2. Write `files/DataTable.tsx.template` verbatim to `components/DataTable.tsx`. 3. Run `npm run build`.

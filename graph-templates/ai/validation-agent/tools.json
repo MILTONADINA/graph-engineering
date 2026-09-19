@@ -1,0 +1,6 @@
+[
+  { "name": "read_artifact", "description": "Reads any of the ten artifact types" },
+  { "name": "read_template_registry", "description": "Reads template-registry.json for dependency/version metadata" },
+  { "name": "read_project_files", "description": "Reads the real generated project's filesystem (env files, src/, tests/)" },
+  { "name": "run_validators", "description": "Invokes graph-templates/tools/validate-graph and validate-templates as a fast first pass" }
+]

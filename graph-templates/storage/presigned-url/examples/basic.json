@@ -1,0 +1,1 @@
+{ "inputs": { "defaultExpirySeconds": 3600, "maxExpirySeconds": 86400 }, "expectedOutputs": { "files": ["src/repository/PresignedUrl.ts"], "exports": ["PresignedUrl"] } }

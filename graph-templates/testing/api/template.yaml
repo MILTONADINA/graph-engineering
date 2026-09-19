@@ -1,0 +1,67 @@
+id: testing.api
+name: API Route Test Setup (Supertest)
+version: 1.0.0
+description: >
+  Supertest-based end-to-end route tests against the real Express app object —
+  the pattern already used by project.node-express's own health-check test
+  and backend.express's route tests (both import `app` from src/app.ts and
+  never bind a real port, since app.ts guards app.listen() behind
+  `if (require.main === module)` specifically so it is safe to import in
+  tests). This node's job is the devDependency + documenting that convention;
+  entity-specific API tests ship with backend.express/api.crud themselves.
+category: testing
+subcategory: api
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "package.json (modified: adds supertest devDependencies)" }
+
+dependencies:
+  packages:
+    - { name: supertest, version: "^7.0.0", dev: true }
+    - { name: "@types/supertest", version: "^6.0.2", dev: true }
+  services: []
+  templates:
+    - { id: project.node-express, relationship: requires }
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify:
+    - { path: package.json, operation: merge-json, target: devDependencies, add: { supertest: "^7.0.0", "@types/supertest": "^6.0.2" } }
+
+compatible_with:
+  upstream: [project.node-express]
+  downstream: [backend.express, api.crud]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [test.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "package.json devDependencies already contains supertest"
+
+validation:
+  checks:
+    - { type: contains, path: package.json, pattern: "supertest" }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: api
+  location: "n/a — this node configures the convention other nodes' API tests use"
+  command: "npm test"
+
+security:
+  considerations:
+    - "Never call app.listen() from a test — importing the default export from src/app.ts and passing it directly to supertest(app) avoids binding a real port, which would leak across parallel test workers and CI runs. This is exactly why project.node-express guards app.listen() behind `require.main === module`; do not remove that guard."
+
+documentation:
+  required: [README.md]

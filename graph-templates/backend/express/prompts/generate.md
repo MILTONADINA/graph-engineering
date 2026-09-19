@@ -1,0 +1,1 @@
+1. Confirm `<Entity>Controller` exists. 2. Render `files/EntityRoutes.ts.template`, expanding `{{#if input.requiresAuth}}` blocks. 3. Insert the two `files.modify` lines into `app.ts` at their markers (import line before `// Import routes`, mount line before `// Health check route`). 4. Run `npm run build`. 5. Report `routes` as the five method+path pairs actually mounted.

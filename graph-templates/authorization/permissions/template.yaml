@@ -1,0 +1,55 @@
+id: authorization.permissions
+name: Permission Matrix
+version: 0.1.0
+description: >
+  A granular resource:action permission-matrix alternative/extension to
+  authorization.rbac's fixed role list — e.g. `products:delete`,
+  `orders:refund` as individually grantable permissions rather than baking
+  everything into a small role enum. Not yet implemented in this library.
+category: authorization
+subcategory: permissions
+status: planned
+type: graph-node
+actions: [generate]
+
+inputs: []
+outputs: []
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: authorization.rbac, relationship: extends }
+
+environment:
+  variables: []
+
+files:
+  create: []
+  modify: []
+
+compatible_with:
+  upstream: [authentication.jwt, authorization.rbac]
+  downstream: []
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [auth.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "not applicable — planned"
+
+validation:
+  checks: []
+
+testing:
+  strategy: none
+
+security:
+  considerations:
+    - "A permission matrix is only as safe as its default-deny posture once implemented — an unlisted permission must resolve to denied, never allowed."
+
+documentation:
+  required: []

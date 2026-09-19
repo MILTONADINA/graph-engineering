@@ -1,0 +1,38 @@
+id: ai.testing-agent
+name: Testing Agent
+version: 1.0.0
+description: >
+  Consumes architecture.json (the full executed node list), ensures every
+  node has a corresponding test suite (invoking testing.unit/testing.api/
+  testing.integration as appropriate), and produces test.schema.json with
+  coverageGaps for anything missing.
+category: ai
+subcategory: testing-agent
+status: implemented
+type: ai-agent
+
+role: >
+  The coverage-completeness gate between "code was generated" and "code was
+  validated". Every node in architecture.json's data.nodes should map to at
+  least one entry in test.schema.json's data.suites, or be listed as a gap.
+
+consumes:
+  artifacts: [architecture.schema]
+produces:
+  artifacts: [test.schema]
+
+tools:
+  - read_artifact
+  - write_artifact
+  - invoke_node
+  - run_tests
+
+handoff_to: [ai.validation-agent]
+
+validation:
+  checks:
+    - "every data.nodes entry in architecture.json has >=1 matching data.suites entry, or appears in data.coverageGaps"
+    - "every suite's status reflects an actually-executed test run, not an assumed pass"
+
+documentation:
+  required: [README.md]

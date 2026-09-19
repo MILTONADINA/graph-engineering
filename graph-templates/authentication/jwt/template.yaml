@@ -1,0 +1,88 @@
+id: authentication.jwt
+name: JWT Access + Refresh Tokens
+version: 1.0.0
+description: >
+  Token issuance/verification, ported from the reference app's authMiddleware.ts
+  (Bearer header OR httpOnly cookie -> verify -> req.user). Also fills the gap
+  REFERENCE_ARCHITECTURE.md §8 flags — a refresh token the reference README
+  promises but never implements — by folding it into this node rather than a
+  separate "authentication.refresh-token" template (same consolidation pattern
+  used elsewhere in this library, e.g. storage.presigned-url folding upload+download).
+  Access tokens are short-lived stateless JWTs (can't be revoked before expiry);
+  refresh tokens are opaque, hashed, DB-backed, and revocable — the same
+  hash-and-store-once idiom the reference app already uses for its
+  auth_tokens (email verification / password reset) table.
+category: authentication
+subcategory: jwt
+status: implemented
+type: graph-node
+actions: [generate, detect, validate, test]
+
+inputs:
+  - { name: accessTokenTtl, type: string, required: false, default: "15m" }
+  - { name: refreshTokenTtlDays, type: number, required: false, default: 30 }
+
+outputs:
+  - { name: files, type: array<string>, description: "src/middlewares/authMiddleware.ts, src/utils/tokens.ts, src/routes/authRefreshRoutes.ts, schema.ts (modified)" }
+  - { name: exports, type: array<string>, description: "authMiddleware, generateAccessToken, generateRefreshToken, hashToken" }
+
+dependencies:
+  packages:
+    - { name: jsonwebtoken, version: "^9.0.2" }
+    - { name: "@types/jsonwebtoken", version: "^9.0.6", dev: true }
+  services: []
+  templates:
+    - { id: database.neon-postgres.connection, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+    - { id: backend.middleware, relationship: requires }
+
+environment:
+  variables:
+    - { name: ACCESS_TOKEN_SECRET, required: true, secret: true, description: "HMAC secret signing access JWTs.", usedBy: [authentication.jwt] }
+
+files:
+  create:
+    - { path: src/middlewares/authMiddleware.ts, source: files/authMiddleware.ts }
+    - { path: src/utils/tokens.ts, source: files/tokens.ts.template }
+    - { path: src/routes/authRefreshRoutes.ts, source: files/authRefreshRoutes.ts }
+  modify:
+    - { path: src/config/schema.ts, operation: append, source: files/schema.fragment.ts }
+    - { path: src/utils/helpers.ts, operation: insert-before-marker, marker: "// ENV-VAR-FIELDS:", template: "  ACCESS_TOKEN_SECRET: string;" }
+    - { path: src/utils/helpers.ts, operation: insert-into-array, marker: "requiredEnvironmentVariables", template: "'ACCESS_TOKEN_SECRET'" }
+    - { path: src/utils/helpers.ts, operation: insert-before-marker, marker: "// ENV-VAR-VALUES:", template: "  ACCESS_TOKEN_SECRET: process.env.ACCESS_TOKEN_SECRET!," }
+    - { path: src/app.ts, operation: insert-before-marker, marker: "// Import routes", template: "import { authRefreshRoutes } from './routes/authRefreshRoutes';" }
+    - { path: src/app.ts, operation: insert-before-marker, marker: "// Health check route", template: "app.use('/api/auth', authRefreshRoutes);" }
+
+compatible_with:
+  upstream: [database.neon-postgres.connection, backend.error-handler, backend.middleware]
+  downstream: [authentication.password, backend.express, authorization.rbac, authorization.tenant-isolation]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [auth.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/middlewares/authMiddleware.ts exists and exports authMiddleware"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/middlewares/authMiddleware.ts }
+    - { type: exports, path: src/utils/tokens.ts, names: [generateAccessToken, generateRefreshToken, hashToken] }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: unit
+  location: tests/authMiddleware.test.ts
+  command: "npm test -- authMiddleware"
+
+security:
+  considerations:
+    - "Access tokens are stateless — once issued they're valid until they expire (15m default) no matter what happens server-side. Keep the TTL short; there is no server-side revocation for an access token short of rotating ACCESS_TOKEN_SECRET (which invalidates every session)."
+    - "Refresh tokens are the revocable half: generated with crypto.randomBytes (opaque, not a JWT), only their SHA-256 hash is persisted (refresh_tokens.token_hash), and revoked_at can be set to kill a single session — same hash-once, single-purpose idiom as the reference app's auth_tokens table."
+    - "Both cookies (access_token, refresh_token) are httpOnly, sameSite: 'lax', and secure in production — identical to the reference app's login() cookie options. Never expose either token to client-side JavaScript."
+    - "POST /api/auth/refresh must re-verify the refresh token against its stored hash AND check revoked_at/expires_at before issuing a new access token — a stolen but-expired-or-revoked refresh token must fail closed."
+
+documentation:
+  required: [README.md]

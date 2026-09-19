@@ -1,0 +1,1 @@
+To change `keyPrefix` after generation, edit the template literal in `uploadFileToS3` directly. `storage.delete`/`storage.file-validation` append to these same files — apply their `modify` operations after this node's `generate`, never before.

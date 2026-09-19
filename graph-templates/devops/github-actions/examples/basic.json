@@ -1,0 +1,1 @@
+{ "inputs": { "nodeVersion": "20", "mainBranch": "main" }, "expectedOutputs": { "files": [".github/workflows/ci.yml"] } }

@@ -1,0 +1,6 @@
+[
+  { "name": "read_artifact", "description": "Reads architecture.json" },
+  { "name": "write_artifact", "description": "Writes test.schema.json" },
+  { "name": "invoke_node", "description": "Runs testing.unit / testing.integration / testing.api / testing.fixtures / testing.mocks" },
+  { "name": "run_tests", "description": "Executes `npm test`/`npm run test:integration` and returns real pass/fail results" }
+]

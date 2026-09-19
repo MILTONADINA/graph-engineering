@@ -1,0 +1,39 @@
+id: ai.validation-agent
+name: Validation Agent
+version: 1.0.0
+description: >
+  Inspects the whole generated graph (every artifact + the actual project
+  filesystem) and reports { valid, errors[], warnings[], repairs[] }. Not
+  tied to one artifact type — this is the agent the repair loop
+  (Generate -> Validate -> Repair -> Validate -> Test -> Review -> Complete)
+  calls after every node execution and again at the end.
+category: ai
+subcategory: validation-agent
+status: implemented
+type: ai-agent
+
+role: >
+  The single point where cross-cutting graph correctness is checked:
+  missing dependencies, invalid connections, missing environment variables,
+  duplicate functionality, version conflicts, security problems, missing
+  tests, broken imports, invalid schemas, orphan nodes, circular dependencies.
+
+consumes:
+  artifacts: [requirements.schema, architecture.schema, database.schema, api.schema, auth.schema, storage.schema, frontend.schema, integration.schema, test.schema, deployment.schema]
+produces:
+  artifacts: []
+
+tools:
+  - read_artifact
+  - read_template_registry
+  - read_project_files
+  - run_validators
+
+handoff_to: [ai.code-review-agent]
+
+validation:
+  checks:
+    - "output conforms to { valid: boolean, errors: object[], warnings: object[], repairs: object[] }"
+
+documentation:
+  required: [README.md]

@@ -1,0 +1,1 @@
+To add cross-field validation or a schema-driven mode, add a new optional parameter to `useFormState` rather than changing its existing return shape — pages already destructure `{ values, errors, handleChange, handleSubmit }` positionally by name.

@@ -1,0 +1,1 @@
+file-exists Dockerfile, docker-compose.yml → `npm run build` → `docker build -t app-validate .`. A Docker build failure after other nodes have run usually means a new runtime dependency wasn't added to `package.json`'s `dependencies` (only `dependencies`, not `devDependencies`, survive `npm ci --omit=dev` in the runtime stage).

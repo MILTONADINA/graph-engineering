@@ -1,0 +1,10 @@
+{
+  "name": "generate-registry",
+  "version": "1.0.0",
+  "description": "Mechanically derives template-registry.json from every graph-templates/**/template.yaml, so the registry can never silently drift from what's actually on disk.",
+  "main": "index.js",
+  "bin": { "generate-registry": "./index.js" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": { "js-yaml": "^4.1.0" },
+  "license": "MIT"
+}

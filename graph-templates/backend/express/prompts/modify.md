@@ -1,0 +1,1 @@
+To toggle `requiresAuth` after generation, edit the three write-route lines in the existing route file directly (add/remove `authMiddleware,`) rather than regenerating — regenerating is safe here too (the file has no hand-edits to preserve in the common case) but the targeted edit is cheaper and preserves any hand-added routes.

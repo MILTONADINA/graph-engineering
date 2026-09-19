@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "defaultPageSize": { "type": "integer", "default": 20, "minimum": 1 },
+    "maxPageSize": { "type": "integer", "default": 100, "minimum": 1 }
+  }
+}

@@ -1,0 +1,1 @@
+Render `Dockerfile.template`/`docker-compose.yml.template` with `port`/`nodeVersion` substituted. Copy `.dockerignore` verbatim. Run `npm run build` then `docker build -t app-validate .` to confirm the image actually builds.

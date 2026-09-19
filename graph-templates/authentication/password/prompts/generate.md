@@ -1,0 +1,1 @@
+1. `npm install bcrypt email-validator` + `@types/bcrypt`. 2. Write the four `files/*` verbatim/rendered to their `src/` targets. 3. Append `files/schema.fragment.ts` to `src/config/schema.ts`. 4. Apply the `helpers.ts` and `app.ts` modify operations. 5. `npm run dbGenerate && npm run build`.

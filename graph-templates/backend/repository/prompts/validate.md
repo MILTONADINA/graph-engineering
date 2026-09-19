@@ -1,0 +1,1 @@
+file-exists → exports [`<Entity>Repository`] → `npm run build` → `npm run dbGenerate -- --check` (no pending schema drift). A drift failure means `schema.ts` was hand-edited or the append in step 4 of `generate.md` wasn't run.

@@ -1,0 +1,5 @@
+[
+  { "name": "read_artifact", "description": "Reads requirements.json / architecture.json" },
+  { "name": "write_artifact", "description": "Writes database.schema.json" },
+  { "name": "invoke_node", "description": "Optionally invokes database.neon-postgres.connection / backend.repository directly for each table" }
+]

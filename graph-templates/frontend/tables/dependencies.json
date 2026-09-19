@@ -1,0 +1,1 @@
+{ "packages": [], "services": [], "templates": [{ "id": "frontend.nextjs", "relationship": "requires" }] }

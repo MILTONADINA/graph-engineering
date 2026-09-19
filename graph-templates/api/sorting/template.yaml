@@ -1,0 +1,45 @@
+id: api.sorting
+name: API Sorting (see api.crud)
+version: 0.1.0
+description: >
+  Not separately implemented. Column-level sorting (with an allowlist
+  security model) lives in api.crud's findMany patch. This stub exists only
+  so the registry documents where the capability the original brief named
+  "API Sorting" actually lives, rather than silently omitting it.
+category: api
+subcategory: sorting
+status: planned
+type: graph-node
+actions: []
+inputs: []
+outputs: []
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: api.crud, relationship: requires }
+environment:
+  variables: []
+files:
+  create: []
+  modify: []
+compatible_with:
+  upstream: []
+  downstream: []
+consumes:
+  artifacts: []
+produces:
+  artifacts: []
+idempotency:
+  strategy: detect-and-skip
+  detection: "n/a — planned stub, never generated"
+validation:
+  checks: []
+testing:
+  strategy: unit
+  location: "n/a"
+  command: "n/a"
+security:
+  considerations: []
+documentation:
+  required: [template.yaml]

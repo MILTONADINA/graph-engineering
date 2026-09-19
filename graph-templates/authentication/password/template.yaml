@@ -1,0 +1,91 @@
+id: authentication.password
+name: Password Authentication (Register/Login/Reset)
+version: 1.0.0
+description: >
+  Full register/login/logout/forgot-password/reset-password/verify-email flow,
+  restructured through the repository -> service -> controller -> route layers
+  (backend.repository/service/controller/express conventions) instead of the
+  reference app's services-coupled-to-(req,res) pattern. Business logic (bcrypt
+  hashing, single-use hashed tokens, constant-response forgot-password) is
+  ported faithfully; the layering is the deliberate improvement.
+category: authentication
+subcategory: password
+status: implemented
+type: graph-node
+actions: [generate, detect, modify, validate, test]
+
+inputs:
+  - { name: minPasswordLength, type: number, required: false, default: 12 }
+
+outputs:
+  - { name: files, type: array<string> }
+  - { name: exports, type: array<string> }
+  - { name: routes, type: array<string> }
+
+dependencies:
+  packages:
+    - { name: bcrypt, version: "^5.1.1" }
+    - { name: "@types/bcrypt", version: "^5.0.2", dev: true }
+    - { name: email-validator, version: "^2.0.4" }
+  services: []
+  templates:
+    - { id: authentication.jwt, relationship: requires }
+    - { id: backend.error-handler, relationship: requires }
+    - { id: backend.validation, relationship: requires }
+    - { id: backend.api-response, relationship: requires }
+    - { id: backend.middleware, relationship: requires }
+    - { id: database.neon-postgres.connection, relationship: requires }
+
+environment:
+  variables:
+    - { name: SALT_ROUNDS, required: false, secret: false, description: "bcrypt cost factor, default 12, enforced >= 10", usedBy: [authentication.password] }
+
+files:
+  create:
+    - { path: src/repository/Authentication.ts, source: files/Authentication.ts }
+    - { path: src/services/authenticationService.ts, source: files/authenticationService.ts }
+    - { path: src/controllers/authenticationController.ts, source: files/authenticationController.ts }
+    - { path: src/routes/authenticationRoutes.ts, source: files/authenticationRoutes.ts }
+  modify:
+    - { path: src/config/schema.ts, operation: append, source: files/schema.fragment.ts }
+    - { path: src/utils/helpers.ts, operation: insert-before-marker, marker: "// ENV-VAR-FIELDS:", template: "  SALT_ROUNDS: number;" }
+    - { path: src/utils/helpers.ts, operation: insert-before-marker, marker: "// ENV-VAR-VALUES:", template: "  SALT_ROUNDS: process.env.SALT_ROUNDS ? parseInt(process.env.SALT_ROUNDS, 10) : 12," }
+    - { path: src/app.ts, operation: insert-before-marker, marker: "// Import routes", template: "import { authenticationRoutes } from './routes/authenticationRoutes';" }
+    - { path: src/app.ts, operation: insert-before-marker, marker: "// Health check route", template: "app.use('/api/auth', authenticationRoutes);" }
+    - { path: src/middlewares/authMiddleware.ts, operation: insert-import, template: "import { AuthenticationRepository } from '../repository/Authentication';" }
+    - { path: src/middlewares/authMiddleware.ts, operation: insert-before-marker, marker: "export const authMiddleware", template: "const authenticationRepository = new AuthenticationRepository();" }
+    - { path: src/middlewares/authMiddleware.ts, operation: replace-method, target: authMiddleware, source: files/authMiddleware.enhanced.ts.template }
+
+compatible_with:
+  upstream: [authentication.jwt, database.neon-postgres.connection]
+  downstream: [authorization.rbac, authorization.tenant-isolation]
+
+consumes:
+  artifacts: []
+produces:
+  artifacts: [auth.schema, database.schema, api.schema]
+
+idempotency:
+  strategy: detect-and-skip
+  detection: "src/repository/Authentication.ts exists"
+
+validation:
+  checks:
+    - { type: file-exists, path: src/repository/Authentication.ts }
+    - { type: mounted-in, path: src/app.ts, pattern: "/api/auth" }
+    - { type: build, command: "npm run build" }
+
+testing:
+  strategy: api
+  location: tests/authentication.test.ts
+  command: "npm test -- authentication"
+
+security:
+  considerations:
+    - "forgotPassword always returns the same message whether or not the account exists — ported verbatim from the reference app; do not 'improve' this into a more specific message, that would reintroduce user enumeration."
+    - "Verification/reset tokens are random 32-byte values, only their SHA-256 hash is persisted, and they are single-use (consumedAt) — never store or log the raw token."
+    - "Passwords are bcrypt-hashed with a floor-enforced SALT_ROUNDS >= 10; minimum password length defaults to 12 characters."
+    - "Login sets the access token as an httpOnly, sameSite=lax, secure-in-production cookie — never return it in the JSON response body."
+
+documentation:
+  required: [README.md]

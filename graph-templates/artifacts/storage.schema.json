@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "storage.schema.json",
+  "title": "Storage Schema Artifact",
+  "description": "Structured output of ai/storage-agent: bucket configuration, upload conventions, and per-use-case file constraints.",
+  "type": "object",
+  "required": ["$schema", "artifactType", "version", "metadata", "data"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "artifactType": { "const": "storage.schema" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "metadata": { "$ref": "requirements.schema.json#/$defs/metadata" },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "buckets"],
+      "properties": {
+        "provider": { "enum": ["aws-s3", "cloudflare-r2", "local"] },
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "access"],
+            "properties": {
+              "name": { "type": "string" },
+              "access": { "enum": ["private", "public"] },
+              "envVar": { "type": "string" }
+            }
+          }
+        },
+        "uploadUseCases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "keyPrefix"],
+            "properties": {
+              "name": { "type": "string" },
+              "keyPrefix": { "type": "string" },
+              "allowedMimeTypes": { "type": "array", "items": { "type": "string" } },
+              "maxSizeBytes": { "type": "integer" },
+              "presigned": { "enum": ["upload", "download", "both", "none"] },
+              "urlExpirySeconds": { "type": "integer", "default": 3600 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

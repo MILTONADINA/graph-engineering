@@ -1,0 +1,1 @@
+To change `port`/`nodeVersion` after generation, edit the three files' literal values directly — they're small and static, re-rendering is equivalent but riskier if the Dockerfile was hand-tuned (e.g. added a health-check instruction).

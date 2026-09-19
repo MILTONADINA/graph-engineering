@@ -1,0 +1,61 @@
+id: documentation.api
+name: API Documentation
+version: 1.0.0
+description: >
+  Renders docs/API.md — one Markdown table (method, path, auth, roles) — from
+  the api.schema.json artifact's data.routes array. Purely a rendering step;
+  it never invents route information, it only formats what api.crud/backend.express
+  already recorded there.
+category: documentation
+subcategory: api
+status: implemented
+type: graph-node
+actions: [generate, validate]
+
+inputs: []
+
+outputs:
+  - { name: files, type: array<string>, description: "docs/API.md" }
+
+dependencies:
+  packages: []
+  services: []
+  templates:
+    - { id: api.crud, relationship: extends }
+
+environment:
+  variables: []
+
+files:
+  create:
+    - { path: docs/API.md, source: files/API.md.template }
+  modify: []
+
+compatible_with:
+  upstream: [api.crud, backend.express]
+  downstream: [documentation.agent-context]
+
+consumes:
+  artifacts: [api.schema]
+produces:
+  artifacts: []
+
+idempotency:
+  strategy: detect-and-merge
+  detection: "docs/API.md exists — regenerated wholesale from the current api.schema.json each run, not appended"
+
+validation:
+  checks:
+    - { type: file-exists, path: docs/API.md }
+
+testing:
+  strategy: none
+  location: ""
+  command: ""
+
+security:
+  considerations:
+    - "docs/API.md is a static rendering, safe to commit and publish — it never includes example request bodies containing real secrets, only the requestSchema shape from api.schema.json."
+
+documentation:
+  required: [README.md]

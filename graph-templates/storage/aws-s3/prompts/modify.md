@@ -1,0 +1,1 @@
+Changing `defaultBucketName` after generation: edit the `??` fallback literal in `s3-client.ts`... actually the fallback lives in `SECRETS.AWS_BUCKET_NAME`'s assignment in `helpers.ts` — edit it there directly rather than re-rendering.

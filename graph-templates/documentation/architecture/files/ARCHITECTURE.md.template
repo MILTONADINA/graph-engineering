@@ -1,0 +1,19 @@
+# Architecture
+
+Rendered from `architecture.json`. Regenerate with `documentation.architecture` after any change to the graph.
+
+## Stack
+
+| Concern | Choice |
+|---|---|
+{{#each artifact.data.stack}}
+| {{@key}} | {{this}} |
+{{/each}}
+
+## Nodes (execution order)
+
+| Order | Node |
+|---|---|
+{{#each artifact.data.nodes}}
+| {{this.order}} | {{this.id}} |
+{{/each}}

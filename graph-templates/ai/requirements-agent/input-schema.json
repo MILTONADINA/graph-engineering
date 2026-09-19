@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["description"],
+  "properties": {
+    "description": { "type": "string", "description": "Plain-language description of the application to build" },
+    "projectName": { "type": "string" }
+  }
+}
