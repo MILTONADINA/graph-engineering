@@ -1,0 +1,15 @@
+**
+!tsconfig.base.json
+!packages/
+!packages/contracts/
+!packages/contracts/src/
+!packages/contracts/src/**
+!packages/contracts/tsconfig.json
+!packages/engine/
+!packages/engine/src/
+!packages/engine/src/**
+!packages/engine/tests/
+!packages/engine/tests/context-java.test.ts
+!packages/engine/tests/fixtures/
+!packages/engine/tests/fixtures/java-runtime/
+!packages/engine/tests/fixtures/java-runtime/vitest.config.mjs

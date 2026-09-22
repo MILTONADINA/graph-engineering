@@ -250,6 +250,31 @@ a real subprocess exit while timeout callback delivery is deliberately disabled.
 Go's new compiler helper passed both offline helper and native Linux tests; see
 [the versioned runtime proof and limitations](context-lifecycle.md#snapshot-only-go-bindings).
 
+## Java and C# compiler verification
+
+The Go/Python checkpoint `dfe64b8` passed all six fork jobs in run
+`35710027894`, including the expanded storage, database, frontend, and real
+full-stack browser integrations. This does not certify subsequent commits.
+
+Subsequent compiler integration checks used explicitly required native runtimes,
+so an unavailable compiler could not silently skip its entire proof. Network-disabled,
+nonroot Linux/ARM64 fixtures passed 11 Go tests (six nested Docker cases skipped),
+15 Java tests (no skips), and 10 C# tests (four nested Docker cases skipped).
+Java additionally passed 14 native Mac checks before the fixture-presence assertion
+was added. C# and Go remain explicitly unavailable on this Mac; no host compiler
+was installed. These are bounded declaration-binding tests, not whole-project
+builds or complete runtime call graphs.
+
+Independent review corrected mutable runtime descriptors and getter-based
+check/use races; subprocess arguments now come only from the immutable trusted
+identity. Invalid XML comments can no longer be stripped into apparently valid
+C# project configuration. A process-exit/RSS-sampling race now permits one
+bounded zero/no-process recheck, while missing samplers and excessive memory
+still fail closed. The expanded Python suite passed 18 checks, including real
+interpreter runs with injected zero/no-process, missing-sampler and over-limit
+samples. Reproducible Java/C# fixtures and exact subsets are linked from
+[context lifecycle](context-lifecycle.md).
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering
