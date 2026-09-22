@@ -6,8 +6,20 @@ if sys.platform != 'darwin': resource.setrlimit(resource.RLIMIT_AS, (268435456, 
 resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
 import ast, symtable, json, hashlib, posixpath
 
+max_rss_kib = 256 * 1024
+def check_peak_rss():
+    # ru_maxrss is bytes on macOS and KiB on Linux. Unlike a parent ps sample,
+    # this high-water mark cannot miss a short-lived analyzer's peak allocation.
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if sys.platform == 'darwin': peak /= 1024
+    if peak > max_rss_kib: raise MemoryError('RSS limit')
+
 def main():
+    global max_rss_kib
     payload = json.loads(sys.stdin.buffer.read(16777217))
+    max_rss_kib = payload['maxRssKiB']
+    if type(max_rss_kib) is not int or not 0 < max_rss_kib <= 256 * 1024: raise ValueError('RSS limit')
+    check_peak_rss()
     files = payload['files']
     limit = payload['maxNodes']
     if len(files) > 500: raise ValueError('file limit')
@@ -198,7 +210,9 @@ def main():
             update(scope,node,'imports',target,{path})
     return {'version':'.'.join(map(str,sys.version_info[:3])),'updates':updates,'diagnostics':sorted(diagnostics),'analyzedFiles':len(scopes)}
 try:
-    print(json.dumps(main(),separators=(',',':')))
+    output = json.dumps(main(),separators=(',',':')).encode('utf-8')
+    check_peak_rss()
+    sys.stdout.buffer.write(output)
 except Exception:
     print(json.dumps({'version':'.'.join(map(str,sys.version_info[:3])),'updates':[],'diagnostics':['Python static analysis exceeded a resource limit or failed; syntax evidence retained'],'analyzedFiles':0}))
 `;

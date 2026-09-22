@@ -1,5 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { execFile, spawn } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { z } from "zod";
 import { command } from "../util.js";
 import { PYTHON_HELPER } from "./python-helper.js";
@@ -7,7 +8,7 @@ import { hash, type ParsedFile } from "./parser.js";
 import type { SemanticResult } from "./semantic.js";
 import type { SourceReference } from "@graph-engineering/contracts";
 
-export const PYTHON_VERSION = "snapshot-cpython-bindings:1";
+export const PYTHON_VERSION = "snapshot-cpython-bindings:2";
 export const PYTHON_LIMITS = {
   files: 500,
   bytes: 4 * 1024 * 1024,
@@ -32,6 +33,11 @@ function analyze(
   maxRssKiB: number,
 ): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve, reject) => {
+    // A timer is only a kill mechanism: a busy event loop can deliver stdout or
+    // close before an overdue timer callback. Include synchronous spawn time and
+    // independently check the monotonic deadline before accepting any result.
+    const expiresAt = performance.now() + timeoutMs;
+    const expired = () => performance.now() >= expiresAt;
     const child = spawn(executable, ["-I", "-S", "-B", "-c", PYTHON_HELPER], {
       cwd: "/",
       env: {},
@@ -47,7 +53,10 @@ function analyze(
       failed = true;
       child.kill("SIGKILL");
     };
-    const deadline = setTimeout(stop, timeoutMs);
+    const deadline = setTimeout(
+      stop,
+      Math.max(0, expiresAt - performance.now()),
+    );
     const sample = () => {
       if (finished || !child.pid) return;
       execFile(
@@ -55,7 +64,8 @@ function analyze(
         ["-o", "rss=", "-p", String(child.pid)],
         { timeout: 1000, maxBuffer: 1000, env: {} },
         (error, output) => {
-          if (finished) return;
+          if (finished || child.exitCode !== null || child.signalCode !== null)
+            return;
           const rss = Number(output.trim());
           if (error || !Number.isFinite(rss) || rss <= 0 || rss > maxRssKiB)
             stop();
@@ -66,7 +76,7 @@ function analyze(
     if (process.platform === "darwin" || maxRssKiB < 256 * 1024) sample();
     child.stdout.on("data", (chunk: Buffer) => {
       bytes += chunk.length;
-      if (bytes > maxBytes) stop();
+      if (bytes > maxBytes || expired()) stop();
       else stdout += chunk.toString();
     });
     child.stderr.on("data", (chunk: Buffer) => {
@@ -84,7 +94,8 @@ function analyze(
     });
     child.on("close", (code) => {
       clean();
-      if (failed) reject(new Error("Python analysis resource limit"));
+      if (failed || expired())
+        reject(new Error("Python analysis resource limit"));
       else resolve({ code: code ?? 1, stdout });
     });
     child.stdin.on("error", () => {});
@@ -232,7 +243,7 @@ export async function resolvePythonBindings(
     maxRssKiB > 256 * 1024
   )
     throw new Error("Invalid Python analysis limit");
-  const input = JSON.stringify({ files: valid, maxNodes });
+  const input = JSON.stringify({ files: valid, maxNodes, maxRssKiB });
   if (Buffer.byteLength(input) > PYTHON_LIMITS.inputBytes)
     return empty(
       "Python static binding exceeds serialized input limit; syntax evidence retained.",
