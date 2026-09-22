@@ -1,6 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createReadStream } from "node:fs";
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { join, sep } from "node:path";
 import type { ProjectPolicy } from "@graph-engineering/contracts";
 
 export const EMBEDDING_MODEL = "jinaai/jina-embeddings-v2-base-code";
@@ -39,6 +49,23 @@ export class LocalEmbeddings {
       );
       if (manifest.key !== EMBEDDING_KEY)
         throw new Error("Embedding manifest does not match the pinned model");
+      const canonicalDirectory = await realpath(this.directory);
+      for (const asset of ASSETS) {
+        const path = join(this.directory, asset);
+        const info = await lstat(path);
+        if (
+          !info.isFile() ||
+          info.isSymbolicLink() ||
+          !(await realpath(path)).startsWith(canonicalDirectory + sep) ||
+          info.size > 1_500_000_000 ||
+          !/^[a-f0-9]{64}$/.test(manifest.assets?.[asset] ?? "")
+        )
+          throw new Error(`Invalid embedding asset: ${asset}`);
+        const digest = createHash("sha256");
+        for await (const bytes of createReadStream(path)) digest.update(bytes);
+        if (digest.digest("hex") !== manifest.assets[asset])
+          throw new Error(`Embedding asset checksum mismatch: ${asset}`);
+      }
       const { pipeline } = await import("@huggingface/transformers");
       this.extractor = await pipeline("feature-extraction", this.directory, {
         local_files_only: true,

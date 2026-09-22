@@ -25,7 +25,29 @@ import {
   type RepositorySnapshot,
   type SourceReference,
 } from "@graph-engineering/contracts";
-import { CONTEXT_SCHEMA, ContextDatabase, type Statement } from "./database.js";
+import { ContextDatabase, type Statement } from "./database.js";
+import {
+  canonicalJson,
+  summarizeFiles,
+  reviewMemoryRecords,
+  SUMMARY_VERSION,
+  type ContextSummary,
+  type MemoryReview,
+  type SolutionInput,
+  type CachedSolution,
+} from "./intelligence.js";
+import {
+  backupDatabase,
+  restoreContextBackup,
+  type BackupReceipt,
+} from "./maintenance.js";
+export type {
+  ContextSummary,
+  MemoryReview,
+  SolutionInput,
+  CachedSolution,
+} from "./intelligence.js";
+export type { BackupReceipt } from "./maintenance.js";
 import {
   EMBEDDING_DIMENSIONS,
   EMBEDDING_KEY,
@@ -84,7 +106,9 @@ export class ContextEngine {
   private embeddings: LocalEmbeddings;
   private ready: Promise<void>;
   private indexing?: Promise<RepositorySnapshot>;
+  private embeddingIndexes = new Map<string, Promise<void>>();
   private vectorError: string | null = null;
+  private watchers = new Set<{ close(): Promise<void> }>();
   readonly projectId: string;
   readonly root: string;
   readonly dataDir: string;
@@ -109,7 +133,7 @@ export class ContextEngine {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
     this.db = new ContextDatabase(join(this.dataDir, "context.sqlite"));
     try {
-      await this.db.exec(CONTEXT_SCHEMA);
+      await this.db.migrate(this.projectId);
       await this.db.run(
         "INSERT OR IGNORE INTO context_metadata(key,value) VALUES(?,?)",
         ["projectId", this.projectId],
@@ -197,7 +221,13 @@ export class ContextEngine {
         }
         if (entry.isSymbolicLink() || this.excluded(path) || ignored) continue;
         if (entry.isDirectory()) await walk(absolute, rules);
-        else if (entry.isFile()) result.push(path);
+        else if (entry.isFile()) {
+          result.push(path);
+          if (result.length > 100_000)
+            throw new Error(
+              "Index limit exceeded: at most 100000 candidate files per snapshot",
+            );
+        }
       }
     };
     await walk(this.root, [
@@ -214,13 +244,18 @@ export class ContextEngine {
     ]);
     return result.sort();
   }
-  async index(): Promise<RepositorySnapshot> {
+  async index(
+    options: { semantic?: boolean } = {},
+  ): Promise<RepositorySnapshot> {
     await this.ready;
     if (!this.indexing)
       this.indexing = this.buildIndex().finally(() => {
         this.indexing = undefined;
       });
-    return this.indexing;
+    const snapshot = await this.indexing;
+    if (options.semantic !== false)
+      await this.ensureSnapshotEmbeddings(snapshot.id);
+    return snapshot;
   }
   private async buildIndex(): Promise<RepositorySnapshot> {
     const [canonicalRoot, revision, branch, paths] = await Promise.all([
@@ -230,8 +265,13 @@ export class ContextEngine {
       this.inventory(),
     ]);
     const worktreeId = hash(canonicalRoot);
+    if (paths.length > 100_000)
+      throw new Error(
+        "Index limit exceeded: at most 100000 candidate files per snapshot",
+      );
     const files: { path: string; text: string; hash: string }[] = [];
     const errors: string[] = [];
+    let totalBytes = 0;
     for (const path of paths) {
       const absolute = join(this.root, path);
       try {
@@ -248,6 +288,11 @@ export class ContextEngine {
           continue;
         }
         const bytes = await readFile(absolute);
+        totalBytes += bytes.length;
+        if (totalBytes > 256 * 1024 * 1024)
+          throw new RangeError(
+            "Index limit exceeded: at most 256 MiB source bytes per snapshot",
+          );
         if (bytes.includes(0)) continue;
         const text = bytes.toString("utf8");
         if (containsSecret(text)) {
@@ -257,7 +302,8 @@ export class ContextEngine {
           continue;
         }
         files.push({ path, text, hash: hash(text) });
-      } catch {
+      } catch (error) {
+        if (error instanceof RangeError) throw error;
         errors.push(`${path}: file unavailable during indexing`);
       }
     }
@@ -272,6 +318,7 @@ export class ContextEngine {
         branch: branch?.trim(),
         contentHash,
         parser: PARSER_VERSION,
+        summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
     );
@@ -300,7 +347,7 @@ export class ContextEngine {
       coverage: { parsed: 0, textOnly: 0, errors },
     };
     const statements: Statement[] = [];
-    const vectorChunks: Chunk[] = [];
+    const parsedFiles: ParsedFile[] = [];
     const knownFiles = new Set(files.map((file) => file.path));
     for (const file of files) {
       const cached = await this.db.get<Payload>(
@@ -313,6 +360,7 @@ export class ContextEngine {
         for (const symbol of parsed.symbols) symbol.source.snapshotId = id;
         for (const edge of parsed.edges) edge.source.snapshotId = id;
       } else parsed = await parseFile(file.path, file.text, id);
+      parsedFiles.push(parsed);
       for (const edge of parsed.edges)
         if (edge.kind === "imports") {
           edge.to = null;
@@ -385,10 +433,20 @@ export class ContextEngine {
           sql: "INSERT INTO chunks_fts(id,snapshot_id,path,text) VALUES(?,?,?,?)",
           params: [chunk.id, id, file.path, chunk.text],
         });
-        vectorChunks.push(chunk);
       }
     }
     snapshot.languages.sort();
+    for (const summary of summarizeFiles(parsedFiles, id))
+      statements.push({
+        sql: "INSERT INTO summaries(snapshot_id,path,level,content_hash,payload) VALUES(?,?,?,?,?)",
+        params: [
+          id,
+          summary.path,
+          summary.level,
+          summary.contentHash,
+          JSON.stringify(summary),
+        ],
+      });
     statements.unshift({
       sql: "INSERT INTO snapshots(id,project_id,payload) VALUES(?,?,?)",
       params: [id, this.projectId, JSON.stringify(snapshot)],
@@ -411,9 +469,31 @@ export class ContextEngine {
         ))!,
       );
     }
-    await this.embedChunks(id, vectorChunks);
     await this.importSharedMemories();
     return snapshot;
+  }
+  private async ensureSnapshotEmbeddings(snapshotId: string): Promise<void> {
+    let pending = this.embeddingIndexes.get(snapshotId);
+    if (!pending) {
+      pending = (async () => {
+        if (this.vectorError || !(await this.embeddings.available())) return;
+        const rows = await this.db.all<Payload>(
+          "SELECT c.payload FROM chunks c WHERE c.snapshot_id=? AND NOT EXISTS (SELECT 1 FROM chunk_embeddings ce JOIN embeddings e ON e.cache_key=ce.cache_key WHERE ce.snapshot_id=c.snapshot_id AND ce.chunk_id=c.id AND e.model=?)",
+          [snapshotId, EMBEDDING_KEY],
+        );
+        if (rows.length)
+          await this.embedChunks(
+            snapshotId,
+            rows
+              .map((row) => json<Chunk>(row))
+              .filter((chunk) => !this.excluded(chunk.source.path)),
+          );
+      })().finally(() => {
+        this.embeddingIndexes.delete(snapshotId);
+      });
+      this.embeddingIndexes.set(snapshotId, pending);
+    }
+    await pending;
   }
   private async embedChunks(
     snapshotId: string,
@@ -543,8 +623,16 @@ export class ContextEngine {
     budgetTokens?: number;
     snapshotId?: string;
     mandatory?: string[];
+    retrieval?: "lexical" | "graph" | "hybrid";
   }): Promise<ContextPacket> {
-    const snapshot = await this.snapshot(input.snapshotId);
+    const retrieval = input.retrieval ?? "hybrid";
+    if (!["lexical", "graph", "hybrid"].includes(retrieval))
+      throw new Error("Unknown retrieval mode");
+    // Lexical/graph retrieval must not pay embedding-index costs. Hybrid heals
+    // missing vectors below, after cheap validation and mandatory-budget checks.
+    const snapshot = input.snapshotId
+      ? await this.snapshot(input.snapshotId)
+      : await this.index({ semantic: false });
     const budget = input.budgetTokens ?? this.policy.maxContextTokens;
     if (
       !Number.isInteger(budget) ||
@@ -555,7 +643,10 @@ export class ContextEngine {
     if (containsSecret(input.query) || input.mandatory?.some(containsSecret))
       throw new Error("Context request contains a credential pattern");
     const memories = (await this.listMemories()).filter(
-      (memory) => memory.status === "accepted",
+      (memory) =>
+        memory.status === "accepted" ||
+        (memory.status === "conflicted" &&
+          ["constraint", "requirement"].includes(memory.kind)),
     );
     const mandatoryMemories = memories.filter((memory) =>
       ["constraint", "requirement"].includes(memory.kind),
@@ -605,7 +696,13 @@ export class ContextEngine {
     }
     let semantic = false;
     const warnings = [...snapshot.coverage.errors];
-    if (!this.vectorError) {
+    for (const memory of mandatoryMemories)
+      if (memory.status === "conflicted")
+        warnings.push(
+          `Mandatory memory ${memory.id} has an unresolved conflict; review is required and its original constraint remains in force.`,
+        );
+    if (retrieval === "hybrid" && !this.vectorError) {
+      await this.ensureSnapshotEmbeddings(snapshot.id);
       const queryVector = await this.embeddings.embed(input.query);
       if (queryVector) {
         const rows = await this.db.all<Payload & { distance: number }>(
@@ -623,7 +720,12 @@ export class ContextEngine {
             });
         });
       } else warnings.push(this.embeddings.warning);
-    } else warnings.push(`Vector extension unavailable: ${this.vectorError}`);
+    } else if (retrieval === "hybrid")
+      warnings.push(`Vector extension unavailable: ${this.vectorError}`);
+    if (retrieval !== "hybrid")
+      warnings.push(
+        `Retrieval mode ${retrieval}: semantic search intentionally disabled`,
+      );
     for (const memory of memories.filter(
       (memory) => !["constraint", "requirement"].includes(memory.kind),
     )) {
@@ -647,7 +749,7 @@ export class ContextEngine {
           .flatMap((item) => (item.source ? [item.source.path] : [])),
       ),
     ];
-    for (const path of topPaths) {
+    for (const path of retrieval === "lexical" ? [] : topPaths) {
       const related = await this.neighbors(
         hash(`file:${path}`),
         snapshot.id,
@@ -719,7 +821,9 @@ export class ContextEngine {
       coverage: {
         semantic,
         graph:
-          "Syntax-based declarations, imports and calls; unambiguous relative JS/TS imports resolve to files. Other imports and calls remain unresolved. Expansion limited to 1 hop, 5 seed files.",
+          retrieval === "lexical"
+            ? "Graph expansion intentionally disabled by lexical retrieval mode."
+            : "Syntax-based declarations, imports and calls; unambiguous relative JS/TS imports resolve to files. Unshadowed same-file lexical call candidates are heuristic, not runtime proofs. Dynamic/member dispatch and other imports stay unresolved. Expansion limited to 1 hop, 5 seed files.",
         warnings,
       },
     };
@@ -946,10 +1050,29 @@ export class ContextEngine {
       );
       imported++;
     }
-    // Supersession is explicit and applied only after all referenced files load.
-    for (const record of await this.listMemories())
+    // Imported links can conflict or form cycles. Preserve every record for
+    // review rather than letting filename order choose an architecture decision.
+    const allMemories = await this.listMemories();
+    const byId = new Map(allMemories.map((record) => [record.id, record]));
+    for (const record of allMemories)
       if (record.status === "accepted" && record.supersedes) {
-        const previous = await this.memory(record.supersedes);
+        if (
+          allMemories.filter(
+            (other) =>
+              other.status === "accepted" &&
+              other.supersedes === record.supersedes,
+          ).length !== 1
+        )
+          continue;
+        let cursor: MemoryRecord | undefined = record;
+        const visited = new Set<string>();
+        while (cursor && !visited.has(cursor.id)) {
+          visited.add(cursor.id);
+          cursor = cursor.supersedes ? byId.get(cursor.supersedes) : undefined;
+        }
+        if (cursor) continue;
+        const previous = byId.get(record.supersedes);
+        if (!previous) continue;
         if (previous.status === "accepted") {
           previous.status = "superseded";
           await this.db.run(
@@ -965,10 +1088,259 @@ export class ContextEngine {
       }
     return imported;
   }
+  async listSummaries(snapshotId?: string): Promise<ContextSummary[]> {
+    const snapshot = await this.snapshot(snapshotId);
+    const rows = await this.db.all<Payload>(
+      "SELECT payload FROM summaries WHERE snapshot_id=? ORDER BY level,path",
+      [snapshot.id],
+    );
+    // Rebuild the hierarchy if policy tightened since this snapshot. A parent
+    // aggregate may otherwise leak excluded filenames/symbols through its text.
+    const paths = await this.db.all<{ path: string }>(
+      "SELECT path FROM files WHERE snapshot_id=?",
+      [snapshot.id],
+    );
+    if (paths.some((file) => this.excluded(file.path)) || !rows.length) {
+      const files = (
+        await this.db.all<Payload>(
+          "SELECT payload FROM files WHERE snapshot_id=?",
+          [snapshot.id],
+        )
+      )
+        .map((row) => json<ParsedFile>(row))
+        .filter((file) => !this.excluded(file.path));
+      return summarizeFiles(files, snapshot.id);
+    }
+    return rows.map((row) => json<ContextSummary>(row));
+  }
+  private solutionIdentity(
+    input: SolutionInput,
+    snapshotId: string,
+  ): { cacheKey: string; inputsHash: string; policyHash: string } {
+    if (!input.key || input.key.length > 200 || containsSecret(input.key))
+      throw new Error("Invalid or sensitive solution cache key");
+    const serialized = canonicalJson(input.inputs);
+    const sensitive = (value: unknown): boolean =>
+      typeof value === "string"
+        ? containsSecret(value)
+        : Array.isArray(value)
+          ? value.some(sensitive)
+          : !!value && typeof value === "object"
+            ? Object.entries(value).some(
+                ([key, item]) => containsSecret(key) || sensitive(item),
+              )
+            : false;
+    if (
+      serialized.length > 100_000 ||
+      containsSecret(serialized) ||
+      sensitive(input.inputs)
+    )
+      throw new Error("Invalid or sensitive solution cache inputs");
+    const inputsHash = hash(serialized),
+      policyHash = hash(canonicalJson(this.policy));
+    return {
+      inputsHash,
+      policyHash,
+      cacheKey: hash(
+        canonicalJson({
+          version: 1,
+          projectId: this.projectId,
+          key: input.key,
+          inputsHash,
+          policyHash,
+          snapshotId,
+          parser: PARSER_VERSION,
+        }),
+      ),
+    };
+  }
+  async putSolution(
+    input: SolutionInput & { value: string; sources: SourceReference[] },
+  ): Promise<CachedSolution> {
+    const snapshot = await this.snapshot(input.snapshotId);
+    const identity = this.solutionIdentity(input, snapshot.id);
+    if (
+      !input.value.trim() ||
+      input.value.length > 100_000 ||
+      containsSecret(input.value) ||
+      !input.sources.length ||
+      input.sources.length > 100
+    )
+      throw new Error(
+        "Solution cache needs bounded, non-sensitive text and source evidence",
+      );
+    for (const source of input.sources) {
+      if (
+        this.excluded(source.path) ||
+        source.snapshotId !== snapshot.id ||
+        !Number.isInteger(source.startLine) ||
+        source.startLine < 1 ||
+        !Number.isInteger(source.endLine) ||
+        source.endLine < source.startLine
+      )
+        throw new Error("Invalid solution source provenance");
+      const file = await this.db.get<Payload>(
+        "SELECT payload FROM files WHERE snapshot_id=? AND path=?",
+        [snapshot.id, source.path],
+      );
+      if (
+        !file ||
+        json<ParsedFile>(file).hash !== source.contentHash ||
+        source.endLine > json<ParsedFile>(file).text.split("\n").length
+      )
+        throw new Error("Solution source does not match snapshot evidence");
+    }
+    const record: CachedSolution = {
+      key: input.key,
+      value: input.value,
+      sources: structuredClone(input.sources),
+      snapshotId: snapshot.id,
+      policyHash: identity.policyHash,
+      inputsHash: identity.inputsHash,
+      createdAt: new Date().toISOString(),
+    };
+    await this.db.run(
+      "INSERT OR REPLACE INTO solution_cache(cache_key,snapshot_id,policy_hash,payload) VALUES(?,?,?,?)",
+      [
+        identity.cacheKey,
+        snapshot.id,
+        identity.policyHash,
+        JSON.stringify(record),
+      ],
+    );
+    return record;
+  }
+  async getSolution(input: SolutionInput): Promise<CachedSolution | null> {
+    const snapshot = await this.snapshot(input.snapshotId);
+    const identity = this.solutionIdentity(input, snapshot.id);
+    const row = await this.db.get<Payload>(
+      "SELECT payload FROM solution_cache WHERE cache_key=? AND snapshot_id=? AND policy_hash=?",
+      [identity.cacheKey, snapshot.id, identity.policyHash],
+    );
+    if (!row) return null;
+    const record = json<CachedSolution>(row);
+    return record.sources.some((source) => this.excluded(source.path)) ||
+      containsSecret(record.value)
+      ? null
+      : record;
+  }
+  async reviewMemories(snapshotId?: string): Promise<MemoryReview[]> {
+    const snapshot = await this.snapshot(snapshotId);
+    const files = await this.db.all<{ path: string; content_hash: string }>(
+      "SELECT path,content_hash FROM files WHERE snapshot_id=?",
+      [snapshot.id],
+    );
+    const memories = await this.listMemories();
+    if (memories.length > 2000)
+      throw new Error(
+        "Memory review limit exceeded: review at most 2000 records per project",
+      );
+    const reviews = reviewMemoryRecords(
+      memories,
+      new Map(files.map((file) => [file.path, file.content_hash])),
+      snapshot.id,
+      (path) => this.excluded(path),
+    );
+    await this.db.batch(
+      reviews.map((review) => ({
+        sql: "INSERT OR REPLACE INTO memory_reviews(memory_id,snapshot_id,payload) VALUES(?,?,?)",
+        params: [review.memoryId, snapshot.id, JSON.stringify(review)],
+      })),
+    );
+    return reviews;
+  }
+  watch(
+    options: {
+      intervalMs?: number;
+      onIndex?: (snapshot: RepositorySnapshot) => void | Promise<void>;
+      onError?: (error: Error) => void;
+    } = {},
+  ): { close(): Promise<void> } {
+    const interval = options.intervalMs ?? 5000;
+    if (!Number.isFinite(interval) || interval < 1000 || interval > 3_600_000)
+      throw new Error("Watch interval must be between 1000 and 3600000 ms");
+    let stopped = false,
+      timer: ReturnType<typeof setTimeout> | undefined,
+      running: Promise<void> | undefined,
+      previous: string | undefined;
+    // Full content reconciliation is deliberate: mtime-only caches miss edits
+    // after a branch switch or timestamp restoration. One scan at a time, bounded
+    // by index limits; a delay after completion provides natural backpressure.
+    const poll = async () => {
+      try {
+        const snapshot = await this.index();
+        if (!stopped && snapshot.id !== previous) {
+          previous = snapshot.id;
+          await options.onIndex?.(snapshot);
+        }
+      } catch (error) {
+        if (!stopped)
+          options.onError?.(
+            error instanceof Error ? error : new Error(String(error)),
+          );
+      } finally {
+        if (!stopped) {
+          timer = setTimeout(() => {
+            running = poll();
+          }, interval);
+          timer.unref();
+        }
+      }
+    };
+    const watcher = {
+      close: async () => {
+        stopped = true;
+        clearTimeout(timer);
+        await running;
+        this.watchers.delete(watcher);
+      },
+    };
+    this.watchers.add(watcher);
+    running = poll();
+    return watcher;
+  }
+  async pruneSnapshots(
+    options: {
+      keepLatest?: number;
+      dryRun?: boolean;
+      protectedSnapshotIds?: string[];
+    } = {},
+  ): Promise<{ dryRun: boolean; removed: string[]; protected: string[] }> {
+    await this.ready;
+    await this.indexing;
+    await Promise.all(this.embeddingIndexes.values());
+    const keep = options.keepLatest ?? 20;
+    if (!Number.isInteger(keep) || keep < 1 || keep > 100_000)
+      throw new Error(
+        "Retention keepLatest must be a positive bounded integer",
+      );
+    const protectedSnapshotIds = options.protectedSnapshotIds ?? [];
+    if (
+      protectedSnapshotIds.length > 100_000 ||
+      protectedSnapshotIds.some((id) => !/^[a-f0-9]{64}$/.test(id))
+    )
+      throw new Error("Invalid protected snapshot IDs");
+    // All checks/deletions share one IMMEDIATE transaction: a concurrent memory
+    // writer cannot race the provenance pin check. Callers must also pass refs
+    // owned by separate stores (plans/runs), under their maintenance lock.
+    return this.db.prune({
+      keepLatest: keep,
+      dryRun: options.dryRun !== false,
+      protectedSnapshotIds,
+    });
+  }
+  async backup(destination: string): Promise<BackupReceipt> {
+    await this.ready;
+    await this.indexing;
+    return backupDatabase(this.db, this.projectId, this.dataDir, destination);
+  }
+  static restoreBackup = restoreContextBackup;
   async close(): Promise<void> {
     try {
+      await Promise.all([...this.watchers].map((watcher) => watcher.close()));
       await this.ready;
       await this.indexing;
+      await Promise.all(this.embeddingIndexes.values());
       await this.embeddings.close();
     } finally {
       await this.db?.close();
