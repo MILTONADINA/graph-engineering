@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import ts from "typescript";
-import { validateCorpus, exportTask, hash } from "./calibration-corpus.mjs";
+import { validateCorpus, exportTask, hash } from "./corpus-history.mjs";
 import { verifyHistoricalDecisionBudget } from "./replays/unmetered-decision-budget/verify.mjs";
 import { verifyHistoricalNpm } from "./replays/portable-npm-spawn/verify.mjs";
 
@@ -99,6 +99,9 @@ export async function validateHistoricalFixtures(
       architecture: process.arch,
     },
     runnerSha256: hash(await readFile(fileURLToPath(import.meta.url))),
+    historyHelperSha256: hash(
+      await readFile(new URL("corpus-history.mjs", import.meta.url)),
+    ),
     results,
     fixtureValid: results.every((result) => result.fixtureValid),
     modelCalls: 0,

@@ -9,7 +9,7 @@ Task category, complexity, and risk are explicitly proposed classifications.
 | Case                                 | Proposed stratum / complexity               | Recorded repair | Current readiness                                                              |
 | ------------------------------------ | ------------------------------------------- | --------------- | ------------------------------------------------------------------------------ |
 | `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing    |
-| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Trusted-history fixture adapter; generated-patch verification missing          |
+| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing            |
 | `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                    |
 | `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                    |
 | `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                    |
@@ -55,7 +55,8 @@ only its fixed adapter registry and exact hash-verified Git source; **there is
 no worker-patch input**. Node's `vm` provides instrumentation, not a security
 sandbox. Do not use these adapters to execute arbitrary generated code on the
 host. A separate isolated, independently guarded candidate verifier is still
-needed before model evaluation. Source, adapter/verifier and runtime identities
+needed for the portable-npm case before model evaluation. The budget case now
+has the separate verifier described below. Source, adapter/verifier and runtime identities
 are recorded with actual check results. No cost saving or calibration approval
 is inferred.
 
@@ -66,6 +67,56 @@ historical code. Git itself runs read-only subprocesses to load local objects.
 Full-history integration is automatically exercised when objects exist locally;
 on shallow CI it is explicitly skipped unless `GRAPH_ENGINE_HISTORY_TESTS=1`
 requires it (and fails if history is absent). No test silently fetches history.
+
+## Verify an isolated budget candidate
+
+The [candidate runner](../evaluation/isolated-candidate.mjs) accepts a JSON file
+map containing exactly `packages/engine/src/decisions.ts` for
+`unmetered-decision-budget`. Unlike the trusted-history adapters, it never imports
+candidate source into the host Node process. TypeScript transpilation and
+QuickJS/WASM guest execution occur in a fresh nonroot Docker container for every
+scenario, with no network, no host mounts, a read-only root, memory/process
+limits and an external deadline. Docker must use a local Unix socket or local
+Windows named pipe; remote transports are refused. No image is automatically
+pulled and no provider is contacted.
+
+```sh
+docker build -f evaluation/guest-runtime/Dockerfile \
+  -t graph-evaluation-guest:local evaluation/guest-runtime
+
+node evaluation/isolated-candidate.mjs \
+  --expected-sha256 REVIEWED_MANIFEST_SHA256 \
+  --task unmetered-decision-budget --validate-history \
+  --output /private/new-isolated-fixture-receipt.json
+
+node evaluation/isolated-candidate.mjs \
+  --expected-sha256 REVIEWED_MANIFEST_SHA256 \
+  --task unmetered-decision-budget --candidate /private/candidate-files.json \
+  --output /private/new-candidate-receipt.json
+```
+
+Fifteen fixed host-owned witnesses cover capped, uncapped, local and offline
+dispatch, including varied caps, candidate responses and baseline choices.
+Fake capability calls are recorded outside guest memory. Guest code cannot
+set the acceptance result, replace the oracle, perform real fetch/process/file
+operations, or hide a denied capability by catching its error. Missing runtimes,
+timeouts and invalid protocols cannot stand in for a reproduced historical
+defect. History validation requires the actual zero-cap defect to complete and
+fail, plus all repair checks to pass.
+
+Receipts bind source, witness, runner, helper, dependency-lock, image, executor
+and WASM identities. The guest executor/lock must match the local reviewed
+files; rebuild after changing them. Candidate output is strictly bounded and
+parsed as one JSON envelope, including duplicate-key rejection. Output receipts
+are created exclusively with private permissions.
+
+This verifies only the declared behavior against simulated interfaces. It does
+not execute real Jev/Laya requests, prove arbitrary engineering correctness,
+measure a worker's success or costs, create independent labels, conceal known
+history as held-out data, or authorize promotion. QuickJS limits are defense in
+depth, not a substitute for the container/process boundary. Provisioning and
+trusting the reviewed image remain operator responsibilities. See the
+[guest runtime](../evaluation/guest-runtime/README.md) for protocol and limits.
 
 ## Inspect and freeze provenance
 

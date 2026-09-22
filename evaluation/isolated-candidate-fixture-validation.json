@@ -1,0 +1,696 @@
+{
+  "version": "1.0.0",
+  "manifestSha256": "443b490cd991b9afaa77a66ccb8eea7466d438e50b20f80170dd3a4cd237f049",
+  "taskId": "task:5b23267e36136d6afcc7be9bc4bfd1e7af883d8f05bd9342fff52d2c9499d8eb",
+  "taskSha256": "a1c77f9f60d70634813b36f4c0c4ceae6239eb3dfd5cf4b80a3c389401c6ea1e",
+  "splitId": "split:3fddd25166c69ba3efb536a32a5c936954901738d4420a411214b3c96883e191",
+  "split": "calibration",
+  "historyVerified": true,
+  "modelCalls": 0,
+  "promotionEligible": false,
+  "kind": "isolated-historical-fixture-validation",
+  "results": {
+    "base": {
+      "version": "1.0.0",
+      "kind": "isolated-historical-candidate-verification",
+      "taskId": "unmetered-decision-budget",
+      "startedAt": "2026-09-22T10:39:02.674Z",
+      "finishedAt": "2026-09-22T10:39:10.587Z",
+      "runnerSha256": "bf657fc075e7e6372fcd71449329b759b6840645994f5811b5427e655edce9db",
+      "transportSha256": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "receiptSha256": "318e5dff62edda59d55fae3dd19041993e0909dfd0d65d8dcbc779faafeacf8a",
+      "historyHelperSha256": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321",
+      "hostDependencyLockSha256": "ef0887a343df93cca88532bff39ae87e5880ff9796be4e7aa32556054ab513e0",
+      "hostRuntime": {
+        "node": "v26.3.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "typescript": "5.9.3"
+      },
+      "oracleSha256": "ae873ec8927cdc82c65a62c38ecf2db9c0a04483654c751be11b533f6277d2e1",
+      "imageId": "sha256:19a3f4a52831d3988c574d2a8b492002ed26b161742cb2a8209e52cc08264a63",
+      "runtime": {
+        "version": "1.0.0",
+        "node": "v24.16.0",
+        "quickjs": "0.32.0",
+        "typescript": "5.9.3",
+        "zod": "3.25.76",
+        "esbuild": "0.28.2",
+        "wasmSha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+        "zodBundleSha256": "0ffb0fb5dda0b3a05a351f0d746dd79e05aeb737816c8e0abbea9713248ff597",
+        "executorSha256": "620e8edca9a8ee995db467e03bfb11430fe16d1e14551bb48ff2b17d19ca9564",
+        "packageLockSha256": "6899a00ed4afdd14facd71f4823e3cdaf01da7130758e9d0d2d679c742f87391"
+      },
+      "sourceHashes": {
+        "packages/engine/src/decisions.ts": "42be304c01b9cb95da5e99430fc45581b0971c7e17b5333e4d50f334b50a855a"
+      },
+      "expectedChecks": 15,
+      "allCompleted": true,
+      "checks": [
+        {
+          "id": "capped-unmetered-0",
+          "passed": false,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-0.25",
+          "passed": false,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-1",
+          "passed": false,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-0.000001",
+          "passed": false,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-2.5",
+          "passed": false,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-1000000",
+          "passed": false,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-null-allowed",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "laya-0-allowed",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "http://127.0.0.1:7337/v1/decide",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "6919b0ec1c61edae0058b9ec03fc26280c374374aedb4026e51780bc75d6926c",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-null-offline",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev is disabled by offline policy",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "b35f8718c5ce548c71da7c2f2e0de1ac5a9eddc044e8c82810847705f65caf7f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-alternative-baseline",
+          "passed": false,
+          "observed": {
+            "baseline": "frontier",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "local"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "cd75e747c3a9a5d6eb4803fd525a5f877d7fb2ba04feab4c3a87d352265f8034",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-uncapped-choice-local",
+          "passed": true,
+          "observed": {
+            "baseline": "frontier",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "local"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "cd75e747c3a9a5d6eb4803fd525a5f877d7fb2ba04feab4c3a87d352265f8034",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-uncapped-choice-balanced",
+          "passed": true,
+          "observed": {
+            "baseline": "frontier",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "balanced"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "bd994df1672d892a7d1960414f4845ed467d1ba530cdbef9e4ff44247816fff0",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "laya-zero-choice-local",
+          "passed": true,
+          "observed": {
+            "baseline": "frontier",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "http://127.0.0.1:7337/v1/decide",
+                "method": "POST"
+              }
+            ],
+            "selected": "local"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0212b645d9278707a2aa6c677a5dd90cae86d6f679f1a45db136c7b4d806fad1",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "laya-zero-choice-balanced",
+          "passed": true,
+          "observed": {
+            "baseline": "balanced",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "http://127.0.0.1:7337/v1/decide",
+                "method": "POST"
+              }
+            ],
+            "selected": "balanced"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "d6c6bd1994d7a34e0925e14134212bcc530f85ba3b67d6d982f8020faf2bd94a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-zero-offline",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev is disabled by offline policy",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "b35f8718c5ce548c71da7c2f2e0de1ac5a9eddc044e8c82810847705f65caf7f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "failed",
+      "modelCalls": 0,
+      "actualNetworkCalls": 0,
+      "promotionEligible": false,
+      "limitations": [
+        "Pure fixed host witnesses only; this module neither executes candidate code nor establishes isolation, runtime success or arbitrary-code safety.",
+        "Request traces must come from an independently controlled callback outside the candidate realm; self-reported traces or passed fields are not evidence.",
+        "Provider responses are controlled fixtures, not model calls, reviewed decision labels, held-out evidence, cost measurements or promotion authority.",
+        "The historical unmetered decision adapter predates current explicit pricing/reservations; these witnesses are not current product spending policy.",
+        "Only the declared historical task and simulated capabilities are checked; no complete program correctness or provider behavior is proved.",
+        "QuickJS limits are defense in depth; the external process deadline and container memory boundary are mandatory.",
+        "The operator must provision the reviewed image; matching hashes do not authenticate the operator or eliminate runtime vulnerabilities.",
+        "This is candidate verification, not a measured model run, independent label, held-out result, or promotion authorization."
+      ]
+    },
+    "repair": {
+      "version": "1.0.0",
+      "kind": "isolated-historical-candidate-verification",
+      "taskId": "unmetered-decision-budget",
+      "startedAt": "2026-09-22T10:39:10.589Z",
+      "finishedAt": "2026-09-22T10:39:21.942Z",
+      "runnerSha256": "bf657fc075e7e6372fcd71449329b759b6840645994f5811b5427e655edce9db",
+      "transportSha256": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "receiptSha256": "318e5dff62edda59d55fae3dd19041993e0909dfd0d65d8dcbc779faafeacf8a",
+      "historyHelperSha256": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321",
+      "hostDependencyLockSha256": "ef0887a343df93cca88532bff39ae87e5880ff9796be4e7aa32556054ab513e0",
+      "hostRuntime": {
+        "node": "v26.3.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "typescript": "5.9.3"
+      },
+      "oracleSha256": "ae873ec8927cdc82c65a62c38ecf2db9c0a04483654c751be11b533f6277d2e1",
+      "imageId": "sha256:19a3f4a52831d3988c574d2a8b492002ed26b161742cb2a8209e52cc08264a63",
+      "runtime": {
+        "version": "1.0.0",
+        "node": "v24.16.0",
+        "quickjs": "0.32.0",
+        "typescript": "5.9.3",
+        "zod": "3.25.76",
+        "esbuild": "0.28.2",
+        "wasmSha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+        "zodBundleSha256": "0ffb0fb5dda0b3a05a351f0d746dd79e05aeb737816c8e0abbea9713248ff597",
+        "executorSha256": "620e8edca9a8ee995db467e03bfb11430fe16d1e14551bb48ff2b17d19ca9564",
+        "packageLockSha256": "6899a00ed4afdd14facd71f4823e3cdaf01da7130758e9d0d2d679c742f87391"
+      },
+      "sourceHashes": {
+        "packages/engine/src/decisions.ts": "01086cb061967dc5886846cefa72aae0dc3a25f25da0121a9e67d7c3748bdab1"
+      },
+      "expectedChecks": 15,
+      "allCompleted": true,
+      "checks": [
+        {
+          "id": "capped-unmetered-0",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ce5ebdd01f64e965757e1f2be2bd456ed6ddfba6953a2123cfe2c485af4fad0f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-0.25",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ce5ebdd01f64e965757e1f2be2bd456ed6ddfba6953a2123cfe2c485af4fad0f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-1",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ce5ebdd01f64e965757e1f2be2bd456ed6ddfba6953a2123cfe2c485af4fad0f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-0.000001",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ce5ebdd01f64e965757e1f2be2bd456ed6ddfba6953a2123cfe2c485af4fad0f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-2.5",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ce5ebdd01f64e965757e1f2be2bd456ed6ddfba6953a2123cfe2c485af4fad0f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-unmetered-1000000",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ce5ebdd01f64e965757e1f2be2bd456ed6ddfba6953a2123cfe2c485af4fad0f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-null-allowed",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0eee393cec7a7e143a07e66dc1a1395b8b8c371f01d5a33c872a76721a7ae818",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "laya-0-allowed",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "http://127.0.0.1:7337/v1/decide",
+                "method": "POST"
+              }
+            ],
+            "selected": "frontier"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "6919b0ec1c61edae0058b9ec03fc26280c374374aedb4026e51780bc75d6926c",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-null-offline",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev is disabled by offline policy",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "b35f8718c5ce548c71da7c2f2e0de1ac5a9eddc044e8c82810847705f65caf7f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "capped-alternative-baseline",
+          "passed": true,
+          "observed": {
+            "baseline": "frontier",
+            "failure": "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "47f17e3a0e0791ec180711bed7a32cdd9b7820d909cd2c448bdde75f4dfc3950",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-uncapped-choice-local",
+          "passed": true,
+          "observed": {
+            "baseline": "frontier",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "local"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "cd75e747c3a9a5d6eb4803fd525a5f877d7fb2ba04feab4c3a87d352265f8034",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-uncapped-choice-balanced",
+          "passed": true,
+          "observed": {
+            "baseline": "frontier",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "https://api.typesafe.ai/v1/systemone",
+                "method": "POST"
+              }
+            ],
+            "selected": "balanced"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "bd994df1672d892a7d1960414f4845ed467d1ba530cdbef9e4ff44247816fff0",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "laya-zero-choice-local",
+          "passed": true,
+          "observed": {
+            "baseline": "frontier",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "http://127.0.0.1:7337/v1/decide",
+                "method": "POST"
+              }
+            ],
+            "selected": "local"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0212b645d9278707a2aa6c677a5dd90cae86d6f679f1a45db136c7b4d806fad1",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "laya-zero-choice-balanced",
+          "passed": true,
+          "observed": {
+            "baseline": "balanced",
+            "failure": null,
+            "mode": "shadow",
+            "requests": [
+              {
+                "endpoint": "http://127.0.0.1:7337/v1/decide",
+                "method": "POST"
+              }
+            ],
+            "selected": "balanced"
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "d6c6bd1994d7a34e0925e14134212bcc530f85ba3b67d6d982f8020faf2bd94a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "jev-zero-offline",
+          "passed": true,
+          "observed": {
+            "baseline": "local",
+            "failure": "Jev is disabled by offline policy",
+            "mode": "shadow",
+            "requests": [],
+            "selected": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "b35f8718c5ce548c71da7c2f2e0de1ac5a9eddc044e8c82810847705f65caf7f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed",
+      "modelCalls": 0,
+      "actualNetworkCalls": 0,
+      "promotionEligible": false,
+      "limitations": [
+        "Pure fixed host witnesses only; this module neither executes candidate code nor establishes isolation, runtime success or arbitrary-code safety.",
+        "Request traces must come from an independently controlled callback outside the candidate realm; self-reported traces or passed fields are not evidence.",
+        "Provider responses are controlled fixtures, not model calls, reviewed decision labels, held-out evidence, cost measurements or promotion authority.",
+        "The historical unmetered decision adapter predates current explicit pricing/reservations; these witnesses are not current product spending policy.",
+        "Only the declared historical task and simulated capabilities are checked; no complete program correctness or provider behavior is proved.",
+        "QuickJS limits are defense in depth; the external process deadline and container memory boundary are mandatory.",
+        "The operator must provision the reviewed image; matching hashes do not authenticate the operator or eliminate runtime vulnerabilities.",
+        "This is candidate verification, not a measured model run, independent label, held-out result, or promotion authorization."
+      ]
+    }
+  },
+  "fixtureValid": true
+}

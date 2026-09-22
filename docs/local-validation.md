@@ -351,6 +351,48 @@ all expanded Linux integrations; only its Windows URI-negative test failed.
 That result does not certify the later URI/evaluation fixes before their own CI.
 No paid inference, generated confidence, human labels or promotion was involved.
 
+The subsequent `97d25f0` checkpoint passed all six fork CI jobs, including
+Windows and the expanded Linux integrations
+([run 35715070589](https://github.com/MILTONADINA/graph-engineering/actions/runs/35715070589)).
+
+## Isolated generated-candidate verification
+
+The unmetered-budget case now has a separate generated-source verifier. Its
+[recorded fixture receipt](../evaluation/isolated-candidate-fixture-validation.json)
+contains 30 real offline container executions: all fifteen checks completed on
+each historical revision, the broken version failed seven policy witnesses,
+and the repair passed all fifteen. There were zero model or provider calls.
+This is retrospective fixture evidence, not a generated repair or calibration
+measurement.
+
+The combined guest/host integration suite passed 22 tests on the Mac's local
+ARM64 Docker runtime. It exercised TypeScript and guest-only Zod, async callback
+traces, prototype/toJSON tampering, denied imports and filesystem access,
+constructor escape attempts, forged success markers, allocation/output limits,
+loops, pending promises, external deadlines and cancellation. An independent
+request-trace attack also completed all fifteen witnesses but retained the
+actual wrong endpoint/method, causing every allowed-dispatch witness to fail.
+No owned candidate containers remained after the timeout/abort tests.
+
+The provisioned image was
+`sha256:19a3f4a52831d3988c574d2a8b492002ed26b161742cb2a8209e52cc08264a63`.
+Receipts include the pinned WASM and executor hashes. Candidates run only in
+QuickJS inside a nonroot, offline container with no host mounts; acceptance
+remains outside that guest. Pure history intake was separated from signed-review
+runtime imports so starting the verifier cannot transitively load the candidate
+target on the host. Import-loader regressions reject those loads before any
+target bytes execute. Lone UTF-16 surrogates are rejected to prevent distinct
+source strings from sharing a replacement-character UTF-8 hash.
+
+The default evaluation suite passed 51 tests with four explicit Docker skips;
+the separate native run exercised those skipped cases. The complete workspace
+check also passed: 59 scaffolder, 9 dashboard and 347 engine tests, with 47
+explicit native/integration opt-ins skipped, plus typechecks and builds. The new
+CI steps provision and exercise the guest on Linux x64; the previous green CI
+checkpoint is not evidence for these later changes until their own run finishes.
+No test proves a general-purpose secure JavaScript sandbox, native Windows
+behavior, full program correctness, human review, or production promotion.
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering

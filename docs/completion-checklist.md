@@ -30,9 +30,11 @@ no PR reviews or merges until the implementation is ready.
 
 Item 13 still contains buildable work, not only requests for partner labels:
 
-- Six historical intake cases have no executable replay adapters. Two more have
-  trusted-history fixtures but no safe generated-patch verifier. Add guarded,
-  isolated candidate verification before treating their worker runs as evidence.
+- Six historical intake cases have no executable replay adapters. The portable
+  npm-spawn case still has only a trusted-history fixture. The unmetered-budget
+  case now has a guarded isolated candidate verifier, but no measured worker run.
+  Complete the remaining adapters and candidate verification before treating
+  their worker runs as evidence.
 - Implement separately governed sealed held-out collection/execution: frozen
   candidate configuration, protected oracle access and durable one-time run
   records. Existing known-history tasks cannot be relabeled as unseen.

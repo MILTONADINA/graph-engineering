@@ -42,6 +42,14 @@ inside a measured attempt. Neither a passing replay nor `synthetic: false`
 authorizes production decision promotion, PR acceptance, or a cost-savings claim.
 See [local validation](../docs/local-validation.md) for the first real result.
 
+The separate [isolated candidate runner](isolated-candidate.mjs) now checks the
+recorded unmetered-decision-budget case with QuickJS/WASM inside a fixed offline
+container and host-owned behavioral witnesses. It accepts bounded generated
+TypeScript without executing that source on the host or sharing the acceptance
+oracle with it. This is candidate verification only, not another measured worker
+success. See [provisioning and usage](../docs/calibration-corpus.md#verify-an-isolated-budget-candidate)
+and [runtime limits](guest-runtime/README.md).
+
 ## Synthetic cross-language corpus
 
 This corpus contains 60 small, explicitly synthetic bug-fix tasks: ten boundary

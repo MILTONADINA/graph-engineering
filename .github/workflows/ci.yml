@@ -34,6 +34,8 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm run check
+      - name: Evaluation protocol and intake checks
+        run: node --test evaluation/candidate-cases.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs
       - run: npm ci --prefix graph-templates/tools/validate-graph
       - run: npm test --prefix graph-templates/tools/validate-graph
       - run: npm run pack:check -w create-graph-app
@@ -51,6 +53,15 @@ jobs:
           node evaluation/calibration-corpus.mjs validate
         env:
           GRAPH_ENGINE_HISTORY_TESTS: "1"
+      - name: Isolated generated-candidate verification
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -f evaluation/guest-runtime/Dockerfile -t graph-evaluation-guest:local evaluation/guest-runtime
+          node --test evaluation/guest-runtime/integration.test.mjs evaluation/isolated-candidate.test.mjs
+        env:
+          GRAPH_ENGINE_GUEST_RUNTIME_TESTS: "1"
+          GRAPH_ENGINE_GUEST_HISTORY_TESTS: "1"
+          GRAPH_ENGINE_CANDIDATE_DOCKER_TESTS: "1"
       - name: Snapshot-only Go compiler bindings
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
