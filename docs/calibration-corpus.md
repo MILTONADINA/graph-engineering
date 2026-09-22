@@ -6,21 +6,21 @@ review workflow, not completed calibration**. No expected decision labels,
 partner signatures, promotion approvals, or unseen held-out results are supplied.
 Task category, complexity, and risk are explicitly proposed classifications.
 
-| Case                                 | Proposed stratum / complexity               | Recorded repair | Current readiness                                                            |
-| ------------------------------------ | ------------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
-| `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing  |
-| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing          |
-| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                  |
-| `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                  |
-| `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                  |
-| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Intake only; native Linux check required                                     |
-| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing |
-| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert ordering guard; clean historical build acceptance still missing        |
-| `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                  |
+| Case                                 | Proposed stratum / complexity               | Recorded repair | Current readiness                                                             |
+| ------------------------------------ | ------------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
+| `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing   |
+| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing           |
+| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                   |
+| `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                   |
+| `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                   |
+| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Intake only; native Linux check required                                      |
+| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing  |
+| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance |
+| `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                   |
 
 Each manifest case records full base/repair commit IDs, exact paths, Git blob
 IDs, regular-file modes, SHA256 source hashes, objective, acceptance criteria,
-scope limitations, and missing work. For the six unimplemented replays,
+scope limitations, and missing work. For the five still-unimplemented replays,
 `replay.adapterPath` and `replay.harnessPath` identify **planned, not existing**
 files under `evaluation/replays/<case>/`; `requiredAdapter` and `requiredHarness`
 describe the concrete work. Two additional adapters run exact trusted history
@@ -171,14 +171,27 @@ artifacts and must build both prerequisite workspaces before downstream checks.
 
 The exact historical baseline fails these ordering witnesses, while the recorded
 repair and an equivalent inline fix pass. These are structural checks only:
-the report explicitly sets `fullBuildVerified: false`. Separate clean, pinned,
-offline historical workspaces must establish actual compiler and test outcomes
-before this becomes a complete executable replay adapter. No model calls,
-independent labels or promotion evidence are produced by the guard.
+the report explicitly sets `fullBuildVerified: false`. The separate
+[clean-build verifier](../evaluation/build-order-runtime/README.md) establishes
+actual compiler/test outcomes in fresh, pinned, offline historical workspaces.
+It translates guarded operations to fixed argv against unchanged workspace
+code; candidate root script strings never execute. No model calls, independent
+labels or promotion evidence are produced by either verifier.
 
 ```sh
 node --test evaluation/candidate-build-order.test.mjs
+node evaluation/build-order-runtime/provision.mjs
+GRAPH_ENGINE_BUILD_ORDER_DOCKER_TESTS=1 node --test evaluation/verify-build-order.test.mjs
 ```
+
+Provisioning may access the npm registry explicitly; verification has no network
+or host mounts. Both baseline entrypoints fail with the expected missing
+`create-graph-app` entrypoint, while both projected repair entrypoints succeed.
+The [recorded receipt](../evaluation/build-order-runtime/fixture-validation.json)
+retains exact source, dependency and runtime identities, including ten legacy
+lock entries without integrity fields. The installed-tree hash records their
+actual bytes; it does not replace absent upstream attestations. Two original
+opt-in historical engine tests remain skipped, not counted as passing.
 
 ## Inspect and freeze provenance
 

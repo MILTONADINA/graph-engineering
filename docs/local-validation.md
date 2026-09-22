@@ -4,6 +4,22 @@ These are development observations, not production calibration or a claimed
 percentage reduction in model cost. Private run databases retain detailed
 events and failures. No paid model calls were authorized or made.
 
+## Additional historical clean-build proof
+
+The clean-workspace dependency-order fixture passed all 13 guard/runtime tests,
+including four fresh offline containers: baseline and projected repair, each
+with separate `typecheck` and `test` workspaces. All four workspace `dist`
+directories were absent initially. The baseline exits with the precise missing
+scaffolder entrypoint errors; the projected repair passes both entrypoints and
+54 scaffolder, seven dashboard and 70 engine tests. Two original opt-in engine
+tests remain explicitly skipped.
+
+The [receipt](../evaluation/build-order-runtime/fixture-validation.json) binds
+the 880-file historical tree, lock, provisioned dependency bytes, runtime and
+image. Candidate root scripts remain inert: validated operations become fixed
+argv against trusted historical workspace scripts. No model calls, paired-cost
+claims, independent labels or promotion approvals are supplied by this proof.
+
 ## Real local inference
 
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
