@@ -26,6 +26,24 @@ no PR reviews or merges until the implementation is ready.
 | 13  | Representative calibration and held-out evidence           | Export/label/evaluation/promotion tooling plus nine pinned historical intake tasks and independent-review tooling implemented. Two additional historical baseline/repair fixtures pass their expected oracles. **Not complete as evidence:** independent labels, unseen held-out tasks and paired model cost/outcome measurements remain required.   |
 | 14  | Cross-language tests and operations                        | All 60 synthetic fixtures failed before repair and passed their oracles in 120 offline containers across six languages. 10,000-file benchmark recorded. Migrations, content-aware watch, retained-evidence pruning, and real backup/staged restore validated.                                                                                        |
 
+## Remaining implementation work
+
+Item 13 still contains buildable work, not only requests for partner labels:
+
+- Six historical intake cases have no executable replay adapters. Two more have
+  trusted-history fixtures but no safe generated-patch verifier. Add guarded,
+  isolated candidate verification before treating their worker runs as evidence.
+- Implement separately governed sealed held-out collection/execution: frozen
+  candidate configuration, protected oracle access and durable one-time run
+  records. Existing known-history tasks cannot be relabeled as unseen.
+- Connect verified independent attestations to promotion-bound imports. The
+  existing signature-checking intake is stronger than the legacy label importer;
+  running it separately does not make the importer enforce those signatures.
+
+These gaps are detailed in [the calibration workflow](calibration-corpus.md).
+Completing the tooling still cannot supply independent reviewers, unseen tasks,
+actual labels or measured model outcomes automatically.
+
 ## What is deliberately not signed off
 
 See [local validation](local-validation.md) for measured results and failed-attempt caveats.
