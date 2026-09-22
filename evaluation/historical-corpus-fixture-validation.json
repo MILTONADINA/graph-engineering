@@ -1,0 +1,382 @@
+{
+  "version": "1.0.0",
+  "kind": "historical-corpus-fixture-validation",
+  "createdAt": "2026-09-22T07:48:31.226Z",
+  "corpusId": "graph-history-intake-v1",
+  "manifestSha256": "443b490cd991b9afaa77a66ccb8eea7466d438e50b20f80170dd3a4cd237f049",
+  "runtime": {
+    "node": "v26.3.0",
+    "typescript": "5.9.3",
+    "platform": "darwin",
+    "architecture": "arm64"
+  },
+  "runnerSha256": "972aa5034de08c10fced0d1fdbbd5f8240f99666db1f6ef80f143da3b7017329",
+  "results": [
+    {
+      "id": "unmetered-decision-budget",
+      "taskId": "task:5b23267e36136d6afcc7be9bc4bfd1e7af883d8f05bd9342fff52d2c9499d8eb",
+      "taskSha256": "a1c77f9f60d70634813b36f4c0c4ceae6239eb3dfd5cf4b80a3c389401c6ea1e",
+      "splitId": "split:3fddd25166c69ba3efb536a32a5c936954901738d4420a411214b3c96883e191",
+      "baseCommit": "b6a878dc8b08809f996f85834d801e0979014889",
+      "repairCommit": "545e23025be2624203bcff9f2613282a096bd9d3",
+      "sourceEvidence": [
+        {
+          "path": "packages/engine/src/decisions.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "dfc5a0090f4a0033c0fab2b30a0a2e2fa28daa39",
+            "sha256": "42be304c01b9cb95da5e99430fc45581b0971c7e17b5333e4d50f334b50a855a",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "b3ac21f47e56d0792a3b90bfed1c99fd58db8fff",
+            "sha256": "01086cb061967dc5886846cefa72aae0dc3a25f25da0121a9e67d7c3748bdab1",
+            "mode": "100644"
+          }
+        }
+      ],
+      "adapterSha256": "d8bea64eb56544eccd99ee446825830947389c00f1834f83d324ef8f09ab4374",
+      "verifierSha256": "277824aa82f284a4e0b7b819a601767bb31071788f4ec68257caf811a9eac75a",
+      "baseline": {
+        "success": false,
+        "checks": [
+          {
+            "id": "capped-unmetered-0",
+            "passed": false,
+            "observed": {
+              "dispatches": 1,
+              "abstained": false,
+              "auditedFailure": false
+            }
+          },
+          {
+            "id": "capped-unmetered-0.25",
+            "passed": false,
+            "observed": {
+              "dispatches": 1,
+              "abstained": false,
+              "auditedFailure": false
+            }
+          },
+          {
+            "id": "capped-unmetered-1",
+            "passed": false,
+            "observed": {
+              "dispatches": 1,
+              "abstained": false,
+              "auditedFailure": false
+            }
+          },
+          {
+            "id": "jev-null-allowed",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "abstained": false,
+              "baselinePreserved": true,
+              "shadow": true
+            }
+          },
+          {
+            "id": "laya-0-allowed",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "abstained": false,
+              "baselinePreserved": true,
+              "shadow": true
+            }
+          },
+          {
+            "id": "jev-null-offline",
+            "passed": true,
+            "observed": {
+              "dispatches": 0,
+              "abstained": true,
+              "baselinePreserved": true,
+              "shadow": true
+            }
+          }
+        ],
+        "actualNetworkCalls": 0,
+        "modelCalls": 0,
+        "limitations": [
+          "All provider responses and endpoint policy checks are controlled fixtures, not Jev/Laya measurements.",
+          "Historical source is trusted and instrumented in-process; this is not an arbitrary generated-code verifier.",
+          "The historical unmetered adapter differs from the current priced/reserved implementation."
+        ]
+      },
+      "oracle": {
+        "success": true,
+        "checks": [
+          {
+            "id": "capped-unmetered-0",
+            "passed": true,
+            "observed": {
+              "dispatches": 0,
+              "abstained": true,
+              "auditedFailure": true
+            }
+          },
+          {
+            "id": "capped-unmetered-0.25",
+            "passed": true,
+            "observed": {
+              "dispatches": 0,
+              "abstained": true,
+              "auditedFailure": true
+            }
+          },
+          {
+            "id": "capped-unmetered-1",
+            "passed": true,
+            "observed": {
+              "dispatches": 0,
+              "abstained": true,
+              "auditedFailure": true
+            }
+          },
+          {
+            "id": "jev-null-allowed",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "abstained": false,
+              "baselinePreserved": true,
+              "shadow": true
+            }
+          },
+          {
+            "id": "laya-0-allowed",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "abstained": false,
+              "baselinePreserved": true,
+              "shadow": true
+            }
+          },
+          {
+            "id": "jev-null-offline",
+            "passed": true,
+            "observed": {
+              "dispatches": 0,
+              "abstained": true,
+              "baselinePreserved": true,
+              "shadow": true
+            }
+          }
+        ],
+        "actualNetworkCalls": 0,
+        "modelCalls": 0,
+        "limitations": [
+          "All provider responses and endpoint policy checks are controlled fixtures, not Jev/Laya measurements.",
+          "Historical source is trusted and instrumented in-process; this is not an arbitrary generated-code verifier.",
+          "The historical unmetered adapter differs from the current priced/reserved implementation."
+        ]
+      },
+      "fixtureValid": true,
+      "retrospective": true,
+      "workerEvaluated": false,
+      "promotionEligible": false
+    },
+    {
+      "id": "portable-npm-spawn",
+      "taskId": "task:0b1dbad59eb48ee2f223090bc710f0df79ad54625160f7217e406c24bbaff181",
+      "taskSha256": "9bdefc5cbbb148d5cf46bbdb8b7592bb06add760ae479f38ad7141d9d88b70aa",
+      "splitId": "split:846c3178149b6015c89bc90b5af2904be514ae1db04c4dd9ded1e68057637dec",
+      "baseCommit": "fc5676816a4f892113de03aca7c8765c2f421789",
+      "repairCommit": "b6a878dc8b08809f996f85834d801e0979014889",
+      "sourceEvidence": [
+        {
+          "path": "create-graph-app/scripts/check-pack-contents.js",
+          "role": "source",
+          "base": {
+            "blobOid": "41ad5f6b8ae060c1c721ad7327d4846b862c86a4",
+            "sha256": "bd4e8376fe9702bb72b7a1a7beef67f26cf953a0031f612e78b65111d50287d3",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "a3b13dddaa9b85bc6c12fd6aea3dce26961fe5ab",
+            "sha256": "2b0a8f8ae362e6044b4ffed5ec49fb9c194d7094bed7b61f473b3a1ff5030256",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "create-graph-app/scripts/smoke-generated-apps.js",
+          "role": "source",
+          "base": {
+            "blobOid": "28f269caff601240eea3e41f69b205959ea7df43",
+            "sha256": "4ee79d1693034f58958df5c129b0544b7af6ade592aad858a34c7d7adbebf7c9",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "d4579cfe5f31485739c2a1f8bac8298405ac103f",
+            "sha256": "095668cf3cd6ce9198770ae4acc354bedd64bef60ea67f47c5453325f3d15912",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "create-graph-app/scripts/npm-command.js",
+          "role": "source",
+          "base": null,
+          "repair": {
+            "blobOid": "69c363b3ef6b9ce2cac7b39edc4281ce19b805dc",
+            "sha256": "c6b165238deab14fd1893da5b092c651c9f2d75e5b7b90ae4062ca9f3fa3f6e6",
+            "mode": "100644"
+          }
+        }
+      ],
+      "adapterSha256": "5ce71ad78e87e66edd567af34789000f50aba79aa5d3ad7ceb7e4818dbda5959",
+      "verifierSha256": "7c4234819ad298080bc64dec0f0ff08aec5a27e98f6c3c22bba1766b53c18841",
+      "baseline": {
+        "success": false,
+        "checks": [
+          {
+            "id": "windows-lifecycle-spaces",
+            "passed": false,
+            "observed": {
+              "dispatches": 1,
+              "executable": "npm",
+              "argvBoundariesPreserved": false,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          },
+          {
+            "id": "windows-node-relative",
+            "passed": false,
+            "observed": {
+              "dispatches": 1,
+              "executable": "npm",
+              "argvBoundariesPreserved": false,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          },
+          {
+            "id": "windows-case-insensitive-path",
+            "passed": false,
+            "observed": {
+              "dispatches": 1,
+              "executable": "npm",
+              "argvBoundariesPreserved": false,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          },
+          {
+            "id": "windows-no-unsafe-fallback",
+            "passed": false,
+            "observed": {
+              "dispatches": 1,
+              "executable": "npm",
+              "argvBoundariesPreserved": true,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          },
+          {
+            "id": "posix-direct-npm",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "executable": "npm",
+              "argvBoundariesPreserved": true,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          }
+        ],
+        "actualChildProcesses": 0,
+        "modelCalls": 0,
+        "limitations": [
+          "Windows and Linux process/filesystem surfaces are instrumented on this host, not native operating-system validation.",
+          "Only recorded trusted code is executed; this harness does not safely verify arbitrary worker-generated scripts.",
+          "npm pack, tar extraction, and generated application builds are not executed by this fixture."
+        ]
+      },
+      "oracle": {
+        "success": true,
+        "checks": [
+          {
+            "id": "windows-lifecycle-spaces",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "executable": "C:\\Program Files\\nodejs\\node.exe",
+              "argvBoundariesPreserved": true,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          },
+          {
+            "id": "windows-node-relative",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "executable": "C:\\Program Files\\nodejs\\node.exe",
+              "argvBoundariesPreserved": true,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          },
+          {
+            "id": "windows-case-insensitive-path",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "executable": "C:\\Other\\node.exe",
+              "argvBoundariesPreserved": true,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          },
+          {
+            "id": "windows-no-unsafe-fallback",
+            "passed": true,
+            "observed": {
+              "dispatches": 0,
+              "executable": null,
+              "argvBoundariesPreserved": false,
+              "shell": false,
+              "error": "Cannot locate npm-cli.js. Run this check through npm run, or install npm alongside Node."
+            }
+          },
+          {
+            "id": "posix-direct-npm",
+            "passed": true,
+            "observed": {
+              "dispatches": 1,
+              "executable": "npm",
+              "argvBoundariesPreserved": true,
+              "shell": false,
+              "error": "GRAPH_HISTORICAL_INVOCATION_CAPTURED"
+            }
+          }
+        ],
+        "actualChildProcesses": 0,
+        "modelCalls": 0,
+        "limitations": [
+          "Windows and Linux process/filesystem surfaces are instrumented on this host, not native operating-system validation.",
+          "Only recorded trusted code is executed; this harness does not safely verify arbitrary worker-generated scripts.",
+          "npm pack, tar extraction, and generated application builds are not executed by this fixture."
+        ]
+      },
+      "fixtureValid": true,
+      "retrospective": true,
+      "workerEvaluated": false,
+      "promotionEligible": false
+    }
+  ],
+  "fixtureValid": true,
+  "modelCalls": 0,
+  "actualNetworkCalls": 0,
+  "actualChildProcessesFromHistoricalCode": 0,
+  "promotionEligible": false,
+  "limitations": [
+    "Two retrospectively selected historical defects with controlled dependency/process adapters, not a representative benchmark.",
+    "Only exact pinned history is executed. Node vm instrumentation is not a security sandbox; no worker patch input is accepted.",
+    "No baseline/candidate models, independent partner labels, held-out observations, native Windows result, or cost-saving claim."
+  ]
+}

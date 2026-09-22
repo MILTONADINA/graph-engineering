@@ -63,7 +63,7 @@ export function exportEvaluationDraft(
   });
 }
 
-const manualLabelSchema = z
+export const evaluationLabelSchema = z
   .object({
     recordId: label,
     split: z.enum(["calibration", "held-out"]),
@@ -80,7 +80,7 @@ const manualLabelSchema = z
     candidateCost: z.number().finite().nonnegative(),
   })
   .strict();
-export type EvaluationLabel = z.infer<typeof manualLabelSchema>;
+export type EvaluationLabel = z.infer<typeof evaluationLabelSchema>;
 
 /** Join externally reviewed labels to immutable exported observations; incomplete data fails closed. */
 export function importEvaluationLabels(input: {
@@ -92,7 +92,7 @@ export function importEvaluationLabels(input: {
     provenance = evaluationProvenanceSchema.parse(input.provenance);
   if (draft.datasetId !== provenance.datasetId)
     throw new Error("Evaluation dataset identities do not match");
-  const labels = z.array(manualLabelSchema).min(1).parse(input.labels);
+  const labels = z.array(evaluationLabelSchema).min(1).parse(input.labels);
   if (new Set(labels.map((item) => item.recordId)).size !== labels.length)
     throw new Error("A decision observation has duplicate labels");
   if (
