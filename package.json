@@ -11,8 +11,9 @@
   },
   "scripts": {
     "build": "npm run build -w create-graph-app && npm run build -w @graph-engineering/contracts && npm run build -w @graph-engineering/engine && npm run build -w @graph-engineering/dashboard",
-    "typecheck": "npm run build -w @graph-engineering/contracts && npm run typecheck --workspaces --if-present",
-    "test": "npm run build -w @graph-engineering/contracts && npm run test --workspaces --if-present",
+    "build:dependencies": "npm run build -w create-graph-app && npm run build -w @graph-engineering/contracts",
+    "typecheck": "npm run build:dependencies && npm run typecheck --workspaces --if-present",
+    "test": "npm run build:dependencies && npm run test --workspaces --if-present",
     "check": "npm run typecheck && npm run test && npm run build",
     "graph": "node packages/engine/dist/cli.js",
     "dev": "npm run dev -w @graph-engineering/dashboard",
