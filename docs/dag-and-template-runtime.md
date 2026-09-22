@@ -21,20 +21,26 @@ The scheduler does not claim tests passed. The service must verify the resulting
 
 ## Fine-grained runtime availability
 
-Ten graph-node templates have audited deterministic proposal renderers. Catalog status and runtime capability are separate: 42 catalog entries are implemented, but only these 10 are executable through this runtime.
+Twenty-one graph-node templates have audited deterministic proposal renderers. Catalog status and runtime capability are separate: 42 catalog entries are implemented, and these 21 are executable through this runtime (subject to prerequisites and project policy).
 
-| Template                | Source and tests produced                              | Required project declarations                                                           |
-| ----------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `backend.api-response`  | Response-envelope helper and its tests                 | Express, Vitest, `HttpStatusCodes` helper                                               |
-| `backend.pagination`    | Bounded list-query parser and its tests                | Express and Vitest                                                                      |
-| `backend.validation`    | Zod middleware and its tests                           | Express, Zod, Vitest, `APIError`, `HttpStatusCodes`                                     |
-| `backend.error-handler` | Central error middleware, tests, exact scaffold wiring | Express 4, Vitest, reviewed `src/app.ts` fallback                                       |
-| `backend.middleware`    | Async error forwarding and tests                       | Express 4, Vitest, generated error handler                                              |
-| `backend.repository`    | Entity repository, schema append, tests                | Drizzle, Vitest, declared database/error/helper exports, reviewed schema imports/marker |
-| `backend.service`       | Plain-data service and tests                           | Matching repository, error/status and pagination types                                  |
-| `backend.controller`    | Express controller and tests                           | Matching service, response/pagination helpers, middleware, Express 4, Supertest, Vitest |
-| `backend.express`       | Entity router, tests, exact application mounting       | Matching controller/middleware, reviewed app markers; auth middleware when requested    |
-| `database.transactions` | Transaction delegation and tests                       | Declared database export, Drizzle, Vitest                                               |
+| Template                                             | Source and tests produced                                           | Required project declarations                                                           |
+| ---------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `backend.api-response`                               | Response-envelope helper and its tests                              | Express, Vitest, `HttpStatusCodes` helper                                               |
+| `backend.pagination`                                 | Bounded list-query parser and its tests                             | Express and Vitest                                                                      |
+| `backend.validation`                                 | Zod middleware and its tests                                        | Express, Zod, Vitest, `APIError`, `HttpStatusCodes`                                     |
+| `backend.error-handler`                              | Central error middleware, tests, exact scaffold wiring              | Express 4, Vitest, reviewed `src/app.ts` fallback                                       |
+| `backend.middleware`                                 | Async error forwarding and tests                                    | Express 4, Vitest, generated error handler                                              |
+| `backend.repository`                                 | Entity repository, schema append, tests                             | Drizzle, Vitest, declared database/error/helper exports, reviewed schema imports/marker |
+| `backend.service`                                    | Plain-data service and tests                                        | Matching repository, error/status and pagination types                                  |
+| `backend.controller`                                 | Express controller and tests                                        | Matching service, response/pagination helpers, middleware, Express 4, Supertest, Vitest |
+| `backend.express`                                    | Entity router, tests, exact application mounting                    | Matching controller/middleware, reviewed app markers; auth middleware when requested    |
+| `database.transactions`                              | Transaction delegation and tests                                    | Declared database export, Drizzle, Vitest                                               |
+| `api.crud`                                           | Composed entity chain, typed route schemas, filtering/sorting tests | Reviewed backend scaffold, database/schema/helpers and declared dependencies            |
+| `documentation.architecture`, `documentation.api`    | Evidence-derived architecture/API references                        | Schema-valid source artifacts; omitted auth stays unknown                               |
+| `documentation.agent-context`, `documentation.setup` | Public agent context and bounded README Quick Start                 | Public template ledger; declared scripts/artifact presence, never private memory        |
+| `testing.unit`, `testing.mocks`, `testing.fixtures`  | Vitest config, query-shape mock, fixture factories and tests        | Vitest; mocks do not implement SQL semantics                                            |
+| `testing.api`, `testing.integration`                 | Supertest convention, guarded real-PostgreSQL helper and tests      | Express app export; explicit test database, pg/Drizzle/types/Vitest                     |
+| `devops.environments`                                | Blank environment example and declaration-derived reference         | Schema-valid architecture; explicit policy permitting `.env.example`                    |
 
 `renderTemplateProposal({ templateId, instanceId, inputs, workspace, policy, targetDirectory? })` returns a `WorkerResult` plus a versioned execution manifest. `targetDirectory` is a separate option, not a template input; it supports application prefixes such as `apps/api`. Template identity and instance identity remain distinct.
 
@@ -50,28 +56,26 @@ Shared-file modifications are individually reviewed, not a generic YAML operatio
 
 Two entity chains have distinct source/test paths, but they share schema/app files. Their DAG steps must explicitly depend on earlier writers of those shared files; the scheduler rejects independent collisions rather than guessing an order.
 
-These are foundation components, not proof of application security or acceptance. `requiresAuth: true` gates POST/PUT/DELETE only; reads remain public. Route-level payload validation, tenant authorization, SQL migrations, and real database configuration remain the application's responsibility. The validation middleware is available separately and is not automatically wired into entity routes. `backend.repository` does not implement requested sorting/filtering strategies. Service pagination metadata is clamped consistently with the repository's existing bounds.
+These are foundation components, not proof of application security or acceptance. `requiresAuth: true` gates POST/PUT/DELETE only; reads remain public. Tenant authorization, SQL migrations, and real database configuration remain the application's responsibility. Standalone `backend.express` does not wire payload validation and standalone `backend.repository` does not implement sorting/filtering. `api.crud` composes the audited chain in memory, adds strict body/UUID/query schemas, and applies declared-field/id filtering and sorting. JSONB is accepted as body data, not as a filter/sort expression. Unknown/custom existing code is never silently reconciled; upgrades require exact reviewed source matches. Service pagination metadata is clamped consistently with repository bounds.
 
-No template prompt, hook, installer, `validation.command`, or `testing.command` runs on the host. The service runs its approved verification commands in the container. Missing dependencies must be configured explicitly; the renderer does not install or silently add them. Generated source/test hashes and instance inputs are recorded in the returned manifest; it does not overwrite `.graph/project.json` or other protected metadata.
+Documentation distinguishes declarations from execution evidence. API output never assumes omitted auth means public. Public `.graph/CONTEXT.md` is narrowly allowed as plain documentation, while engine control files/private memory stay protected. Reading the fixed public template ledger is a separate bounded, symlink-rejecting operation. All explicit exclusions still apply. Generated documents are hash-stamped and only replace owned outputs; README updates preserve text outside the unique Quick Start markers. Environment aggregation uses selected catalog declarations only and never reads live environment values. Default policy still denies `.env.example`; an owner must explicitly permit that public example before running the node. Populated/custom examples are preserved for review.
+
+No template prompt, hook, installer, `validation.command`, or `testing.command` runs on the host. The service runs its approved verification commands in the container. Missing prerequisites must be configured explicitly; the renderer never installs dependencies. The one reviewed `testing.api` package edit proposes missing Supertest development declarations without replacing existing choices. Generated source/test hashes and instance inputs are recorded in the returned manifest; it does not overwrite `.graph/project.json` or other protected metadata.
 
 ### Remaining catalog inventory
 
-The other 32 implemented entries remain catalog-only for the following explicit reasons. None is executed by interpreting a prompt, running a hook, or installing a package automatically.
+The other 21 implemented entries remain catalog-only for the following explicit reasons. None is executed by interpreting a prompt, running a hook, or installing a package automatically.
 
 | Implemented entries without renderers                                                                                        | Missing reviewed runtime boundary                                                                 |
 | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `api.crud`                                                                                                                   | Composite schema/validation generation and full dependency/route composition                      |
 | `authentication.jwt`, `authentication.password`                                                                              | Credential/environment wiring and authentication-specific security tests                          |
 | `authorization.rbac`, `authorization.tenant-isolation`                                                                       | Trusted identity/role contracts and verified authorization/query modifications                    |
 | `database.neon-postgres.connection`                                                                                          | Environment/credential configuration and real connection setup                                    |
 | `database.migrations`, `database.seed`                                                                                       | Migration/seed execution lifecycle, database isolation and rollback evidence                      |
 | `devops.docker`, `devops.github-actions`                                                                                     | Deployment/build configuration changes and their execution/permission contracts                   |
-| `devops.environments`                                                                                                        | Explicit environment-documentation policy; excluded secret-like paths remain excluded             |
-| `documentation.agent-context`, `documentation.api`, `documentation.architecture`, `documentation.setup`                      | Artifact-aware documentation synthesis and truthfulness validation                                |
 | `frontend.authentication`, `frontend.forms`, `frontend.nextjs`, `frontend.tables`                                            | Component/schema composition and browser/framework execution tests                                |
 | `project.nextjs`, `project.node-express`                                                                                     | Package/environment/protected metadata bootstrapping; existing coarse scaffolder remains separate |
 | `storage.aws-s3`, `storage.delete`, `storage.download`, `storage.presigned-url`, `storage.upload`, `storage.file-validation` | Provider/client wiring, upload limits and scoped storage authorization/error tests                |
-| `testing.api`, `testing.fixtures`, `testing.integration`, `testing.mocks`, `testing.unit`                                    | Application-specific test data and dependency binding, not static source copying                  |
 
 The 13 planned entries remain unavailable because they have no implemented catalog contract: `api.filtering`, `api.pagination`, `api.search`, `api.sorting`, `api.webhooks`, `authentication.oauth`, `authentication.session`, `authorization.permissions`, `authorization.roles`, `devops.aws`, `devops.deployment`, `frontend.dashboards`, `frontend.react`.
 
@@ -81,7 +85,18 @@ The complete backend composition test provisions dependencies separately, then c
 
 ```sh
 docker build -t graph-backend-template-test:local packages/engine/tests/fixtures/backend-runtime
-GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1 npm test --workspace @graph-engineering/engine -- tests/template-runtime-backend.test.ts
+GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1 npm test --workspace @graph-engineering/engine -- tests/template-runtime-backend.test.ts tests/template-runtime-crud.test.ts
 ```
 
-The fixture has an exact-version package manifest and lockfile. Image provisioning uses `npm ci --ignore-scripts`; test execution uses the standard unprivileged, capability-dropped verification sandbox with no network or credential mounts. It generates Product and Invoice repository/service/controller/router chains, validates TypeScript strictly, and runs 29 emitted/integration assertions against real pinned libraries. Database operations are mocked at the database boundary; this is not live PostgreSQL/migration evidence. Extra execution assertions cover not-found propagation, pagination consistency, internal-error redaction and route/auth wiring. The existing Linux x64 platform CI job builds the fixture image and runs both template Docker suites; the six required jobs are unchanged. Normal tests need neither Docker nor network access.
+The fixture has an exact-version package manifest and lockfile. Image provisioning uses `npm ci --ignore-scripts`; test execution uses the standard unprivileged, capability-dropped verification sandbox with no network or credential mounts. It generates Product and Invoice repository/service/controller/router chains, validates TypeScript strictly, and runs 29 foundation assertions plus a separate 37-test CRUD composition suite against real pinned libraries. Database operations in those suites are mocked at the database boundary; this is not live PostgreSQL/migration evidence. Assertions cover not-found propagation, pagination consistency, internal-error redaction, route/auth wiring, and strict CRUD input/filter contracts.
+
+The five testing nodes additionally have a real PostgreSQL fixture:
+
+```sh
+docker build -t graph-testing-template-test:local packages/engine/tests/fixtures/testing-runtime
+GRAPH_ENGINE_TESTING_DOCKER_TESTS=1 npm test --workspace @graph-engineering/engine -- tests/template-runtime-testing.test.ts
+```
+
+This runs strict TypeScript plus generated helper tests and an independent real-SQL cleanup check inside one network-disabled container. The disposable database is created there, not on the host. Tests verify foreign-key refusal without CASCADE, atomic selected-table truncation and preservation of an unlisted table. The generated helper requires `NODE_ENV=test`, an explicit `_test` database, and a separate destructive-cleanup acknowledgement. It never falls back to `DATABASE_URL`, rejects routing overrides, and provides pool teardown. Naming and URL checks do not prove isolation: operators still need a disposable database and a role without production privileges. See [the integration template safety contract](../graph-templates/testing/integration/README.md).
+
+The existing Linux x64 platform CI job runs these container suites; the six required jobs are unchanged. Normal tests need neither Docker nor network access.

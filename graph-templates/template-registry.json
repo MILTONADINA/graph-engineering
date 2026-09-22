@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-22T02:02:13.944Z",
+  "generatedAt": "2026-09-22T07:57:33.766Z",
   "templateCount": 55,
   "templates": [
     {
@@ -2281,11 +2281,14 @@
       "category": "testing",
       "subcategory": "integration",
       "status": "implemented",
-      "description": "Tests that hit a REAL Postgres database, as opposed to testing.unit's mocked repository layer. Provides a testDatabase helper that connects to TEST_DATABASE_URL and truncates every application table between tests, with a loud refusal to run against NODE_ENV=production or a missing TEST_DATABASE_URL fallback to the real DATABASE_URL.",
+      "description": "Tests that hit a REAL Postgres database, as opposed to testing.unit's mocked repository layer. Provides a testDatabase helper that connects to an explicit TEST_DATABASE_URL using the standard Node PostgreSQL driver. Guarded cleanup truncates only explicitly named public-schema tables in one statement without CASCADE. No application database fallback is allowed.",
       "tags": [
         "testing",
         "integration",
+        "pg",
+        "drizzle-orm",
         "postgres",
+        "ci",
         "test"
       ],
       "inputs": [],
@@ -2302,9 +2305,18 @@
       "environment": [
         {
           "name": "TEST_DATABASE_URL",
-          "required": false,
+          "required": true,
           "secret": true,
-          "description": "Connection string for a disposable test database. If unset, falls back to DATABASE_URL with a loud console warning.",
+          "description": "Explicit disposable PostgreSQL database ending in _test. Never falls back to DATABASE_URL.",
+          "usedBy": [
+            "testing.integration"
+          ]
+        },
+        {
+          "name": "GRAPH_TEST_DATABASE_ALLOW_TRUNCATE",
+          "required": false,
+          "secret": false,
+          "description": "Set to 1 only in disposable test environments to permit destructive table cleanup.",
           "usedBy": [
             "testing.integration"
           ]

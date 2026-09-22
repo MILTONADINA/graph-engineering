@@ -14,6 +14,16 @@ import { containsSecret, isAllowedPath, safePath } from "./policy.js";
 import { hash } from "./util.js";
 import { proposalSchema, type WorkerResult } from "./workers/api.js";
 import { prepareProposal } from "./execution/workspace.js";
+import type {
+  AuditedTemplateExtension,
+  TemplateArtifact,
+  TemplateRenderedArtifacts,
+} from "./template-runtime-extension.js";
+import { crudTemplates } from "./template-runtime-crud.js";
+import { documentationTemplates } from "./template-runtime-docs.js";
+import { testingTemplates } from "./template-runtime-testing.js";
+import { environmentTemplates } from "./template-runtime-environments.js";
+import { readTemplateManifest } from "./template-runtime-public.js";
 
 const catalogRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -31,7 +41,7 @@ const manifestSchema = z
         create: z
           .array(z.object({ path: z.string(), source: z.string() }).strict())
           .max(20),
-        modify: z.array(z.record(z.unknown())).max(4),
+        modify: z.array(z.record(z.unknown())).max(12),
       })
       .strict(),
   })
@@ -223,6 +233,12 @@ const supported: Record<string, RuntimeDefinition> = {
     prerequisiteFiles: { "src/config/database.ts": ["database"] },
   },
 };
+const extensions: Record<string, AuditedTemplateExtension> = {
+  ...crudTemplates,
+  ...documentationTemplates,
+  ...testingTemplates,
+  ...environmentTemplates,
+};
 export interface TemplateExecutionManifest {
   version: "1.0.0";
   instanceId: string;
@@ -230,12 +246,7 @@ export interface TemplateExecutionManifest {
   templateVersion: string;
   inputsHash: string;
   files: { path: string; contentHash: string; kind: "code" | "test" }[];
-  outputs: {
-    files: string[];
-    exports?: string[];
-    routes?: string[];
-    tableExportName?: string;
-  };
+  outputs: TemplateRenderedArtifacts["outputs"];
   requiredPackages: string[];
   verification: "required-in-sandbox";
 }
@@ -256,7 +267,7 @@ export function templateRuntimeCapability(templateId: string): {
   reason?: string;
 } {
   const id = templateId.replace(/^graph-node:/, "");
-  return Object.hasOwn(supported, id)
+  return Object.hasOwn(supported, id) || Object.hasOwn(extensions, id)
     ? { executable: true }
     : {
         executable: false,
@@ -271,23 +282,30 @@ export function validateExecutableTemplateManifest(
   const definition = Object.hasOwn(supported, templateId)
     ? supported[templateId]
     : undefined;
-  if (!definition) throw new Error(`Template ${templateId} is not executable`);
+  const extension = Object.hasOwn(extensions, templateId)
+    ? extensions[templateId]
+    : undefined;
+  if (!definition && !extension)
+    throw new Error(`Template ${templateId} is not executable`);
   const manifest = manifestSchema.parse(value);
   if (manifest.id !== templateId || !manifest.actions.includes("generate"))
     throw new Error(
       "Template manifest identity/actions do not match its renderer",
     );
   if (
-    manifest.files.create.length !== 1 ||
-    manifest.files.create[0].path !== definition.file ||
-    manifest.files.create[0].source !== definition.source
+    canonical(manifest.files.create) !==
+    canonical(
+      extension?.creates ?? [
+        { path: definition!.file, source: definition!.source },
+      ],
+    )
   )
     throw new Error(
       "Template manifest output/source paths do not match the audited renderer",
     );
   if (
     canonical(manifest.files.modify) !==
-    canonical(definition.modifications ?? [])
+    canonical((extension ?? definition)!.modifications ?? [])
   )
     throw new Error("Template modifications do not match the audited renderer");
   return manifest;
@@ -655,28 +673,34 @@ async function asset(directory: string, relative: string): Promise<string> {
   return content;
 }
 
-/** Render data into proposed source/test changes only; never run a template hook or command. */
-export async function renderTemplateProposal(
+interface RenderedTemplate extends TemplateRenderedArtifacts {
+  templateVersion: string;
+  inputs: Record<string, unknown>;
+  requiredPackages: string[];
+}
+
+async function renderArtifacts(
   options: RenderTemplateOptions,
-): Promise<TemplateWorkerResult> {
+  readTarget: (relative: string) => Promise<string>,
+  stack: string[] = [],
+): Promise<RenderedTemplate> {
   const templateId = options.templateId.replace(/^graph-node:/, "");
   const definition = Object.hasOwn(supported, templateId)
     ? supported[templateId]
     : undefined;
-  if (!definition)
+  const extension = Object.hasOwn(extensions, templateId)
+    ? extensions[templateId]
+    : undefined;
+  const selected = extension ?? definition;
+  if (!selected)
     throw new Error(
       `Template ${templateId} is catalog-only and has no executable renderer`,
     );
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(options.instanceId))
-    throw new Error("Invalid template instance identity");
-  const prefix = options.targetDirectory ?? "";
-  if (prefix && !isAllowedPath(prefix, options.policy))
-    throw new Error("Template target directory is outside allowed scope");
-  const target = (relative: string) =>
-    prefix ? `${prefix}/${relative}` : relative;
+  if (stack.length >= 4 || stack.includes(templateId))
+    throw new Error("Template composition is cyclic or exceeds depth limits");
   const manifest = validateExecutableTemplateManifest(
     templateId,
-    load(await asset(definition.directory, "template.yaml"), {
+    load(await asset(selected.directory, "template.yaml"), {
       schema: JSON_SCHEMA,
     }),
   );
@@ -685,7 +709,7 @@ export async function renderTemplateProposal(
   (addFormats as unknown as (instance: typeof ajv) => void)(ajv);
   const inputs = structuredClone(options.inputs ?? {});
   const validateInputs = ajv.compile(
-    JSON.parse(await asset(definition.directory, "inputs.schema.json")),
+    JSON.parse(await asset(selected.directory, "inputs.schema.json")),
   );
   if (!validateInputs(inputs))
     throw new Error(
@@ -714,44 +738,36 @@ export async function renderTemplateProposal(
     throw new Error(
       "Pagination requires defaultPageSize <= maxPageSize <= 1000",
     );
-  const packagePath = await safePath(
-    options.workspace,
-    target("package.json"),
-    options.policy,
-  );
   const packageJson = z
     .object({
       dependencies: z.record(z.string()).optional(),
       devDependencies: z.record(z.string()).optional(),
     })
     .passthrough()
-    .parse(JSON.parse(await readFile(packagePath, "utf8")));
+    .parse(
+      selected.packages.length
+        ? JSON.parse(await readTarget("package.json"))
+        : {},
+    );
   const packages = {
     ...packageJson.dependencies,
     ...packageJson.devDependencies,
   };
-  for (const dependency of definition.packages)
+  for (const dependency of selected.packages)
     if (!Object.hasOwn(packages, dependency))
       throw new Error(
         `Template prerequisite package ${dependency} is missing; configure it explicitly before execution`,
       );
   if (
-    definition.packages.includes("express") &&
+    selected.packages.includes("express") &&
     !/^[~^]?4\./.test(packages.express)
   )
     throw new Error(
       "This audited backend renderer requires an explicit Express 4 package range",
     );
-  const readTarget = async (relative: string) => {
-    const content = await readFile(
-      await safePath(options.workspace, target(relative), options.policy),
-      "utf8",
-    );
-    if (Buffer.byteLength(content) > 200_000)
-      throw new Error("Template prerequisite exceeds size limit");
-    return content;
+  const prerequisites = {
+    ...(extension?.prerequisites ?? definition?.prerequisiteFiles),
   };
-  const prerequisites = { ...definition.prerequisiteFiles };
   if (templateId === "backend.express" && inputs.requiresAuth)
     prerequisites["src/middlewares/authMiddleware.ts"] = ["authMiddleware"];
   for (const [relative, exports] of Object.entries(prerequisites)) {
@@ -762,96 +778,199 @@ export async function renderTemplateProposal(
           `Template prerequisite ${relative} must export ${name}`,
         );
   }
-  let source = interpolate(
-    await asset(definition.directory, definition.source),
-    inputs,
-  );
-  let test = (await asset(definition.directory, definition.test)).replaceAll(
-    "'../../../../src/",
-    "'../src/",
-  );
-  if (templateId === "backend.pagination")
-    test = test
-      .replace("pageSize: 20", `pageSize: ${inputs.defaultPageSize}`)
-      .replace(".toBe(100)", `.toBe(${inputs.maxPageSize})`);
-  if (inputs.entityName) {
-    test = test
-      .replace(/Product/g, String(inputs.entityName))
-      .replace(
-        /product(?=Service|Controller|Routes)/g,
+  let rendered: TemplateRenderedArtifacts;
+  if (extension) {
+    rendered = await extension.render({
+      inputs,
+      readTarget,
+      readAsset: (relative) => asset(selected.directory, relative),
+      readManifest: () =>
+        readTemplateManifest(
+          options.workspace,
+          options.targetDirectory ?? "",
+          options.policy,
+        ),
+      exportsIn,
+      renderDependency: async (id, childInputs, overlay) => {
+        if (!extension.composes?.includes(id))
+          throw new Error(`Undeclared template composition dependency ${id}`);
+        return renderArtifacts(
+          { ...options, templateId: id, inputs: childInputs },
+          (relative) =>
+            overlay.has(relative)
+              ? Promise.resolve(overlay.get(relative)!)
+              : readTarget(relative),
+          [...stack, templateId],
+        );
+      },
+    });
+  } else {
+    if (!definition) throw new Error("Missing audited renderer definition");
+    let source = interpolate(
+      await asset(definition.directory, definition.source),
+      inputs,
+    );
+    let test = (await asset(definition.directory, definition.test)).replaceAll(
+      "'../../../../src/",
+      "'../src/",
+    );
+    if (templateId === "backend.pagination")
+      test = test
+        .replace("pageSize: 20", `pageSize: ${inputs.defaultPageSize}`)
+        .replace(".toBe(100)", `.toBe(${inputs.maxPageSize})`);
+    if (inputs.entityName) {
+      test = test
+        .replace(/Product/g, String(inputs.entityName))
+        .replace(
+          /product(?=Service|Controller|Routes)/g,
+          String(inputs.entityNameCamel),
+        );
+    }
+    if (templateId === "backend.error-handler") {
+      source = exactReplace(
+        source,
+        "const status = err.status || 500;",
+        "const status = err instanceof APIError && Number.isInteger(err.status) && err.status >= 400 && err.status <= 599 ? err.status : 500;",
+      );
+      source = exactReplace(
+        source,
+        "const message = err.message || 'Something went wrong';",
+        "const message = err instanceof APIError ? err.message : 'Something went wrong';",
+      );
+      test = exactReplace(
+        test,
+        "{ message: 'boom', status: 500 }",
+        "{ message: 'Something went wrong', status: 500 }",
+      );
+    }
+    if (templateId === "backend.service") {
+      source = exactReplace(
+        source,
+        "const page = options.page ?? 1;\n    const pageSize = options.pageSize ?? 20;",
+        "const page = Math.max(1, options.page ?? 1);\n    const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));",
+      );
+    }
+    if (templateId === "backend.express") {
+      test = routeTest(
+        String(inputs.entityName),
         String(inputs.entityNameCamel),
+        String(inputs.tableName),
+        Boolean(inputs.requiresAuth),
       );
+    }
+    const artifacts: TemplateArtifact[] = [
+      {
+        path: interpolate(definition.file, inputs),
+        content: source,
+        kind: "code",
+      },
+      {
+        path: interpolate(definition.testOutput ?? definition.test, inputs),
+        content: test,
+        kind: "test",
+      },
+    ];
+    for (const changed of await modifiedArtifacts(
+      templateId,
+      inputs,
+      readTarget,
+    ))
+      artifacts.push({ ...changed, kind: "code" });
+    const declaredExports = definition.exports.map((name) =>
+      interpolate(name, inputs),
+    );
+    const actualExports = new Set(
+      artifacts
+        .filter((item) => item.kind === "code")
+        .flatMap((item) => [...exportsIn(item.content)]),
+    );
+    for (const name of declaredExports)
+      if (!actualExports.has(name))
+        throw new Error(
+          `Template output no longer exports declared symbol ${name}`,
+        );
+    const outputs: TemplateExecutionManifest["outputs"] = {
+      files: artifacts.map((artifact) => artifact.path),
+      ...(templateId === "backend.express"
+        ? {
+            routes: ["GET", "POST"]
+              .map((method) => `${method} /api/${inputs.tableName}`)
+              .concat(
+                ["GET", "PUT", "DELETE"].map(
+                  (method) => `${method} /api/${inputs.tableName}/:id`,
+                ),
+              ),
+          }
+        : { exports: declaredExports }),
+      ...(templateId === "backend.repository"
+        ? { tableExportName: String(inputs.tableExportName) }
+        : {}),
+    };
+    rendered = { artifacts, outputs };
   }
-  if (templateId === "backend.error-handler") {
-    source = exactReplace(
-      source,
-      "const status = err.status || 500;",
-      "const status = err instanceof APIError && Number.isInteger(err.status) && err.status >= 400 && err.status <= 599 ? err.status : 500;",
+  if (
+    rendered.artifacts.length > 100 ||
+    new Set(rendered.artifacts.map((artifact) => artifact.path)).size !==
+      rendered.artifacts.length
+  )
+    throw new Error(
+      "Template artifacts exceed the limit or contain duplicate paths",
     );
-    source = exactReplace(
-      source,
-      "const message = err.message || 'Something went wrong';",
-      "const message = err instanceof APIError ? err.message : 'Something went wrong';",
-    );
-    test = exactReplace(
-      test,
-      "{ message: 'boom', status: 500 }",
-      "{ message: 'Something went wrong', status: 500 }",
-    );
-  }
-  if (templateId === "backend.service") {
-    source = exactReplace(
-      source,
-      "const page = options.page ?? 1;\n    const pageSize = options.pageSize ?? 20;",
-      "const page = Math.max(1, options.page ?? 1);\n    const pageSize = Math.min(100, Math.max(1, options.pageSize ?? 20));",
-    );
-  }
-  if (templateId === "backend.express") {
-    test = routeTest(
-      String(inputs.entityName),
-      String(inputs.entityNameCamel),
-      String(inputs.tableName),
-      Boolean(inputs.requiresAuth),
-    );
-  }
-  const artifacts: {
-    path: string;
-    content: string;
-    kind: "code" | "test";
-    before?: string;
-  }[] = [
-    {
-      path: target(interpolate(definition.file, inputs)),
-      content: source,
-      kind: "code",
-    },
-    {
-      path: target(
-        interpolate(definition.testOutput ?? definition.test, inputs),
-      ),
-      content: test,
-      kind: "test",
-    },
-  ];
-  for (const changed of await modifiedArtifacts(templateId, inputs, readTarget))
-    artifacts.push({ ...changed, path: target(changed.path), kind: "code" });
-  const declaredExports = definition.exports.map((name) =>
-    interpolate(name, inputs),
+  if (
+    canonical(rendered.outputs.files) !==
+    canonical(rendered.artifacts.map((artifact) => artifact.path))
+  )
+    throw new Error("Template output files do not match rendered artifacts");
+  const validateOutputs = ajv.compile(
+    JSON.parse(await asset(selected.directory, "outputs.schema.json")),
   );
-  const actualExports = new Set(
-    artifacts
-      .filter((item) => item.kind === "code")
-      .flatMap((item) => [...exportsIn(item.content)]),
-  );
-  for (const name of declaredExports)
-    if (!actualExports.has(name))
-      throw new Error(
-        `Template output no longer exports declared symbol ${name}`,
-      );
+  if (!validateOutputs(rendered.outputs))
+    throw new Error(
+      `Invalid template outputs: ${ajv.errorsText(validateOutputs.errors)}`,
+    );
+  return {
+    ...rendered,
+    templateVersion: manifest.version,
+    inputs,
+    requiredPackages: selected.packages,
+  };
+}
+
+/** Render data into proposed source/test changes only; never run a template hook or command. */
+export async function renderTemplateProposal(
+  options: RenderTemplateOptions,
+): Promise<TemplateWorkerResult> {
+  const templateId = options.templateId.replace(/^graph-node:/, "");
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(options.instanceId))
+    throw new Error("Invalid template instance identity");
+  const prefix = options.targetDirectory ?? "";
+  if (prefix && !isAllowedPath(prefix, options.policy))
+    throw new Error("Template target directory is outside allowed scope");
+  const target = (relative: string) =>
+    prefix ? `${prefix}/${relative}` : relative;
+  const readTarget = async (relative: string) => {
+    const content = await readFile(
+      await safePath(options.workspace, target(relative), options.policy),
+      "utf8",
+    );
+    if (Buffer.byteLength(content) > 200_000)
+      throw new Error("Template prerequisite exceeds size limit");
+    return content;
+  };
+  const rendered = await renderArtifacts(options, readTarget);
+  const artifacts = rendered.artifacts.map((artifact) => ({
+    ...artifact,
+    path: target(artifact.path),
+  }));
   const changes = [];
   for (const artifact of artifacts) {
-    if (containsSecret(artifact.content))
-      throw new Error("Template output contains a potential secret");
+    if (
+      Buffer.byteLength(artifact.content) > 200_000 ||
+      containsSecret(artifact.content)
+    )
+      throw new Error(
+        "Template output is oversized or contains a potential secret",
+      );
     const absolute = await safePath(
       options.workspace,
       artifact.path,
@@ -871,36 +990,20 @@ export async function renderTemplateProposal(
       throw new Error(
         `Template output already exists with different content: ${artifact.path}; use an explicit modification plan`,
       );
+    if (previous === undefined && artifact.before !== undefined)
+      throw new Error(
+        `Template modification target is missing: ${artifact.path}`,
+      );
     changes.push({
       path: artifact.path,
       before: artifact.before ?? null,
       after: artifact.content,
     });
   }
-  const outputs: TemplateExecutionManifest["outputs"] = {
-    files: artifacts.map((artifact) => artifact.path),
-    ...(templateId === "backend.express"
-      ? {
-          routes: ["GET", "POST"]
-            .map((method) => `${method} /api/${inputs.tableName}`)
-            .concat(
-              ["GET", "PUT", "DELETE"].map(
-                (method) => `${method} /api/${inputs.tableName}/:id`,
-              ),
-            ),
-        }
-      : { exports: declaredExports }),
-    ...(templateId === "backend.repository"
-      ? { tableExportName: String(inputs.tableExportName) }
-      : {}),
+  const outputs = {
+    ...rendered.outputs,
+    files: rendered.outputs.files.map(target),
   };
-  const validateOutputs = ajv.compile(
-    JSON.parse(await asset(definition.directory, "outputs.schema.json")),
-  );
-  if (!validateOutputs(outputs))
-    throw new Error(
-      `Invalid template outputs: ${ajv.errorsText(validateOutputs.errors)}`,
-    );
   const proposal = proposalSchema.parse({
     summary: `Render ${templateId} instance ${options.instanceId}`,
     requests: [],
@@ -909,7 +1012,7 @@ export async function renderTemplateProposal(
   await prepareProposal(options.workspace, proposal, options.policy);
   return {
     proposal,
-    model: `template:${templateId}@${manifest.version}`,
+    model: `template:${templateId}@${rendered.templateVersion}`,
     usage: {
       inputTokens: 0,
       outputTokens: 0,
@@ -921,15 +1024,15 @@ export async function renderTemplateProposal(
       version: "1.0.0",
       instanceId: options.instanceId,
       templateId,
-      templateVersion: manifest.version,
-      inputsHash: hash(inputs),
+      templateVersion: rendered.templateVersion,
+      inputsHash: hash(rendered.inputs),
       files: artifacts.map((artifact) => ({
         path: artifact.path,
         contentHash: hash(artifact.content),
         kind: artifact.kind,
       })),
       outputs,
-      requiredPackages: definition.packages,
+      requiredPackages: rendered.requiredPackages,
       verification: "required-in-sandbox",
     },
   };

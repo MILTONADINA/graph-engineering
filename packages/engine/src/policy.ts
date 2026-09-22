@@ -60,11 +60,16 @@ export function isAllowedPath(
   const prefixes = segments.map((_, index) =>
     segments.slice(0, index + 1).join("/"),
   );
+  // This one root file is plain generated documentation, not engine control
+  // metadata. All explicit exclusions still apply, including a .graph exclusion.
+  const publicContext = clean === ".graph/CONTEXT.md";
   if (
-    protectedPaths.some((pattern) =>
-      prefixes.some((prefix) =>
-        picomatch(pattern, { dot: true, nocase: true })(prefix),
-      ),
+    protectedPaths.some(
+      (pattern) =>
+        !(publicContext && [".graph/**", ".graph"].includes(pattern)) &&
+        prefixes.some((prefix) =>
+          picomatch(pattern, { dot: true, nocase: true })(prefix),
+        ),
     ) ||
     policy.excludedPaths.some((pattern) =>
       prefixes.some((prefix) =>
@@ -105,7 +110,10 @@ export async function safePath(
         .relative(base, await realpath(current))
         .split(path.sep)
         .join("/");
-      if (!isAllowedPath(canonical, policy))
+      if (
+        !isAllowedPath(canonical, policy) &&
+        !(relative === ".graph/CONTEXT.md" && canonical === ".graph")
+      )
         throw new Error(
           `Resolved path is outside allowed project scope: ${relative}`,
         );
