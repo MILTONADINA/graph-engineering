@@ -1,0 +1,15 @@
+**
+!package.json
+!package-lock.json
+!create-graph-app/
+!create-graph-app/package.json
+!packages/
+!packages/*/
+!packages/*/package.json
+!graph-templates/
+!graph-templates/tools/
+!graph-templates/tools/validate-graph/
+!graph-templates/tools/validate-graph/package.json
+!graph-templates/tools/validate-graph/package-lock.json
+!scripts/
+!scripts/verify-project.mjs

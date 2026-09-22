@@ -15,3 +15,6 @@ playwright-report/
 __pycache__/
 *.py[cod]
 .venv/
+.codex/config.toml
+.cursor/mcp.json
+.mcp.json
