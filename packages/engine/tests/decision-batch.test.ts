@@ -7,6 +7,7 @@ import {
 } from "../src/decision-batch.js";
 import type { PromotionEvidence } from "../src/decisions.js";
 import { routePlan } from "../src/planning.js";
+import { hash } from "../src/util.js";
 
 const model = "unit-pinned-model";
 // Synthetic stand-in configuration tests gates only; this is not saved evidence.
@@ -84,6 +85,47 @@ const response = (answers: object, extra: object = {}) =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe("independent question batching", () => {
+  it("retains the dispatch policy and stops promotion/cascading when that policy changes in flight", async () => {
+    const input = options();
+    const dispatchPolicy = hash(input.policy);
+    input.providers.push(hosted());
+    const fetch = vi.fn(async () => {
+      input.policy.network = "deny";
+      return response({
+        workflow: { choice: "alternative", confidence: 0.99 },
+        effort: { choice: "low", confidence: 0.99 },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const result = await decideBatch(input);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.selections).toEqual({ workflow: "safe", effort: "high" });
+    expect(
+      result.records.every((record) => record.policyVersion === dispatchPolicy),
+    ).toBe(true);
+    expect(
+      result.records.every((record) =>
+        String(record.evidence.failure).includes("policy changed"),
+      ),
+    ).toBe(true);
+    expect(result.usage).toHaveLength(1);
+  });
+  it("does not dispatch hosted inference if policy changes during the reservation await", async () => {
+    const input = options();
+    input.providers = [hosted()];
+    input.budget = {
+      reserve: async () => {
+        input.policy.network = "deny";
+      },
+      settle: vi.fn(),
+    };
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const result = await decideBatch(input);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(input.budget.settle).not.toHaveBeenCalled();
+    expect(result.records[0]?.evidence.failure).toContain("policy changed");
+  });
   it("sends two categories in one request with independent promotion gates", async () => {
     const fetch = vi.fn(async () =>
       response({

@@ -27,6 +27,11 @@ import {
   type EvaluationRow,
 } from "./decisions.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
+import { backupProject, restoreProject } from "./operations.js";
+import {
+  exportEvaluationDraft,
+  importEvaluationLabels,
+} from "./decision-evaluation.js";
 
 const cli = new Command()
   .name("graph-engine")
@@ -54,7 +59,15 @@ cli
   );
 cli
   .command("index")
-  .action(() => withEngine((engine) => engine.context.index()));
+  .option(
+    "--lexical",
+    "Index source, graph, and summaries without computing embeddings",
+  )
+  .action((options) =>
+    withEngine((engine) =>
+      engine.context.index({ semantic: !options.lexical }),
+    ),
+  );
 cli
   .command("embeddings-provision")
   .description(
@@ -74,6 +87,100 @@ cli
   .action((query) =>
     withEngine((engine) => engine.context.searchSymbols(query)),
   );
+cli
+  .command("summaries")
+  .action(() => withEngine((engine) => engine.context.listSummaries()));
+cli
+  .command("memory-review")
+  .action(() => withEngine((engine) => engine.context.reviewMemories()));
+cli
+  .command("snapshots-prune")
+  .option(
+    "--keep <count>",
+    "Newest snapshots to retain, plus protected evidence/worktree snapshots",
+    Number,
+    20,
+  )
+  .option("--apply", "Delete unreferenced snapshots (default previews only)")
+  .action((options) =>
+    withEngine((engine) =>
+      engine.context.pruneSnapshots({
+        keepLatest: options.keep,
+        dryRun: !options.apply,
+        protectedSnapshotIds: engine.store.planSnapshotIds(),
+      }),
+    ),
+  );
+cli
+  .command("context-backup <destination>")
+  .description(
+    "Create an exclusive checksummed context backup; run history and model files are separate",
+  )
+  .action((destination) =>
+    withEngine((engine) => engine.context.backup(path.resolve(destination))),
+  );
+cli
+  .command("backup <destination>")
+  .description(
+    "Exclusive project context/run-history/config backup; excludes credentials, workspaces, and model weights",
+  )
+  .action((destination) =>
+    withEngine((engine) =>
+      backupProject({
+        context: engine.context,
+        store: engine.store,
+        dataDir: engine.dataDir,
+        projectId: engine.config.projectId,
+        destination: path.resolve(destination),
+        config: engine.config,
+      }),
+    ),
+  );
+cli
+  .command("restore <backup> <destination>")
+  .description(
+    "Restore into a NEW private data directory only; never overwrite current data",
+  )
+  .action(async (backup, destination) => {
+    const project = await loadProject(root());
+    print(
+      await restoreProject({
+        backupDirectory: path.resolve(backup),
+        dataDir: path.resolve(destination),
+        projectId: project.projectId,
+      }),
+    );
+  });
+cli
+  .command("watch")
+  .option(
+    "--interval <ms>",
+    "Backpressured reconciliation interval",
+    Number,
+    2000,
+  )
+  .action(async (options) => {
+    const engine = await GraphEngine.open(root());
+    const watcher = engine.context.watch({
+      intervalMs: options.interval,
+      onIndex: (snapshot) => {
+        print(snapshot);
+      },
+      onError: (error) => {
+        process.stderr.write(`${errorMessage(error)}\n`);
+      },
+    });
+    const stop = async () => {
+      await watcher.close();
+      await engine.close();
+    };
+    process.once("SIGINT", () => {
+      void stop();
+    });
+    process.once("SIGTERM", () => {
+      void stop();
+    });
+  });
 cli.command("templates").action(async () => print(await listTemplates()));
 cli
   .command("validate-graph <artifacts>")
@@ -129,6 +236,20 @@ cli
   .option("--endpoint <url>")
   .option("--key-env <name>")
   .option("--efforts <list>")
+  .option("--default-effort <effort>")
+  .option("--input-cost <usdPerMillion>", "Reviewed input-token price", Number)
+  .option(
+    "--output-cost <usdPerMillion>",
+    "Reviewed output-token price",
+    Number,
+  )
+  .option("--max-context <tokens>", "Worker input ceiling", Number)
+  .option("--local-thinking <mode>", "Local-server thinking: on or off")
+  .option(
+    "--local-thinking-budget <tokens>",
+    "Local-server reasoning ceiling",
+    Number,
+  )
   .option(
     "--enable",
     "Allow this provider in project policy; cloud access still requires explicit policy configuration",
@@ -142,6 +263,27 @@ cli
       endpoint: options.endpoint,
       apiKeyEnv: options.keyEnv,
       efforts: options.efforts?.split(","),
+      defaultEffort: options.defaultEffort,
+      inputCostPerMillion: options.inputCost,
+      outputCostPerMillion: options.outputCost,
+      maxContextTokens: options.maxContext,
+      ...(options.localThinking !== undefined ||
+      options.localThinkingBudget !== undefined
+        ? {
+            localOptions: {
+              ...(options.localThinking !== undefined
+                ? {
+                    enableThinking:
+                      z.enum(["on", "off"]).parse(options.localThinking) ===
+                      "on",
+                  }
+                : {}),
+              ...(options.localThinkingBudget !== undefined
+                ? { thinkingBudget: options.localThinkingBudget }
+                : {}),
+            },
+          }
+        : {}),
     };
     await configureProvider(projectDataDir(project.projectId), provider);
     if (options.enable) {
@@ -166,13 +308,24 @@ cli
   .requiredOption("--accept <criterion...>", "Acceptance criteria")
   .option("--provider <id>")
   .option("--effort <effort>")
-  .action((objective, options) =>
-    withEngine((engine) =>
+  .option(
+    "--steps <json>",
+    "Reviewed dependency DAG steps with per-step providers/templates",
+  )
+  .action(async (objective, options) =>
+    withEngine(async (engine) =>
       engine.createPlan({
         objective,
         acceptance: options.accept,
         providerId: options.provider,
         effort: options.effort,
+        ...(options.steps
+          ? {
+              steps: (await readJson(
+                path.resolve(options.steps),
+              )) as import("@graph-engineering/contracts").ExecutionStep[],
+            }
+          : {}),
       }),
     ),
   );
@@ -241,6 +394,53 @@ cli
 cli
   .command("decisions")
   .action(() => withEngine(async (engine) => engine.store.decisions()));
+cli
+  .command("evaluation-export <mapping> <output>")
+  .requiredOption("--dataset <id>")
+  .description(
+    "Export observed decisions with explicit decision-ID/task-ID mappings; does not invent expected labels",
+  )
+  .action((mapping, output, options) =>
+    withEngine(async (engine) => {
+      const taskIds = await readJson<Record<string, string>>(
+        path.resolve(mapping),
+      );
+      const records = engine.store
+        .decisions()
+        .filter((record) => Object.hasOwn(taskIds, record.id));
+      const draft = exportEvaluationDraft(records, {
+        datasetId: options.dataset,
+        taskIds,
+      });
+      const { open } = await import("node:fs/promises");
+      const file = await open(path.resolve(output), "wx", 0o600);
+      try {
+        await file.writeFile(JSON.stringify(draft, null, 2));
+      } finally {
+        await file.close();
+      }
+      return {
+        output: path.resolve(output),
+        observations: draft.observations.length,
+      };
+    }),
+  );
+cli
+  .command("evaluation-labels <input> <output>")
+  .description(
+    "Join a reviewed {draft,provenance,labels} bundle; no synthetic evidence promotion",
+  )
+  .action(async (input, output) => {
+    const dataset = importEvaluationLabels(await readJson(path.resolve(input)));
+    const { open } = await import("node:fs/promises");
+    const file = await open(path.resolve(output), "wx", 0o600);
+    try {
+      await file.writeFile(JSON.stringify(dataset, null, 2));
+    } finally {
+      await file.close();
+    }
+    print({ output: path.resolve(output), rows: dataset.rows.length });
+  });
 cli
   .command("evaluate <json>")
   .description(

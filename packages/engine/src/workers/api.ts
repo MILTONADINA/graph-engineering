@@ -101,6 +101,67 @@ export function estimateRequestCost(
     1_000_000
   );
 }
+export function workerRequestBytes(input: WorkerInput): number {
+  return (
+    Buffer.byteLength(
+      JSON.stringify({
+        task: input.objective,
+        acceptance: input.acceptance,
+        context: contextForProvider(
+          input.context,
+          input.provider,
+          input.policy,
+        ),
+        feedback: input.feedback ?? null,
+      }) +
+        WORKER_INSTRUCTIONS +
+        JSON.stringify(proposalJsonSchema),
+      "utf8",
+    ) + 256
+  );
+}
+
+// Retrieval budgets exclude transport metadata. Fit whole optional evidence
+// items to the serialized request before reserving money or calling a worker.
+// Mandatory requirements, provenance, task and feedback are never truncated.
+export function fitWorkerContext(input: WorkerInput): WorkerInput {
+  const ceiling = Math.min(
+    input.policy.maxContextTokens,
+    input.provider.maxContextTokens ?? input.policy.maxContextTokens,
+  );
+  const context = contextForProvider(
+    input.context,
+    input.provider,
+    input.policy,
+  );
+  const prepared = {
+    ...input,
+    context: {
+      ...context,
+      items: [...context.items],
+      coverage: {
+        ...context.coverage,
+        warnings: [...context.coverage.warnings],
+      },
+    },
+  };
+  if (workerRequestBytes(prepared) > ceiling) {
+    prepared.context.coverage.warnings.push(
+      "Optional evidence reduced to fit the complete serialized worker request.",
+    );
+    prepared.context.items.sort((a, b) => b.score - a.score);
+    while (
+      prepared.context.items.length &&
+      workerRequestBytes(prepared) > ceiling
+    )
+      prepared.context.items.pop();
+  }
+  if (workerRequestBytes(prepared) > ceiling)
+    throw new Error(
+      "Mandatory worker request exceeds configured context budget",
+    );
+  return prepared;
+}
 export async function invokeApiWorker(
   input: WorkerInput,
 ): Promise<WorkerResult> {
@@ -123,11 +184,7 @@ export async function invokeApiWorker(
   // One UTF-8 byte per token is a deliberately conservative content bound.
   // Reserve framing/schema overhead; never silently trim mandatory context.
   if (
-    Buffer.byteLength(
-      user + WORKER_INSTRUCTIONS + JSON.stringify(proposalJsonSchema),
-      "utf8",
-    ) +
-      256 >
+    workerRequestBytes(input) >
     Math.min(
       policy.maxContextTokens,
       provider.maxContextTokens ?? policy.maxContextTokens,
@@ -197,6 +254,16 @@ export async function invokeApiWorker(
         },
       },
       ...(input.effort ? { reasoning_effort: input.effort } : {}),
+      ...(provider.localOptions?.enableThinking !== undefined
+        ? {
+            chat_template_kwargs: {
+              enable_thinking: provider.localOptions.enableThinking,
+            },
+          }
+        : {}),
+      ...(provider.localOptions?.thinkingBudget !== undefined
+        ? { thinking_budget: provider.localOptions.thinkingBudget }
+        : {}),
     };
   } else throw new Error("Installed agents require their dedicated adapter");
   assertEndpoint(endpoint, policy, provider.kind === "local");

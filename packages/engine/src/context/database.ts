@@ -36,7 +36,7 @@ export class ContextDatabase {
       db.pragma('foreign_keys = ON');
       let vectorError = null;
       try { require(workerData.vectorModule).load(db); } catch (error) { vectorError = error.message; }
-      const handle = async ({ id, operation, sql, params, statements, snapshotId, migrations, destination, keepLatest, dryRun, protectedSnapshotIds, projectId }) => {
+      const handle = async ({ id, operation, sql, params, statements, snapshotId, migrations, destination, keepLatest, dryRun, protectedSnapshotIds, projectId, requiredSnapshots }) => {
         try {
           let value;
           if (operation === 'exec') value = db.exec(sql) && null;
@@ -70,7 +70,10 @@ export class ContextDatabase {
             }
             return { dryRun, removed, protected: snapshots.filter(row => protectedIds.has(row.id)).map(row => row.id) };
           }).immediate();
-          else if (operation === 'batch') value = db.transaction(() => statements.map(s => db.prepare(s.sql).run(...(s.params || []))))();
+          else if (operation === 'batch') value = db.transaction(() => {
+            for (const required of requiredSnapshots || []) if (!db.prepare('SELECT 1 FROM snapshots WHERE id=?').get(required)) throw new Error('Memory snapshot evidence was pruned before it could be pinned');
+            return statements.map(s => db.prepare(s.sql).run(...(s.params || [])));
+          }).immediate();
           else if (operation === 'snapshotBatch') value = db.transaction(() => {
             if (db.prepare('SELECT id FROM snapshots WHERE id=?').get(snapshotId)) return false;
             for (const statement of statements) db.prepare(statement.sql).run(...(statement.params || []));
@@ -88,6 +91,9 @@ export class ContextDatabase {
     `,
       {
         eval: true,
+        // The fixed worker program is CommonJS. Do not inherit a caller's
+        // --input-type=module, loaders, or preload programs into this thread.
+        execArgv: [],
         workerData: {
           path,
           readonly: options.readonly ?? false,
@@ -134,8 +140,11 @@ export class ContextDatabase {
   all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
     return this.request("all", { sql, params });
   }
-  batch(statements: Statement[]): Promise<void> {
-    return this.request("batch", { statements });
+  batch(
+    statements: Statement[],
+    requiredSnapshots: string[] = [],
+  ): Promise<void> {
+    return this.request("batch", { statements, requiredSnapshots });
   }
   snapshotBatch(snapshotId: string, statements: Statement[]): Promise<boolean> {
     return this.request("snapshotBatch", { snapshotId, statements });

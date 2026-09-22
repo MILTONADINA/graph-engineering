@@ -471,6 +471,19 @@ export function RunsPage({
                 <Status value={run.status} />
               </div>
               {run.error && <ErrorNotice message={run.error} />}
+              {run.completion && (
+                <div className="notice notice-subtle">
+                  <Icon name="shield" size={18} />
+                  <span>
+                    {run.completion.automatedChecksPassed
+                      ? "Automated checks passed."
+                      : "Automated checks are not complete."}{" "}
+                    Human acceptance is pending. Review scope:{" "}
+                    {readable(run.completion.reviewScope)}. This does not
+                    approve publication or merge.
+                  </span>
+                </div>
+              )}
               <div className="run-detail-toolbar">
                 <span className="small muted">
                   {run.branch ? `Branch ${run.branch}` : "No branch recorded"}

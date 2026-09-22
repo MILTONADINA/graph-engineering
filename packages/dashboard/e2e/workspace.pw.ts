@@ -100,6 +100,15 @@ test("live workspace renders all pages, retrieves context, and respects viewport
   await expect(
     page.getByText(/missing usage is never counted as zero/),
   ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Inference call accounting" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Every attempt counts." }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Run summaries are not added again.", { exact: false }),
+  ).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.screenshot({
     path: testInfo.outputPath("decisions.png"),

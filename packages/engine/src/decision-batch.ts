@@ -169,6 +169,10 @@ function confidenceFor(
 export async function decideBatch(
   options: DecisionBatchOptions,
 ): Promise<DecisionBatchResult> {
+  // Record and enforce the dispatch policy, not a mutable caller object that
+  // could change while reservation, inference, or accounting is awaited.
+  const policy = structuredClone(options.policy);
+  const policyVersion = hash(policy);
   const questions = z
     .array(questionSchema)
     .min(1)
@@ -215,13 +219,12 @@ export async function decideBatch(
     let accountingFailure = false;
     let callUsage: DecisionCallUsage | undefined;
     try {
-      if (!options.policy.providers.includes(provider.id))
+      if (!policy.providers.includes(provider.id))
         throw new Error(`Decision provider ${provider.id} is not permitted`);
-      assertEndpoint(provider.endpoint, options.policy, provider.id === "laya");
+      assertEndpoint(provider.endpoint, policy, provider.id === "laya");
       if (
         provider.id === "jev" &&
-        (options.policy.inference === "local" ||
-          options.policy.network === "deny")
+        (policy.inference === "local" || policy.network === "deny")
       )
         throw new Error("Jev is disabled by offline policy");
       if (
@@ -258,12 +261,12 @@ export async function decideBatch(
             ? price.usdPerUnit *
               (price.unit === "question" ? pending.length : 1)
             : null;
-      if (options.policy.maxCostUsd !== null && provider.id === "jev") {
+      if (policy.maxCostUsd !== null && provider.id === "jev") {
         if (estimate === null || !options.budget)
           throw new Error(
             "Unknown Jev pricing or missing reservation ledger; cost-capped projects abstain",
           );
-        if (estimate > options.policy.maxCostUsd)
+        if (estimate > policy.maxCostUsd)
           throw new Error(
             "Decision request exceeds the configured cost ceiling",
           );
@@ -290,6 +293,10 @@ export async function decideBatch(
         });
         reservedUsd = estimate;
       }
+      if (hash(options.policy) !== policyVersion)
+        throw new Error(
+          "Decision policy changed before dispatch; baseline retained",
+        );
       dispatched = true;
       const response = await fetch(provider.endpoint, {
         method: "POST",
@@ -363,6 +370,9 @@ export async function decideBatch(
         }
       }
     }
+    const policyChanged = hash(options.policy) !== policyVersion;
+    if (policyChanged)
+      failure = "Decision policy changed during the request; baseline retained";
     for (const question of pending) {
       const proof = evidence.find(
         (item) =>
@@ -371,8 +381,8 @@ export async function decideBatch(
           item.model === provider.model,
       );
       const promoted =
-        options.policy.decisionMode === "promoted" &&
-        options.policy.promotedCategories.includes(question.category) &&
+        policy.decisionMode === "promoted" &&
+        policy.promotedCategories.includes(question.category) &&
         !!proof &&
         canPromote(proof);
       let selected: string | null = null,
@@ -418,7 +428,7 @@ export async function decideBatch(
         baseline: question.baseline,
         provider: provider.id,
         modelVersion,
-        policyVersion: hash(options.policy),
+        policyVersion,
         confidence,
         mode: promoted ? "promoted" : "shadow",
         createdAt: now(),
@@ -435,7 +445,7 @@ export async function decideBatch(
       });
     }
     // No cascading spend after a failed accounting write or exceeded price bound.
-    if (accountingFailure) break;
+    if (accountingFailure || policyChanged) break;
   }
   return { records, selections, usage: usages };
 }

@@ -1,7 +1,28 @@
 import type {
   ProjectConfig,
   ProviderConfig,
+  Usage,
 } from "@graph-engineering/contracts";
+
+export interface AccountingGroup {
+  totals: Usage;
+  callCount: number;
+  settledCallCount: number;
+  unresolvedCallCount: number;
+  unknownCostCallCount: number;
+  estimatedCallCount: number;
+  knownCostUsd: number;
+  unresolvedReservedCostUsd: number;
+}
+
+export interface AccountingSummary extends AccountingGroup {
+  source: "inference-call-ledger";
+  untrackedRunCount: number;
+  planningOnly: AccountingGroup & {
+    savedPlanCallCount: number;
+    unsavedPlanCallCount: number;
+  };
+}
 
 export interface ProjectResponse {
   config: ProjectConfig;

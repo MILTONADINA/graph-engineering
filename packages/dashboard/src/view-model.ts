@@ -1,4 +1,4 @@
-import type { RunRecord } from "@graph-engineering/contracts";
+import type { AccountingSummary } from "./types";
 
 export const number = (value: number) =>
   new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
@@ -18,14 +18,31 @@ export function date(value?: string) {
       });
 }
 
-export function sumUsage(runs: RunRecord[]) {
-  const measured = runs.filter((run) => run.usage.costUsd !== null);
+export function accountingCost(summary: AccountingSummary | null | undefined) {
+  if (!summary)
+    return {
+      label: "Ledger cost",
+      value: "—",
+      detail: "Awaiting call accounting",
+    };
+  if (!summary.callCount && !summary.untrackedRunCount)
+    return {
+      label: "Ledger cost",
+      value: "—",
+      detail: "No inference calls recorded",
+    };
+  if (summary.totals.costUsd === null)
+    return {
+      label: "Total cost unknown",
+      value: "Unknown",
+      detail: `Known subtotal $${summary.knownCostUsd.toFixed(4)}; some usage is unreported`,
+    };
   return {
-    cost: measured.length
-      ? measured.reduce((total, run) => total + run.usage.costUsd!, 0)
-      : null,
-    missing: runs.length - measured.length,
-    estimated: measured.some((run) => run.usage.estimated),
+    label: summary.totals.estimated
+      ? "Estimated total + reserves"
+      : "Reported total cost",
+    value: `$${summary.totals.costUsd.toFixed(4)}`,
+    detail: `${number(summary.callCount)} ledger calls, counted once`,
   };
 }
 

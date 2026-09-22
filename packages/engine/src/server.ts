@@ -114,6 +114,7 @@ export function createServer(
   );
   app.get("/api/templates", () => listTemplates());
   app.get("/api/decisions", async () => engine.store.decisions());
+  app.get("/api/usage", async () => engine.store.accountingSummary());
   app.get("/api/runs", async () => engine.store.runs());
   app.get("/api/runs/:id", async (request) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
@@ -127,6 +128,24 @@ export function createServer(
           acceptance: z.array(z.string().min(1).max(4000)).min(1).max(50),
           providerId: z.string().optional(),
           effort: z.string().optional(),
+          steps: z
+            .array(
+              z
+                .object({
+                  id: z.string(),
+                  kind: z.enum(["worker", "template"]),
+                  objective: z.string(),
+                  dependsOn: z.array(z.string()),
+                  providerId: z.string().optional(),
+                  effort: z.string().optional(),
+                  templateId: z.string().optional(),
+                  inputs: z.record(z.unknown()).optional(),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(100)
+            .optional(),
         })
         .strict()
         .parse(request.body),

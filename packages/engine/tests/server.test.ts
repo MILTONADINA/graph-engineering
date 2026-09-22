@@ -43,6 +43,26 @@ it("requires a local token, rejects hostile origins, and returns real persisted 
     expect((await app.inject({ url: "/api/health", headers })).json()).toEqual({
       ok: true,
     });
+    expect(
+      (await app.inject({ url: "/api/usage", headers: { host: "localhost" } }))
+        .statusCode,
+    ).toBe(401);
+    engine.store.reserveCall(
+      "unsaved-plan",
+      "test-usage-reservation",
+      "jev",
+      0.2,
+      null,
+    );
+    expect(
+      (await app.inject({ url: "/api/usage", headers })).json(),
+    ).toMatchObject({
+      source: "inference-call-ledger",
+      callCount: 1,
+      unresolvedCallCount: 1,
+      totals: { costUsd: 0.2, estimated: true },
+      planningOnly: { callCount: 1, unsavedPlanCallCount: 1 },
+    });
     const created = await app.inject({
       method: "POST",
       url: "/api/memories",
