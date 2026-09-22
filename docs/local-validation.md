@@ -320,6 +320,17 @@ The full local `npm run check` passed: 59 scaffold tests, nine dashboard tests,
 native-runtime and separately opted-in container cases; they are not counted as
 successful execution. Fork CI for this newer stack remains separate evidence.
 
+## Cross-platform Rust URI correction
+
+Fork run `35713754141` at `a833127` passed the new Linux Go/Java/C#/Rust
+runtime steps, but Windows exposed an unhandled `fileURLToPath` error for a
+drive-less Unix URI in a negative test. Invalid, nonlocal and platform-invalid
+target URIs now retain unresolved evidence rather than throwing. Fourteen
+adversarial URI forms and a valid-link control preserve exact canonical-path,
+range and provenance checks. The adapter snapshot version was incremented.
+The targeted suite passed 33 native Linux checks and 26 Mac checks (seven native
+cases skipped). Windows confirmation remains a separate later CI result.
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering

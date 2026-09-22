@@ -354,10 +354,18 @@ export function validateRustDefinition(
     from = prepared.files.find((file) => file.path === query.path)!;
   if (!same(item.originSelectionRange, spanRange(from, query.start, query.end)))
     return null;
-  const relative = path
-    .relative(directory, fileURLToPath(item.targetUri))
-    .split(path.sep)
-    .join("/");
+  let relative: string;
+  try {
+    // File URLs can be valid on one OS but unrepresentable on another (for
+    // example a drive-less Unix URL on Windows). Invalid/nonlocal schemes and
+    // encoded separators likewise cannot establish snapshot-local evidence.
+    relative = path
+      .relative(directory, fileURLToPath(item.targetUri))
+      .split(path.sep)
+      .join("/");
+  } catch {
+    return null;
+  }
   if (relative.startsWith("../") || path.isAbsolute(relative)) return null;
   const file = prepared.files.find((file) => file.path === relative);
   if (
