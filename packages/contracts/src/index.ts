@@ -124,6 +124,8 @@ export interface GraphEdge {
   target: string;
   kind: "imports" | "calls" | "references" | "contains";
   evidence: "syntactic" | "resolved" | "heuristic";
+  /** Static compiler binding, not proof of runtime dispatch. */
+  resolution?: { kind: "static"; engine: "typescript"; version: string };
   source: SourceReference;
 }
 export interface ContextItem {
@@ -150,6 +152,25 @@ export interface ContextPacket {
   budgetTokens: number;
   coverage: { semantic: boolean; graph: string; warnings: string[] };
 }
+export type MemoryAssertionValue =
+  | { type: "string"; value: string }
+  | { type: "number"; value: number }
+  | { type: "boolean"; value: boolean }
+  | { type: "string-set"; value: string[] };
+export interface MemoryAssertion {
+  subject: string;
+  predicate: string;
+  scope: Record<string, string>;
+  value: MemoryAssertionValue;
+  exclusive: boolean;
+  validFrom?: string;
+  validUntil?: string;
+}
+export interface ReviewedMemoryAssertions {
+  version: "1.0.0";
+  claims: MemoryAssertion[];
+  review: { reviewer: string; reviewedAt: string; evidence: string[] };
+}
 export interface MemoryRecord {
   version: typeof SCHEMA_VERSION;
   id: string;
@@ -161,6 +182,7 @@ export interface MemoryRecord {
   createdAt: string;
   sources: SourceReference[];
   supersedes?: string;
+  assertions?: ReviewedMemoryAssertions;
 }
 export interface ExecutionStep {
   id: string;
@@ -310,7 +332,7 @@ export const projectSchema = {
   },
 };
 const Ajv = Ajv2020 as unknown as typeof import("ajv").default;
-const ajv = new Ajv({ allErrors: true, strict: false });
+const ajv = new Ajv({ allErrors: true, strict: false, strictNumbers: true });
 (addFormats as unknown as (a: typeof ajv) => void)(ajv);
 const validateProject = ajv.compile(projectSchema);
 export function assertProjectConfig(

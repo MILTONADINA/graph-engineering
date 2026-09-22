@@ -10,7 +10,7 @@ import type {
 } from "@graph-engineering/contracts";
 
 export const PARSER_VERSION =
-  "web-tree-sitter:0.25.10/grammars:0.1.13/extractor:3";
+  "web-tree-sitter:0.25.10/grammars:0.1.13/extractor:4";
 export const hash = (input: string | Uint8Array) =>
   createHash("sha256").update(input).digest("hex");
 const grammars = new Map<string, Promise<Grammar>>();
@@ -54,6 +54,7 @@ const declarations = new Set([
 ]);
 const calls = new Set([
   "call_expression",
+  "new_expression",
   "call",
   "method_invocation",
   "invocation_expression",
@@ -77,6 +78,13 @@ export interface ParsedFile {
   edges: GraphEdge[];
   errors: string[];
   parsed: boolean;
+  spans: {
+    symbols: Record<
+      string,
+      { start: number; end: number; nameStart?: number; nameEnd?: number }
+    >;
+    edges: Record<string, { start: number; end: number }>;
+  };
 }
 
 export async function parseFile(
@@ -113,6 +121,7 @@ export async function parseFile(
     edges: [],
     errors: [],
     parsed: false,
+    spans: { symbols: {}, edges: {} },
   };
   if (!language) return result;
   initialized ??= Parser.init();
@@ -176,6 +185,17 @@ export async function parseFile(
         }
         let currentOwner = owner;
         let isDeclaration = declarations.has(node.type);
+        const anonymousDefault =
+          [
+            "function_declaration",
+            "function_expression",
+            "arrow_function",
+            "class_declaration",
+            "class",
+          ].includes(node.type) &&
+          node.parent?.type === "export_statement" &&
+          /^export\s+default\b/.test(node.parent.text);
+        if (anonymousDefault) isDeclaration = true;
         if (node.type === "variable_declarator") {
           const value = node.childForFieldName("value");
           isDeclaration =
@@ -186,14 +206,22 @@ export async function parseFile(
           const name =
             node.childForFieldName("name") ??
             node.childForFieldName("declarator");
-          if (name) {
+          if (name || anonymousDefault) {
+            const nameText = name?.text ?? "default";
             currentOwner = hash(
-              `${path}:${node.type}:${name.text}:${node.startIndex}`,
+              `${path}:${node.type}:${nameText}:${node.startIndex}`,
             );
             owners.set(currentOwner, owner);
+            result.spans.symbols[currentOwner] = {
+              start: node.startIndex,
+              end: node.endIndex,
+              ...(name
+                ? { nameStart: name.startIndex, nameEnd: name.endIndex }
+                : {}),
+            };
             result.symbols.push({
               id: currentOwner,
-              name: name.text,
+              name: nameText,
               kind: node.type,
               language: language[0],
               source: source(
@@ -206,7 +234,7 @@ export async function parseFile(
               id: hash(`${owner}:${currentOwner}:contains`),
               from: owner,
               to: currentOwner,
-              target: name.text,
+              target: nameText,
               kind: "contains",
               evidence: "resolved",
               source: source(
@@ -216,12 +244,16 @@ export async function parseFile(
             });
           }
         }
-        if (calls.has(node.type) || imports.has(node.type)) {
+        const isImport =
+          imports.has(node.type) ||
+          (node.type === "export_statement" &&
+            !!node.childForFieldName("source"));
+        if (calls.has(node.type) || isImport) {
           const callable =
             node.childForFieldName("function") ??
             node.childForFieldName("name") ??
             node.childForFieldName("expression");
-          const target = imports.has(node.type)
+          const target = isImport
             ? node.text.slice(0, 500)
             : (
                 callable?.text ??
@@ -231,6 +263,10 @@ export async function parseFile(
           const edgeId = hash(
             `${path}:${node.startIndex}:${node.endIndex}:${node.type}`,
           );
+          result.spans.edges[edgeId] = {
+            start: node.startIndex,
+            end: node.endIndex,
+          };
           if (
             calls.has(node.type) &&
             callable?.type === "identifier" &&
@@ -243,7 +279,7 @@ export async function parseFile(
             from: currentOwner,
             to: null,
             target,
-            kind: imports.has(node.type) ? "imports" : "calls",
+            kind: isImport ? "imports" : "calls",
             evidence: "syntactic",
             source: source(
               node.startPosition.row + 1,

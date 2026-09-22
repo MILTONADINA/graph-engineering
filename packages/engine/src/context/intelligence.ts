@@ -4,6 +4,10 @@ import type {
   SourceReference,
 } from "@graph-engineering/contracts";
 import { hash, type ParsedFile } from "./parser.js";
+import {
+  reviewStructuredAssertions,
+  reviewSupersession,
+} from "./memory-assertions.js";
 
 export const SUMMARY_VERSION = 1;
 export interface ContextSummary {
@@ -161,9 +165,15 @@ export interface MemoryReview {
       | "source-excluded"
       | "no-provenance"
       | "possible-contradiction"
+      | "exact-contradiction"
+      | "assertion-semantics-conflict"
+      | "invalid-assertions"
       | "supersession-conflict";
+    method?: "lexical" | "structured" | "provenance" | "supersession";
     path?: string;
     relatedMemoryId?: string;
+    claimIndex?: number;
+    relatedClaimIndex?: number;
     reason: string;
   }[];
 }
@@ -200,68 +210,58 @@ export function reviewMemoryRecords(
     );
   const negative = (text: string) =>
     /\b(?:not|never|prohibit|forbid|disallow|disable|avoid)\b/i.test(text);
+  const structured = reviewStructuredAssertions(memories);
   return active.map((memory) => {
-    const flags: MemoryReview["flags"] = [];
+    const flags: MemoryReview["flags"] = [
+      ...(structured.get(memory.id) ?? []).map((flag) => ({
+        ...flag,
+        method: "structured" as const,
+      })),
+      ...reviewSupersession(memory, memories).map((flag) => ({
+        ...flag,
+        method: "supersession" as const,
+      })),
+    ];
     if (memory.status === "conflicted")
       flags.push({
         kind: "possible-contradiction",
+        method: "provenance",
         reason:
           "This record has conflicting shared content and requires explicit review.",
       });
-    if (memory.supersedes) {
-      const visited = new Set<string>();
-      let current: MemoryRecord | undefined = memory;
-      while (current && !visited.has(current.id)) {
-        visited.add(current.id);
-        current = current.supersedes
-          ? memories.find((record) => record.id === current!.supersedes)
-          : undefined;
-      }
-      if (
-        current ||
-        !memories.some((record) => record.id === memory.supersedes)
-      )
-        flags.push({
-          kind: "supersession-conflict",
-          reason: current
-            ? "Supersession cycle requires review."
-            : "Superseded record is missing; no automatic replacement is possible.",
-        });
-    }
     if (!memory.sources.length)
       flags.push({
         kind: "no-provenance",
+        method: "provenance",
         reason: "No source evidence; validity requires human review.",
       });
     for (const source of memory.sources) {
       if (excluded(source.path))
         flags.push({
           kind: "source-excluded",
+          method: "provenance",
           path: source.path,
           reason: "Source is no longer allowed by the current policy.",
         });
       else if (!files.has(source.path))
         flags.push({
           kind: "source-missing",
+          method: "provenance",
           path: source.path,
           reason: "Source is absent from this snapshot.",
         });
       else if (files.get(source.path) !== source.contentHash)
         flags.push({
           kind: "source-changed",
+          method: "provenance",
           path: source.path,
           reason:
             "Source content changed; this does not prove the memory is obsolete.",
         });
     }
     for (const other of active) {
-      if (memory.id === other.id) continue;
-      if (memory.supersedes && memory.supersedes === other.supersedes)
-        flags.push({
-          kind: "supersession-conflict",
-          relatedMemoryId: other.id,
-          reason: "Multiple active records claim to supersede the same record.",
-        });
+      if (memory.id === other.id || memory.projectId !== other.projectId)
+        continue;
       if (
         !["constraint", "requirement", "decision"].includes(memory.kind) ||
         !["constraint", "requirement", "decision"].includes(other.kind) ||
@@ -274,6 +274,7 @@ export function reviewMemoryRecords(
       if (shared >= 2 && shared / Math.max(1, Math.min(a.size, b.size)) >= 0.6)
         flags.push({
           kind: "possible-contradiction",
+          method: "lexical",
           relatedMemoryId: other.id,
           reason:
             "Opposing wording with overlapping terms; ambiguous until reviewed.",

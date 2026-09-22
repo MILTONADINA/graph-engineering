@@ -2,6 +2,10 @@ export * from "@graph-engineering/contracts";
 export { GraphEngine } from "./service.js";
 export { ContextEngine } from "./context/index.js";
 export {
+  parseReviewedAssertions,
+  attachReviewedAssertions,
+} from "./context/memory-assertions.js";
+export {
   initializeProject,
   loadProject,
   configureProvider,
