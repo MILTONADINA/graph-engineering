@@ -60,7 +60,7 @@ import {
   parseFile,
   type ParsedFile,
 } from "./parser.js";
-import { containsSecret } from "../policy.js";
+import { containsSecret, isAllowedPath } from "../policy.js";
 import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
 import {
   attachReviewedAssertions,
@@ -612,6 +612,7 @@ export class ContextEngine {
     symbolId: string,
     snapshotId?: string,
     depth = 1,
+    options: { exportOnly?: boolean } = {},
   ): Promise<GraphEdge[]> {
     const snapshot = await this.snapshot(snapshotId);
     if (!Number.isInteger(depth) || depth < 1 || depth > 3)
@@ -619,6 +620,25 @@ export class ContextEngine {
     let frontier = [symbolId];
     const visited = new Set<string>();
     const edges = new Map<string, GraphEdge>();
+    const symbols = new Map<string, Promise<CodeSymbol | undefined>>();
+    const readSymbol = (id: string): Promise<CodeSymbol | undefined> => {
+      let pending = symbols.get(id);
+      if (!pending) {
+        pending = this.db
+          .get<Payload>(
+            "SELECT payload FROM symbols WHERE snapshot_id=? AND id=?",
+            [snapshot.id, id],
+          )
+          .then((row) => (row ? json<CodeSymbol>(row) : undefined));
+        symbols.set(id, pending);
+      }
+      return pending;
+    };
+    const exportable = (symbol: CodeSymbol | undefined): boolean =>
+      !!symbol &&
+      !this.excluded(symbol.source.path) &&
+      isAllowedPath(symbol.source.path, this.policy, true) &&
+      ![symbol.name, symbol.signature, symbol.source.path].some(containsSecret);
     for (
       let hop = 0;
       hop < depth && frontier.length && edges.size < 200;
@@ -628,6 +648,10 @@ export class ContextEngine {
       for (const symbol of frontier.slice(0, 100)) {
         if (visited.has(symbol)) continue;
         visited.add(symbol);
+        // Apply the cloud boundary before traversal: filtering only returned
+        // edges would still reveal reachability through non-exportable nodes.
+        if (options.exportOnly && !exportable(await readSymbol(symbol)))
+          continue;
         const rows = await this.db.all<Payload>(
           "SELECT payload FROM edges WHERE snapshot_id=? AND (source_id=? OR target_id=?) LIMIT 200",
           [snapshot.id, symbol, symbol],
@@ -635,15 +659,17 @@ export class ContextEngine {
         for (const row of rows) {
           const edge = json<GraphEdge>(row);
           if (this.excluded(edge.source.path)) continue;
+          if (
+            options.exportOnly &&
+            (!isAllowedPath(edge.source.path, this.policy, true) ||
+              [edge.target, edge.source.path].some(containsSecret) ||
+              !exportable(await readSymbol(edge.from)))
+          )
+            continue;
           if (edge.to) {
-            const target = await this.db.get<Payload>(
-              "SELECT payload FROM symbols WHERE snapshot_id=? AND id=?",
-              [snapshot.id, edge.to],
-            );
-            if (
-              !target ||
-              this.excluded(json<CodeSymbol>(target).source.path)
-            ) {
+            const target = await readSymbol(edge.to);
+            if (options.exportOnly && !exportable(target)) continue;
+            if (!target || this.excluded(target.source.path)) {
               edge.to = null;
               edge.evidence = "syntactic";
               delete edge.resolution;

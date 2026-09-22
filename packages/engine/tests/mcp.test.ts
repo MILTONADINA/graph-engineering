@@ -174,3 +174,110 @@ it("cloud MCP omits private diagnostics and credential-bearing symbols and graph
     });
   }
 });
+
+it("cloud graph traversal cannot expose resolved private targets or bridge through private nodes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-bindings-"));
+  const config = await initializeProject(root);
+  config.policy.inference = "allowlisted";
+  config.policy.network = "allowlisted";
+  config.policy.allowedHosts = ["api.openai.com"];
+  config.policy.exportPaths = ["public/**"];
+  await writeFile(
+    path.join(root, ".graph", "project.json"),
+    JSON.stringify(config),
+  );
+  await mkdir(path.join(root, "public"));
+  await mkdir(path.join(root, "private"));
+  for (const [file, text] of Object.entries({
+    "public/entry.ts":
+      "import { bridge } from '../private/bridge'; import { direct } from './direct'; export function entry() { bridge(); direct(); }",
+    "private/bridge.ts":
+      "import { leaf } from '../public/leaf'; export function bridge() { leaf(); }",
+    "public/leaf.ts": "export function leaf() { return 1; }",
+    "public/direct.ts": "export function direct() { return 2; }",
+  }))
+    await writeFile(path.join(root, file), text);
+  const engine = await GraphEngine.open(root);
+  try {
+    await engine.context.index({ semantic: false });
+    const entry = (await engine.context.searchSymbols("entry")).find(
+      (symbol) => symbol.name === "entry",
+    )!;
+    const bridge = (await engine.context.searchSymbols("bridge")).find(
+      (symbol) => symbol.name === "bridge",
+    )!;
+    const direct = (await engine.context.searchSymbols("direct")).find(
+      (symbol) => symbol.name === "direct",
+    )!;
+    expect(entry).toBeDefined();
+    expect(bridge).toBeDefined();
+    expect(direct).toBeDefined();
+    for (const kind of ["local", "cloud"] as const) {
+      const server = createMcpServer(engine, { client: kind });
+      const client = new Client({
+        name: "graph-export-test",
+        version: "1.0.0",
+      });
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      try {
+        const result = await client.callTool({
+          name: "graph_neighbors",
+          arguments: { symbolId: entry.id, depth: 3 },
+        });
+        expect(result.isError).not.toBe(true);
+        const edges = JSON.parse(
+          (result.content as { type: string; text: string }[])[0]!.text,
+        ) as import("@graph-engineering/contracts").GraphEdge[];
+        expect(
+          edges.some(
+            (edge) =>
+              edge.to === direct.id && edge.resolution?.kind === "static",
+          ),
+        ).toBe(true);
+        if (kind === "local") {
+          expect(edges.some((edge) => edge.to === bridge.id)).toBe(true);
+          expect(
+            edges.some((edge) => edge.source.path === "public/leaf.ts"),
+          ).toBe(true);
+          expect(
+            edges.some((edge) => edge.source.path === "private/bridge.ts"),
+          ).toBe(true);
+        } else {
+          expect(JSON.stringify(edges)).not.toContain(bridge.id);
+          expect(
+            edges.some((edge) => edge.source.path === "public/leaf.ts"),
+          ).toBe(false);
+          expect(
+            edges.some((edge) => edge.source.path === "private/bridge.ts"),
+          ).toBe(false);
+          expect(
+            edges.some((edge) => edge.target === "bridge" && edge.resolution),
+          ).toBe(false);
+          const hiddenSeed = await client.callTool({
+            name: "graph_neighbors",
+            arguments: { symbolId: bridge.id, depth: 3 },
+          });
+          expect(hiddenSeed.isError).not.toBe(true);
+          expect(
+            JSON.parse(
+              (hiddenSeed.content as { type: string; text: string }[])[0]!.text,
+            ),
+          ).toEqual([]);
+        }
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    }
+  } finally {
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(projectDataDir(config.projectId), {
+      recursive: true,
+      force: true,
+    });
+  }
+}, 20000);
