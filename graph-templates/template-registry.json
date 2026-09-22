@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-22T07:57:33.766Z",
+  "generatedAt": "2026-09-22T08:57:20.685Z",
   "templateCount": 55,
   "templates": [
     {
@@ -1011,13 +1011,14 @@
       "category": "database",
       "subcategory": "migrations",
       "status": "implemented",
-      "description": "Not a code-generating node — this documents and guards the drizzle-kit migration workflow that database.neon-postgres.connection's npm scripts (dbGenerate/dbMigrate) drive. Ensures src/migrations/ exists with a README explaining the workflow so an agent never hand-writes migration SQL.",
+      "description": "Generates a guarded Drizzle migration runner with an explicit separate URL, expected database name, acknowledgement and advisory lock. Validates applied migration hashes before applying pending SQL transactionally. This is not an automatic inverse/down-migration generator.",
       "tags": [
         "database",
         "migrations",
-        "postgres",
         "drizzle",
-        "migration"
+        "ci",
+        "migration",
+        "transaction"
       ],
       "inputs": [],
       "outputs": [
@@ -1049,16 +1050,16 @@
       "category": "database",
       "subcategory": "neon-postgres",
       "status": "implemented",
-      "description": "The Neon serverless Postgres connection layer, taken directly from the reference app's src/config/database.ts and drizzle.config.ts: a WebSocket- backed Pool wrapped by drizzle-orm's neon-serverless driver, plus the base (table-free) schema.ts that backend.repository nodes append pgTable definitions to, and drizzle-kit configuration for migrations.",
+      "description": "A bounded standard PostgreSQL pool for persistent Node24 processes, including Neon, using pg and Drizzle with certificate verification. Includes explicit operation URL guards and credential-free offline migration generation.",
       "tags": [
         "database",
         "neon-postgres",
-        "serverless",
+        "pg",
         "drizzle-orm",
-        "ws",
         "drizzle-kit",
         "postgres",
         "drizzle",
+        "ci",
         "migration"
       ],
       "inputs": [],
@@ -1077,7 +1078,7 @@
           "name": "DATABASE_URL",
           "required": true,
           "secret": true,
-          "description": "Neon pooled Postgres connection string. Accepts NEON_DATABASE_URL as an alias, matching the reference app's convention.",
+          "description": "Explicit standard PostgreSQL URL. No alias fallback; TLS certificates are verified for remote targets.",
           "usedBy": [
             "database.neon-postgres.connection"
           ]
@@ -1104,10 +1105,13 @@
       "category": "database",
       "subcategory": "seed",
       "status": "implemented",
-      "description": "Generates a standalone src/scripts/seed.ts that inserts example rows for one or more entities backend.repository created, runnable via `npm run seed`. Refuses to run when NODE_ENV is production, since a seed script is a destructive/idempotent-unsafe operation that must never touch a live database.",
+      "description": "Generates a standalone src/scripts/seed.ts that inserts example rows for one or more entities backend.repository created, runnable via `npm run seed`. Requires an explicitly acknowledged isolated loopback development/test database with a separate URL. Inserts all rows transactionally into empty targets, refusing existing data rather than silently duplicating or replacing it.",
       "tags": [
         "database",
-        "seed"
+        "seed",
+        "ci",
+        "test",
+        "transaction"
       ],
       "inputs": [
         "entities"
@@ -1261,7 +1265,7 @@
       "category": "devops",
       "subcategory": "docker",
       "status": "implemented",
-      "description": "A multi-stage Dockerfile (build stage compiles TypeScript, slim node:alpine runtime stage ships only dist/ + production node_modules), .dockerignore, and a docker-compose.yml for local runs. Targets Neon serverless Postgres (no bundled Postgres container) and S3-compatible object storage, matching the reference stack — the runtime image never contains source TypeScript, dev dependencies, or .env files.",
+      "description": "A multi-stage Dockerfile (build stage compiles TypeScript, slim Node 24 Debian runtime stage ships only dist/ + production node_modules), .dockerignore, and a docker-compose.yml for local runs. Targets Neon serverless Postgres (no bundled Postgres container) and S3-compatible object storage, matching the reference stack — the runtime image never contains source TypeScript, dev dependencies, or .env files.",
       "tags": [
         "devops",
         "docker",
@@ -1340,7 +1344,7 @@
       "category": "devops",
       "subcategory": "github-actions",
       "status": "implemented",
-      "description": "A CI workflow (build + test on every PR/push to main) plus a separately workflow_dispatch-gated job for applying database migrations — migrations are never auto-applied on a merge, only on an explicit manual trigger, so a bad migration can't ride along with an unrelated code change.",
+      "description": "A CI workflow (build + test on every PR/push to dev by default) plus an opt-in workflow_dispatch-gated job for applying database migrations — migrations are never auto-applied on a merge, only on an explicit manual trigger, so a bad migration can't ride along with an unrelated code change.",
       "tags": [
         "devops",
         "github-actions",
@@ -1350,7 +1354,9 @@
       ],
       "inputs": [
         "nodeVersion",
-        "mainBranch"
+        "mainBranch",
+        "includeMigrations",
+        "migrationEnvironment"
       ],
       "outputs": [
         "files"
@@ -1754,7 +1760,7 @@
       "category": "project",
       "subcategory": "nextjs",
       "status": "implemented",
-      "description": "Bootstraps a TypeScript Next.js 14 (App Router) project as a separate frontend app that talks to the Express backend over HTTP with credentials: 'include' (matching authentication.jwt's httpOnly-cookie design — no token ever touches browser JS). Unlike project.node-express, there is no reference-app precedent for this: the reference application ships no frontend at all, so this node is a deliberate, from-scratch addition (see REFERENCE_ARCHITECTURE.md's \"not yet started\" note) rather than a port. Root node for every frontend/* template.",
+      "description": "Bootstraps a pinned TypeScript Next.js 16.3.5 (App Router) project as a separate frontend app that talks to the Express backend over HTTP with credentials: 'include' (matching authentication.jwt's httpOnly-cookie design — no token ever touches browser JS). Unlike project.node-express, there is no reference-app precedent for this: the reference application ships no frontend at all, so this node is a deliberate, from-scratch addition (see REFERENCE_ARCHITECTURE.md's \"not yet started\" note) rather than a port. Root node for every frontend/* template.",
       "tags": [
         "project",
         "nextjs",
@@ -1817,15 +1823,18 @@
       "tags": [
         "project",
         "node-express",
-        "express",
+        "cookie-parser",
         "cors",
+        "dotenv",
+        "express",
         "helmet",
         "morgan",
-        "cookie-parser",
-        "dotenv",
-        "typescript",
-        "ts-node",
+        "node",
+        "supertest",
         "nodemon",
+        "ts-node",
+        "typescript",
+        "vitest",
         "auth",
         "storage",
         "validation"

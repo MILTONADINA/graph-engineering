@@ -164,6 +164,54 @@ were backed up and checksum-verified into a new staged restore directory.
 The restore was not activated and does not replace current data or retained
 workspaces.
 
+## Full implemented-catalog runtime expansion
+
+All 42 implemented catalog entries now have registered, exact-manifest-checked
+renderers; 13 planned entries remain unavailable. The previous 21-renderer
+checkpoint above remains historical evidence rather than being relabeled.
+
+The following additional checks ran locally without paid inference, host database
+access, provider credentials, or network access during generated-code execution:
+
+- Backend and CRUD: strict TypeScript plus 36 and 44 generated tests, including
+  generic parser errors and redaction of internal messages and logs.
+- Authentication: 34 generated/security tests and 13 actual PostgreSQL tests,
+  including concurrent token consumption, password-reset/refresh races, stale
+  login rejection, rollback, expired-access logout and refresh/logout races.
+  Logout revokes account-wide refresh sessions; existing access JWTs still expire
+  according to their TTL. Email delivery remains an explicit application adapter.
+- Storage: strict TypeScript plus 21 checks using actual multipart parsing and
+  offline SDK signing. Provider requests were mocked; no S3/IAM/provider
+  compatibility claim is made. The default empty-body presigning checksum was
+  identified and corrected before the final signer tests passed.
+- Database and DevOps: 13 engine tests with both Docker opt-ins, actual isolated
+  PostgreSQL generation/migration/seed checks and offline generated-image builds.
+  Tests cover transaction rollback, history drift, operation serialization and
+  ambient PostgreSQL credential fallback. Reversing committed migrations is not
+  claimed. Remote seeding is deliberately unsupported without another boundary.
+- Express scaffold: strict source/test compilation, 17 generated checks and a
+  compiled-server health probe, followed by 26 checks preserving its original
+  tests after error-handler composition. Its isolated dependency fixture reported
+  zero production/development audit findings at this checkpoint.
+- Frontend: strict TypeScript, 31 generated/hook/security checks, a real Next
+  production build and Chromium login/logout, registration, escaped table cells,
+  pagination and two-tab refresh serialization. This fixture uses a local
+  contract API, not the generated authentication backend. Web Locks require a
+  supported secure browser context; arbitrary cross-site cookie deployments are
+  not validated by the same-site, different-port test.
+
+Cross-component review corrected the project ledger to use the actual invocation
+ID and complete emitted file inventory, rather than a hardcoded template ID.
+Root public ledgers remain opt-in and are not private engine state or execution
+receipts. A fixture naming error initially exposed a container-only storage test
+to default host discovery; the fixture now uses the explicit `.fixture` extension
+and is copied into tests only inside its intended generated application.
+
+The Windows CI diagnostic failure at commit `4daa165` was an overly strict test
+expectation: absent trusted CPython must report an explicit syntax-only fallback.
+The focused fix passed 22 tests locally; fork run `35703779516` at `629915a` passed
+all six checks. This receipt does not certify later commits before their own CI.
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering

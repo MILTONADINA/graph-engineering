@@ -15,6 +15,7 @@ import {
 import { verifyInContainer } from "../src/execution/docker.js";
 import { checked } from "../src/util.js";
 import ts from "typescript";
+import { load, JSON_SCHEMA } from "js-yaml";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -55,6 +56,36 @@ const parameters = (workspace: string, templateId = "backend.pagination") => ({
 });
 
 describe("constrained fine-grained template execution", () => {
+  it("keeps every implemented catalog identity and manifest aligned with an audited renderer", async () => {
+    const catalog = new URL("../../../graph-templates/", import.meta.url);
+    const registry = JSON.parse(
+      await readFile(new URL("template-registry.json", catalog), "utf8"),
+    );
+    const implemented = registry.templates.filter(
+      (entry: any) => entry.status === "implemented",
+    );
+    const planned = registry.templates.filter(
+      (entry: any) => entry.status === "planned",
+    );
+    expect(implemented).toHaveLength(42);
+    expect(planned).toHaveLength(13);
+    for (const entry of implemented) {
+      expect(templateRuntimeCapability(entry.id).executable, entry.id).toBe(
+        true,
+      );
+      const manifest = load(
+        await readFile(new URL(`${entry.path}/template.yaml`, catalog), "utf8"),
+        { schema: JSON_SCHEMA },
+      );
+      expect(validateExecutableTemplateManifest(entry.id, manifest).id).toBe(
+        entry.id,
+      );
+    }
+    for (const entry of planned)
+      expect(templateRuntimeCapability(entry.id).executable, entry.id).toBe(
+        false,
+      );
+  });
   it("creates source and tests as a proposal with a validated instance manifest and zero model usage", async () => {
     const { workspace } = await fixture();
     const result = await renderTemplateProposal({
@@ -146,6 +177,13 @@ describe("constrained fine-grained template execution", () => {
       await expect(
         renderTemplateProposal({ ...parameters(workspace), targetDirectory }),
       ).rejects.toThrow("scope");
+    for (const instanceId of ["api\n", "api\r", "../escape", "", undefined])
+      await expect(
+        renderTemplateProposal({
+          ...parameters(workspace),
+          instanceId: instanceId as string,
+        }),
+      ).rejects.toThrow("instance identity");
   });
   it("never overwrites an existing conflicting output", async () => {
     const { workspace, application } = await fixture();
@@ -162,7 +200,7 @@ describe("constrained fine-grained template execution", () => {
   });
   it("keeps planned and unsupported prompt-only nodes explicitly unavailable", async () => {
     const { workspace } = await fixture();
-    for (const id of ["api.filtering", "project.node-express", "__proto__"]) {
+    for (const id of ["api.filtering", "frontend.react", "__proto__"]) {
       expect(templateRuntimeCapability(id).executable).toBe(false);
       await expect(
         renderTemplateProposal(parameters(workspace, id)),

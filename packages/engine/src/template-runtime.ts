@@ -27,6 +27,12 @@ import { authenticationTemplates } from "./template-runtime-auth.js";
 import { storageTemplates } from "./template-runtime-storage.js";
 import { devopsTemplates } from "./template-runtime-devops.js";
 import { databaseTemplates } from "./template-runtime-database.js";
+import { frontendTemplates } from "./template-runtime-frontend.js";
+import {
+  projectTemplates,
+  legacyProjectFallback,
+  safeProjectFallback,
+} from "./template-runtime-project.js";
 import { readTemplateManifest } from "./template-runtime-public.js";
 
 const catalogRoot = path.resolve(
@@ -246,6 +252,8 @@ const extensions: Record<string, AuditedTemplateExtension> = {
   ...storageTemplates,
   ...devopsTemplates,
   ...databaseTemplates,
+  ...frontendTemplates,
+  ...projectTemplates,
 };
 export interface TemplateExecutionManifest {
   version: "1.0.0";
@@ -454,7 +462,9 @@ async function modifiedArtifacts(
     ))
       content = exactReplace(
         exactReplace(before, importMarker, importLine),
-        fallback,
+        before.includes(safeProjectFallback)
+          ? fallback.replace(legacyProjectFallback, safeProjectFallback)
+          : fallback,
         mount,
       );
     return [{ path: "src/app.ts", before, content }];
@@ -789,6 +799,7 @@ async function renderArtifacts(
   let rendered: TemplateRenderedArtifacts;
   if (extension) {
     rendered = await extension.render({
+      instanceId: options.instanceId,
       inputs,
       readTarget,
       readAsset: (relative) => asset(selected.directory, relative),
@@ -932,7 +943,11 @@ export async function renderTemplateProposal(
   options: RenderTemplateOptions,
 ): Promise<TemplateWorkerResult> {
   const templateId = options.templateId.replace(/^graph-node:/, "");
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(options.instanceId))
+  if (
+    typeof options.instanceId !== "string" ||
+    /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.exec(options.instanceId)?.[0] !==
+      options.instanceId
+  )
     throw new Error("Invalid template instance identity");
   const prefix = options.targetDirectory ?? "";
   if (prefix && !isAllowedPath(prefix, options.policy))
