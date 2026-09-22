@@ -1,5 +1,6 @@
 # Explicitly preprovision graph-engineering-verify:local before this offline build.
 FROM graph-engineering-verify:local
+ENV GRAPH_ENGINE_REQUIRE_GO_RUNTIME=1
 COPY --from=golang@sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804 /usr/local/go/ /usr/local/go/
 WORKDIR /opt/graph-deps
 COPY tsconfig.base.json ./
