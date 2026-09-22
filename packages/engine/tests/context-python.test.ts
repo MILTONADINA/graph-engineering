@@ -269,6 +269,43 @@ describe("isolated CPython snapshot bindings", () => {
       expect(result.diagnostics.join(" ")).toContain("resource limit");
     },
   );
+  it.runIf(!!runtime).each([
+    { sample: "zombie", code: null, output: "0\n", expected: 1 },
+    { sample: "just exited", code: 1, output: "", expected: 1 },
+    { sample: "missing sampler", code: "ENOENT", output: "", expected: 0 },
+    { sample: "excess memory", code: null, output: "999999\n", expected: 0 },
+  ])(
+    "handles a $sample RSS sample without hiding enforcement errors",
+    async ({ code, output, expected }) => {
+      const files = await parse({
+        "main.py": "def target():\n    pass\ntarget()\n",
+      });
+      // The interpreter is real. Only the first parent memory sample is injected;
+      // subsequent samples use real ps, independent of interpreter startup speed.
+      vi.spyOn(childProcess, "execFile").mockImplementationOnce(((
+        ...args: unknown[]
+      ) => {
+        const callback = args.at(-1) as (
+          error: unknown,
+          stdout: string,
+          stderr: string,
+        ) => void;
+        queueMicrotask(() =>
+          callback(
+            code === null ? null : Object.assign(new Error("sample"), { code }),
+            output,
+            "",
+          ),
+        );
+        return new EventEmitter();
+      }) as unknown as typeof childProcess.execFile);
+      const result = await resolvePythonBindings(files, "snapshot", {
+        maxRssKiB: 255 * 1024,
+      });
+      expect(result.resolvedCalls).toBe(expected);
+      if (!expected) expect(result.diagnostics.join(" ")).toContain("limit");
+    },
+  );
   it.runIf(!!runtime)(
     "never imports or executes source or startup hooks and filters private re-export evidence",
     async () => {

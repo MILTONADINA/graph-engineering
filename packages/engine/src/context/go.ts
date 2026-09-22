@@ -423,6 +423,7 @@ function analyze(
       windowsHide: true,
     });
     let bytes = 0,
+      transientSamples = 0,
       failed = false,
       finished = false,
       timer: ReturnType<typeof setTimeout> | undefined;
@@ -438,10 +439,18 @@ function analyze(
         "/bin/ps",
         ["-o", "rss=", "-p", String(child.pid)],
         { env: {}, timeout: 1000, maxBuffer: 1000 },
-        (error, stdout) => {
+        (error, stdout, stderr) => {
           if (finished || child.exitCode !== null || child.signalCode !== null)
             return;
           const rss = Number(stdout.trim());
+          if (
+            (!error && stdout.trim() && rss === 0) ||
+            (error?.code === 1 && !stdout.trim() && !stderr.trim())
+          ) {
+            if (++transientSamples > 1) stop();
+            else timer = setTimeout(sample, 40);
+            return;
+          }
           if (
             error ||
             !Number.isFinite(rss) ||
@@ -449,7 +458,10 @@ function analyze(
             rss > GO_LIMITS.rssKiB
           )
             stop();
-          else timer = setTimeout(sample, 40);
+          else {
+            transientSamples = 0;
+            timer = setTimeout(sample, 40);
+          }
         },
       );
     };

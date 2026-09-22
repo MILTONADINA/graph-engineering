@@ -18,6 +18,10 @@ import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { ContextEngine } from "../src/context/index.js";
 
 const runtime = await goRuntime();
+it.runIf(process.env.GRAPH_ENGINE_REQUIRE_GO_RUNTIME === "1")(
+  "provisioned fixture exposes its trusted Go compiler helper",
+  () => expect(runtime).not.toBeNull(),
+);
 
 const parse = (files: Record<string, string>, snapshot = "snapshot") =>
   Promise.all(

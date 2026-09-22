@@ -45,6 +45,7 @@ function analyze(
       windowsHide: true,
     });
     let bytes = 0,
+      transientSamples = 0,
       stdout = "",
       failed = false,
       finished = false,
@@ -63,13 +64,26 @@ function analyze(
         "/bin/ps",
         ["-o", "rss=", "-p", String(child.pid)],
         { timeout: 1000, maxBuffer: 1000, env: {} },
-        (error, output) => {
+        (error, output, stderr) => {
           if (finished || child.exitCode !== null || child.signalCode !== null)
             return;
           const rss = Number(output.trim());
+          // A reaped/zombie process can precede Node's exit notification. Only
+          // this explicit no-process result gets one bounded resample.
+          if (
+            (!error && output.trim() && rss === 0) ||
+            (error?.code === 1 && !output.trim() && !stderr.trim())
+          ) {
+            if (++transientSamples > 1) stop();
+            else monitor = setTimeout(sample, 40);
+            return;
+          }
           if (error || !Number.isFinite(rss) || rss <= 0 || rss > maxRssKiB)
             stop();
-          else monitor = setTimeout(sample, 40);
+          else {
+            transientSamples = 0;
+            monitor = setTimeout(sample, 40);
+          }
         },
       );
     };
