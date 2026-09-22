@@ -3,6 +3,7 @@ import type { DecisionRecord } from "@graph-engineering/contracts";
 import {
   canPromote,
   evaluateDecisions,
+  meetsPromotionMetrics,
   type EvaluationDataset,
 } from "../src/decisions.js";
 import {
@@ -125,9 +126,12 @@ it("requires recorded provenance, explicit evidence, and declared population cov
     ...synthetic,
     provenance: { ...provenance, origin: "recorded" },
   };
-  expect(canPromote(evaluateDecisions(recorded).reports[0]!)).toBe(true);
+  expect(meetsPromotionMetrics(evaluateDecisions(recorded).reports[0]!)).toBe(
+    true,
+  );
+  expect(canPromote(evaluateDecisions(recorded).reports[0]!)).toBe(false);
   expect(
-    canPromote(
+    meetsPromotionMetrics(
       evaluateDecisions({
         ...recorded,
         provenance: {
@@ -138,7 +142,7 @@ it("requires recorded provenance, explicit evidence, and declared population cov
     ),
   ).toBe(false);
   expect(
-    canPromote(
+    meetsPromotionMetrics(
       evaluateDecisions({
         ...recorded,
         rows: rows.map((row) => ({ ...row, outcomeEvidence: undefined })),

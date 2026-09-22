@@ -39,8 +39,12 @@ Item 13 still contains buildable work, not only requests for partner labels:
   candidate configuration, protected oracle access and durable one-time run
   records. Existing known-history tasks cannot be relabeled as unseen.
 - Connect verified independent attestations to promotion-bound imports. The
-  existing signature-checking intake is stronger than the legacy label importer;
-  running it separately does not make the importer enforce those signatures.
+  unsigned label importer is now analysis-only and cannot authorize routing;
+  `evaluate --promote` rejects without writing evidence. Original signature
+  verification exists, but the legitimate authority issuer must still join
+  signed aggregate provenance, complete outcomes, sealed held-out receipts and
+  operator-approved project/policy trust. Permanently disabling promotion would
+  not complete that requested capability.
 
 These gaps are detailed in [the calibration workflow](calibration-corpus.md).
 Completing the tooling still cannot supply independent reviewers, unseen tasks,

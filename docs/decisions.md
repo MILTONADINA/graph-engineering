@@ -249,7 +249,8 @@ cost; the evaluator aggregates those once per task. `caseId` identifies one
 labeled decision; duplicate cases within a category/provider/model are
 rejected. All decisions belonging to one task must stay in one data split.
 
-For promotion, wrap rows in `{ "version": "1.0.0", "provenance": ..., "rows": ... }`.
+For provenance-aware analysis, wrap rows in
+`{ "version": "1.0.0", "provenance": ..., "rows": ... }`.
 Provenance declares the dataset ID, `origin` (`recorded` or `synthetic`), the
 representative task population, repository IDs, risk strata, reviewer, review
 timestamp, and known limitations. Every row additionally identifies its actual
@@ -272,7 +273,12 @@ The `decision-evaluation.ts` workflow is deliberately two-phase:
 
 Use synthetic fixtures to exercise schema and policy logic, never to establish
 production autonomy. `origin: "synthetic"`, incomplete provenance, or legacy
-unverified rows fail `canPromote` even when their numerical metrics look ideal.
+unverified rows fail the numerical eligibility check even when their other
+metrics look ideal. `meetsPromotionMetrics` reports that analysis-only result;
+passing it does not establish that declared reviews actually happened.
+`canPromote` additionally requires a verified, process-local authority bound to
+the project, current policy and exact report. JSON flags, ideal numerical
+summaries, `origin: "recorded"`, type casts and copied receipts cannot issue it.
 
 Calibration chooses the lowest supported confidence threshold with at least
 50 labeled, non-abstaining examples and 95% decision accuracy. Held-out data is
@@ -292,12 +298,29 @@ Missing reported model identity also prevents promotion. Schema validation
 rejects non-finite/negative values, inconsistent task outcomes, duplicated
 cases, and overlap between calibration and held-out tasks.
 
-`evaluate <json> --promote` writes only passing reports to the private
-`promotions.json`. Separately set `policy.decisionMode` to `promoted` and add
-the intended categories to `policy.promotedCategories`. To roll back, change
-the mode to `shadow`. Promotion files are trusted local configuration, not
-cryptographic proof that measurements were honestly collected. Synthetic
-tests exercise these gates; they do not establish model quality or savings.
+`evaluate <json>` and `evaluation-labels` are currently analysis-only.
+`evaluate <json> --promote` rejects before reading or writing project evidence.
+Existing `promotions.json` files remain untouched and readable as advisory
+metrics, but cannot authorize decisions, even if policy requests `promoted` mode.
+All service loaders and direct batch decisions enforce this boundary.
+
+This is a temporary safety checkpoint, **not completed promotion tooling**.
+There is no production authority issuer yet. Completing it requires original
+signed row reviews, separately approved current trust, a signed aggregate
+population/split manifest, immutable drafts and outcome artifacts, a genuinely
+sealed held-out collection, and complete assignment accounting. Failed attempts,
+abstentions and unknown-confidence records must not disappear from task-cost or
+failure totals merely because they cannot become scored decision rows. Unknown
+cost blocks cost-based promotion. The existing known-history intake cannot be
+reclassified as held-out to satisfy these requirements.
+
+The original-review signature primitive verifies Ed25519 envelopes, signer
+independence, role/revocation/chronology and unambiguous JSON payload identities.
+Its explicit `review-signatures-only` result is not a grant, a truth judgment,
+or verification of task/outcome artifacts. The future issuer must also revalidate
+project/policy/model scope, current trust and immutable evidence at runtime.
+No trust keys, labels, policy changes or approvals are generated automatically.
+Synthetic tests exercise these controls, not model quality or measured savings.
 
 Run the sidecar's dependency-free tests with:
 

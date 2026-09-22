@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import {
   selectContext,
@@ -9,6 +9,7 @@ import {
   type DecisionSession,
 } from "../src/decision-controls.js";
 import type { PromotionEvidence } from "../src/decisions.js";
+import * as promotionAuthority from "../src/promotion-authority.js";
 
 const model = "test-checkpoint";
 function session(categories: string[] = []): DecisionSession {
@@ -69,7 +70,15 @@ function answer(choices: Record<string, string>) {
     ),
   );
 }
-afterEach(() => vi.unstubAllGlobals());
+// Scope-controller unit tests simulate an already verified authority boundary.
+// They never issue or persist a real grant; unmocked forgery tests are separate.
+beforeEach(() =>
+  vi.spyOn(promotionAuthority, "authorizesPromotion").mockReturnValue(true),
+);
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 it("retains mandatory files/memories even if a promoted classifier tries to exclude them", async () => {
   vi.stubGlobal(

@@ -12,6 +12,7 @@ import {
 } from "./decisions.js";
 import { assertEndpoint, containsSecret } from "./policy.js";
 import { hash, id, now } from "./util.js";
+import type { VerifiedPromotionAuthority } from "./promotion-authority.js";
 
 export interface DecisionQuestion {
   id: string;
@@ -58,6 +59,8 @@ export interface DecisionBatchOptions {
   policy: ProjectPolicy;
   providers: DecisionProvider[];
   evidence?: PromotionEvidence[];
+  /** Only the verified importer may issue this; JSON evidence alone is advisory. */
+  promotionAuthority?: VerifiedPromotionAuthority;
   signal?: AbortSignal;
   budget?: DecisionBudget;
 }
@@ -384,7 +387,11 @@ export async function decideBatch(
         policy.decisionMode === "promoted" &&
         policy.promotedCategories.includes(question.category) &&
         !!proof &&
-        canPromote(proof);
+        canPromote(proof, {
+          authority: options.promotionAuthority,
+          projectId: options.projectId,
+          policyVersion,
+        });
       let selected: string | null = null,
         confidence: number | null = null,
         questionFailure = failure;
@@ -437,6 +444,7 @@ export async function decideBatch(
           callId,
           stateHash: hash(state),
           promotionVersion: proof?.version ?? null,
+          promotionAuthority: promoted ? "verified" : "unverified",
           ...(questionFailure ? { failure: questionFailure } : {}),
           ...(question.id === pending[0]?.id && callUsage
             ? { usage: callUsage }

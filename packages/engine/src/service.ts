@@ -21,11 +21,8 @@ import {
   safePath,
 } from "./policy.js";
 import { errorMessage, hash, id, now, readJson, writeJson } from "./util.js";
-import {
-  decide,
-  decisionProviders,
-  type PromotionEvidence,
-} from "./decisions.js";
+import { decide, decisionProviders } from "./decisions.js";
+import { loadPromotionAuthority } from "./promotion-authority.js";
 import {
   invokeApiWorker,
   estimateRequestCost,
@@ -145,12 +142,10 @@ export class GraphEngine {
     state: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<DecisionSession> {
-    let evidence: PromotionEvidence[] = [];
-    try {
-      evidence = await readJson(path.join(this.dataDir, "promotions.json"));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    const promotion = await loadPromotionAuthority(this.dataDir, {
+      projectId: this.config.projectId,
+      policyVersion: hash(this.config.policy),
+    });
     return {
       projectId: this.config.projectId,
       state,
@@ -159,7 +154,8 @@ export class GraphEngine {
       cloudState: cloudSignals(state),
       policy: this.config.policy,
       providers: await decisionProviders(this.dataDir),
-      evidence,
+      evidence: promotion.evidence,
+      promotionAuthority: promotion.authority,
       signal,
       budget: this.decisionBudget(ownerId),
     };
@@ -294,12 +290,10 @@ export class GraphEngine {
     if (!provider)
       throw new Error("Selected worker is unavailable under project policy");
     if (!input.providerId) {
-      let evidence: PromotionEvidence[] = [];
-      try {
-        evidence = await readJson(path.join(this.dataDir, "promotions.json"));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
+      const promotion = await loadPromotionAuthority(this.dataDir, {
+        projectId: this.config.projectId,
+        policyVersion: hash(this.config.policy),
+      });
       const records = await decide({
         projectId: this.config.projectId,
         category: "worker",
@@ -314,7 +308,8 @@ export class GraphEngine {
         baseline: provider.id,
         policy: this.config.policy,
         providers: await decisionProviders(this.dataDir),
-        evidence,
+        evidence: promotion.evidence,
+        promotionAuthority: promotion.authority,
         budget: this.decisionBudget(planId),
         cloudState: {
           fileCount: snapshot.fileCount,
@@ -329,14 +324,10 @@ export class GraphEngine {
       if (selected) provider = available.find((p) => p.id === selected)!;
     }
     assertProvider(provider, this.config.policy, input.effort);
-    let routingEvidence: PromotionEvidence[] = [];
-    try {
-      routingEvidence = await readJson(
-        path.join(this.dataDir, "promotions.json"),
-      );
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    const routingPromotion = await loadPromotionAuthority(this.dataDir, {
+      projectId: this.config.projectId,
+      policyVersion: hash(this.config.policy),
+    });
     const routing = await routePlan({
       projectId: this.config.projectId,
       objective: input.objective,
@@ -344,7 +335,8 @@ export class GraphEngine {
       explicitEffort: input.effort,
       policy: this.config.policy,
       providers: await decisionProviders(this.dataDir),
-      evidence: routingEvidence,
+      evidence: routingPromotion.evidence,
+      promotionAuthority: routingPromotion.authority,
       budget: this.decisionBudget(planId),
       cloudState: {
         fileCount: snapshot.fileCount,

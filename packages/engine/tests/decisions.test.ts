@@ -4,9 +4,11 @@ import {
   canPromote,
   decide,
   evaluateDecisions,
+  meetsPromotionMetrics,
   type EvaluationRow,
   type PromotionEvidence,
 } from "../src/decisions.js";
+import * as promotionAuthority from "../src/promotion-authority.js";
 
 const model = "pinned-test-model";
 const row = (
@@ -40,7 +42,10 @@ const evidence = (): PromotionEvidence =>
     provenanceComplete: true,
     datasetId: "unit-gate-fixture",
   });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("decision evaluation integrity (synthetic gate tests, not accuracy benchmarks)", () => {
   it("requires disjoint calibration and held-out data and counts task costs once", () => {
@@ -50,9 +55,14 @@ describe("decision evaluation integrity (synthetic gate tests, not accuracy benc
     expect(report.calibrationCount).toBe(60);
     expect(report.baselineCost).toBe(60);
     expect(report.candidateCost).toBe(30);
-    expect(canPromote(report)).toBe(true);
-    expect(canPromote(evaluateDecisions(dataset()).reports[0]!)).toBe(false);
-    expect(canPromote({ ...report, dataOrigin: "synthetic" })).toBe(false);
+    expect(meetsPromotionMetrics(report)).toBe(true);
+    expect(canPromote(report)).toBe(false);
+    expect(
+      meetsPromotionMetrics(evaluateDecisions(dataset()).reports[0]!),
+    ).toBe(false);
+    expect(meetsPromotionMetrics({ ...report, dataOrigin: "synthetic" })).toBe(
+      false,
+    );
     const leaked = dataset();
     leaked[0]!.taskId = "held-out-task-0";
     expect(() => evaluateDecisions(leaked)).toThrow("disjoint");
@@ -71,14 +81,14 @@ describe("decision evaluation integrity (synthetic gate tests, not accuracy benc
       { calibrationCount: 0 },
       { minimumConfidence: 1.1 },
     ])
-      expect(canPromote({ ...report, ...invalid })).toBe(false);
+      expect(meetsPromotionMetrics({ ...report, ...invalid })).toBe(false);
     const onlyHeld = Array.from({ length: 240 }, (_, index) => ({
       ...row(index),
       confidence: 1,
     }));
     const uncalibrated = evaluateDecisions(onlyHeld).reports[0]!;
     expect(uncalibrated.calibrationCount).toBe(0);
-    expect(canPromote(uncalibrated)).toBe(false);
+    expect(meetsPromotionMetrics(uncalibrated)).toBe(false);
     expect(() => evaluateDecisions([{ ...row(1), confidence: NaN }])).toThrow();
   });
   it("does not cancel calibration errors in opposite confidence bins", () => {
@@ -93,17 +103,21 @@ describe("decision evaluation integrity (synthetic gate tests, not accuracy benc
     }
     const report = evaluateDecisions(data).reports[0]!;
     expect(report.calibrationError).toBeCloseTo(0.5);
-    expect(canPromote(report)).toBe(false);
+    expect(meetsPromotionMetrics(report)).toBe(false);
   });
   it("fails promotion for extra failures, policy violations, inconsistent costs, or insufficient accepted tasks", () => {
     const data = dataset();
     data[60]!.policyViolation = true;
-    expect(canPromote(evaluateDecisions(data).reports[0]!)).toBe(false);
+    expect(meetsPromotionMetrics(evaluateDecisions(data).reports[0]!)).toBe(
+      false,
+    );
     const inconsistent = dataset();
     inconsistent[60]!.candidateCost = 99;
     expect(() => evaluateDecisions(inconsistent)).toThrow("consistent");
-    expect(canPromote({ ...evidence(), additionalFailures: 1 })).toBe(false);
-    expect(canPromote({ ...evidence(), taskCount: 59 })).toBe(false);
+    expect(
+      meetsPromotionMetrics({ ...evidence(), additionalFailures: 1 }),
+    ).toBe(false);
+    expect(meetsPromotionMetrics({ ...evidence(), taskCount: 59 })).toBe(false);
   });
 });
 
@@ -173,7 +187,9 @@ describe("bounded decision dispatch", () => {
     expect((await decide(offline))[0]?.selected).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
-  it("requires matching model identity, promotion evidence, and fitted confidence threshold", async () => {
+  it("after verified authority, still requires matching model identity and fitted confidence threshold", async () => {
+    // Isolate downstream routing gates; this mock is not a production grant issuer.
+    vi.spyOn(promotionAuthority, "authorizesPromotion").mockReturnValue(true);
     const fetch = vi.fn(async () => answer());
     vi.stubGlobal("fetch", fetch);
     const input = {
