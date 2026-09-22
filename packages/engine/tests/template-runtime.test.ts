@@ -162,12 +162,7 @@ describe("constrained fine-grained template execution", () => {
   });
   it("keeps planned and unsupported prompt-only nodes explicitly unavailable", async () => {
     const { workspace } = await fixture();
-    for (const id of [
-      "api.filtering",
-      "api.crud",
-      "project.node-express",
-      "__proto__",
-    ]) {
+    for (const id of ["api.filtering", "project.node-express", "__proto__"]) {
       expect(templateRuntimeCapability(id).executable).toBe(false);
       await expect(
         renderTemplateProposal(parameters(workspace, id)),

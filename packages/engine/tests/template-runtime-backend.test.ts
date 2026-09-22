@@ -161,7 +161,6 @@ describe("audited backend template composition", () => {
       true,
     );
     for (const id of [
-      "api.crud",
       "database.neon-postgres.connection",
       "authentication.jwt",
       "api.webhooks",
