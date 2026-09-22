@@ -35,7 +35,7 @@ jobs:
       - run: npm run format:check
       - run: npm run check
       - name: Evaluation protocol and intake checks
-        run: node --test evaluation/candidate-cases.test.mjs evaluation/candidate-portable.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs
+        run: node --test evaluation/candidate-cases.test.mjs evaluation/candidate-portable.test.mjs evaluation/candidate-build-order.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs
       - run: npm ci --prefix graph-templates/tools/validate-graph
       - run: npm test --prefix graph-templates/tools/validate-graph
       - run: npm run pack:check -w create-graph-app
