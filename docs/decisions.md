@@ -15,6 +15,13 @@ are bounded control interfaces, not automatic approval of arbitrary engineering
 designs. A classifier cannot remove mandatory evidence, required verification,
 security/architecture review floors, or the run's append-only audit log.
 
+The stop controller defaults to `completionScope: "full-acceptance"`, requiring
+acceptance, tests, reviews, and valid policy. Managed execution explicitly uses
+`"automated-run"` to stop its worker loop after required tests pass under valid
+policy. That is not human acceptance: run records and the dashboard retain
+`humanAcceptance: "pending"` and the required review scope. Neither scope grants
+permission to publish or merge.
+
 `decideBatch` sends up to 12 independent questions in one HTTP request per
 provider. `routePlan` batches workflow, effort, and context budget; it does not
 make parallel one-question requests. A promoted answer only resolves its own
@@ -194,6 +201,15 @@ abstains without calling Jev. An ambiguous dispatched failure retains the
 conservative reservation; it is not refunded on an assumption that the service
 did not bill. Accounting persistence failure or a reported charge above the
 reservation prevents using the answer or escalating further.
+
+The authenticated local `GET /api/usage` endpoint and dashboard aggregate the
+durable inference-call ledger, not per-run totals. Every call is counted once,
+including planning attempts that never produce a saved plan, failed attempts,
+and unresolved reservations. Planning-only costs and a partial known subtotal
+remain visible when the overall total is unknown. Reservations are estimates,
+not confirmed charges. Legacy run counters lacking call-level records are
+identified as untracked and keep the full total unknown instead of being added
+again or treated as zero.
 
 This is conservative client-side accounting against reviewed pricing, not a
 provider-enforced financial guarantee. Reconcile invoice changes or ambiguous

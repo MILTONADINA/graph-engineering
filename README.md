@@ -7,9 +7,9 @@ repository → syntax graph + SQLite search + optional local embeddings
                          ↓
               context packets + reviewed memory
                          ↓
-        policy + deterministic baseline + Laya/Jev shadow decisions
+       policy + deterministic baseline + batched Laya/Jev decisions
                          ↓
-          coding worker → isolated patch → offline container checks
+      workers / supported templates → isolated patches → offline checks
                          ↓
                  optional commit / draft PR into dev
 ```
@@ -23,28 +23,42 @@ npm ci
 npm run build
 npm run setup:git
 npm run graph -- -C /path/to/your/project init
-npm run graph -- -C /path/to/your/project index
+npm run graph -- -C /path/to/your/project index --lexical
 npm run graph -- -C /path/to/your/project serve
 ```
 
 Open the printed loopback URL for the dashboard. Projects default to local-only inference, no external network, no publication, and shadow-mode decisions. No models or credentials are provisioned implicitly.
 
-See the [platform guide](docs/platform.md) for providers, MCP, context, memory, isolated runs, and policy configuration; [decision guide](docs/decisions.md) for Laya/Jev and evaluation; and [installed-worker limits](docs/installed-workers.md) for native client capabilities.
+See the [platform guide](docs/platform.md) for configuration and commands, [context lifecycle](docs/context-lifecycle.md) for summaries/cache/watch/backup/restore, [decision guide](docs/decisions.md) for batched controllers and nullable cost accounting, [DAG/template runtime](docs/dag-and-template-runtime.md) for dependency execution, and [installed-worker limits](docs/installed-workers.md) for native client capabilities.
+
+For this development setup, see the [Mac runbook](docs/mac-local-runbook.md),
+[fourteen-item handoff checklist](docs/completion-checklist.md), and
+[measured local validation](docs/local-validation.md).
+
+Useful local maintenance commands:
+
+```sh
+npm run graph -- -C /path/to/your/project summaries
+npm run graph -- -C /path/to/your/project memory-review
+npm run graph -- -C /path/to/your/project snapshots-prune --keep 20
+```
+
+Pruning previews unless `--apply` is supplied. `backup NEW_ARCHIVE_DIRECTORY` includes both private databases and reviewed configuration; `restore ARCHIVE NEW_DATA_DIRECTORY` never overwrites live data. Model weights and worker workspaces are excluded, so restore requires manual reconciliation. See the lifecycle guide before changing storage.
 
 ## Repository
 
-| Area                 | Purpose                                                                         |
-| -------------------- | ------------------------------------------------------------------------------- |
-| `packages/contracts` | Versioned project, context, execution, and decision contracts                   |
-| `packages/engine`    | Local SQLite context engine, CLI, MCP, authenticated loopback API, managed runs |
-| `packages/dashboard` | React context, graph, memory, run, and decision interfaces                      |
-| `sidecars/laya`      | Explicitly provisioned, offline-serving decision sidecar                        |
-| `evaluation`         | 60 synthetic fixtures and a measured baseline/candidate runner                  |
-| `create-graph-app`   | Existing coarse-grained app scaffolder and six working templates                |
-| `graph-templates`    | Fine-grained node contracts, schemas, examples, and artifact validation         |
-| `reference-app`      | Source application behind the original templates                                |
+| Area                 | Purpose                                                                                  |
+| -------------------- | ---------------------------------------------------------------------------------------- |
+| `packages/contracts` | Versioned project, context, execution, and decision contracts                            |
+| `packages/engine`    | Context, bounded controllers/DAG, CLI, MCP, loopback API, verified cache, managed runs   |
+| `packages/dashboard` | React context, graph, memory, run, and decision interfaces                               |
+| `sidecars/laya`      | Explicitly provisioned, offline-serving decision sidecar                                 |
+| `evaluation`         | Synthetic smoke fixtures, measured baseline/candidate runner, recorded-evidence workflow |
+| `create-graph-app`   | Existing coarse-grained app scaffolder and six working templates                         |
+| `graph-templates`    | Fine-node contracts and validation; three audited deterministic runtime adapters         |
+| `reference-app`      | Source application behind the original templates                                         |
 
-The two template systems intentionally retain their different schemas. Existing scaffolding remains usable independently; see [create-graph-app](create-graph-app/README.md), [graph templates](graph-templates/README.md), and the [reference architecture](REFERENCE_ARCHITECTURE.md).
+The two template systems intentionally retain their different schemas. Existing scaffolding remains usable independently; see [create-graph-app](create-graph-app/README.md), [graph templates](graph-templates/README.md), and the [reference architecture](reference-app/REFERENCE_ARCHITECTURE.md).
 
 ## Checks and collaboration
 
@@ -59,6 +73,8 @@ Use focused feature branches, reviewed PRs, and `dev` as the integration branch.
 
 ## Current boundaries
 
-The graph is syntax-backed, not a complete semantic call graph. Missing language resolution and unavailable embeddings are reported. Local storage does not make a cloud-backed coding client offline: cloud export requires explicit policy and source-path permission. Laya/Jev scores do not prove code correct; verification and human PR review remain independent. No token-savings or engineering-accuracy claims are made without measured evaluation results.
+The graph is syntax-backed, not a complete semantic call graph; lexical call candidates remain labeled heuristic. Missing resolution and unavailable embeddings are reported. Local storage does not make a cloud-backed coding client offline: cloud export requires explicit policy and source-path permission, and private mandatory context blocks export. Exact cached-proposal replay reruns required checks. Laya/Jev scores do not prove code correct; required verification and human acceptance remain independent. Unknown token usage/cost stays unknown rather than becoming zero.
 
-The [evaluation corpus](evaluation/README.md) is a reproducible synthetic smoke suite, not evidence that routing is ready for autonomous architecture or security decisions. Promotion remains disabled until separately collected calibration and held-out results meet the documented gates.
+Only `backend.api-response`, `backend.pagination`, and `backend.validation` have deterministic fine-template renderers; other nodes remain catalog-only for execution. The DAG requires reviewed explicit steps. Snapshot storage currently duplicates source payloads; retention and private backups are operational requirements, not optional proof of production readiness.
+
+The [evaluation corpus](evaluation/README.md) is a reproducible synthetic smoke suite, not evidence that routing is ready for autonomous architecture or security decisions. Promotion remains disabled until recorded, independently labeled calibration and held-out outcomes meet category-specific gates. The [10,000-file indexing receipt](docs/context-benchmark-10000.json) measures one synthetic local workload; it does not establish coding accuracy, production throughput, or token savings.

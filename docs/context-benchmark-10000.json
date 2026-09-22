@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "kind": "synthetic-context-performance",
+  "measuredAt": "2026-09-22T03:40:00.338Z",
+  "environment": {
+    "node": "v26.3.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M5 Max",
+    "logicalCpus": 18
+  },
+  "implementationSha256": "3e0e1168ae5bb72919855c9a81c5a111ae37ee0fb43af06977d4a8154469c9b1",
+  "harnessSha256": "a84124d1b19dd05420609e73a4776b2daadc3a204466a55fd7261c2bae75ec38",
+  "dataset": {
+    "fileCount": 10000,
+    "sourceBytes": 3149730,
+    "languages": ["typescript"],
+    "generatedFunctions": 20000
+  },
+  "timings": {
+    "coldIndexMs": 8001.231,
+    "unchangedIndexMs": 2607.039,
+    "oneFileChangedIndexMs": 7833.862,
+    "summariesMs": 939.524,
+    "lexicalQueryMs": 2.639,
+    "graphQueryMs": 66.265,
+    "hybridQueryMs": 64.241
+  },
+  "processRssBytes": 1433092096,
+  "processMaxRssBytes": 1618296832,
+  "databaseBytes": 365408256,
+  "walBytes": 187484752,
+  "summaries": 10501,
+  "retrieval": [
+    {
+      "mode": "lexical",
+      "returnedItems": 1,
+      "estimatedTokens": 344,
+      "semanticAvailable": false,
+      "expectedFilePresent": true
+    },
+    {
+      "mode": "graph",
+      "returnedItems": 6,
+      "estimatedTokens": 1128,
+      "semanticAvailable": false,
+      "expectedFilePresent": true
+    },
+    {
+      "mode": "hybrid",
+      "returnedItems": 6,
+      "estimatedTokens": 1128,
+      "semanticAvailable": false,
+      "expectedFilePresent": true
+    }
+  ],
+  "limits": [
+    "Synthetic generated TypeScript only; not representative engineering accuracy",
+    "Embeddings intentionally unprovisioned; hybrid falls back to lexical+graph",
+    "Warm index verifies every source content hash and reuses parser artifacts",
+    "No hosted API, model inference, or production throughput claim"
+  ],
+  "observationNotes": [
+    "Local Qwen/Laya services were present; no concurrent Jina indexing load. Not a fully isolated machine benchmark."
+  ]
+}
