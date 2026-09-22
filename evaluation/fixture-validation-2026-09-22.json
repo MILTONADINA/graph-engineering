@@ -1,0 +1,1559 @@
+{
+  "version": "1.0.0",
+  "kind": "synthetic-fixture-validation",
+  "synthetic": true,
+  "modelCalls": 0,
+  "interpretation": "Validates fixture and external harness behavior only; not model accuracy, routing quality, or measured token savings.",
+  "startedAt": "2026-09-22T03:31:16.912Z",
+  "finishedAt": "2026-09-22T03:32:29.271Z",
+  "taskCount": 60,
+  "containerExecutions": 120,
+  "sourceCodeHash": "63d36bcd9f744af1ec005caf22dc09f06f3d33d0a101eabdb593e0196f1348d6",
+  "valid": true,
+  "byLanguage": [
+    {
+      "language": "javascript",
+      "tasks": 10,
+      "brokenRejected": 10,
+      "oraclePassed": 10,
+      "valid": true
+    },
+    {
+      "language": "python",
+      "tasks": 10,
+      "brokenRejected": 10,
+      "oraclePassed": 10,
+      "valid": true
+    },
+    {
+      "language": "go",
+      "tasks": 10,
+      "brokenRejected": 10,
+      "oraclePassed": 10,
+      "valid": true
+    },
+    {
+      "language": "rust",
+      "tasks": 10,
+      "brokenRejected": 10,
+      "oraclePassed": 10,
+      "valid": true
+    },
+    {
+      "language": "java",
+      "tasks": 10,
+      "brokenRejected": 10,
+      "oraclePassed": 10,
+      "valid": true
+    },
+    {
+      "language": "csharp",
+      "tasks": 10,
+      "brokenRejected": 10,
+      "oraclePassed": 10,
+      "valid": true
+    }
+  ],
+  "results": [
+    {
+      "taskId": "javascript-addition",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "c13d1998c2f9618b98542d64a452227b43ef569f73338fa478b7cda0fdb887c1",
+      "elapsedMs": 1239,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "ca2eb24c1c3641a9f2045c6fc0202c09aa4730977bef178d4aa664f22f3d39fb",
+        "harnessHash": "475a295562a8634d13f15396e83a129cee794058f9fb0cf44ddafa928bd98d80"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "8bd563e0b1a490a8d1f4420b208d42c77f90787dbfe9c28d12e6827f6bd9ae1a",
+        "harnessHash": "475a295562a8634d13f15396e83a129cee794058f9fb0cf44ddafa928bd98d80"
+      }
+    },
+    {
+      "taskId": "javascript-subtraction",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "c805f884b6740f4d29e0bedee81a74429362a3ff1a30dd51a70f394954721c61",
+      "elapsedMs": 1293,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "8bd563e0b1a490a8d1f4420b208d42c77f90787dbfe9c28d12e6827f6bd9ae1a",
+        "harnessHash": "25516e6b217396f333789a7d0416d34cf90b9d3dfe8719455d084b15b893880d"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "ca2eb24c1c3641a9f2045c6fc0202c09aa4730977bef178d4aa664f22f3d39fb",
+        "harnessHash": "25516e6b217396f333789a7d0416d34cf90b9d3dfe8719455d084b15b893880d"
+      }
+    },
+    {
+      "taskId": "javascript-multiplication",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "e9436c825c1de2e36e27d72bcd1b69c9bb0e2c8b4ae0d5ba76532ea5fd212ce7",
+      "elapsedMs": 1285,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "8bd563e0b1a490a8d1f4420b208d42c77f90787dbfe9c28d12e6827f6bd9ae1a",
+        "harnessHash": "24b5404fea042f210e3adb1fbad498ccfc80a306d1551cf1c5c83e40b9017aeb"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "6dbcf88b7cd17fc27ab67f0a128a3eda73ad205136e80d4dc144188ec5973f53",
+        "harnessHash": "24b5404fea042f210e3adb1fbad498ccfc80a306d1551cf1c5c83e40b9017aeb"
+      }
+    },
+    {
+      "taskId": "javascript-maximum",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "fd1e87874be0b7a590dd35571f1d19436620dc10794228384bffb307240b1eec",
+      "elapsedMs": 1271,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "5f5151e30291c8bf9c85f513e953a0f1b6ceae390a1ff8e836de47581354c388",
+        "harnessHash": "acb158ae2338ffeda4cc5b8aa50473eaa7a2a624ef7e88915ff34057124a8578"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "43e28c5d8a4ff3a6f35d854328573196a177173937b2cdbe1c7febd2be647a10",
+        "harnessHash": "acb158ae2338ffeda4cc5b8aa50473eaa7a2a624ef7e88915ff34057124a8578"
+      }
+    },
+    {
+      "taskId": "javascript-minimum",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "be445e39d57a7df749a160056aab7047645cf3c751493a21308d6216461b891f",
+      "elapsedMs": 560,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "43e28c5d8a4ff3a6f35d854328573196a177173937b2cdbe1c7febd2be647a10",
+        "harnessHash": "3daffbeff67db61ab9d6b85d9012fd08fa5debdd6780514a2ae7f9511fb8d62f"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "5f5151e30291c8bf9c85f513e953a0f1b6ceae390a1ff8e836de47581354c388",
+        "harnessHash": "3daffbeff67db61ab9d6b85d9012fd08fa5debdd6780514a2ae7f9511fb8d62f"
+      }
+    },
+    {
+      "taskId": "javascript-absolute",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "4ed570cedad58eba0e753950d01e5a775661adecd4cf6d7052f3078161f9a355",
+      "elapsedMs": 553,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "1cc053354af35fe5e6175925948283edb8aecbb7d4442ef97fd3133ebca7e1ab",
+        "harnessHash": "78af41ec639f51bd42821c4ec28342eb399e668a36684e47546db0e72c13a944"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "cbca8d3379e0b1553b0b423f3b81007ff507b6e2c58949ad7991333074fefe2f",
+        "harnessHash": "78af41ec639f51bd42821c4ec28342eb399e668a36684e47546db0e72c13a944"
+      }
+    },
+    {
+      "taskId": "javascript-increment",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "742c8047bf37ef0bf5aec73c85584edc07777bc79bb43749fe8b96fa34291eb2",
+      "elapsedMs": 602,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "12a9b9b99a0c0b0fbd02a8e1bd03a77e329d15b0ab8bebe8d77ed76d3323e493",
+        "harnessHash": "5ba80a7cd7576651a1e4489b0380c1fb0ee25e6db253033fb9b8b95d22f902e2"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "da4a1da36e5b22a97f4642c7332b295995d92a260cc5bf8d4de936bb90193e4d",
+        "harnessHash": "5ba80a7cd7576651a1e4489b0380c1fb0ee25e6db253033fb9b8b95d22f902e2"
+      }
+    },
+    {
+      "taskId": "javascript-nonnegative",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "882cbec4f4ec6bb8c3ff6b3073b3cedd6713f6211065507741b171d3c54abe7c",
+      "elapsedMs": 574,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "1cc053354af35fe5e6175925948283edb8aecbb7d4442ef97fd3133ebca7e1ab",
+        "harnessHash": "b61f583cdd98277d34e40dff0f285dd1d7c4c700b96c0625f79094f8eb84d31a"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "55ca942dc53f10dac41be1258453fc4a0447f5968bb6cf733315e81a48a7ba28",
+        "harnessHash": "b61f583cdd98277d34e40dff0f285dd1d7c4c700b96c0625f79094f8eb84d31a"
+      }
+    },
+    {
+      "taskId": "javascript-even",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "07fe9edba42cc8357cca78f9f09b48e0eda7f2d8ddc945ea4c10ee6fc016f1fe",
+      "elapsedMs": 645,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "a54313251afa99c54fad7fec1fe340d8e01d325f2deac7ee768ca24e3f4b7da8",
+        "harnessHash": "4619db88758a52de141aacfddcc407fbe63bb7bf47e9a65f47a856f5ce4b0fd0"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "9062fd87c9002b21bc2c920e62c47bbbcc262d17b528fe9fb5ad21f19e511ec3",
+        "harnessHash": "4619db88758a52de141aacfddcc407fbe63bb7bf47e9a65f47a856f5ce4b0fd0"
+      }
+    },
+    {
+      "taskId": "javascript-sign",
+      "language": "javascript",
+      "synthetic": true,
+      "valid": true,
+      "image": "node:24-slim",
+      "imageId": "sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203",
+      "expectedCases": 8,
+      "expectedHash": "898ee2cf6c25d4e9d6648dc3aaf5baf26e9bc46e43aba446c6dde61098639596",
+      "elapsedMs": 612,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "f586ecfaba571fd70fc9b84c4276bc0f557e2cbf144bc7649fac27fad75a9e8a",
+        "harnessHash": "aaf48eaf4a20c8cbcdf3843c4bf5b7ab23044353e4a8e472e88898f7becf07be"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "a423c165339f43c3772da92bc9a74a9109179f6faf63790d282ee2ac6189caf9",
+        "harnessHash": "aaf48eaf4a20c8cbcdf3843c4bf5b7ab23044353e4a8e472e88898f7becf07be"
+      }
+    },
+    {
+      "taskId": "python-addition",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "c13d1998c2f9618b98542d64a452227b43ef569f73338fa478b7cda0fdb887c1",
+      "elapsedMs": 633,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "88001e6515c7809be2b1955d86efa79969872b398de5a070b6e4406b1830cb7c",
+        "harnessHash": "32de9a75178d39e81fe77bdde1e650dbc8c643607b3ba363148c0dc92a2dd534"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "01870dde014038e01d0de3038e71d540ac852d396637b732173f2715040e8518",
+        "harnessHash": "32de9a75178d39e81fe77bdde1e650dbc8c643607b3ba363148c0dc92a2dd534"
+      }
+    },
+    {
+      "taskId": "python-subtraction",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "c805f884b6740f4d29e0bedee81a74429362a3ff1a30dd51a70f394954721c61",
+      "elapsedMs": 628,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "01870dde014038e01d0de3038e71d540ac852d396637b732173f2715040e8518",
+        "harnessHash": "0f4f0bc837d59d1fa0ccaa777d9de3832f5d8b216a579f7d76126ce6afd42193"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "88001e6515c7809be2b1955d86efa79969872b398de5a070b6e4406b1830cb7c",
+        "harnessHash": "0f4f0bc837d59d1fa0ccaa777d9de3832f5d8b216a579f7d76126ce6afd42193"
+      }
+    },
+    {
+      "taskId": "python-multiplication",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "e9436c825c1de2e36e27d72bcd1b69c9bb0e2c8b4ae0d5ba76532ea5fd212ce7",
+      "elapsedMs": 639,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "01870dde014038e01d0de3038e71d540ac852d396637b732173f2715040e8518",
+        "harnessHash": "6960b6d30508387a03a8e30b13294e0a3cd1f6dda27d65efd08722b8dd09df1f"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "29dbb1090273aacc9cf52bd1e3e303a1f761c457d9b1c3b232ea9c9678da7226",
+        "harnessHash": "6960b6d30508387a03a8e30b13294e0a3cd1f6dda27d65efd08722b8dd09df1f"
+      }
+    },
+    {
+      "taskId": "python-maximum",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "fd1e87874be0b7a590dd35571f1d19436620dc10794228384bffb307240b1eec",
+      "elapsedMs": 619,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "1adc6f6b357302163ccd4b45f060ff3ee5f1353137e2e280f9028a97326b3d37",
+        "harnessHash": "eb061bcff7f5efc6237952003a839c149602a4493ac2617c11d9f474ec735568"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "31e67ff2886db6a85d0300fa128f534029624fc9cbd4fcca74a4dd2aaff92a1b",
+        "harnessHash": "eb061bcff7f5efc6237952003a839c149602a4493ac2617c11d9f474ec735568"
+      }
+    },
+    {
+      "taskId": "python-minimum",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "be445e39d57a7df749a160056aab7047645cf3c751493a21308d6216461b891f",
+      "elapsedMs": 621,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "31e67ff2886db6a85d0300fa128f534029624fc9cbd4fcca74a4dd2aaff92a1b",
+        "harnessHash": "d14aebfccf9582bce4c0f815926c13dc5f115dd0b43a690163e7bfe8b114bfc4"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "1adc6f6b357302163ccd4b45f060ff3ee5f1353137e2e280f9028a97326b3d37",
+        "harnessHash": "d14aebfccf9582bce4c0f815926c13dc5f115dd0b43a690163e7bfe8b114bfc4"
+      }
+    },
+    {
+      "taskId": "python-absolute",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "4ed570cedad58eba0e753950d01e5a775661adecd4cf6d7052f3078161f9a355",
+      "elapsedMs": 619,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "013d9a76e642cdf4eb01ecd5a401c7c78883a10ee9430a1e0e6226a640fca3af",
+        "harnessHash": "9eeda11fe8a42fe6419c8d89872db95fb86899ac93fbcfe8ae26238643c58a58"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "1506d55412a07763b2d1d3240536a1fb8bbb3785a5ddd11c96c6cf4451db8df2",
+        "harnessHash": "9eeda11fe8a42fe6419c8d89872db95fb86899ac93fbcfe8ae26238643c58a58"
+      }
+    },
+    {
+      "taskId": "python-increment",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "742c8047bf37ef0bf5aec73c85584edc07777bc79bb43749fe8b96fa34291eb2",
+      "elapsedMs": 651,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "1678e6d57d80ee4268c0fa599fec690adb0b0c5623fcac13251c54c508790bcf",
+        "harnessHash": "1bf778c4722ebd5d11042bae7d394f803e8c7a7a03204725de84a008ebcb9eee"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "ccdb669adf23b1206ed64c7cfcd75775b4cf9f56445a603e9be4993a3b7ff8d1",
+        "harnessHash": "1bf778c4722ebd5d11042bae7d394f803e8c7a7a03204725de84a008ebcb9eee"
+      }
+    },
+    {
+      "taskId": "python-nonnegative",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "882cbec4f4ec6bb8c3ff6b3073b3cedd6713f6211065507741b171d3c54abe7c",
+      "elapsedMs": 601,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "013d9a76e642cdf4eb01ecd5a401c7c78883a10ee9430a1e0e6226a640fca3af",
+        "harnessHash": "d9fa25d279c559521772ab692cad4514f5fac6094cb1a5d8dc4e2528425948b6"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "0e6ee9bf4f368021c7454d8c5c2fdb2f11ba9ec2717be8794eab679b085435ab",
+        "harnessHash": "d9fa25d279c559521772ab692cad4514f5fac6094cb1a5d8dc4e2528425948b6"
+      }
+    },
+    {
+      "taskId": "python-even",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "07fe9edba42cc8357cca78f9f09b48e0eda7f2d8ddc945ea4c10ee6fc016f1fe",
+      "elapsedMs": 616,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "f9e73284159c3a715186f2f6df08d0f0be38dedcffa3e9fb7e3f700cffd31b4a",
+        "harnessHash": "577fa26d427db6e966e25a0a7b18434ad4124d64d5340aab289dfab41e06c193"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "174ac1a8371bab9bfc795102261fca307ddfbdb0ea60712e92c13b2b30d5e467",
+        "harnessHash": "577fa26d427db6e966e25a0a7b18434ad4124d64d5340aab289dfab41e06c193"
+      }
+    },
+    {
+      "taskId": "python-sign",
+      "language": "python",
+      "synthetic": true,
+      "valid": true,
+      "image": "python:3.12-slim",
+      "imageId": "sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+      "expectedCases": 8,
+      "expectedHash": "898ee2cf6c25d4e9d6648dc3aaf5baf26e9bc46e43aba446c6dde61098639596",
+      "elapsedMs": 601,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "12d2c7fc7a5c02b25e955e0f10e089e8ecdb247148c55280a120fb69040a0d10",
+        "harnessHash": "f971366c94d0c929310c2a15f3a6dce8cb8aa0ff234ca9a36202299690f1d7bf"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "b39003be59ece408627ce48d9f04facb806617fb0c04e6513d2bfa16b9fd3165",
+        "harnessHash": "f971366c94d0c929310c2a15f3a6dce8cb8aa0ff234ca9a36202299690f1d7bf"
+      }
+    },
+    {
+      "taskId": "go-addition",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "c13d1998c2f9618b98542d64a452227b43ef569f73338fa478b7cda0fdb887c1",
+      "elapsedMs": 8416,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "e6f66ee54d9266f3ff66a7d44e1a01ffeb95a161d01b81a26f58d0a71cb83831",
+        "harnessHash": "2f7989fe7faf5f16341215dc5ede30e5b75aa60c35fe12368bc2dd404d97c07f"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "55c72fc061e0f99e8123cb6a1d52445c2b70bcd1fefbf220aefadd0598629197",
+        "harnessHash": "2f7989fe7faf5f16341215dc5ede30e5b75aa60c35fe12368bc2dd404d97c07f"
+      }
+    },
+    {
+      "taskId": "go-subtraction",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "c805f884b6740f4d29e0bedee81a74429362a3ff1a30dd51a70f394954721c61",
+      "elapsedMs": 8377,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "55c72fc061e0f99e8123cb6a1d52445c2b70bcd1fefbf220aefadd0598629197",
+        "harnessHash": "42be2c0ef201af964d581b9291620698bae601d00e11d59b456304694b99d311"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "e6f66ee54d9266f3ff66a7d44e1a01ffeb95a161d01b81a26f58d0a71cb83831",
+        "harnessHash": "42be2c0ef201af964d581b9291620698bae601d00e11d59b456304694b99d311"
+      }
+    },
+    {
+      "taskId": "go-multiplication",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "e9436c825c1de2e36e27d72bcd1b69c9bb0e2c8b4ae0d5ba76532ea5fd212ce7",
+      "elapsedMs": 8337,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "55c72fc061e0f99e8123cb6a1d52445c2b70bcd1fefbf220aefadd0598629197",
+        "harnessHash": "dda21d04b920f3806a272b0219136213400feb91300056786b7f5fe9a79afe2d"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "fe545d959bcd0846ef925b829df73a58a639ce85714913c3a451077ca312d6e0",
+        "harnessHash": "dda21d04b920f3806a272b0219136213400feb91300056786b7f5fe9a79afe2d"
+      }
+    },
+    {
+      "taskId": "go-maximum",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "fd1e87874be0b7a590dd35571f1d19436620dc10794228384bffb307240b1eec",
+      "elapsedMs": 8342,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "86bfa8fb50533d1a4935a66d6b4d5612a507dfa523fa4890a6ee28800d684a0c",
+        "harnessHash": "1cbc720e70ce0ae9633be677f31ee002d8c3364fec5167407d06f5fcad415a5d"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "bf84093b74512de50d43aa736b15f80b7516dca3aff6a6c3703f6de276921a43",
+        "harnessHash": "1cbc720e70ce0ae9633be677f31ee002d8c3364fec5167407d06f5fcad415a5d"
+      }
+    },
+    {
+      "taskId": "go-minimum",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "be445e39d57a7df749a160056aab7047645cf3c751493a21308d6216461b891f",
+      "elapsedMs": 7894,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "bf84093b74512de50d43aa736b15f80b7516dca3aff6a6c3703f6de276921a43",
+        "harnessHash": "67506587b7ffedecd976672fcea53ed8e767c16546f591f6028d71989562e967"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "86bfa8fb50533d1a4935a66d6b4d5612a507dfa523fa4890a6ee28800d684a0c",
+        "harnessHash": "67506587b7ffedecd976672fcea53ed8e767c16546f591f6028d71989562e967"
+      }
+    },
+    {
+      "taskId": "go-absolute",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "4ed570cedad58eba0e753950d01e5a775661adecd4cf6d7052f3078161f9a355",
+      "elapsedMs": 7923,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "f472cac00860aafe30380438a8a11ecc9cf11ecad9a5004afddfbe9632eb0b61",
+        "harnessHash": "d53c0b70f3a645d64d6442860039f9a180ff047dee03b68f5076c77340957e03"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "07da9935991285ed1ab48202cfe931dbc6482d8ef9b5119bee2550bff700f681",
+        "harnessHash": "d53c0b70f3a645d64d6442860039f9a180ff047dee03b68f5076c77340957e03"
+      }
+    },
+    {
+      "taskId": "go-increment",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "742c8047bf37ef0bf5aec73c85584edc07777bc79bb43749fe8b96fa34291eb2",
+      "elapsedMs": 7959,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "111464623e0014b4bcc0b714691d86501a6072ec5c80a2f030f4a5cb330e14e2",
+        "harnessHash": "58bf22d8b76a1e1c83ff2058eb6e3849892fa31b93247cbf8aae82ea2285cdc3"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "3db6131748a6f2474f2f319d1fc26ff0488405cbad303a5e3aa39ca11479ccd5",
+        "harnessHash": "58bf22d8b76a1e1c83ff2058eb6e3849892fa31b93247cbf8aae82ea2285cdc3"
+      }
+    },
+    {
+      "taskId": "go-nonnegative",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "882cbec4f4ec6bb8c3ff6b3073b3cedd6713f6211065507741b171d3c54abe7c",
+      "elapsedMs": 7924,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "f472cac00860aafe30380438a8a11ecc9cf11ecad9a5004afddfbe9632eb0b61",
+        "harnessHash": "494173a3c65d0859c1a994172b5734d53143abb46a6a4f5b08ffbea6b70fb0f5"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "99d03f25464b78cdcf726d471cac49608ae0f9e9499541f9bbafadc346822630",
+        "harnessHash": "494173a3c65d0859c1a994172b5734d53143abb46a6a4f5b08ffbea6b70fb0f5"
+      }
+    },
+    {
+      "taskId": "go-even",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "07fe9edba42cc8357cca78f9f09b48e0eda7f2d8ddc945ea4c10ee6fc016f1fe",
+      "elapsedMs": 11082,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "ff6fcd0423bd90607f56a39eae5f10fcdc95cd71bf39bef9f151d9d9905cc5d0",
+        "harnessHash": "f29dcb3c5c734dae4a610ed7a6d116c60001778afb2b4aff110649fa684e4994"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "24041562e0173d64f1c281916f806679c2cb2accdada310b8b18f149acee8083",
+        "harnessHash": "f29dcb3c5c734dae4a610ed7a6d116c60001778afb2b4aff110649fa684e4994"
+      }
+    },
+    {
+      "taskId": "go-sign",
+      "language": "go",
+      "synthetic": true,
+      "valid": true,
+      "image": "golang:1.24",
+      "imageId": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+      "expectedCases": 8,
+      "expectedHash": "898ee2cf6c25d4e9d6648dc3aaf5baf26e9bc46e43aba446c6dde61098639596",
+      "elapsedMs": 11137,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "294e646b6ca080bb6e32bfd3496520500e99d1583581e4c0b1e13e98d6122dfc",
+        "harnessHash": "410b0bcb749472aef132b6d8424049ea29a4e95ba297d67e81680ab0e32eb575"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "9eb586853d266a1fa379a7cf82d9f167c425e804d883d634473c899ed8ab9822",
+        "harnessHash": "410b0bcb749472aef132b6d8424049ea29a4e95ba297d67e81680ab0e32eb575"
+      }
+    },
+    {
+      "taskId": "rust-addition",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "c13d1998c2f9618b98542d64a452227b43ef569f73338fa478b7cda0fdb887c1",
+      "elapsedMs": 1090,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "d27452685b60c1530e09bdcd13466103bba6f7b703506c0d59b9ec1e7bb40cd5",
+        "harnessHash": "b0198878bdc85c8a546abd5cfbfa468c1b4d2149da1a9068f5d7e43f2475ddae"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "7fd292ad7e709b747c30942cba77c9e28440bfd0f14ebf1b7ea3a3d3a630fbd4",
+        "harnessHash": "b0198878bdc85c8a546abd5cfbfa468c1b4d2149da1a9068f5d7e43f2475ddae"
+      }
+    },
+    {
+      "taskId": "rust-subtraction",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "c805f884b6740f4d29e0bedee81a74429362a3ff1a30dd51a70f394954721c61",
+      "elapsedMs": 1034,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "7fd292ad7e709b747c30942cba77c9e28440bfd0f14ebf1b7ea3a3d3a630fbd4",
+        "harnessHash": "500d4bf39c5d785abb39bdc22a9058aedf6d816ab7110986b6cd3745508befc7"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "d27452685b60c1530e09bdcd13466103bba6f7b703506c0d59b9ec1e7bb40cd5",
+        "harnessHash": "500d4bf39c5d785abb39bdc22a9058aedf6d816ab7110986b6cd3745508befc7"
+      }
+    },
+    {
+      "taskId": "rust-multiplication",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "e9436c825c1de2e36e27d72bcd1b69c9bb0e2c8b4ae0d5ba76532ea5fd212ce7",
+      "elapsedMs": 1285,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "7fd292ad7e709b747c30942cba77c9e28440bfd0f14ebf1b7ea3a3d3a630fbd4",
+        "harnessHash": "c6650bfffab260f579df5d605b5e3579738282da4a7898d27fb5c2ba222b1cdf"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "b4a6bc22dcf332e02834ce2ae66dd4db17ca6765143bbe781d5f99e6b01edda8",
+        "harnessHash": "c6650bfffab260f579df5d605b5e3579738282da4a7898d27fb5c2ba222b1cdf"
+      }
+    },
+    {
+      "taskId": "rust-maximum",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "fd1e87874be0b7a590dd35571f1d19436620dc10794228384bffb307240b1eec",
+      "elapsedMs": 1226,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "adc862305e58ecbc40dac43fdf5efb750036413109abcab6ab1acb150aae9d49",
+        "harnessHash": "7fab2f473998e9009b4360760224d75c61fc085da989ea0f97fee65450a7212b"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "1ab61c583d2a2b89e26b2970706cf7c1742b5859e6c68e3f40603d3ed2ce9095",
+        "harnessHash": "7fab2f473998e9009b4360760224d75c61fc085da989ea0f97fee65450a7212b"
+      }
+    },
+    {
+      "taskId": "rust-minimum",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "be445e39d57a7df749a160056aab7047645cf3c751493a21308d6216461b891f",
+      "elapsedMs": 1224,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "1ab61c583d2a2b89e26b2970706cf7c1742b5859e6c68e3f40603d3ed2ce9095",
+        "harnessHash": "dae9f0c233b3ec292d567a1ec477bf6284c99959bd2647ef624aaf64b8b0d35f"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "adc862305e58ecbc40dac43fdf5efb750036413109abcab6ab1acb150aae9d49",
+        "harnessHash": "dae9f0c233b3ec292d567a1ec477bf6284c99959bd2647ef624aaf64b8b0d35f"
+      }
+    },
+    {
+      "taskId": "rust-absolute",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "4ed570cedad58eba0e753950d01e5a775661adecd4cf6d7052f3078161f9a355",
+      "elapsedMs": 1170,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "a45a96fcd976a13e9605184d534ab1a51f8a1ed5d9170354c6807f8b3a1ae10f",
+        "harnessHash": "0e7340b3850f2c6d6f8004a987177e0513940cd55e386b0aeccc30f69edb351e"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "93782fa1ef2dc0bca4420b646f918aef37c297662431b4e57f94c5995d182090",
+        "harnessHash": "0e7340b3850f2c6d6f8004a987177e0513940cd55e386b0aeccc30f69edb351e"
+      }
+    },
+    {
+      "taskId": "rust-increment",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "742c8047bf37ef0bf5aec73c85584edc07777bc79bb43749fe8b96fa34291eb2",
+      "elapsedMs": 2359,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "d1aae50b8c3e018dfb1c45590fab2b17c18f30f2bd4c47d541dfe9c37c6669f2",
+        "harnessHash": "1d837cc3d2e7cf3ec79c5bed938cfa22dd48ceadff9c4720fa89560a644acdd4"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "131e37b930f720569e040ef5790095b7d61f1932edfd2316da5898c82dd889cb",
+        "harnessHash": "1d837cc3d2e7cf3ec79c5bed938cfa22dd48ceadff9c4720fa89560a644acdd4"
+      }
+    },
+    {
+      "taskId": "rust-nonnegative",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "882cbec4f4ec6bb8c3ff6b3073b3cedd6713f6211065507741b171d3c54abe7c",
+      "elapsedMs": 2100,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "a45a96fcd976a13e9605184d534ab1a51f8a1ed5d9170354c6807f8b3a1ae10f",
+        "harnessHash": "92d3df25527d08da2549a3612b0aaa103c700183470677f731125bf4300ecec1"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "19e96ca379253ab360172fab0e8f7055690bb757c2dc22d2779f6478dc0fd040",
+        "harnessHash": "92d3df25527d08da2549a3612b0aaa103c700183470677f731125bf4300ecec1"
+      }
+    },
+    {
+      "taskId": "rust-even",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "07fe9edba42cc8357cca78f9f09b48e0eda7f2d8ddc945ea4c10ee6fc016f1fe",
+      "elapsedMs": 2078,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "9265085b8193fb1f3f5c90771a026c47930fa39d966b0b7814338b06a320066c",
+        "harnessHash": "d9375740dc0dee2fd89eea2b39837e2cdcef5fa5836eda7d9026e1d5cd60616a"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "f9cf1611ec2319c121960114fcb02263b2b2e7e8fc40269d6736c7423b9e1be2",
+        "harnessHash": "d9375740dc0dee2fd89eea2b39837e2cdcef5fa5836eda7d9026e1d5cd60616a"
+      }
+    },
+    {
+      "taskId": "rust-sign",
+      "language": "rust",
+      "synthetic": true,
+      "valid": true,
+      "image": "rust:1.85",
+      "imageId": "sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4",
+      "expectedCases": 8,
+      "expectedHash": "898ee2cf6c25d4e9d6648dc3aaf5baf26e9bc46e43aba446c6dde61098639596",
+      "elapsedMs": 2058,
+      "broken": {
+        "success": false,
+        "exitCode": 101,
+        "sourceUnchanged": true,
+        "sourceHash": "deccd52be4f4bbf18a4544c7202282833d433645e29609b7397da4d68d5c39ab",
+        "harnessHash": "93a28d8c71ec325fd648b1922ed52f80503ac4127ecec9388f59a32c5b0235bf"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "5ad8ee3c760552612c5bbd6efcd05750e02687f216d9151b64085892656c1026",
+        "harnessHash": "93a28d8c71ec325fd648b1922ed52f80503ac4127ecec9388f59a32c5b0235bf"
+      }
+    },
+    {
+      "taskId": "java-addition",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "c13d1998c2f9618b98542d64a452227b43ef569f73338fa478b7cda0fdb887c1",
+      "elapsedMs": 3198,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "aef5a9cc9fc077832406312ee9a52490b404ad0d432cb0368c975dcebee61503",
+        "harnessHash": "79e29da58b083b0bcc9edf4c093b59a217035366244dab297157f33fc3472f60"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "e6c69682f23f4794532ade5ab20bb1abaa1491b50c70ff45494c139b833ab778",
+        "harnessHash": "79e29da58b083b0bcc9edf4c093b59a217035366244dab297157f33fc3472f60"
+      }
+    },
+    {
+      "taskId": "java-subtraction",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "c805f884b6740f4d29e0bedee81a74429362a3ff1a30dd51a70f394954721c61",
+      "elapsedMs": 2991,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "e6c69682f23f4794532ade5ab20bb1abaa1491b50c70ff45494c139b833ab778",
+        "harnessHash": "a03ef3414771e7cd50d3c149b0412f4903dc0958775d0c86a071d4ff319b2ae3"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "aef5a9cc9fc077832406312ee9a52490b404ad0d432cb0368c975dcebee61503",
+        "harnessHash": "a03ef3414771e7cd50d3c149b0412f4903dc0958775d0c86a071d4ff319b2ae3"
+      }
+    },
+    {
+      "taskId": "java-multiplication",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "e9436c825c1de2e36e27d72bcd1b69c9bb0e2c8b4ae0d5ba76532ea5fd212ce7",
+      "elapsedMs": 2246,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "e6c69682f23f4794532ade5ab20bb1abaa1491b50c70ff45494c139b833ab778",
+        "harnessHash": "d10bddbc5260ac4549df2214715337b18060fc26ce7fefba3f6113bab2f97387"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "43d07cb33c166beb854092fd600d7c8249584103a2d3643db36cdf7b700aadbc",
+        "harnessHash": "d10bddbc5260ac4549df2214715337b18060fc26ce7fefba3f6113bab2f97387"
+      }
+    },
+    {
+      "taskId": "java-maximum",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "fd1e87874be0b7a590dd35571f1d19436620dc10794228384bffb307240b1eec",
+      "elapsedMs": 2289,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "8089fbaf5f1c8f4dee9f68c05afdbb4e735bd3505cc6c984f58e3688574f5fa9",
+        "harnessHash": "96d0caa87b8ba48b2e2e69f11e9d4a504c3896ffe9e2765d81a8b241180e190d"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "457c5282eaed4d632bcc99a9e527d3d19068b1f730da2c1ce78fc1bd503985ab",
+        "harnessHash": "96d0caa87b8ba48b2e2e69f11e9d4a504c3896ffe9e2765d81a8b241180e190d"
+      }
+    },
+    {
+      "taskId": "java-minimum",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "be445e39d57a7df749a160056aab7047645cf3c751493a21308d6216461b891f",
+      "elapsedMs": 2215,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "457c5282eaed4d632bcc99a9e527d3d19068b1f730da2c1ce78fc1bd503985ab",
+        "harnessHash": "e3ff3125e0d227489cd4668f3f771edae2b7640c0017b536cbfa829466a33e34"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "8089fbaf5f1c8f4dee9f68c05afdbb4e735bd3505cc6c984f58e3688574f5fa9",
+        "harnessHash": "e3ff3125e0d227489cd4668f3f771edae2b7640c0017b536cbfa829466a33e34"
+      }
+    },
+    {
+      "taskId": "java-absolute",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "4ed570cedad58eba0e753950d01e5a775661adecd4cf6d7052f3078161f9a355",
+      "elapsedMs": 2199,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "365a91459a6b4f475c9417942c35d8d86d144fe681ef624b14aadf805cafcb72",
+        "harnessHash": "b1bb93f5a5ebf9e9bce1cccc110fd534efbb47e278d7ede97b3e21d5de385901"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "c590fc8ff6b1b777975b85782fdceadf7d205acf77677792facca097de0a6182",
+        "harnessHash": "b1bb93f5a5ebf9e9bce1cccc110fd534efbb47e278d7ede97b3e21d5de385901"
+      }
+    },
+    {
+      "taskId": "java-increment",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "742c8047bf37ef0bf5aec73c85584edc07777bc79bb43749fe8b96fa34291eb2",
+      "elapsedMs": 2534,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "c835376e022c9bc43d193094a068fbea9e00f2f96cd6af50bf9a7e5b8d6207b2",
+        "harnessHash": "fcf29d9c25c701f930fd953cf8d883893479b015d78bc09f483eb48d8c4e0646"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "76bc24b78208a5335c90dd9d05cd0359a7707f0a037f23e5372feaf7ba809cc8",
+        "harnessHash": "fcf29d9c25c701f930fd953cf8d883893479b015d78bc09f483eb48d8c4e0646"
+      }
+    },
+    {
+      "taskId": "java-nonnegative",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "882cbec4f4ec6bb8c3ff6b3073b3cedd6713f6211065507741b171d3c54abe7c",
+      "elapsedMs": 2499,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "365a91459a6b4f475c9417942c35d8d86d144fe681ef624b14aadf805cafcb72",
+        "harnessHash": "93f0101d641dc610e633e993e1f49912091fdfcbf2a2bd507fb63c62df266e2d"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "ca61eb875f1f303519140886285b2d061d61c8e26282fcfae739c84f57aa70e9",
+        "harnessHash": "93f0101d641dc610e633e993e1f49912091fdfcbf2a2bd507fb63c62df266e2d"
+      }
+    },
+    {
+      "taskId": "java-even",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "07fe9edba42cc8357cca78f9f09b48e0eda7f2d8ddc945ea4c10ee6fc016f1fe",
+      "elapsedMs": 2554,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "1d85fe6acc5716c559c674a6329dbf8e00554644ac243111a765059cf0360d82",
+        "harnessHash": "eb4acf8f320d78d66ca77d0607025737faf2dcbe332d647e5bcc988e6668a15b"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "bea42025f8eefad9ba7535c221453a521a312aa8cdf45ef39800372e00bf4864",
+        "harnessHash": "eb4acf8f320d78d66ca77d0607025737faf2dcbe332d647e5bcc988e6668a15b"
+      }
+    },
+    {
+      "taskId": "java-sign",
+      "language": "java",
+      "synthetic": true,
+      "valid": true,
+      "image": "eclipse-temurin:21-jdk",
+      "imageId": "sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d",
+      "expectedCases": 8,
+      "expectedHash": "898ee2cf6c25d4e9d6648dc3aaf5baf26e9bc46e43aba446c6dde61098639596",
+      "elapsedMs": 2844,
+      "broken": {
+        "success": false,
+        "exitCode": 1,
+        "sourceUnchanged": true,
+        "sourceHash": "9e986c9195730b21641e06356a0438b74ebddacd859e6ec22961d1ba6f0f2141",
+        "harnessHash": "50295ce1c7ad8197cb937b8bc53dc81b8bcc558a08c57e5a2137c8939d3cc7f4"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "4d4312300ec9bc3d353e54ade5c9a302b324e73fc1c66a667405e47acd317af4",
+        "harnessHash": "50295ce1c7ad8197cb937b8bc53dc81b8bcc558a08c57e5a2137c8939d3cc7f4"
+      }
+    },
+    {
+      "taskId": "csharp-addition",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "c13d1998c2f9618b98542d64a452227b43ef569f73338fa478b7cda0fdb887c1",
+      "elapsedMs": 11748,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "cb5acee3db85dcd7d3ebbb8d935c1e54bf5cdccf9585e0e069ae6a066911985c",
+        "harnessHash": "526d2c01ff0ed9769fd900c19ad4b4c41e3b095b13a1c5a719065eccc2c60159"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "471b340418881d3dcdb7c1b878db87369a23ee9d5684fdcc34018c0fad606dd2",
+        "harnessHash": "526d2c01ff0ed9769fd900c19ad4b4c41e3b095b13a1c5a719065eccc2c60159"
+      }
+    },
+    {
+      "taskId": "csharp-subtraction",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "c805f884b6740f4d29e0bedee81a74429362a3ff1a30dd51a70f394954721c61",
+      "elapsedMs": 11659,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "471b340418881d3dcdb7c1b878db87369a23ee9d5684fdcc34018c0fad606dd2",
+        "harnessHash": "6e5cbb03dd00f544709703a4d25a8e901cb1687923d9f6d6bab54f0c6f29a1ce"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "cb5acee3db85dcd7d3ebbb8d935c1e54bf5cdccf9585e0e069ae6a066911985c",
+        "harnessHash": "6e5cbb03dd00f544709703a4d25a8e901cb1687923d9f6d6bab54f0c6f29a1ce"
+      }
+    },
+    {
+      "taskId": "csharp-multiplication",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "e9436c825c1de2e36e27d72bcd1b69c9bb0e2c8b4ae0d5ba76532ea5fd212ce7",
+      "elapsedMs": 11605,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "471b340418881d3dcdb7c1b878db87369a23ee9d5684fdcc34018c0fad606dd2",
+        "harnessHash": "817a91aec427e6a8f6b8481d82a4c10ad05b78763c35e6643d91ed29113ba2aa"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "1ce5bd538b72e3785097163c19fa569e706b8ab4113862adac9d1ae716b46b2a",
+        "harnessHash": "817a91aec427e6a8f6b8481d82a4c10ad05b78763c35e6643d91ed29113ba2aa"
+      }
+    },
+    {
+      "taskId": "csharp-maximum",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "fd1e87874be0b7a590dd35571f1d19436620dc10794228384bffb307240b1eec",
+      "elapsedMs": 11937,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "2c48f7a0678d03286a8f59575a4870d0e8c73e0c4a717c8e038dc1f80a7c233b",
+        "harnessHash": "831d37045ee07b114e89c73b67b5ff9419bc7d219f18def6dff40b67cf499f7a"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "6a5383400993901029e5160a30ec6060ab6f81b932b69ba7abe190c1e96fc84b",
+        "harnessHash": "831d37045ee07b114e89c73b67b5ff9419bc7d219f18def6dff40b67cf499f7a"
+      }
+    },
+    {
+      "taskId": "csharp-minimum",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "be445e39d57a7df749a160056aab7047645cf3c751493a21308d6216461b891f",
+      "elapsedMs": 13291,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "6a5383400993901029e5160a30ec6060ab6f81b932b69ba7abe190c1e96fc84b",
+        "harnessHash": "3f640944f6c3fe6c41f911fc31d5c455fe8c88d184f56863666193b4c0eb2ed1"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "2c48f7a0678d03286a8f59575a4870d0e8c73e0c4a717c8e038dc1f80a7c233b",
+        "harnessHash": "3f640944f6c3fe6c41f911fc31d5c455fe8c88d184f56863666193b4c0eb2ed1"
+      }
+    },
+    {
+      "taskId": "csharp-absolute",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "4ed570cedad58eba0e753950d01e5a775661adecd4cf6d7052f3078161f9a355",
+      "elapsedMs": 13273,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "0c3752929d354d63caabad50bab19b9ea993c8216e49a7157d14b2f4f3404576",
+        "harnessHash": "acb347dc7cb723e2701c81e1f0659a66e22898e9018d244f8682e084c9f8963f"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "997e30ca933ee7607598256b1dd686038f98bb3adbeb96b927bf9fcd42ff023c",
+        "harnessHash": "acb347dc7cb723e2701c81e1f0659a66e22898e9018d244f8682e084c9f8963f"
+      }
+    },
+    {
+      "taskId": "csharp-increment",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "742c8047bf37ef0bf5aec73c85584edc07777bc79bb43749fe8b96fa34291eb2",
+      "elapsedMs": 13316,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "187b3c52e8f2cee2c4167125abc0f28dd659d25ca5c3c377565be96fdb4a4ae5",
+        "harnessHash": "f5d0ca612104c9be0bfbf1c2b4899bc4f73a251e3280f1a0fb406da81d08754a"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "b656cf79b35bce63a6c28d25af8e8c5fd6c4764f10ca5d9585be9d0b0173cd4b",
+        "harnessHash": "f5d0ca612104c9be0bfbf1c2b4899bc4f73a251e3280f1a0fb406da81d08754a"
+      }
+    },
+    {
+      "taskId": "csharp-nonnegative",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "882cbec4f4ec6bb8c3ff6b3073b3cedd6713f6211065507741b171d3c54abe7c",
+      "elapsedMs": 14723,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "0c3752929d354d63caabad50bab19b9ea993c8216e49a7157d14b2f4f3404576",
+        "harnessHash": "e0d6b925e26a301dd9ee72a6f344c4aac1e8d8305393d6d0d57059f1a90fa632"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "1cb3d856c05e134fddc0e7a4833319d9e6b2d9fd8596f472b12362700e5dcd24",
+        "harnessHash": "e0d6b925e26a301dd9ee72a6f344c4aac1e8d8305393d6d0d57059f1a90fa632"
+      }
+    },
+    {
+      "taskId": "csharp-even",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "07fe9edba42cc8357cca78f9f09b48e0eda7f2d8ddc945ea4c10ee6fc016f1fe",
+      "elapsedMs": 11571,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "2730f840ea7bcf18cba2d0c524b262a5c8c6c5c817732f0c854f1c0af0d452b7",
+        "harnessHash": "cd6e27ba5973a295b44c5dbc532d39409d7cdc9db774463027189df27a4b2fbf"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "758f014d5f3be6b3023a9deea21691629d41d886cbb47a1d4cafc8a51fd015ab",
+        "harnessHash": "cd6e27ba5973a295b44c5dbc532d39409d7cdc9db774463027189df27a4b2fbf"
+      }
+    },
+    {
+      "taskId": "csharp-sign",
+      "language": "csharp",
+      "synthetic": true,
+      "valid": true,
+      "image": "mcr.microsoft.com/dotnet/sdk:8.0",
+      "imageId": "sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743",
+      "expectedCases": 8,
+      "expectedHash": "898ee2cf6c25d4e9d6648dc3aaf5baf26e9bc46e43aba446c6dde61098639596",
+      "elapsedMs": 11637,
+      "broken": {
+        "success": false,
+        "exitCode": 134,
+        "sourceUnchanged": true,
+        "sourceHash": "fb4099b850da8c48351d481a9dcf17d5432d5fb5354a4c7d0bb4c3a0380eedf4",
+        "harnessHash": "ab93edaa2e028b95e295ace00f022aff33a537a9560d8c140f0fdd00ccb5a321"
+      },
+      "oracle": {
+        "success": true,
+        "exitCode": 0,
+        "sourceUnchanged": true,
+        "sourceHash": "46911266eb84542d29d75166fcc18865702f9a48c51b806c8e0a4bf3a9f2519d",
+        "harnessHash": "ab93edaa2e028b95e295ace00f022aff33a537a9560d8c140f0fdd00ccb5a321"
+      }
+    }
+  ]
+}

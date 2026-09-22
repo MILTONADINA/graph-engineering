@@ -23,3 +23,9 @@ Native authentication remains with Codex; Graph Engineering does not copy or ext
 Cursor is reported unavailable for managed proposals. The SDK offers an empty built-in toolset, but independent hook-loading behavior and output-budget enforcement require verification before enabling it. Cursor can still consume Graph Engineering context through MCP. Its SDK requires explicit supported authentication; an installed application does not automatically supply it. See [Cursor SDK](https://cursor.com/docs/sdk/typescript).
 
 All installed workers reject local-only policies and hard monetary caps. Use API workers when precise provider limits are required. Claude's output setting applies per response; Codex usage limits are observed asynchronously and can overshoot before interruption. Missing token or cost telemetry stays `null`. No paid native prompt was used to test this implementation; protocol and failure handling are tested with mocked native transports.
+
+## Local capability recheck — 2026-09-22 UTC
+
+Read-only version/help/schema discovery on the development Mac reported Codex `0.155.1`, Claude Code `2.1.278`, and no Cursor `agent` executable. Codex remains unavailable for managed proposals because its generated App Server schema lacks restricted `readOnly.access`/`readableRoots`. This is a capability blocker, not a completed live integration. The [current App Server documentation](https://learn.chatgpt.com/docs/app-server) explicitly distinguishes unrestricted default read access from restricted roots.
+
+Claude satisfies the local CLI control gate, but API-key authentication and paid inference were not tested. Cursor remains unavailable pending installation and verification of the required controls. No client upgrade, credential extraction, global configuration change, or paid prompt was performed during this recheck. MCP client access is separate from managed worker availability.

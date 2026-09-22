@@ -165,7 +165,7 @@ async function configurationHash(argv) {
     profileHash: profile ? hash(await readFile(profile)) : null,
   });
 }
-async function verify(task, workspace, checks, imageId) {
+export async function verifyTask(task, workspace, checks, imageId) {
   const name = `graph-evaluation-${randomUUID()}`;
   const before = await sourceHash(task, workspace);
   try {
@@ -395,7 +395,7 @@ async function main() {
         } catch (error) {
           receiptError = error.message;
         }
-        const verification = await verify(
+        const verification = await verifyTask(
           task,
           workspace,
           checks,

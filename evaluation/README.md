@@ -24,6 +24,29 @@ oracle programs locally. Go, Rust, Java, and C# verification is defined by their
 container harnesses and needs those images before an end-to-end run. Provision
 the image tags shown by `--list` explicitly; the runner uses `--pull=never`.
 
+Validate the complete fixture corpus independently of any model:
+
+```sh
+node --test evaluation/validate-fixtures.test.mjs
+node evaluation/validate-fixtures.mjs --language javascript --output /path/to/new-js-fixture-report.json
+node evaluation/validate-fixtures.mjs --all --pull --concurrency 4 --output /path/to/new-fixture-report.json
+```
+
+`--pull` explicitly permits provisioning only the official images named by the
+selected fixtures. Otherwise all images must already exist locally. Each image
+tag is resolved to a fixed SHA identity before running. Every selected task runs
+both broken and oracle source in independent containers using the same external
+checks, read-only mounts, disabled networking, and dropped capabilities. The
+report requires a real nonzero broken-program exit and a successful oracle with
+the expected marker; a timeout does not count as a reproduced defect. It records
+source/harness/expected-output hashes and actual results, with `modelCalls: 0`.
+This establishes that the fixtures work, not that a model can solve them.
+
+The [2026-09-22 fixture validation report](fixture-validation-2026-09-22.json)
+records 120 actual container executions: all 60 broken programs failed and all
+60 oracle repairs passed, with ten tasks per language. It includes immutable
+image identities and source/check hashes; no model was called.
+
 ## Run actual workers
 
 Build the packages first. The included `api-adapter.mjs` uses the real engine
