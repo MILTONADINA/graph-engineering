@@ -31,11 +31,11 @@ export const GO_LIMITS = {
   rssKiB: 256 * 1024,
 } as const;
 export interface GoRuntime {
-  executable: string;
-  version: string;
-  identity: string;
-  compiler: string;
-  binaryHash: string;
+  readonly executable: string;
+  readonly version: string;
+  readonly identity: string;
+  readonly compiler: string;
+  readonly binaryHash: string;
 }
 let cached: Promise<GoRuntime | null> | undefined;
 const cleanEnv = (): Record<string, string> => ({
@@ -136,7 +136,13 @@ export function goRuntime(): Promise<GoRuntime | null> {
             rmSync(owned, { recursive: true, force: true });
           } catch {}
         });
-        return { executable, version, identity, compiler, binaryHash };
+        return Object.freeze({
+          executable,
+          version,
+          identity,
+          compiler,
+          binaryHash,
+        });
       } catch {
         if (directory)
           await rm(directory, { recursive: true, force: true }).catch(() => {});
@@ -522,12 +528,12 @@ export async function resolveGoBindings(
   )
     return empty("Unrecognized Go runtime identity; syntax evidence retained.");
   try {
-    if (hash(await readFile(available.executable)) !== available.binaryHash)
+    if (hash(await readFile(trusted.executable)) !== trusted.binaryHash)
       throw new Error("Changed Go helper");
     return validateGoOutput(
-      await analyze(available.executable, prepared.input, timeout, maxBytes),
+      await analyze(trusted.executable, prepared.input, timeout, maxBytes),
       prepared,
-      available.version,
+      trusted.version,
     );
   } catch {
     return empty(

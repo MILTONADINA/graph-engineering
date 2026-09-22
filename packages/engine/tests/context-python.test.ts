@@ -16,6 +16,30 @@ vi.mock("node:child_process", async (importOriginal) => ({
 const runtime = await pythonRuntime();
 const roots: string[] = [],
   engines: ContextEngine[] = [];
+it.runIf(!!runtime)(
+  "keeps the trusted Python runtime immutable and never dispatches through caller getters",
+  async () => {
+    expect(Object.isFrozen(runtime)).toBe(true);
+    expect(Reflect.set(runtime!, "executable", "/untrusted/python")).toBe(
+      false,
+    );
+    let reads = 0;
+    const supplied = {
+      ...runtime!,
+      get executable() {
+        return ++reads === 1 ? runtime!.executable : "/untrusted/python";
+      },
+    };
+    const files = await parse({
+      "main.py": "def target():\n    pass\ntarget()\n",
+    });
+    expect(
+      (await resolvePythonBindings(files, "snapshot", { runtime: supplied }))
+        .resolvedCalls,
+    ).toBe(1);
+    expect(reads).toBe(1);
+  },
+);
 afterEach(async () => {
   vi.restoreAllMocks();
   for (const engine of engines.splice(0)) await engine.close();
