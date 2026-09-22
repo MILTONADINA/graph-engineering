@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import {
   decideBatch,
@@ -8,6 +8,7 @@ import {
 import type { PromotionEvidence } from "../src/decisions.js";
 import { routePlan } from "../src/planning.js";
 import { hash } from "../src/util.js";
+import * as promotionAuthority from "../src/promotion-authority.js";
 
 const model = "unit-pinned-model";
 // Synthetic stand-in configuration tests gates only; this is not saved evidence.
@@ -82,7 +83,15 @@ const hosted = () => ({
 });
 const response = (answers: object, extra: object = {}) =>
   new Response(JSON.stringify({ model, answers, ...extra }));
-afterEach(() => vi.unstubAllGlobals());
+// These synthetic routing tests isolate behavior AFTER authority verification.
+// Unmocked forgery/JSON-boundary tests live in promotion-authority.test.ts.
+beforeEach(() =>
+  vi.spyOn(promotionAuthority, "authorizesPromotion").mockReturnValue(true),
+);
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("independent question batching", () => {
   it("retains the dispatch policy and stops promotion/cascading when that policy changes in flight", async () => {

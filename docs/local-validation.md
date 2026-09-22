@@ -423,6 +423,26 @@ result remains pending until that new CI job actually executes.
 
 ## Remaining evidence boundaries
 
+The unsigned-promotion path was separately hardened after review found that
+self-declared recorded provenance and numerical summaries could qualify without
+signature enforcement. Reports remain usable for analysis, but production
+eligibility now also requires an opaque project/policy/report-bound grant.
+No grant issuer is exposed at this interim checkpoint. CLI `--promote` rejects
+before persistence, and all three service evidence loads plus direct batch calls
+refuse JSON-only authority. Existing user policy/evidence files were not changed.
+Original-signature primitives reject revoked/nonindependent actors, altered
+payloads and duplicate decoded JSON keys, including escaped aliases; the new
+duplicate-key regression failed before the parser fix and passed afterward.
+
+The combined local workspace check passed 358 engine, 59 scaffolder and nine
+dashboard tests, 47 explicit engine integration skips, typechecks and builds.
+The default evaluation suite passed 68 tests with six explicit Docker/Windows
+skips; those counts include the structural build-order work staged separately.
+Local guest execution covered the five Docker skips, while the new Windows
+launch test still awaits its native CI result. Ephemeral in-memory signing keys
+in tests are test doubles, not actual partner attestations. This safety checkpoint
+does not complete signed promotion, sealed collection, or representative evidence.
+
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering
 labels, paired baseline/candidate costs, and production promotion were not
 tested or inferred. Codex's installed schema lacks required restricted read

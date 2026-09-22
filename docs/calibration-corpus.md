@@ -324,8 +324,12 @@ The receipt's `labels` use the existing engine format. Join accepted labels with
 the original draft and independently reviewed population provenance for
 `graph-engine evaluation-labels`, then evaluate without `--promote`. Preserve the
 signed receipts alongside the joined dataset: the legacy engine importer does
-not enforce this stronger signature workflow itself. Nothing in this intake
-changes promotion policy or writes a promotion file.
+not enforce this stronger signature workflow itself. Its output is now explicitly
+analysis-only: unsigned reports cannot authorize routing, and `evaluate --promote`
+rejects without writing evidence. Original-envelope signature verification
+primitives exist, but there is still no production issuer joining them to sealed
+held-out data, complete population accounting and current project/policy trust.
+Nothing in this intake changes promotion policy or writes a promotion file.
 
 ## Held-out separation and current evidence limits
 

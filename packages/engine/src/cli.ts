@@ -21,11 +21,8 @@ import { readJson, writeJson, errorMessage } from "./util.js";
 import { createServer } from "./server.js";
 import { serveMcp } from "./mcp.js";
 import { listTemplates, scaffold, validateArtifacts } from "./templates.js";
-import {
-  canPromote,
-  evaluateDecisions,
-  type EvaluationRow,
-} from "./decisions.js";
+import { evaluateDecisions, type EvaluationRow } from "./decisions.js";
+import { PROMOTION_IMPORT_BLOCKED } from "./promotion-authority.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 import { backupProject, restoreProject } from "./operations.js";
 import {
@@ -441,7 +438,7 @@ cli
 cli
   .command("evaluation-labels <input> <output>")
   .description(
-    "Join a reviewed {draft,provenance,labels} bundle; no synthetic evidence promotion",
+    "Join {draft,provenance,labels} for analysis only; unsigned labels confer no promotion authority",
   )
   .action(async (input, output) => {
     const dataset = importEvaluationLabels(await readJson(path.resolve(input)));
@@ -452,25 +449,30 @@ cli
     } finally {
       await file.close();
     }
-    print({ output: path.resolve(output), rows: dataset.rows.length });
+    print({
+      output: path.resolve(output),
+      rows: dataset.rows.length,
+      promotionEligible: false,
+    });
   });
 cli
   .command("evaluate <json>")
   .description(
     "Evaluate labeled calibration/held-out outcomes; does not fabricate benchmark results",
   )
-  .option("--promote", "Save evidence that passes promotion gates")
+  .option(
+    "--promote",
+    "Rejected until a signed promotion-bound importer and sealed held-out workflow exist",
+  )
   .action(async (file, options) => {
+    if (options.promote) throw new Error(PROMOTION_IMPORT_BLOCKED);
     const rows = await readJson<EvaluationRow[]>(path.resolve(file));
     const report = evaluateDecisions(rows);
-    if (options.promote) {
-      const project = await loadProject(root());
-      await writeJson(
-        path.join(projectDataDir(project.projectId), "promotions.json"),
-        report.reports.filter(canPromote),
-      );
-    }
-    print(report);
+    print({
+      ...report,
+      promotionEligible: false,
+      authorityStatus: "unverified",
+    });
   });
 cli
   .command("serve")

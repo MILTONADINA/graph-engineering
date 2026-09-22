@@ -11,6 +11,7 @@ import {
   type DecisionProvider,
   type PromotionEvidence,
 } from "./decisions.js";
+import type { VerifiedPromotionAuthority } from "./promotion-authority.js";
 
 export const WORKFLOWS = {
   "bug-fix":
@@ -33,6 +34,7 @@ export async function routePlan(options: {
   policy: ProjectPolicy;
   providers: DecisionProvider[];
   evidence: PromotionEvidence[];
+  promotionAuthority?: VerifiedPromotionAuthority;
   cloudState?: Record<string, unknown>;
   budget?: DecisionBudget;
   signal?: AbortSignal;

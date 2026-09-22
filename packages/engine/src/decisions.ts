@@ -7,6 +7,11 @@ import path from "node:path";
 import { assertEndpoint, containsSecret } from "./policy.js";
 import { hash, id, now, readJson } from "./util.js";
 import { decideBatch, type DecisionBudget } from "./decision-batch.js";
+import {
+  authorizesPromotion,
+  type PromotionScope,
+  type VerifiedPromotionAuthority,
+} from "./promotion-authority.js";
 export { decideBatch } from "./decision-batch.js";
 export type {
   DecisionQuestion,
@@ -81,7 +86,8 @@ export const promotionEvidenceSchema = z
     (value) => value.taskCount <= value.heldOutCount,
     "Accepted task count exceeds accepted decisions",
   );
-export function canPromote(e: PromotionEvidence): boolean {
+/** Numerical/provenance-field eligibility only; this never establishes authority. */
+export function meetsPromotionMetrics(e: PromotionEvidence): boolean {
   const valid = promotionEvidenceSchema.safeParse(e);
   if (!valid.success) return false;
   return (
@@ -95,6 +101,19 @@ export function canPromote(e: PromotionEvidence): boolean {
     e.additionalFailures === 0 &&
     e.candidateCost < e.baselineCost &&
     e.calibrationError <= 0.05
+  );
+}
+/** Production eligibility additionally requires a verified, process-local grant. */
+export function canPromote(
+  evidence: PromotionEvidence,
+  authorization?: PromotionScope & { authority: unknown },
+): boolean {
+  const valid = promotionEvidenceSchema.safeParse(evidence);
+  return (
+    valid.success &&
+    meetsPromotionMetrics(valid.data) &&
+    !!authorization &&
+    authorizesPromotion(authorization.authority, valid.data, authorization)
   );
 }
 export const decisionProviderSchema = z
@@ -140,6 +159,7 @@ export async function decide(options: {
   policy: ProjectPolicy;
   providers: DecisionProvider[];
   evidence?: PromotionEvidence[];
+  promotionAuthority?: VerifiedPromotionAuthority;
   signal?: AbortSignal;
   budget?: DecisionBudget;
 }): Promise<DecisionRecord[]> {
