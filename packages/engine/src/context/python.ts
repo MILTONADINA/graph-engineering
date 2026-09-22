@@ -18,9 +18,9 @@ export const PYTHON_LIMITS = {
   timeoutMs: 5000,
 } as const;
 export interface PythonRuntime {
-  executable: string;
-  version: string;
-  identity: string;
+  readonly executable: string;
+  readonly version: string;
+  readonly identity: string;
 }
 let runtime: Promise<PythonRuntime | null> | undefined;
 /** Linux has RLIMIT_AS; macOS rejects that limit, so additionally sample RSS
@@ -140,7 +140,7 @@ export function pythonRuntime(): Promise<PythonRuntime | null> {
         );
         const version = output.stdout.trim();
         if (output.code === 0 && /^3\.(?:[89]|[1-9][0-9])\.\d+$/.test(version))
-          return {
+          return Object.freeze({
             executable,
             version,
             identity: hash(
@@ -153,7 +153,7 @@ export function pythonRuntime(): Promise<PythonRuntime | null> {
                 info.mtimeMs,
               ]),
             ),
-          };
+          });
       } catch {}
     }
     return null;
@@ -250,7 +250,7 @@ export async function resolvePythonBindings(
     );
   try {
     const output = await analyze(
-      available.executable,
+      trusted.executable,
       input,
       timeoutMs,
       outputBytes,
@@ -262,7 +262,7 @@ export async function resolvePythonBindings(
       );
     const result = z
       .object({
-        version: z.literal(available.version),
+        version: z.literal(trusted.version),
         updates: z
           .array(
             z
@@ -327,7 +327,7 @@ export async function resolvePythonBindings(
         resolution: {
           kind: "static" as const,
           engine: "cpython" as const,
-          version: available.version,
+          version: trusted.version,
           sources: update.sources as SourceReference[],
         },
       };

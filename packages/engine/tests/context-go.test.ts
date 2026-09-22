@@ -230,6 +230,25 @@ describe("Go snapshot boundary", () => {
 });
 
 describe.runIf(!!runtime)("trusted native Go helper transport", () => {
+  it("keeps cached identity immutable and executes only the trusted runtime after comparing caller getters", async () => {
+    expect(Object.isFrozen(runtime)).toBe(true);
+    expect(Reflect.set(runtime!, "executable", "/untrusted/go-helper")).toBe(
+      false,
+    );
+    let reads = 0;
+    const supplied = {
+      ...runtime!,
+      get executable() {
+        return ++reads === 1 ? runtime!.executable : "/untrusted/go-helper";
+      },
+    };
+    const files = await parse(standard);
+    expect(
+      (await resolveGoBindings(files, "snapshot", { runtime: supplied }))
+        .resolvedCalls,
+    ).toBe(1);
+    expect(reads).toBe(1);
+  });
   it("enforces native analyzer node/output budgets", async () => {
     const files = await parse(standard);
     expect((await resolveGoBindings(files, "snapshot")).resolvedCalls).toBe(1);
