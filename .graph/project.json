@@ -4,11 +4,20 @@
   "name": "Graph Engineering",
   "policy": {
     "version": "1.0.0",
-    "inference": "local",
-    "providers": [],
-    "network": "deny",
+    "inference": "allowlisted",
+    "providers": ["qwen", "laya"],
+    "network": "allowlisted",
     "allowedHosts": [],
-    "exportPaths": [],
+    "exportPaths": [
+      "README.md",
+      "CONTRIBUTING.md",
+      "docs/**",
+      "packages/*/src/**",
+      "packages/*/tests/**",
+      "create-graph-app/src/**",
+      "create-graph-app/templates/**",
+      "graph-templates/**"
+    ],
     "excludedPaths": [
       ".env",
       ".env.*",
@@ -24,11 +33,16 @@
     "maxOutputTokens": 4000,
     "maxTurns": 12,
     "timeoutSeconds": 600,
-    "maxCostUsd": null,
+    "maxCostUsd": 0,
     "decisionMode": "shadow",
     "promotedCategories": []
   },
-  "verification": [],
+  "verification": [
+    {
+      "image": "graph-engineering-verify:local",
+      "argv": ["node", "/opt/verify-project.mjs"]
+    }
+  ],
   "github": {
     "repository": "MILTONADINA/graph-engineering",
     "baseBranch": "dev",
