@@ -58,6 +58,29 @@ const proposal = (
 });
 
 describe("dependency DAG execution", () => {
+  it("retains a pending checkpoint when an ignore-rule edit hides an earlier generated file", async () => {
+    const workspace = await fixture();
+    let saved: DagCheckpoint | undefined;
+    await expect(
+      runDag({
+        workspace,
+        policy: DEFAULT_POLICY,
+        steps: [step("source"), step("hide", ["source"])],
+        saveCheckpoint: async (value) => {
+          saved = structuredClone(value);
+        },
+        generate: async (current) =>
+          current.id === "source"
+            ? proposal("generated.ts", "export const value = 1;\n")
+            : proposal(".gitignore", "generated.ts\n"),
+      }),
+    ).rejects.toThrow(/verification inventory/);
+    expect(saved?.completed.map((item) => item.id)).toEqual(["source"]);
+    expect(saved?.pending?.stepId).toBe("hide");
+    expect(
+      await readFile(path.join(workspace, "generated.ts"), "utf8"),
+    ).toContain("value = 1");
+  });
   it("permits ordered edits of the same file and rejects stale resume state", async () => {
     const workspace = await fixture();
     const options = {

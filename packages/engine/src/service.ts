@@ -40,6 +40,7 @@ import {
 } from "./workers/installed.js";
 import {
   applyProposal,
+  assertVerificationPaths,
   createWorkspace,
   workspaceFingerprint,
 } from "./execution/workspace.js";
@@ -652,6 +653,31 @@ export class GraphEngine {
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
         save("verifying");
+        const proposedPaths = this.store
+          .events(run.id)
+          .filter((event) =>
+            [
+              "patch.applied",
+              "dag.step.completed",
+              "solution.cache_hit",
+            ].includes(event.type),
+          )
+          .flatMap((event) => {
+            const paths = event.data.paths;
+            if (
+              !Array.isArray(paths) ||
+              paths.some((item) => typeof item !== "string")
+            )
+              throw new Error(
+                "Retained patch lacks its verification path inventory; explicit source review is required before reuse",
+              );
+            return paths as string[];
+          });
+        await assertVerificationPaths(
+          workspace,
+          proposedPaths,
+          this.config.policy,
+        );
         const before = await workspaceFingerprint(
           workspace,
           this.config.policy,
@@ -890,7 +916,10 @@ export class GraphEngine {
             this.store.event(
               run.id,
               "solution.cache_hit",
-              { key: solutionInput.key },
+              {
+                key: solutionInput.key,
+                paths: proposal.changes.map((change) => change.path),
+              },
               step.id,
             );
             if (await verify(step.id)) continue;

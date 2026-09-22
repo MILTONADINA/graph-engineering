@@ -9,6 +9,7 @@ import { isAllowedPath, safePath } from "../policy.js";
 import { proposalSchema, type WorkerResult } from "../workers/api.js";
 import {
   applyProposal,
+  assertVerificationPaths,
   prepareProposal,
   workspaceFingerprint,
 } from "./workspace.js";
@@ -354,6 +355,13 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
       };
       await save(); // A crash from this point is intentionally reconciliation-required.
       await applyProposal(workspace, proposal, policy);
+      // Evaluate after application too: this patch may itself change ignore rules
+      // that hide a sibling's earlier output. Keep the pending checkpoint on failure.
+      await assertVerificationPaths(
+        workspace,
+        [...checkpoint.completed.flatMap((item) => item.paths), ...paths],
+        policy,
+      );
       checkpoint = {
         ...checkpoint,
         workspaceHash: await workspaceFingerprint(workspace, policy),

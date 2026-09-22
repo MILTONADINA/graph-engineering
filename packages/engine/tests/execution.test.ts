@@ -62,6 +62,58 @@ async function fixture() {
   return { root, config, data };
 }
 describe("managed execution", () => {
+  it("never accepts a patch whose new source is Git-ignored and absent from the verifier view", async () => {
+    const { root } = await fixture();
+    await writeFile(path.join(root, ".gitignore"), "hidden.ts\n");
+    let checksCalled = 0;
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async () => ({
+        model: "fixture",
+        proposal: {
+          summary: "Invisible new source",
+          requests: [],
+          changes: [
+            {
+              path: "hidden.ts",
+              before: null,
+              after: "export const value=1;\n",
+            },
+          ],
+        },
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedTokens: 0,
+          costUsd: 0,
+          estimated: false,
+        },
+      }),
+      verify: async (_workspace, checks, _policy, snapshotHash) => {
+        checksCalled++;
+        return checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "passed",
+          stderr: "",
+          snapshotHash,
+        }));
+      },
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Create source",
+      acceptance: ["Generated source is independently checked"],
+    });
+    const run = await engine.start(plan.id),
+      result = await engine.wait(run.id);
+    expect(result.status).toBe("failed");
+    expect(checksCalled).toBe(0);
+    expect(JSON.stringify(engine.store.events(run.id))).toContain(
+      "verification inventory",
+    );
+    await expect(readFile(path.join(root, "hidden.ts"))).rejects.toThrow();
+  });
   it("validates a whole patch before changing any file", async () => {
     const { root } = await fixture();
     await expect(
