@@ -14,6 +14,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { ContextEngine } from "../src/context/index.js";
+import { pythonRuntime } from "../src/context/python.js";
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -183,7 +184,13 @@ describe("local context indexing", () => {
       "rust",
       "typescript",
     ]);
-    expect(snapshot.coverage.errors).toEqual([]);
+    expect(snapshot.coverage.errors).toEqual(
+      (await pythonRuntime())
+        ? []
+        : [
+            "Trusted isolated CPython runtime unavailable; Python syntax evidence retained.",
+          ],
+    );
     expect(snapshot.coverage.parsed).toBe(7);
     const symbols = await engine.searchSymbols("authenticate", snapshot.id);
     expect(symbols).toHaveLength(1);
