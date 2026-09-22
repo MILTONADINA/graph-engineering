@@ -8,7 +8,7 @@ import { hash, type ParsedFile } from "./parser.js";
 import type { SemanticResult } from "./semantic.js";
 import type { SourceReference } from "@graph-engineering/contracts";
 
-export const PYTHON_VERSION = "snapshot-cpython-bindings:2";
+export const PYTHON_VERSION = "snapshot-cpython-bindings:3";
 export const PYTHON_LIMITS = {
   files: 500,
   bytes: 4 * 1024 * 1024,
