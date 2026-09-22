@@ -149,7 +149,7 @@ describe("hermetic compiler-backed static bindings", () => {
     });
     const result = await resolveSnapshotBindings(files, "snapshot");
     expect(result.resolvedCalls).toBe(0);
-    expect(result.diagnostics.join(" ")).toContain("unsupported");
+    expect(result.diagnostics.join(" ")).toContain("unresolved");
   }, 20000);
   it("does not consult disk hosts, libs, config, package metadata or plugins", async () => {
     const files = await parse({
@@ -209,7 +209,7 @@ describe("hermetic compiler-backed static bindings", () => {
       "main.ts":
         "import { target } from './target'; export function main() { target(); }",
       "tsconfig.json":
-        '{"compilerOptions":{"plugins":[{"name":"do-not-load"}],"paths":{"*": ["/outside/*"]}}',
+        '{"compilerOptions":{"plugins":[{"name":"do-not-load"}],"paths":{"*": ["./not-present/*"]}}}',
     });
     const first = await engine.index({ semantic: false });
     const main = (await engine.searchSymbols("main", first.id)).find(
@@ -219,6 +219,7 @@ describe("hermetic compiler-backed static bindings", () => {
       (await engine.neighbors(main.id, first.id)).find(
         (edge) => edge.kind === "calls",
       )?.resolution?.engine,
+      JSON.stringify(first.coverage),
     ).toBe("typescript");
     await writeFile(join(root, "target.ts"), "export function different() {}");
     const second = await engine.index({ semantic: false });

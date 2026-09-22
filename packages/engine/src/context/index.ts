@@ -63,6 +63,11 @@ import {
 import { containsSecret, isAllowedPath } from "../policy.js";
 import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
 import {
+  pythonRuntime,
+  PYTHON_VERSION,
+  resolvePythonBindings,
+} from "./python.js";
+import {
   attachReviewedAssertions,
   parseReviewedAssertions,
   reviewSupersession,
@@ -321,6 +326,9 @@ export class ContextEngine {
     const contentHash = hash(
       JSON.stringify(files.map((file) => [file.path, file.hash])),
     );
+    const python = files.some((file) => file.path.endsWith(".py"))
+      ? await pythonRuntime()
+      : null;
     const id = hash(
       JSON.stringify({
         project: this.projectId,
@@ -330,6 +338,7 @@ export class ContextEngine {
         contentHash,
         parser: PARSER_VERSION,
         staticBindings: SEMANTIC_VERSION,
+        pythonBindings: [PYTHON_VERSION, python?.identity ?? "unavailable"],
         summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
@@ -416,10 +425,17 @@ export class ContextEngine {
       if (!snapshot.languages.includes(parsed.language))
         snapshot.languages.push(parsed.language);
     }
-    const bindings = await resolveSnapshotBindings(parsedFiles, id);
-    snapshot.coverage.errors.push(...bindings.diagnostics);
+    const bindings = await Promise.all([
+      resolveSnapshotBindings(parsedFiles, id),
+      resolvePythonBindings(parsedFiles, id, { runtime: python }),
+    ]);
+    snapshot.coverage.errors.push(
+      ...bindings.flatMap((result) => result.diagnostics),
+    );
     const bindingUpdates = new Map(
-      bindings.updates.map((edge) => [edge.id, edge]),
+      bindings
+        .flatMap((result) => result.updates)
+        .map((edge) => [edge.id, edge]),
     );
     for (const parsed of parsedFiles) {
       statements.push({
@@ -659,6 +675,31 @@ export class ContextEngine {
         for (const row of rows) {
           const edge = json<GraphEdge>(row);
           if (this.excluded(edge.source.path)) continue;
+          const mappingSources = edge.resolution?.sources ?? [];
+          if (
+            options.exportOnly &&
+            mappingSources.some(
+              (source) =>
+                this.excluded(source.path) ||
+                !isAllowedPath(source.path, this.policy, true) ||
+                containsSecret(source.path),
+            )
+          )
+            continue;
+          if (
+            mappingSources.some(
+              (source) =>
+                this.excluded(source.path) || source.snapshotId !== snapshot.id,
+            )
+          ) {
+            // A hidden configuration cannot establish historical reachability.
+            // Keep only the caller's own syntactic evidence, without its target
+            // or private configuration paths/hashes.
+            if (edge.from !== symbol) continue;
+            edge.to = null;
+            edge.evidence = "syntactic";
+            delete edge.resolution;
+          }
           if (
             options.exportOnly &&
             (!isAllowedPath(edge.source.path, this.policy, true) ||
@@ -890,7 +931,7 @@ export class ContextEngine {
         graph:
           retrieval === "lexical"
             ? "Graph expansion intentionally disabled by lexical retrieval mode."
-            : "Syntax declarations, imports and calls with bounded snapshot-only TypeScript/JavaScript static bindings where resolution metadata is present. Static bindings are not runtime proofs; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Dynamic/member dispatch stays unresolved except direct namespace imports. Expansion limited to 1 hop, 5 seed files.",
+            : "Syntax declarations, imports and calls with bounded snapshot-only TypeScript/JavaScript and isolated CPython static bindings where resolution metadata is present. Static bindings are not runtime proofs; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Dynamic/member dispatch stays unresolved except direct module imports. Expansion limited to 1 hop, 5 seed files.",
         warnings,
       },
     };

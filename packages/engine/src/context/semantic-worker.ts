@@ -2,9 +2,21 @@ import { parentPort, workerData } from "node:worker_threads";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import ts from "typescript";
-import type { CodeSymbol, GraphEdge } from "@graph-engineering/contracts";
+import type {
+  CodeSymbol,
+  GraphEdge,
+  SourceReference,
+} from "@graph-engineering/contracts";
 import type { ParsedFile } from "./parser.js";
 import type { SemanticResult } from "./semantic.js";
+const { createSnapshotResolver, isModuleConfig } = (await import(
+  new URL(
+    import.meta.url.endsWith(".ts")
+      ? "./semantic-resolver.ts"
+      : "./semantic-resolver.js",
+    import.meta.url,
+  ).href
+)) as typeof import("./semantic-resolver.js");
 
 const digest = (text: string) =>
   createHash("sha256").update(text).digest("hex");
@@ -26,8 +38,8 @@ const extension = (path: string): ts.Extension =>
                 ? ts.Extension.Js
                 : ts.Extension.Ts;
 
-/** No ts.sys/default compiler host: project paths/config/libs/plugins are never
- * consulted. The checker establishes static lexical bindings, not runtime behavior. */
+/** No ts.sys/default compiler host. Only inert, indexed configuration data is
+ * consulted; no project code, libraries or plugins execute. */
 export function analyzeSnapshot(
   files: ParsedFile[],
   snapshotId: string,
@@ -42,7 +54,7 @@ export function analyzeSnapshot(
   };
   const valid = files.filter((file) => {
     const okay =
-      file.parsed &&
+      (file.parsed || isModuleConfig(file.path)) &&
       file.spans &&
       digest(file.text) === file.hash &&
       file.symbols.every(
@@ -64,11 +76,20 @@ export function analyzeSnapshot(
       );
     return okay;
   });
-  const records = new Map(valid.map((file) => [ROOT + file.path, file]));
-  if (records.size !== valid.length)
+  const sources = valid.filter(
+    (file) => file.language === "typescript" || file.language === "javascript",
+  );
+  const records = new Map(sources.map((file) => [ROOT + file.path, file]));
+  if (new Set(valid.map((file) => file.path)).size !== valid.length)
     throw new Error("Duplicate snapshot paths");
   const ast = new Map<string, ts.SourceFile>();
   const unsupported = new Set<string>();
+  const resolveModule = createSnapshotResolver(
+    new Set(records.keys()),
+    valid.filter((file) => isModuleConfig(file.path)),
+    unsupported,
+  );
+  let mappingSources = new Map<string, SourceReference>();
   let nodeCount = 0;
   for (const [path, file] of records) {
     const source = ts.createSourceFile(
@@ -98,53 +119,13 @@ export function analyzeSnapshot(
     name: string,
     containingFile: string,
   ): ts.ResolvedModuleFull | undefined => {
-    if (!/^\.{1,2}\//.test(name) || /[\\?#\0]/.test(name)) {
-      unsupported.add(
-        "non-relative imports, package exports, and project path aliases are unsupported",
-      );
-      return undefined;
-    }
-    const path = posix.normalize(
-      posix.join(posix.dirname(containingFile), name),
-    );
-    if (!path.startsWith(ROOT)) return undefined;
-    let paths: string[];
-    if (/\.[mc]?jsx?$/.test(path)) {
-      const base = path.replace(/\.[mc]?jsx?$/, ""),
-        ext = posix.extname(path);
-      paths =
-        ext === ".mjs"
-          ? [base + ".mts", path]
-          : ext === ".cjs"
-            ? [base + ".cts", path]
-            : ext === ".jsx"
-              ? [base + ".tsx", path]
-              : [base + ".ts", base + ".tsx", path];
-    } else if (/\.[mc]?tsx?$/.test(path)) paths = [path];
-    else if (posix.extname(path)) return undefined;
-    else
-      paths = [
-        ".ts",
-        ".tsx",
-        ".mts",
-        ".cts",
-        ".js",
-        ".jsx",
-        ".mjs",
-        ".cjs",
-      ].flatMap((ext) => [path + ext, path + "/index" + ext]);
-    const candidates = [
-      ...new Set(paths.filter((candidate) => records.has(candidate))),
-    ];
-    if (candidates.length !== 1) {
-      unsupported.add(
-        "missing or ambiguous relative module targets remain unresolved",
-      );
-      return undefined;
-    }
+    const target = resolveModule(name, containingFile);
+    if (!target) return undefined;
+    for (const source of target.sources)
+      mappingSources.set(source.path, source);
     return {
-      resolvedFileName: candidates[0]!,
-      extension: extension(candidates[0]!),
+      resolvedFileName: target.path,
+      extension: extension(target.path),
       isExternalLibraryImport: false,
     };
   };
@@ -314,6 +295,11 @@ export function analyzeSnapshot(
     name: string,
     seen: Set<string>,
   ): ts.Symbol | undefined | null => {
+    const file = records.get(source.fileName);
+    const reference = file?.symbols.find(
+      (symbol) => symbol.kind === "file",
+    )?.source;
+    if (reference) mappingSources.set(reference.path, reference);
     const identity = `${source.fileName}:${name}`;
     if (
       seen.has(identity) ||
@@ -503,6 +489,12 @@ export function analyzeSnapshot(
       });
     const update = (edge: GraphEdge | undefined, target: string) => {
       if (!edge) return;
+      if (mappingSources.size > 64) {
+        unsupported.add(
+          "configuration provenance exceeds the 64-record per-binding limit",
+        );
+        return;
+      }
       result.updates.push({
         ...edge,
         to: target,
@@ -511,12 +503,16 @@ export function analyzeSnapshot(
           kind: "static",
           engine: "typescript",
           version: ts.version,
+          ...(mappingSources.size
+            ? { sources: [...mappingSources.values()] }
+            : {}),
         },
       });
       if (edge.kind === "calls") result.resolvedCalls++;
       else result.resolvedImports++;
     };
     visit(source, (node) => {
+      mappingSources = new Map();
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         const target = moduleFile(node);
         if (target && !invalidFiles.has(target.fileName))

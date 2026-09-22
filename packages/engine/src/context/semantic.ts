@@ -2,8 +2,9 @@ import { Worker } from "node:worker_threads";
 import ts from "typescript";
 import type { GraphEdge } from "@graph-engineering/contracts";
 import type { ParsedFile } from "./parser.js";
+import { CONFIG_LIMITS, isModuleConfig } from "./semantic-resolver.js";
 
-export const SEMANTIC_VERSION = `typescript:${ts.version}/snapshot-bindings:1`;
+export const SEMANTIC_VERSION = `typescript:${ts.version}/snapshot-bindings:2`;
 export const SEMANTIC_LIMITS = {
   maxFiles: 1000,
   maxBytes: 8 * 1024 * 1024,
@@ -35,6 +36,7 @@ export async function resolveSnapshotBindings(
   const selected = files.filter(
     (file) => file.language === "typescript" || file.language === "javascript",
   );
+  const configs = files.filter((file) => isModuleConfig(file.path));
   const empty = (message: string): SemanticResult => ({
     updates: [],
     diagnostics: [message],
@@ -77,7 +79,10 @@ export async function resolveSnapshotBindings(
   if (
     selected.length > limits.maxFiles ||
     selected.reduce((sum, file) => sum + Buffer.byteLength(file.text), 0) >
-      limits.maxBytes
+      limits.maxBytes ||
+    configs.length > CONFIG_LIMITS.files ||
+    configs.reduce((sum, file) => sum + Buffer.byteLength(file.text), 0) >
+      CONFIG_LIMITS.bytes
   )
     return empty(
       "TypeScript static binding skipped: snapshot exceeds bounded file/source limits; syntax evidence retained.",
@@ -93,7 +98,7 @@ export async function resolveSnapshotBindings(
           import.meta.url,
         ),
         {
-          workerData: { files: selected, snapshotId, limits },
+          workerData: { files: [...selected, ...configs], snapshotId, limits },
           execArgv: [],
           resourceLimits: {
             maxOldGenerationSizeMb: SEMANTIC_LIMITS.heapMiB,
