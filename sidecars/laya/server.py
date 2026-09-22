@@ -17,6 +17,7 @@ import re
 import secrets
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -158,7 +159,28 @@ class LayaPredictor:
         return len(self.agent.tok(text, add_special_tokens=False)["input_ids"])
 
     def predict(self, state: Any, questions: dict) -> dict:
-        return self.agent.predict(state, questions)
+        if str(self.agent.device) != self.device:
+            raise RuntimeError("Runtime device changed; restart with an explicitly configured device")
+        forwards = 0
+
+        def count_forward(_module, _inputs):
+            nonlocal forwards
+            forwards += 1
+            if forwards > 1:
+                raise RuntimeError("Multiple model forwards are not permitted for one independent question batch")
+
+        # The pinned SDK collates all questions before invoking its model once.
+        # Observe the actual module call, rather than equating an HTTP request
+        # or agent.predict invocation with a single model forward.
+        hook = self.agent.model.register_forward_pre_hook(count_forward)
+        started = time.perf_counter()
+        try:
+            result = self.agent.predict(state, questions)
+        finally:
+            hook.remove()
+        if forwards != 1 or str(self.agent.device) != self.device:
+            raise RuntimeError("Batch did not complete one forward on the configured device")
+        return {**result, "forward_passes": forwards, "inference_ms": (time.perf_counter() - started) * 1000}
 
 
 def render_options(question: dict) -> list[str]:
@@ -245,6 +267,8 @@ def normalize_result(result: dict, questions: dict, predictor: Predictor) -> dic
                 raise ValueError("Predictor returned an invalid probability")
     return {"model": predictor.model_id, "answers": answers, "usage": result.get("usage", {}),
             "runtime": {"device": predictor.device, "max_tokens": predictor.max_len,
+                        "question_count": len(questions), "model_forward_passes": result.get("forward_passes"),
+                        "inference_ms": result.get("inference_ms"),
                         "choice_confidence": "selected_class_probability_uncalibrated", "sdk": SDK_VERSION}}
 
 

@@ -33,7 +33,13 @@ const dataset = () => [
   ...Array.from({ length: 240 }, (_, index) => row(index)),
 ];
 const evidence = (): PromotionEvidence =>
-  evaluateDecisions(dataset()).reports[0]!;
+  // A stand-in report for gate unit tests, never written as production evidence.
+  ({
+    ...evaluateDecisions(dataset()).reports[0]!,
+    dataOrigin: "recorded",
+    provenanceComplete: true,
+    datasetId: "unit-gate-fixture",
+  });
 afterEach(() => vi.unstubAllGlobals());
 
 describe("decision evaluation integrity (synthetic gate tests, not accuracy benchmarks)", () => {
@@ -45,6 +51,8 @@ describe("decision evaluation integrity (synthetic gate tests, not accuracy benc
     expect(report.baselineCost).toBe(60);
     expect(report.candidateCost).toBe(30);
     expect(canPromote(report)).toBe(true);
+    expect(canPromote(evaluateDecisions(dataset()).reports[0]!)).toBe(false);
+    expect(canPromote({ ...report, dataOrigin: "synthetic" })).toBe(false);
     const leaked = dataset();
     leaked[0]!.taskId = "held-out-task-0";
     expect(() => evaluateDecisions(leaked)).toThrow("disjoint");
@@ -225,7 +233,11 @@ describe("bounded decision dispatch", () => {
         maxStateChars: 1200,
       },
     ];
-    const records = await decide(input);
+    const records = await decide({
+      ...input,
+      cloudState: input.state,
+      exportable: true,
+    });
     expect(records[0]?.selected).toBeNull();
     expect(records[0]?.evidence.failure).toContain("cost-capped");
     expect(fetch).not.toHaveBeenCalled();

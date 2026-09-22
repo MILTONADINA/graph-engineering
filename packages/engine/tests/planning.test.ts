@@ -24,6 +24,7 @@ describe("bounded routing", () => {
       effort: "high",
       contextBudgetTokens: 11200,
       records: [],
+      usage: [],
     });
   });
   it("never allocates more than the provider context limit", async () => {

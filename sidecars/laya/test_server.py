@@ -5,9 +5,10 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from http.server import ThreadingHTTPServer
 
-from server import (ASSETS, DecisionService, SDK_VERSION, REVISION, file_hash,
+from server import (ASSETS, DecisionService, LayaPredictor, SDK_VERSION, REVISION, file_hash,
                     model_identity, normalize_result, validate_download_url,
                     validate_request, verify_assets)
 
@@ -34,6 +35,42 @@ def request():
 
 
 class ValidationTests(unittest.TestCase):
+    def test_real_runtime_counts_module_forwards_not_only_predict_calls(self):
+        class Model:
+            def register_forward_pre_hook(self, callback):
+                self.callback = callback
+                return SimpleNamespace(remove=lambda: setattr(self, "callback", None))
+
+            def forward(self):
+                if self.callback:
+                    self.callback(self, ())
+
+        model = Model()
+        predictor = object.__new__(LayaPredictor)
+        predictor.device = "cpu"
+        predictor.agent = SimpleNamespace(device="cpu", model=model)
+
+        def one_forward(state, questions):
+            model.forward()
+            return FakePredictor().predict(state, questions)
+
+        predictor.agent.predict = one_forward
+        payload = request()
+        payload["questions"]["review"] = copy.deepcopy(payload["questions"]["action"])
+        result = predictor.predict(payload["state"], payload["questions"])
+        self.assertEqual(result["forward_passes"], 1)
+        self.assertIsNone(model.callback)
+
+        def multiple_forwards(state, questions):
+            model.forward()
+            model.forward()
+            return {}
+
+        predictor.agent.predict = multiple_forwards
+        with self.assertRaisesRegex(RuntimeError, "Multiple model forwards"):
+            predictor.predict(payload["state"], payload["questions"])
+        self.assertIsNone(model.callback)
+
     def test_compatible_batch_and_probability_semantics(self):
         predictor = FakePredictor()
         payload = request()
@@ -129,6 +166,16 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(self.call()[0], 503)
         finally:
             self.service.lock.release()
+
+    def test_multiple_questions_use_one_prediction_and_report_batch_size(self):
+        payload = request()
+        payload["questions"]["review"] = copy.deepcopy(payload["questions"]["action"])
+        code, body = self.call(payload)
+        self.assertEqual(code, 200)
+        self.assertEqual(self.predictor.calls, 1)
+        self.assertEqual(body["runtime"]["question_count"], 2)
+        # The protocol-only fake does not claim an observed PyTorch forward.
+        self.assertIsNone(body["runtime"]["model_forward_passes"])
 
     def test_oversized_state_never_reaches_predictor(self):
         payload = request()
