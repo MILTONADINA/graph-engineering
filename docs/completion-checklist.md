@@ -30,9 +30,9 @@ no PR reviews or merges until the implementation is ready.
 
 Item 13 still contains buildable work, not only requests for partner labels:
 
-- Six historical intake cases have no executable replay adapters. The portable
-  npm-spawn case still has only a trusted-history fixture. The unmetered-budget
-  case now has a guarded isolated candidate verifier, but no measured worker run.
+- Six historical intake cases still lack complete executable replay adapters.
+  Unmetered-budget and portable npm-spawn now have guarded isolated candidate
+  verifiers, but no measured worker runs through those new verifiers.
   Complete the remaining adapters and candidate verification before treating
   their worker runs as evidence.
 - Implement separately governed sealed held-out collection/execution: frozen

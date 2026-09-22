@@ -3,7 +3,16 @@ import vm from "node:vm";
 import path from "node:path";
 
 export function historicalNpmInvocation(files, scenario) {
-  const source = files["create-graph-app/scripts/check-pack-contents.js"];
+  const entrypoint =
+    scenario.entrypoint ?? "create-graph-app/scripts/check-pack-contents.js";
+  if (
+    ![
+      "create-graph-app/scripts/check-pack-contents.js",
+      "create-graph-app/scripts/smoke-generated-apps.js",
+    ].includes(entrypoint)
+  )
+    throw new Error("Unknown historical npm entrypoint");
+  const source = files[entrypoint];
   const helper = files["create-graph-app/scripts/npm-command.js"];
   if (
     typeof source !== "string" ||
@@ -18,6 +27,7 @@ export function historicalNpmInvocation(files, scenario) {
     platform: scenario.platform,
     execPath: scenario.execPath,
     env: { ...scenario.env },
+    argv: [scenario.execPath, entrypoint, "fullstack"],
   };
   const child = {
     execFileSync: (executable, args, options) => {
@@ -37,6 +47,8 @@ export function historicalNpmInvocation(files, scenario) {
       return { ...paths, win32: path.win32, posix: path.posix };
     if (name === "node:os") return { tmpdir: () => scenario.tmpDir };
     if (name === "node:zlib") return {}; // Historical unused import, no operations.
+    if (name === "../dist")
+      return { Registry: { load: () => ({}) }, generate: () => {} };
     if (name === "node:fs")
       return {
         existsSync: (filename) => scenario.existing.includes(filename),

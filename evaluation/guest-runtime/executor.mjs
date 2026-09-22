@@ -4,8 +4,13 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 const SOURCE_PATH = "packages/engine/src/decisions.ts";
+const PACK_PATH = "create-graph-app/scripts/check-pack-contents.js";
+const SMOKE_PATH = "create-graph-app/scripts/smoke-generated-apps.js";
+const HELPER_PATH = "create-graph-app/scripts/npm-command.js";
+const CAPTURE_ERROR = "GRAPH_CANDIDATE_INVOCATION_CAPTURED";
 const LIMITS = Object.freeze({
   inputBytes: 256 * 1024,
   sourceBytes: 100_000,
@@ -119,6 +124,68 @@ function validateJson(value) {
 async function validateInput(value) {
   const { z } = await import("zod");
   const label = z.string().min(1).max(256);
+  if (value?.taskId === "portable-npm-spawn") {
+    const text = z
+      .string()
+      .min(1)
+      .max(2048)
+      .refine((item) => !/[\u0000-\u001f\u007f]/.test(item));
+    const parsed = z
+      .object({
+        version: z.literal("1.0.0"),
+        taskId: z.literal("portable-npm-spawn"),
+        files: z
+          .object({
+            [PACK_PATH]: z.string().min(1),
+            [SMOKE_PATH]: z.string().min(1),
+            [HELPER_PATH]: z.string().min(1).optional(),
+          })
+          .strict(),
+        scenario: z
+          .object({
+            input: z
+              .object({
+                entrypoint: z.enum([PACK_PATH, SMOKE_PATH]),
+                platform: z.enum(["win32", "linux", "darwin"]),
+                execPath: text,
+                env: z.record(
+                  z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+                  z
+                    .string()
+                    .max(2048)
+                    .refine((item) => !/[\u0000-\u001f\u007f]/.test(item)),
+                ),
+                existing: z.array(text).max(32),
+                tmpDir: text,
+                scriptArgs: z.array(text).max(16),
+              })
+              .strict(),
+          })
+          .strict(),
+      })
+      .strict()
+      .safeParse(value);
+    if (!parsed.success) throw new CandidateError();
+    const files = Object.values(parsed.data.files);
+    const input = parsed.data.scenario.input;
+    const paths = input.platform === "win32" ? path.win32 : path.posix;
+    if (
+      files.some(
+        (source) =>
+          !source.trim() ||
+          !source.isWellFormed() ||
+          Buffer.byteLength(source) > LIMITS.sourceBytes,
+      ) ||
+      files.reduce((sum, source) => sum + Buffer.byteLength(source), 0) >
+        200_000 ||
+      Object.keys(input.env).length > 32 ||
+      !paths.isAbsolute(input.tmpDir) ||
+      !paths.isAbsolute(input.execPath) ||
+      Buffer.byteLength(JSON.stringify(input)) > LIMITS.bridgeBytes
+    )
+      throw new CandidateError();
+    return parsed.data;
+  }
   const request = z
     .object({
       version: z.literal("1.0.0"),
@@ -260,6 +327,165 @@ export function observe(records) {
 }
 `;
 
+// CommonJS, builtins, process and module cache below live entirely in QuickJS.
+// Function compiles guest source in that guest realm, never in the Node controller.
+const PORTABLE_MODULE = String.raw`
+const rawBridge = globalThis.__graphCapability;
+delete globalThis.__graphCapability;
+const parse = JSON.parse, stringify = JSON.stringify;
+const create = Object.create, freeze = Object.freeze, define = Object.defineProperty;
+const descriptors = Object.getOwnPropertyDescriptors, descriptor = Object.getOwnPropertyDescriptor;
+const keys = Object.keys, ownKeys = Reflect.ownKeys, getPrototypeOf = Object.getPrototypeOf;
+const objectPrototype = Object.prototype, arrayPrototype = Array.prototype;
+const setPrototypeOf = Object.setPrototypeOf, arrayIsArray = Array.isArray;
+const NativeError = Error, GuestFunction = Function;
+const apply = Reflect.apply, replace = String.prototype.replace, startsWith = String.prototype.startsWith;
+// No trusted fixture object is a Proxy. Remove its constructor before any
+// candidate loads, so descriptor-based copying cannot disagree with get traps.
+// The pinned interpreter permits a surprising data-property redefinition in
+// this environment; a nonconfigurable accessor is independently regression-tested.
+define(globalThis, "Proxy", {get: () => undefined, configurable: false});
+function bridge(operation, payload) { return parse(rawBridge(operation, stringify(payload))); }
+function refuse() { return bridge("forbidden", null); }
+function text(value, maximum = 2048) {
+  if (typeof value !== "string" || value.length > maximum) return refuse();
+  return value;
+}
+function dataFields(value) {
+  if (!value || typeof value !== "object" || arrayIsArray(value)) return refuse();
+  const prototype = getPrototypeOf(value);
+  if (prototype !== objectPrototype && prototype !== null) return refuse();
+  const fields = setPrototypeOf(descriptors(value), null), names = ownKeys(fields);
+  if (names.length > 32) return refuse();
+  for (let index = 0; index < names.length; index++) {
+    const key = names[index];
+    if (typeof key !== "string" || key === "__proto__" || key === "constructor" || key === "prototype" ||
+        !fields[key].enumerable || !descriptor(fields[key], "value")) return refuse();
+  }
+  return fields;
+}
+function stringArray(value, maximum = 16) {
+  if (!arrayIsArray(value) || value.length > maximum) return refuse();
+  const fields = setPrototypeOf(descriptors(value), null), length = fields.length.value;
+  if (length > maximum || ownKeys(fields).length !== length + 1) return refuse();
+  const result = setPrototypeOf([], null);
+  for (let index = 0; index < length; index++) {
+    const field = fields[index];
+    if (!field || !field.enumerable || !descriptor(field, "value")) return refuse();
+    result[index] = text(field.value);
+  }
+  return result;
+}
+function record() { return create(null); }
+function paths(flavor) {
+  const result = record();
+  for (const operation of ["join", "resolve", "dirname", "basename"]) {
+    result[operation] = (...args) => {
+      const payload = record();
+      payload.flavor = flavor; payload.operation = operation; payload.args = stringArray(args);
+      return bridge("portable-path", payload);
+    };
+  }
+  return result;
+}
+export function run(textInput) {
+  const request = parse(textInput), input = request.scenario.input;
+  const win32 = freeze(paths("win32")), posix = freeze(paths("posix"));
+  const path = paths(input.platform === "win32" ? "win32" : "posix");
+  path.win32 = win32; path.posix = posix; freeze(path);
+  const environment = record();
+  for (const key of keys(input.env)) environment[key] = input.env[key];
+  freeze(environment);
+  const process = record();
+  process.platform = input.platform; process.execPath = input.execPath;
+  process.env = environment;
+  process.argv = freeze([input.execPath, input.entrypoint, ...input.scriptArgs]);
+  process.exit = (code = 0) => {
+    bridge("portable-exit", code);
+    throw new NativeError("GRAPH_CANDIDATE_EXIT_CAPTURED");
+  };
+  define(process, "exitCode", { get: () => undefined, set: (code) => { bridge("portable-exit", code); } });
+  freeze(process);
+  const console = freeze({log() {}, error() {}, warn() {}, info() {}});
+  for (const [key, value] of [["process", process], ["console", console]])
+    define(globalThis, key, {value, configurable: false, writable: false});
+  const fs = freeze({
+    existsSync(value) { return bridge("portable-exists", text(value)); },
+    mkdtempSync(value) { return bridge("portable-mkdtemp", text(value)); },
+    rmSync: refuse, readFileSync: refuse, writeFileSync: refuse,
+  });
+  const childProcess = freeze({ execFileSync(executable, args, options = {}) {
+    const payload = record();
+    payload.executable = text(executable);
+    payload.args = stringArray(args);
+    const fields = dataFields(options);
+    const names = keys(fields);
+    for (let index = 0; index < names.length; index++) {
+      const key = names[index];
+      if (key !== "cwd" && key !== "encoding" && key !== "stdio" && key !== "env" && key !== "shell") return refuse();
+    }
+    const nullableKeys = ["cwd", "encoding", "stdio"];
+    for (let index = 0; index < nullableKeys.length; index++) {
+      const key = nullableKeys[index];
+      payload[key] = fields[key] ? text(fields[key].value, key === "cwd" ? 2048 : 32) : null;
+    }
+    payload.shell = fields.shell ? fields.shell.value : false;
+    if (typeof payload.shell !== "boolean") return refuse();
+    payload.env = null;
+    if (fields.env) {
+      const envFields = dataFields(fields.env.value), env = record();
+      const names = keys(envFields);
+      for (let index = 0; index < names.length; index++) {
+        const key = names[index];
+        env[key] = text(envFields[key].value);
+      }
+      payload.env = env;
+    }
+    const response = bridge("portable-exec", payload);
+    if (response === "capture") throw new NativeError("GRAPH_CANDIDATE_INVOCATION_CAPTURED");
+    return "";
+  }});
+  const registry = freeze({ Registry: freeze({load: () => freeze(record())}), generate: () => undefined });
+  const builtins = record();
+  builtins["node:path"] = path; builtins["node:fs"] = fs;
+  builtins["node:os"] = freeze({tmpdir: () => input.tmpDir});
+  builtins["node:child_process"] = childProcess;
+  builtins["node:zlib"] = freeze(record());
+  builtins["../dist"] = registry;
+  const modules = record(), directory = path.join(input.tmpDir, "package", "scripts");
+  const helperPath = "create-graph-app/scripts/npm-command.js";
+  function load(name) {
+    if (descriptor(modules, name)) return modules[name].exports;
+    const sourceField = descriptor(request.files, name);
+    if (!sourceField || typeof sourceField.value !== "string") return refuse();
+    const module = record(); module.exports = record(); modules[name] = module;
+    const require = (requested) => {
+      if (typeof requested !== "string") return refuse();
+      if (descriptor(builtins, requested)) return builtins[requested];
+      if (requested === "./npm-command" || requested === "./npm-command.js") return load(helperPath);
+      return refuse();
+    };
+    // Only an initial shebang is stripped, as in Node's CommonJS loader.
+    const source = apply(replace, sourceField.value, [/^#![^\n]*(?:\n|$)/, ""]);
+    const executable = new GuestFunction("module", "exports", "require", "__dirname", "__filename", source);
+    executable(module, module.exports, require, directory, path.join(directory, path.basename(name)));
+    return module.exports;
+  }
+  let error = null;
+  try { load(input.entrypoint); }
+  catch (caught) {
+    // No arbitrary guest stack, exception text, source, or result reaches stdout.
+    const field = caught && typeof caught === "object" ? descriptor(caught, "message") : null;
+    if (!field || !descriptor(field, "value") || typeof field.value !== "string") return refuse();
+    if (field.value === "GRAPH_CANDIDATE_INVOCATION_CAPTURED") error = field.value;
+    else if (field.value === "GRAPH_CANDIDATE_EXIT_CAPTURED") error = null;
+    else if (apply(startsWith, field.value, ["Cannot locate npm-cli.js"])) error = "Cannot locate npm-cli.js";
+    else return refuse();
+  }
+  return stringify(error);
+}
+`;
+
 async function execute(request) {
   const started = performance.now();
   const deadline = started + LIMITS.executionMs;
@@ -272,7 +498,8 @@ async function execute(request) {
     import("quickjs-emscripten-core"),
     import("@jitl/quickjs-wasmfile-release-sync"),
   ]);
-  const source = request.files[SOURCE_PATH];
+  const portable = request.taskId === "portable-npm-spawn";
+  const source = portable ? "" : request.files[SOURCE_PATH];
   const syntax = ts.createSourceFile(
     "decisions.ts",
     source,
@@ -314,6 +541,8 @@ async function execute(request) {
   let jobs = 0;
   let traceBytes = 0;
   const requests = [];
+  const calls = [];
+  let exitCode = null;
   const handles = [];
   const variant = newVariant(release, {
     emscriptenModule: {
@@ -389,7 +618,118 @@ async function execute(request) {
           const payload = JSON.parse(string(args[1], LIMITS.bridgeBytes));
           validateJson(payload);
           let result;
-          if (operation === "hash") {
+          if (portable) {
+            const input = request.scenario.input;
+            const validText = (value, limit = 2048, empty = false) =>
+              typeof value === "string" &&
+              value.isWellFormed() &&
+              (empty || value.trim().length > 0) &&
+              Buffer.byteLength(value) <= limit &&
+              !/[\u0000-\u001f\u007f]/.test(value);
+            const exact = (value, names) =>
+              value &&
+              typeof value === "object" &&
+              !Array.isArray(value) &&
+              Object.keys(value).sort().join(",") ===
+                [...names].sort().join(",");
+            if (operation === "portable-path") {
+              if (
+                !exact(payload, ["flavor", "operation", "args"]) ||
+                !["win32", "posix"].includes(payload.flavor) ||
+                !["join", "resolve", "dirname", "basename"].includes(
+                  payload.operation,
+                ) ||
+                !Array.isArray(payload.args) ||
+                payload.args.length > 16 ||
+                payload.args.some((item) => !validText(item, 2048, true))
+              )
+                return refuse();
+              const paths =
+                payload.flavor === "win32" ? path.win32 : path.posix;
+              if (
+                ["dirname", "basename"].includes(payload.operation) &&
+                payload.args.length !== 1
+              )
+                return refuse();
+              // A fixed virtual cwd, never the controller's filesystem/cwd/env.
+              if (payload.operation === "resolve") {
+                if (
+                  (input.platform === "win32") !==
+                    (payload.flavor === "win32") ||
+                  payload.args.some((item) => /^[A-Za-z]:(?![\\/])/.test(item))
+                )
+                  return refuse();
+                result = paths.resolve(input.tmpDir, ...payload.args);
+              } else result = paths[payload.operation](...payload.args);
+              if (!validText(result)) return refuse();
+            } else if (operation === "portable-exists") {
+              if (!validText(payload)) return refuse();
+              result = input.existing.includes(payload);
+            } else if (operation === "portable-mkdtemp") {
+              if (!validText(payload)) return refuse();
+              result = input.tmpDir;
+            } else if (operation === "portable-exit") {
+              if (
+                !Number.isInteger(payload) ||
+                payload < 0 ||
+                payload > 255 ||
+                exitCode !== null
+              )
+                return refuse();
+              exitCode = payload;
+              result = null;
+            } else if (operation === "portable-exec") {
+              if (
+                !exact(payload, [
+                  "executable",
+                  "args",
+                  "cwd",
+                  "encoding",
+                  "stdio",
+                  "env",
+                  "shell",
+                ]) ||
+                !validText(payload.executable) ||
+                !Array.isArray(payload.args) ||
+                payload.args.length > 16 ||
+                payload.args.some((item) => !validText(item)) ||
+                !["cwd", "encoding", "stdio"].every(
+                  (key) =>
+                    payload[key] === null ||
+                    validText(payload[key], key === "cwd" ? 2048 : 32),
+                ) ||
+                typeof payload.shell !== "boolean" ||
+                calls.length >= LIMITS.requests
+              )
+                return refuse();
+              if (
+                payload.env !== null &&
+                (!payload.env ||
+                  typeof payload.env !== "object" ||
+                  Array.isArray(payload.env) ||
+                  Object.keys(payload.env).length > 32 ||
+                  Object.entries(payload.env).some(
+                    ([key, value]) =>
+                      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ||
+                      !validText(value, 2048, true),
+                  ))
+              )
+                return refuse();
+              const observed = {
+                executable: payload.executable,
+                args: [...payload.args],
+                cwd: payload.cwd,
+                encoding: payload.encoding,
+                stdio: payload.stdio,
+                env: payload.env === null ? null : { ...payload.env },
+                shell: payload.shell,
+              };
+              traceBytes += Buffer.byteLength(JSON.stringify(observed));
+              if (traceBytes > LIMITS.traceBytes) return refuse();
+              calls.push(observed);
+              result = input.entrypoint === PACK_PATH ? "capture" : "continue";
+            } else return refuse();
+          } else if (operation === "hash") {
             result = sha256(JSON.stringify(payload));
           } else if (operation === "path-join") {
             if (
@@ -475,19 +815,26 @@ async function execute(request) {
       }),
     );
     context.setProp(context.global, "__graphCapability", capability);
-    const modules = new Map([
-      ["zod", zodSource],
-      ["graph:fixture", FIXTURE_MODULE],
-      ["./util.js", 'export { hash, id, now, readJson } from "graph:fixture";'],
-      [
-        "./policy.js",
-        'export { assertEndpoint, containsSecret } from "graph:fixture";',
-      ],
-      [
-        "node:path",
-        'import { pathJoin } from "graph:fixture"; export default Object.freeze({ join: pathJoin });',
-      ],
-    ]);
+    const modules = new Map(
+      portable
+        ? []
+        : [
+            ["zod", zodSource],
+            ["graph:fixture", FIXTURE_MODULE],
+            [
+              "./util.js",
+              'export { hash, id, now, readJson } from "graph:fixture";',
+            ],
+            [
+              "./policy.js",
+              'export { assertEndpoint, containsSecret } from "graph:fixture";',
+            ],
+            [
+              "node:path",
+              'import { pathJoin } from "graph:fixture"; export default Object.freeze({ join: pathJoin });',
+            ],
+          ],
+    );
     runtime.setModuleLoader(
       (name) => {
         if (!modules.has(name)) {
@@ -505,7 +852,11 @@ async function execute(request) {
       },
     );
     const fixture = unwrap(
-      context.evalCode(FIXTURE_MODULE, "graph:fixture", { type: "module" }),
+      context.evalCode(
+        portable ? PORTABLE_MODULE : FIXTURE_MODULE,
+        "graph:fixture",
+        { type: "module" },
+      ),
     );
     const parseInput = own(context.getProp(fixture, "parseInput"));
     const observe = own(context.getProp(fixture, "observe"));
@@ -535,55 +886,72 @@ async function execute(request) {
       return own(state.value);
     };
     guard();
-    const candidate = settle(
-      unwrap(
-        context.evalCode(compiled.outputText, "candidate:decisions", {
-          type: "module",
-        }),
-      ),
-    );
-    const decide = own(context.getProp(candidate, "decide"));
-    if (context.typeof(decide) !== "function") throw new CandidateError();
-    const inputText = own(
-      context.newString(JSON.stringify(request.scenario.input)),
-    );
-    const input = unwrap(
-      context.callFunction(parseInput, context.undefined, inputText),
-    );
-    const records = settle(
-      unwrap(context.callFunction(decide, context.undefined, input)),
-    );
-    const observationText = unwrap(
-      context.callFunction(observe, context.undefined, records),
-    );
-    drain();
-    const result = JSON.parse(string(observationText, 4096));
-    validateJson(result);
-    if (
-      !result ||
-      Object.keys(result).sort().join(",") !==
-        "baseline,failure,mode,selected" ||
-      ["selected", "baseline", "mode"].some(
-        (key) =>
-          result[key] !== null &&
-          (typeof result[key] !== "string" || result[key].length > 256),
-      ) ||
-      (result.failure !== null &&
-        (typeof result.failure !== "string" || result.failure.length > 1024))
-    )
-      throw new CandidateError();
-    guard();
-    completed = {
-      version: "1.0.0",
-      status: "completed",
-      observations: {
-        requests,
-        selected: result.selected,
-        failure: result.failure,
-        baseline: result.baseline,
-        mode: result.mode,
-      },
-    };
+    if (portable) {
+      const run = own(context.getProp(fixture, "run"));
+      const input = own(context.newString(JSON.stringify(request)));
+      const errorText = unwrap(
+        context.callFunction(run, context.undefined, input),
+      );
+      drain();
+      const error = JSON.parse(string(errorText, 1024));
+      if (![null, CAPTURE_ERROR, "Cannot locate npm-cli.js"].includes(error))
+        throw new CandidateError();
+      completed = {
+        version: "1.0.0",
+        status: "completed",
+        observations: { calls, error, exitCode },
+      };
+    } else {
+      const candidate = settle(
+        unwrap(
+          context.evalCode(compiled.outputText, "candidate:decisions", {
+            type: "module",
+          }),
+        ),
+      );
+      const decide = own(context.getProp(candidate, "decide"));
+      if (context.typeof(decide) !== "function") throw new CandidateError();
+      const inputText = own(
+        context.newString(JSON.stringify(request.scenario.input)),
+      );
+      const input = unwrap(
+        context.callFunction(parseInput, context.undefined, inputText),
+      );
+      const records = settle(
+        unwrap(context.callFunction(decide, context.undefined, input)),
+      );
+      const observationText = unwrap(
+        context.callFunction(observe, context.undefined, records),
+      );
+      drain();
+      const result = JSON.parse(string(observationText, 4096));
+      validateJson(result);
+      if (
+        !result ||
+        Object.keys(result).sort().join(",") !==
+          "baseline,failure,mode,selected" ||
+        ["selected", "baseline", "mode"].some(
+          (key) =>
+            result[key] !== null &&
+            (typeof result[key] !== "string" || result[key].length > 256),
+        ) ||
+        (result.failure !== null &&
+          (typeof result.failure !== "string" || result.failure.length > 1024))
+      )
+        throw new CandidateError();
+      guard();
+      completed = {
+        version: "1.0.0",
+        status: "completed",
+        observations: {
+          requests,
+          selected: result.selected,
+          failure: result.failure,
+          baseline: result.baseline,
+          mode: result.mode,
+        },
+      };
+    }
   } catch (error) {
     executionFailure = error;
   } finally {

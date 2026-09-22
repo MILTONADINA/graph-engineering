@@ -1,6 +1,10 @@
 // Pure host-side witnesses. This module never evaluates candidate source, opens
 // sockets, supplies calibration labels, or establishes runtime isolation.
 import { types } from "node:util";
+import {
+  portableCandidateCase,
+  validatePortableCandidateFiles,
+} from "./candidate-portable.mjs";
 
 const sourcePath = "packages/engine/src/decisions.ts";
 const taskId = "unmetered-decision-budget";
@@ -105,6 +109,7 @@ function assertTask(id) {
 
 /** Scope validation only: source syntax and behavior require the isolated runner. */
 export function validateCandidateFiles(id, files) {
+  if (id === "portable-npm-spawn") return validatePortableCandidateFiles(files);
   assertTask(id);
   const source = exactProperties(files, [sourcePath])[sourcePath];
   if (
@@ -247,11 +252,13 @@ function observation(input) {
  * witnesses do not establish that arbitrary candidates are universally correct.
  */
 export function candidateCase(id) {
+  if (id === "portable-npm-spawn") return portableCandidateCase();
   assertTask(id);
   const registered = freeze(scenarios());
   const byId = new Map(registered.map((item) => [item.id, item]));
   return Object.freeze({
     allowedPaths: Object.freeze([sourcePath]),
+    baselineFailureIds: Object.freeze(["capped-unmetered-0"]),
     scenarios: registered,
     check(given, observations) {
       const supplied = detachedJson(given);
