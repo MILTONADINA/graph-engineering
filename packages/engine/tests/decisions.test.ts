@@ -205,4 +205,29 @@ describe("bounded decision dispatch", () => {
       decide({ ...input, evidence: [{ ...evidence(), candidateCost: -5 }] }),
     ).rejects.toThrow();
   });
+  it("does not spend an unmetered Jev call outside the configured cost ceiling", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const input = options();
+    input.policy = {
+      ...input.policy,
+      inference: "allowlisted",
+      network: "allowlisted",
+      allowedHosts: ["api.typesafe.ai"],
+      providers: ["jev"],
+      maxCostUsd: 1,
+    };
+    input.providers = [
+      {
+        id: "jev",
+        endpoint: "https://api.typesafe.ai/v1/systemone",
+        model,
+        maxStateChars: 1200,
+      },
+    ];
+    const records = await decide(input);
+    expect(records[0]?.selected).toBeNull();
+    expect(records[0]?.evidence.failure).toContain("cost-capped");
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });

@@ -142,6 +142,10 @@ export async function decide(options: {
         (policy.inference === "local" || policy.network === "deny")
       )
         throw new Error("Jev is disabled by offline policy");
+      if (provider.id === "jev" && policy.maxCostUsd !== null)
+        throw new Error(
+          "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
+        );
       if (state.length > provider.maxStateChars)
         throw new Error(
           "Compact decision state exceeds the configured model limit; abstaining",

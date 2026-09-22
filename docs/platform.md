@@ -72,6 +72,8 @@ The local endpoint must support OpenAI-compatible chat completions and structure
 
 To enable cloud access, review `.graph/project.json`: set inference/network to `allowlisted`, add permitted provider IDs and exact HTTPS hosts, and list exportable file patterns. Local-only remains the default. Do not use wildcard network hosts. A strict cost budget requires known pricing and a compatible API worker; missing telemetry is unknown, not zero.
 
+Cost-capped projects abstain from hosted Jev routing because this adapter cannot meter that service's spend; local decisions and deterministic defaults remain available. Budgets use conservative configured-price estimates, not provider billing guarantees.
+
 The worker proposes exact-substring patches or asks for specific missing files. The engine validates the entire proposal before editing its isolated worktree. Original files remain untouched. Verification runs against a separate source view in a provisioned container with no external network, credentials, repository metadata, or private configuration mounted. Verification inputs must remain unchanged during checks. Preload dependencies into the verification image when a build needs them; the engine never silently installs packages from the network.
 
 Verification resolves local image tags to immutable image IDs and records that identity. Detailed failure excerpts stay local; cloud/native workers receive generic check-failure feedback because logs may contain non-exportable source. They may request additional explicitly exportable files. This trades some debugging convenience for an enforceable export boundary.
