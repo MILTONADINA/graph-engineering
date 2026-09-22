@@ -32,6 +32,8 @@ export interface ProjectPolicy {
   allowedHosts: string[];
   exportPaths: string[];
   excludedPaths: string[];
+  /** Explicit opt-in for the public root template ledger; never private engine state. */
+  allowPublicTemplateLedger?: boolean;
   publication: "none" | "commit" | "draft-pr";
   maxWorkers: number;
   maxAttempts: number;
@@ -286,6 +288,7 @@ export const policySchema = {
     allowedHosts: strings,
     exportPaths: strings,
     excludedPaths: strings,
+    allowPublicTemplateLedger: { type: "boolean" },
     publication: { enum: ["none", "commit", "draft-pr"] },
     maxWorkers: { type: "integer", minimum: 1, maximum: 8 },
     maxAttempts: { type: "integer", minimum: 1, maximum: 10 },

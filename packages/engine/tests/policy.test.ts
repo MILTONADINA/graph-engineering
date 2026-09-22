@@ -35,6 +35,43 @@ afterEach(async () => {
   );
 });
 describe("project boundaries", () => {
+  it("requires explicit opt-in for only the public root template ledger", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "graph-public-ledger-"));
+    directories.push(root);
+    await mkdir(path.join(root, ".graph"));
+    const policy = { ...DEFAULT_POLICY, allowPublicTemplateLedger: true };
+    const ledger = ".graph/manifest.json";
+    expect(isAllowedPath(ledger, DEFAULT_POLICY)).toBe(false);
+    expect(isAllowedPath(ledger, policy)).toBe(true);
+    await expect(safePath(root, ledger, policy)).resolves.toBe(
+      path.join(await realpath(root), ledger),
+    );
+    expect(isAllowedPath(ledger, policy, true)).toBe(false);
+    expect(
+      isAllowedPath(ledger, { ...policy, exportPaths: [ledger] }, true),
+    ).toBe(true);
+    for (const excludedPaths of [[".graph"], [".graph/**"], [ledger]])
+      expect(isAllowedPath(ledger, { ...policy, excludedPaths })).toBe(false);
+    for (const file of [
+      ".GRAPH/manifest.json",
+      ".graph/Manifest.json",
+      ".graph/manifest.json/child",
+      ".graph/project.json",
+      ".graph/providers.json",
+      ".graph/decisions.json",
+      ".graph/local/memory.json",
+      ".graph/cache/state.json",
+      ".graph/workspaces/a.ts",
+    ])
+      expect(
+        isAllowedPath(file, { ...policy, exportPaths: ["**"] }, true),
+        file,
+      ).toBe(false);
+    if (process.platform !== "win32") {
+      await symlink(path.join(root, "public.json"), path.join(root, ledger));
+      await expect(safePath(root, ledger, policy)).rejects.toThrow("Symlink");
+    }
+  });
   it("allows nested public graph artifacts while consistently rejecting private descendants", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "graph-artifact-path-"));
     directories.push(root);
