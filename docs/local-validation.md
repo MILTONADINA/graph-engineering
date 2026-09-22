@@ -200,6 +200,18 @@ access, provider credentials, or network access during generated-code execution:
   supported secure browser context; arbitrary cross-site cookie deployments are
   not validated by the same-site, different-port test.
 
+A separate [real full-stack fixture](fullstack-runtime.md) then passed both engine
+checks, strict generated compilation, 37 backend and three frontend emitted tests,
+actual Drizzle SQL generation and repeated guarded migrations on PostgreSQL 16.
+Chromium exercised the production-built Next frontend against the actual generated
+Express backend: login, `/me`, expired-JWT refresh, logout and expired-access logout,
+with real refresh-row assertions. Secure/HttpOnly/SameSite cookie behavior and a
+different-site rejection were observed through fixture-only HTTPS proxies, not an
+API stub. The backend used explicit test-mode loopback PostgreSQL; this does not
+prove production PostgreSQL TLS, external email delivery or arbitrary deployment
+topologies. The resolved fixture image was
+`sha256:911de3a2baede24c377cb8a3b49eb75abdc2bb74934c00ba846bc952a0c78a71`.
+
 Cross-component review corrected the project ledger to use the actual invocation
 ID and complete emitted file inventory, rather than a hardcoded template ID.
 Root public ledgers remain opt-in and are not private engine state or execution
