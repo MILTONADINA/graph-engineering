@@ -15,7 +15,7 @@ Task category, complexity, and risk are explicitly proposed classifications.
 | `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                  |
 | `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Intake only; native Linux check required                                     |
 | `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing |
-| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Intake only                                                                  |
+| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert ordering guard; clean historical build acceptance still missing        |
 | `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                  |
 
 Each manifest case records full base/repair commit IDs, exact paths, Git blob
@@ -158,6 +158,27 @@ acceptance. It must run on Windows and is provisioned in that CI job; the Mac's
 default suite explicitly skips it. The original corpus remains immutable: its
 readiness fields describe the pinned intake snapshot, while this workflow and
 the current executable registry describe the subsequently added tooling.
+
+## Inspect candidate build ordering
+
+The [structural build-order guard](../evaluation/candidate-build-order.mjs)
+accepts exactly the historical root `package.json`. It parses strict, bounded
+JSON and a restricted npm-run/`&&` grammar as inert data; it never executes
+candidate scripts. Only `typecheck`, `test` and an optional `build:dependencies`
+helper may change. Unrelated fields, lifecycle hooks, dependencies and shell
+expressions are refused. Each expanded entrypoint starts with no generated
+artifacts and must build both prerequisite workspaces before downstream checks.
+
+The exact historical baseline fails these ordering witnesses, while the recorded
+repair and an equivalent inline fix pass. These are structural checks only:
+the report explicitly sets `fullBuildVerified: false`. Separate clean, pinned,
+offline historical workspaces must establish actual compiler and test outcomes
+before this becomes a complete executable replay adapter. No model calls,
+independent labels or promotion evidence are produced by the guard.
+
+```sh
+node --test evaluation/candidate-build-order.test.mjs
+```
 
 ## Inspect and freeze provenance
 
