@@ -1,0 +1,361 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Readable, Writable } from "node:stream";
+import express from "express";
+import request from "supertest";
+import {
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
+vi.mock("../src/utils/helpers", async () => {
+  const { randomUUID } = await import("node:crypto");
+  return {
+    SECRETS: {
+      AWS_ENDPOINT_URL_S3: "https://storage.example.invalid",
+      AWS_REGION: "us-east-1",
+      AWS_ACCESS_KEY_ID: randomUUID(),
+      AWS_SECRET_ACCESS_KEY: randomUUID(),
+      AWS_BUCKET_NAME: "private-fixture",
+    },
+  };
+});
+import { s3Client } from "../src/config/s3-client";
+import { FileUpload } from "../src/repository/FileUpload";
+import { FileDownload } from "../src/repository/FileDownload";
+import { PresignedUrl } from "../src/repository/PresignedUrl";
+import { upload } from "../src/config/multer.config";
+import {
+  authorizeObject,
+  newObjectKey,
+  storagePrincipal,
+  validateObjectKey,
+  STORAGE_HARD_LIMIT_BYTES,
+} from "../src/utils/storagePolicy";
+
+const scope = { tenantId: "tenant-a", subjectId: "subject-a" };
+const file = (bytes = 4, type = "image/png") =>
+  ({
+    buffer: Buffer.alloc(bytes),
+    size: bytes,
+    mimetype: type,
+    originalname: "../../unsafe.html",
+  }) as Express.Multer.File;
+let send: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  send = vi.spyOn(s3Client, "send").mockResolvedValue({} as never);
+});
+afterEach(() => vi.restoreAllMocks());
+const web = () => {
+  const app = express();
+  app.post("/upload", upload.single("file"), (req, res) =>
+    res.json({ size: req.file?.size }),
+  );
+  app.use((error: any, _req: any, res: any, _next: any) =>
+    res
+      .status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400)
+      .json({ error: "Upload rejected" }),
+  );
+  return app;
+};
+describe("emitted storage security with actual pinned SDK and multipart library", () => {
+  it("requires canonical nonempty typed scope identifiers and exact tenant/subject key ownership", () => {
+    for (const value of [
+      {},
+      { tenantId: undefined, subjectId: "ok" },
+      { tenantId: "bad\n", subjectId: "ok" },
+      { tenantId: "../escape", subjectId: "ok" },
+    ])
+      expect(() => storagePrincipal(value as any)).toThrow();
+    const key = newObjectKey(scope);
+    expect(() => validateObjectKey(scope, key)).not.toThrow();
+    for (const value of [
+      key + "\n",
+      key + "/../next",
+      key.replace("tenant-a", "other"),
+      key.replace("subject-a", "other"),
+      key.replace("uploads", "%2e%2e"),
+    ])
+      expect(() => validateObjectKey(scope, value)).toThrow();
+  });
+  it("fails closed on false, truthy nonboolean, thrown and absent authorizers before any SDK action", async () => {
+    for (const auth of [
+      () => false,
+      () => "yes" as any,
+      () => {
+        throw new Error("internal permission details");
+      },
+      undefined,
+    ]) {
+      if (!auth) {
+        expect(() => new FileUpload(auth as never)).toThrow();
+        continue;
+      }
+      await expect(
+        new FileUpload(auth).uploadFileToS3(scope, file()),
+      ).rejects.toMatchObject({
+        status: 403,
+        message: "Storage access denied",
+      });
+    }
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("uses fresh scoped keys and conditional writes without client filenames or public ACLs", async () => {
+    const authorize = vi.fn(async () => true),
+      repository = new FileUpload(authorize);
+    const first = await repository.uploadFileToS3(scope, file()),
+      second = await repository.uploadFileToS3(scope, file());
+    expect(first).not.toBe(second);
+    expect(first).not.toContain("unsafe");
+    expect(authorize).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "upload", key: first }),
+    );
+    const command = send.mock.calls[0][0] as PutObjectCommand;
+    expect(command).toBeInstanceOf(PutObjectCommand);
+    expect(command.input).toMatchObject({
+      Key: first,
+      ContentLength: 4,
+      ContentType: "image/png",
+      IfNoneMatch: "*",
+      ChecksumAlgorithm: "SHA256",
+    });
+    expect(command.input.ACL).toBeUndefined();
+  });
+  it("rejects malformed buffers, declared types and oversized direct uploads before transport", async () => {
+    const repository = new FileUpload(() => true);
+    for (const value of [
+      file(1025),
+      file(2, "text/html"),
+      { ...file(), size: 3 },
+      { ...file(), buffer: "not bytes" },
+      file(0),
+    ])
+      await expect(
+        repository.uploadFileToS3(scope, value as any),
+      ).rejects.toMatchObject({ status: 400 });
+    expect(send).not.toHaveBeenCalled();
+  });
+  it("does not expose provider error messages or log SDK failures", async () => {
+    const logger = vi.spyOn(console, "error").mockImplementation(() => {});
+    send.mockRejectedValue(new Error("INTERNAL_STORAGE_CANARY"));
+    await expect(
+      new FileUpload(() => true).uploadFileToS3(scope, file()),
+    ).rejects.toMatchObject({ message: "Storage upload failed", status: 502 });
+    expect(logger).not.toHaveBeenCalled();
+  });
+  it("authorizes and scopes deletion before constructing a transport operation", async () => {
+    const key = newObjectKey(scope);
+    await expect(
+      new FileUpload(() => true).deleteFile(
+        { ...scope, tenantId: "other" },
+        key,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(send).not.toHaveBeenCalled();
+    await new FileUpload(() => true).deleteFile(scope, key);
+    expect(send.mock.calls[0][0]).toBeInstanceOf(DeleteObjectCommand);
+  });
+  it("enforces multipart size and file-count limits with real Multer", async () => {
+    expect(
+      (
+        await request(web()).post("/upload").attach("file", Buffer.alloc(32), {
+          filename: "file.png",
+          contentType: "image/png",
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await request(web())
+          .post("/upload")
+          .attach("file", Buffer.alloc(1025), {
+            filename: "file.png",
+            contentType: "image/png",
+          })
+      ).status,
+    ).toBe(413);
+    expect(
+      (
+        await request(web())
+          .post("/upload")
+          .attach("file", Buffer.alloc(2), {
+            filename: "one.png",
+            contentType: "image/png",
+          })
+          .attach("file", Buffer.alloc(2), {
+            filename: "two.png",
+            contentType: "image/png",
+          })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(web())
+          .post("/upload")
+          .attach("file", Buffer.from("text"), {
+            filename: "file.html",
+            contentType: "text/html",
+          })
+      ).status,
+    ).toBe(400);
+  });
+  it("treats MIME checking as declared metadata, not content sniffing or malware detection", async () => {
+    expect(
+      (
+        await request(web())
+          .post("/upload")
+          .attach("file", Buffer.from("not an image"), {
+            filename: "claimed.png",
+            contentType: "image/png",
+          })
+      ).status,
+    ).toBe(200);
+  });
+  it("uses real offline signatures with exact signed size/type/conditional-write headers and bounded expiry", async () => {
+    const signed = await new PresignedUrl(() => true).getUploadUrl(
+      scope,
+      "image/png",
+      32,
+      999,
+    );
+    const url = new URL(signed.url),
+      headers = url.searchParams.get("X-Amz-SignedHeaders")!.split(";");
+    expect(headers).toEqual(
+      expect.arrayContaining([
+        "content-length",
+        "content-type",
+        "if-none-match",
+      ]),
+    );
+    expect(url.searchParams.get("X-Amz-Expires")).toBe("120");
+    expect(url.searchParams.has("x-amz-checksum-crc32")).toBe(false);
+    expect(signed.headers).toEqual({
+      "Content-Type": "image/png",
+      "Content-Length": "32",
+      "If-None-Match": "*",
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(() => validateObjectKey(scope, signed.key)).not.toThrow();
+    const download = new URL(
+      await new PresignedUrl(() => true).getDownloadUrl(scope, signed.key),
+    );
+    expect(download.searchParams.get("response-content-type")).toBe(
+      "application/octet-stream",
+    );
+    expect(download.searchParams.get("response-content-disposition")).toBe(
+      "attachment",
+    );
+    expect(download.searchParams.get("response-cache-control")).toBe(
+      "private, no-store",
+    );
+  });
+  it("rejects invalid expiry, type, scope, size and authorization before signing", async () => {
+    const signer = new PresignedUrl(() => true),
+      key = newObjectKey(scope);
+    for (const expiry of [NaN, Infinity, -1, 0, 1.2])
+      await expect(
+        signer.getDownloadUrl(scope, key, expiry),
+      ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      signer.getUploadUrl(scope, "image/png", 1025),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      signer.getUploadUrl(scope, "text/html", 4),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      new PresignedUrl(() => false).getDownloadUrl(scope, key),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      signer.getDownloadUrl({ ...scope, subjectId: "other" }, key),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+  it("forces download attachment, nosniff and private no-store headers rather than trusting object metadata", async () => {
+    send.mockResolvedValue({
+      Body: Readable.from([Buffer.from("sample")]),
+      ContentType: "text/html",
+      ContentLength: 6,
+    } as never);
+    const app = express(),
+      key = newObjectKey(scope);
+    app.get("/file", async (_req, res, next) => {
+      try {
+        await new FileDownload(() => true).streamToResponse(
+          scope,
+          key,
+          res,
+          "safe.txt",
+        );
+      } catch (error) {
+        next(error);
+      }
+    });
+    const response = await request(app).get("/file");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toBe("application/octet-stream");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    expect(response.headers["content-disposition"]).toBe(
+      'attachment; filename="safe.txt"',
+    );
+    expect(send.mock.calls[0][0]).toBeInstanceOf(GetObjectCommand);
+  });
+  it("rejects filename injection, authorization failures and oversized response metadata with stream cleanup", async () => {
+    const key = newObjectKey(scope),
+      repository = new FileDownload(() => true);
+    for (const filename of ["x\r\nInjected: yes", "x\n"])
+      await expect(
+        repository.streamToResponse(scope, key, {} as any, filename),
+      ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      new FileDownload(() => false).streamToResponse(scope, key, {} as any),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(send).not.toHaveBeenCalled();
+    const body = Readable.from([Buffer.from("x")]);
+    send.mockResolvedValue({
+      Body: body,
+      ContentLength: STORAGE_HARD_LIMIT_BYTES + 1,
+    } as never);
+    await expect(
+      repository.streamToResponse(scope, key, {} as any),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(body.destroyed).toBe(true);
+  });
+  it("bounds actual streamed bytes when provider length metadata is absent", async () => {
+    const body = Readable.from([
+      Buffer.alloc(STORAGE_HARD_LIMIT_BYTES),
+      Buffer.from("overflow"),
+    ]);
+    send.mockResolvedValue({ Body: body } as never);
+    let received = 0;
+    const response = Object.assign(
+      new Writable({
+        write(chunk, _encoding, next) {
+          received += chunk.length;
+          next();
+        },
+      }),
+      { setHeader: vi.fn(), headersSent: false },
+    );
+    await expect(
+      new FileDownload(() => true).streamToResponse(
+        scope,
+        newObjectKey(scope),
+        response as any,
+      ),
+    ).rejects.toMatchObject({ status: 502 });
+    expect(received).toBe(STORAGE_HARD_LIMIT_BYTES);
+    expect(body.destroyed).toBe(true);
+    expect(response.destroyed).toBe(true);
+  });
+  it("passes frozen scope/request snapshots to the application authorizer", async () => {
+    await authorizeObject(
+      (request) => {
+        expect(Object.isFrozen(request)).toBe(true);
+        expect(Object.isFrozen(request.principal)).toBe(true);
+        return true;
+      },
+      scope,
+      "download",
+      newObjectKey(scope),
+    );
+  });
+});

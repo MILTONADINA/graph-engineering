@@ -1,0 +1,21 @@
+import { expect, it, vi } from "vitest";
+
+it("redacts invalid endpoint parse errors without preserving URL input metadata", async () => {
+  vi.doMock("../src/utils/helpers", () => ({
+    SECRETS: { AWS_ENDPOINT_URL_S3: "INVALID_ENDPOINT_CANARY" },
+  }));
+  try {
+    const failure = await import("../src/config/s3-client").then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      "Invalid storage endpoint configuration",
+    );
+    expect(failure).not.toHaveProperty("input");
+    expect(String(failure)).not.toContain("INVALID_ENDPOINT_CANARY");
+  } finally {
+    vi.doUnmock("../src/utils/helpers");
+  }
+});
