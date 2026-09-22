@@ -1,0 +1,515 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { StrictMode, type ReactNode } from "react";
+import { apiFetch, apiUrl, ApiError } from "../lib/apiClient";
+import { useFormState } from "../lib/forms/useFormState";
+import {
+  useQueryTable,
+  type UseQueryTableResult,
+} from "../lib/tables/useQueryTable";
+import { DataTable } from "../components/DataTable";
+import { AuthProvider, useAuth } from "../lib/auth/AuthContext";
+const user = {
+  id: "user-1",
+  email: "user@example.invalid",
+  role: "customer",
+  status: "active",
+  emailVerifiedAt: "2026-01-01T00:00:00Z",
+  firstName: "Ada",
+  lastName: "Example",
+};
+const json = (data: unknown, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+const success = (data: unknown) => json({ message: "OK", data });
+const list = (data: unknown[] = [{ id: "1", name: "one" }], page = 1) =>
+  json({
+    message: "OK",
+    data,
+    pagination: { page, pageSize: 20, total: 21, totalPages: 2 },
+  });
+let fetchMock: ReturnType<typeof vi.fn>;
+beforeEach(() => {
+  fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal(
+    "navigator",
+    Object.create(navigator, {
+      locks: {
+        value: {
+          request: async (
+            _name: string,
+            _options: unknown,
+            operation: () => Promise<unknown>,
+          ) => operation(),
+        },
+      },
+    }),
+  );
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+const wrapper = ({ children }: { children: ReactNode }) => (
+  <AuthProvider>{children}</AuthProvider>
+);
+describe("frontend API boundary", () => {
+  it("pins credentials, rejects redirects and never accepts caller headers or credential overrides", async () => {
+    fetchMock.mockResolvedValue(success({ ok: true }));
+    await apiFetch("/api/items", {
+      method: "POST",
+      body: JSON.stringify({ name: "test" }),
+    });
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      credentials: "include",
+      redirect: "error",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+    });
+    for (const options of [
+      { credentials: "omit" },
+      { headers: { Authorization: "private" } },
+      { method: "TRACE" },
+    ])
+      await expect(
+        apiFetch("/api/items", options as never),
+      ).rejects.toMatchObject({ status: 400 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("rejects cross-origin, protocol-relative, traversal and control paths before fetch", () => {
+    for (const path of [
+      "https://untrusted.invalid/api/x",
+      "//untrusted.invalid/api/x",
+      "/api/../private",
+      "/api/%2e%2e/private",
+      "/api/x\\y",
+      "/api/x\n",
+      "/api/x#fragment",
+      "/outside",
+    ])
+      expect(() => apiUrl(path)).toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("bounds JSON request size and rejects malformed bodies", async () => {
+    for (const body of [
+      "not-json",
+      JSON.stringify({ text: "x".repeat(65536) }),
+    ])
+      await expect(
+        apiFetch("/api/items", { method: "POST", body }),
+      ).rejects.toMatchObject({ status: 400 });
+    await expect(apiFetch("/api/items", { body: "{}" })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("does not expose raw provider errors or trust body status codes", async () => {
+    fetchMock.mockResolvedValue(
+      json({ error: { message: "PRIVATE_ERROR_CANARY", status: 200 } }, 500),
+    );
+    await expect(apiFetch("/api/items")).rejects.toMatchObject({
+      message: "Request failed",
+      status: 500,
+    });
+    fetchMock.mockRejectedValue(new Error("PRIVATE_NETWORK_CANARY"));
+    await expect(apiFetch("/api/items")).rejects.toMatchObject({
+      message: "Network request failed",
+      status: 0,
+    });
+  });
+  it("rejects malformed JSON and non-JSON content", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("<html>private</html>", {
+        headers: { "content-type": "text/html" },
+      }),
+    );
+    await expect(apiFetch("/api/items")).rejects.toMatchObject({ status: 502 });
+    fetchMock.mockResolvedValue(
+      new Response("invalid", {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(apiFetch("/api/items")).rejects.toMatchObject({ status: 502 });
+  });
+  it("bounds declared and actual response bytes", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("{}", {
+        headers: {
+          "content-type": "application/json",
+          "content-length": "1048577",
+        },
+      }),
+    );
+    await expect(apiFetch("/api/items")).rejects.toMatchObject({ status: 502 });
+    fetchMock.mockResolvedValue(
+      new Response("x".repeat(1048577), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await expect(apiFetch("/api/items")).rejects.toMatchObject({ status: 502 });
+  });
+  it("supports explicit empty success and cancellation without leaking transport details", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+    expect(await apiFetch("/api/items")).toBeUndefined();
+    const controller = new AbortController();
+    controller.abort();
+    fetchMock.mockRejectedValue(new Error("cancel"));
+    await expect(
+      apiFetch("/api/items", { signal: controller.signal }),
+    ).rejects.toMatchObject({
+      status: 0,
+      message: "Request cancelled or timed out",
+    });
+  });
+});
+describe("frontend form state", () => {
+  it("suppresses duplicate same-tick submissions and freezes a current value snapshot", async () => {
+    const { result } = renderHook(() => useFormState({ name: "before" }));
+    let finish!: () => void;
+    const submit = vi.fn(async (values: Readonly<{ name: string }>) => {
+      expect(values.name).toBe("after");
+      expect(Object.isFrozen(values)).toBe(true);
+      await new Promise<void>((resolve) => (finish = resolve));
+    });
+    let first!: Promise<void>;
+    await act(async () => {
+      result.current.setValue("name", "after");
+      first = result.current.handleSubmit(submit)({
+        preventDefault: vi.fn(),
+      } as any);
+      await result.current.handleSubmit(submit)({
+        preventDefault: vi.fn(),
+      } as any);
+    });
+    expect(submit).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finish();
+      await first;
+    });
+    expect(result.current.isSubmitting).toBe(false);
+  });
+  it("clears field errors on edits and redacts unknown submission errors", async () => {
+    const { result } = renderHook(() => useFormState({ name: "" }));
+    act(() => result.current.setErrors({ name: "Required" }));
+    act(() => result.current.setValue("name", "Ada"));
+    expect(result.current.errors.name).toBeUndefined();
+    await act(() =>
+      result.current.handleSubmit(async () => {
+        throw new Error("PRIVATE_FORM_CANARY");
+      })({ preventDefault: vi.fn() } as any),
+    );
+    expect(result.current.formError).toBe("Submission failed");
+    expect(() =>
+      result.current.setValue("unregistered" as "name", "x"),
+    ).toThrow();
+  });
+});
+describe("frontend table data", () => {
+  it("serializes bounded filters and sort state without overriding pagination", async () => {
+    fetchMock.mockImplementation(async () => list());
+    const { result } = renderHook(() => useQueryTable("/api/items"));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    act(() => {
+      result.current.setFilter("name", "one&role=admin");
+      result.current.setSort("name");
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const url = new URL(fetchMock.mock.calls[1][0]);
+    expect(url.searchParams.get("name")).toBe("one&role=admin");
+    expect(url.searchParams.get("role")).toBeNull();
+    expect(url.searchParams.get("pageSize")).toBe("20");
+    for (const field of ["page", "pageSize", "sortBy", "__proto__"])
+      expect(() => result.current.setFilter(field, "1")).toThrow();
+    expect(() => result.current.setPage(Infinity)).toThrow();
+    expect(() => result.current.setFilter("name", "x".repeat(257))).toThrow();
+  });
+  it("aborts stale requests and does not restore older rows", async () => {
+    let first!: (response: Response) => void;
+    fetchMock
+      .mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (first = resolve)),
+      )
+      .mockResolvedValue(list([{ id: "2", name: "new" }]));
+    const { result } = renderHook(() =>
+      useQueryTable<{ id: string; name: string }>("/api/items"),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const signal = fetchMock.mock.calls[0][1].signal as AbortSignal;
+    act(() => result.current.setFilter("name", "new"));
+    await waitFor(() => expect(result.current.rows[0]?.name).toBe("new"));
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      first(list([{ id: "1", name: "old" }]));
+    });
+    expect(result.current.rows[0]?.name).toBe("new");
+  });
+  it("rejects inconsistent pagination rather than rendering unbounded response rows", async () => {
+    fetchMock.mockResolvedValue(
+      json({
+        message: "OK",
+        data: [],
+        pagination: { page: 1, pageSize: 20, total: 21, totalPages: 999 },
+      }),
+    );
+    const { result } = renderHook(() => useQueryTable("/api/items"));
+    await waitFor(() =>
+      expect(result.current.error).toBe("Invalid pagination response"),
+    );
+    expect(result.current.rows).toEqual([]);
+  });
+  it("rejects null, scalar and array rows before a component can dereference them", async () => {
+    fetchMock.mockImplementation(async () => list([null]));
+    const { result } = renderHook(() => useQueryTable("/api/items"));
+    await waitFor(() =>
+      expect(result.current.error).toBe("Invalid pagination response"),
+    );
+    expect(result.current.rows).toEqual([]);
+  });
+  it("bounds same-tick filter cardinality without throwing from a React state updater", async () => {
+    fetchMock.mockImplementation(async () => list());
+    const { result } = renderHook(() => useQueryTable("/api/items"));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    act(() => {
+      for (let index = 0; index < 8; index++)
+        result.current.setFilter("field" + index, "value");
+      expect(() => result.current.setFilter("overflow", "value")).toThrow(
+        "Too many filters",
+      );
+    });
+    expect(Object.keys(result.current.filters)).toHaveLength(8);
+    expect(() => result.current.setSort("name\n")).toThrow(
+      "Invalid table field",
+    );
+  });
+  it("does not coerce arbitrary nested row values through attacker-controlled toString fields", () => {
+    const table: UseQueryTableResult<{ id: string; value: unknown }> = {
+      rows: [
+        {
+          id: "one",
+          value: { toString: "not callable", valueOf: "not callable" },
+        },
+      ],
+      meta: null,
+      page: 1,
+      setPage: () => {},
+      sortBy: undefined,
+      sortDir: "asc",
+      setSort: () => {},
+      filters: {},
+      setFilter: () => {},
+      isLoading: false,
+      error: null,
+      refetch: () => {},
+    };
+    render(
+      <DataTable
+        table={table}
+        columns={[{ key: "value", label: "Value" }]}
+        getRowId={(row) => row.id}
+      />,
+    );
+    expect(screen.getByText("[Unsupported value]")).toBeInTheDocument();
+  });
+  it("renders escaped cell text and disables stale pagination while loading", () => {
+    const table: UseQueryTableResult<{ id: string; name: string }> = {
+      rows: [{ id: "1", name: "<script>alert(1)</script>" }],
+      meta: { page: 1, pageSize: 20, total: 21, totalPages: 2 },
+      page: 1,
+      setPage: vi.fn(),
+      sortBy: undefined,
+      sortDir: "asc",
+      setSort: vi.fn(),
+      filters: {},
+      setFilter: vi.fn(),
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <DataTable
+        table={table}
+        columns={[{ key: "name", label: "Name", sortable: true }]}
+        getRowId={(row) => row.id}
+      />,
+    );
+    expect(container.querySelector("script")).toBeNull();
+    expect(screen.getByText("<script>alert(1)</script>")).toBeInTheDocument();
+    rerender(
+      <DataTable
+        table={{ ...table, isLoading: true }}
+        columns={[{ key: "name", label: "Name" }]}
+        getRowId={(row) => row.id}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+  });
+});
+describe("frontend cookie session", () => {
+  it("hydrates only safe display fields and never writes browser token storage", async () => {
+    const storage = vi.spyOn(Storage.prototype, "setItem");
+    fetchMock.mockResolvedValue(
+      success({ user: { ...user, accessToken: "SHOULD_NOT_BE_RETAINED" } }),
+    );
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.user).toEqual(user);
+    expect(result.current.user).not.toHaveProperty("accessToken");
+    expect(storage).not.toHaveBeenCalled();
+  });
+  it("uses at most one refresh after an expired current-user response", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({}, 401))
+      .mockResolvedValueOnce(success(null))
+      .mockResolvedValueOnce(success({ user }));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user?.id).toBe(user.id));
+    expect(
+      fetchMock.mock.calls.map((call) => new URL(call[0]).pathname),
+    ).toEqual(["/api/auth/me", "/api/auth/refresh", "/api/auth/me"]);
+    expect(fetchMock.mock.calls[1][1].method).toBe("POST");
+  });
+  it("handles logged-out and unavailable sessions without unhandled rejection", async () => {
+    fetchMock.mockResolvedValue(json({}, 401));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.user).toBeNull();
+    expect(result.current.error).toBeNull();
+    fetchMock.mockRejectedValue(new Error("PRIVATE_AUTH_CANARY"));
+    await act(() => result.current.refetch());
+    expect(result.current.error).toBe("Network request failed");
+  });
+  it("does not log registration in and only accepts explicit login afterward", async () => {
+    fetchMock.mockResolvedValue(json({}, 401));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    fetchMock.mockImplementation(async () => success({ user }));
+    await act(() =>
+      result.current.register({
+        firstName: "Ada",
+        lastName: "Example",
+        email: user.email,
+        password: "runtime-test-value",
+      }),
+    );
+    expect(result.current.user).toBeNull();
+    await act(() => result.current.login(user.email, "runtime-test-value"));
+    expect(result.current.user).toEqual(user);
+  });
+  it("serializes pending hydration with logout so stale replies cannot restore the user", async () => {
+    let finish!: (response: Response) => void;
+    fetchMock
+      .mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (finish = resolve)),
+      )
+      .mockResolvedValue(success(null));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    let logout!: Promise<void>;
+    act(() => {
+      logout = result.current.logout();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finish(success({ user }));
+      await logout;
+    });
+    expect(result.current.user).toBeNull();
+    expect(new URL(fetchMock.mock.calls[1][0]).pathname).toBe(
+      "/api/auth/logout",
+    );
+  });
+  it("does not silently claim server logout when the transport fails", async () => {
+    fetchMock.mockResolvedValue(success({ user }));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user).not.toBeNull());
+    fetchMock.mockRejectedValue(new Error("unavailable"));
+    await act(async () => {
+      await expect(result.current.logout()).rejects.toBeInstanceOf(ApiError);
+    });
+    expect(result.current.user).toBeNull();
+    expect(result.current.error).toBe("Server logout could not be confirmed");
+  });
+  it("does not reuse pre-logout hydration when refetch overlaps the logout", async () => {
+    let finish!: (response: Response) => void;
+    fetchMock
+      .mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (finish = resolve)),
+      )
+      .mockImplementationOnce(async () => success(null))
+      .mockImplementation(async () => json({}, 401));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    let logout!: Promise<void>, refresh!: Promise<void>;
+    act(() => {
+      logout = result.current.logout();
+      refresh = result.current.refetch();
+    });
+    await act(async () => {
+      finish(success({ user }));
+      await Promise.all([logout, refresh]);
+    });
+    expect(result.current.user).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(
+      fetchMock.mock.calls.map((call) => new URL(call[0]).pathname),
+    ).toEqual([
+      "/api/auth/me",
+      "/api/auth/logout",
+      "/api/auth/me",
+      "/api/auth/refresh",
+    ]);
+  });
+  it("does not expose a failed older logout after a newer login succeeds", async () => {
+    fetchMock.mockImplementationOnce(async () => success({ user }));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.user).not.toBeNull());
+    let reject!: (error: Error) => void;
+    fetchMock
+      .mockImplementationOnce(
+        () => new Promise<Response>((_resolve, fail) => (reject = fail)),
+      )
+      .mockImplementationOnce(async () => success({ user }));
+    let logout!: Promise<unknown>, login!: Promise<void>;
+    act(() => {
+      logout = result.current.logout().catch(() => undefined);
+      login = result.current.login(user.email, "runtime-test-value");
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      reject(new Error("not available"));
+      await Promise.all([logout, login]);
+    });
+    expect(result.current.user).toEqual(user);
+    expect(result.current.error).toBeNull();
+  });
+  it("fails explicitly when browser cross-tab coordination is unavailable", async () => {
+    vi.stubGlobal("navigator", {});
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBe(
+      "This browser cannot safely coordinate authentication",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("deduplicates strict-mode hydration and rejects malformed authenticated profiles", async () => {
+    fetchMock.mockResolvedValue(success({ user: { ...user, role: "root" } }));
+    const strict = ({ children }: { children: ReactNode }) => (
+      <StrictMode>
+        <AuthProvider>{children}</AuthProvider>
+      </StrictMode>
+    );
+    const { result } = renderHook(() => useAuth(), { wrapper: strict });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error).toBe("Invalid authentication response");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

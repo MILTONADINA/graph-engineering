@@ -9,6 +9,8 @@ export interface TemplateArtifact {
 }
 
 export interface TemplateRenderContext {
+  /** Invocation identity, distinct from the catalog template identity. */
+  readonly instanceId: string;
   /** Cloned catalog-schema validated/defaulted inputs with derived entity identifiers. */
   inputs: Record<string, unknown>;
   readTarget(relative: string): Promise<string>;

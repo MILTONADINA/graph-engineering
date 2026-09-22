@@ -1,0 +1,24 @@
+"use client";
+import { DataTable } from "../../components/DataTable";
+import { useQueryTable } from "../../lib/tables/useQueryTable";
+import { useAuth } from "../../lib/auth/AuthContext";
+export default function FixturePage() {
+  const table = useQueryTable<{ id: string; name: string }>("/api/items");
+  const auth = useAuth();
+  return (
+    <main>
+      <h1>Table fixture</h1>
+      <p data-testid="session">
+        {auth.isLoading ? "loading" : (auth.user?.id ?? "anonymous")}
+      </p>
+      <button type="button" onClick={() => void auth.logout()}>
+        Sign out
+      </button>
+      <DataTable
+        table={table}
+        columns={[{ key: "name", label: "Name", sortable: true }]}
+        getRowId={(row) => row.id}
+      />
+    </main>
+  );
+}
