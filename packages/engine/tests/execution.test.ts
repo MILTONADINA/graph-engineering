@@ -424,7 +424,10 @@ describe("managed execution", () => {
       });
       const run = await engine.start(plan.id);
       const result = await engine.wait(run.id);
-      expect(result.error).toBeUndefined();
+      expect(
+        result.error,
+        JSON.stringify(engine.store.events(run.id)),
+      ).toBeUndefined();
       expect(result.status).toBe("succeeded");
     },
   );
