@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 
 export const id = () => randomUUID();
 export const now = () => new Date().toISOString();
@@ -39,6 +40,10 @@ export function command(
   } = {},
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
+    // Killing on a timer and accepting before a deadline are separate checks.
+    // Include spawn time and reject late exits even when the event loop delivers
+    // child completion before an overdue timeout callback.
+    const expiresAt = performance.now() + (options.timeoutMs ?? 60000);
     const child = spawn(executable, argv, {
       cwd: options.cwd,
       env: options.env ?? process.env,
@@ -66,7 +71,10 @@ export function command(
       escalation = setTimeout(() => kill("SIGKILL"), 1000);
       escalation.unref();
     };
-    const timeout = setTimeout(terminate, options.timeoutMs ?? 60000);
+    const timeout = setTimeout(
+      terminate,
+      Math.max(0, expiresAt - performance.now()),
+    );
     timeout.unref();
     const abort = () => terminate();
     options.signal?.addEventListener("abort", abort, { once: true });
@@ -95,7 +103,7 @@ export function command(
     child.on("close", (code, signal) => {
       clean();
       if (overflow) reject(new Error("Command exceeded output limit"));
-      else if (signal || terminated)
+      else if (signal || terminated || performance.now() >= expiresAt)
         reject(
           new Error(
             `Command terminated (${signal ?? "timeout or cancellation"})`,
