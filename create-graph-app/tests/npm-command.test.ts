@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-const { npmInvocation } = require('../scripts/npm-command.js');
+import { npmInvocation } from '../src/utils/npm';
 
 describe('portable npm script invocation', () => {
   it('uses Node and npm-cli.js with separate arguments on Windows', () => {

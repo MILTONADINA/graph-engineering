@@ -9,6 +9,16 @@ import {
   type ProjectConfig as ScaffoldConfig,
 } from "create-graph-app";
 import { readJson } from "./util.js";
+import { templateRuntimeCapability } from "./template-runtime.js";
+export {
+  renderTemplateProposal,
+  templateRuntimeCapability,
+} from "./template-runtime.js";
+export type {
+  TemplateExecutionManifest,
+  TemplateWorkerResult,
+  RenderTemplateOptions,
+} from "./template-runtime.js";
 
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -21,6 +31,8 @@ export interface TemplateInfo {
   status: string;
   description?: string;
   version?: string;
+  executable?: boolean;
+  runtimeReason?: string;
 }
 interface GraphTemplate {
   id: string;
@@ -51,6 +63,14 @@ export async function listTemplates(): Promise<TemplateInfo[]> {
       status: t.status,
       description: t.description,
       version: t.version,
+      executable:
+        t.status === "implemented" &&
+        t.version === "1.0.0" &&
+        templateRuntimeCapability(t.id).executable,
+      runtimeReason:
+        t.status !== "implemented" || t.version !== "1.0.0"
+          ? "Catalog status/version does not have an audited executable renderer"
+          : templateRuntimeCapability(t.id).reason,
     })),
   ];
 }
