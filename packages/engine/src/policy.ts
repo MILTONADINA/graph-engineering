@@ -60,9 +60,13 @@ export function isAllowedPath(
   const prefixes = segments.map((_, index) =>
     segments.slice(0, index + 1).join("/"),
   );
-  // This one root file is plain generated documentation, not engine control
-  // metadata. All explicit exclusions still apply, including a .graph exclusion.
-  const publicContext = clean === ".graph/CONTEXT.md";
+  // Only these exact public artifacts can cross the root .graph boundary. The
+  // ledger additionally requires owner policy opt-in; it is never engine state.
+  // All explicit exclusions and independent cloud-export rules still apply.
+  const publicContext =
+    clean === ".graph/CONTEXT.md" ||
+    (clean === ".graph/manifest.json" &&
+      policy.allowPublicTemplateLedger === true);
   if (
     protectedPaths.some(
       (pattern) =>
@@ -112,7 +116,12 @@ export async function safePath(
         .join("/");
       if (
         !isAllowedPath(canonical, policy) &&
-        !(relative === ".graph/CONTEXT.md" && canonical === ".graph")
+        !(
+          canonical === ".graph" &&
+          (relative === ".graph/CONTEXT.md" ||
+            (relative === ".graph/manifest.json" &&
+              policy.allowPublicTemplateLedger === true))
+        )
       )
         throw new Error(
           `Resolved path is outside allowed project scope: ${relative}`,
