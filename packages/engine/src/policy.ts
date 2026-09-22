@@ -10,10 +10,23 @@ import type {
 const protectedPaths = [
   ".git/**",
   ".git",
+  "**/.git/**",
+  "**/.git",
   ".graph/**",
   ".graph",
+  "**/.graph/local/**",
+  "**/.graph/local",
+  "**/.graph/cache/**",
+  "**/.graph/cache",
+  "**/.graph/workspaces/**",
+  "**/.graph/workspaces",
+  "**/.graph/project.json",
+  "**/.graph/providers.json",
+  "**/.graph/decisions.json",
   "node_modules/**",
+  "node_modules",
   "**/node_modules/**",
+  "**/node_modules",
 ];
 export function isAllowedPath(
   relative: string,
@@ -43,13 +56,24 @@ export function isAllowedPath(
     return false;
   // Conservatively protect aliases even on case-sensitive machines; projects
   // routinely move to default case-insensitive macOS/Windows filesystems.
+  const segments = clean.split("/");
+  const prefixes = segments.map((_, index) =>
+    segments.slice(0, index + 1).join("/"),
+  );
   if (
-    [...protectedPaths, ...policy.excludedPaths].some((pattern) =>
-      picomatch(pattern, {
-        dot: true,
-        nocase: true,
-        basename: !pattern.includes("/"),
-      })(clean),
+    protectedPaths.some((pattern) =>
+      prefixes.some((prefix) =>
+        picomatch(pattern, { dot: true, nocase: true })(prefix),
+      ),
+    ) ||
+    policy.excludedPaths.some((pattern) =>
+      prefixes.some((prefix) =>
+        picomatch(pattern, {
+          dot: true,
+          nocase: true,
+          basename: !pattern.includes("/"),
+        })(prefix),
+      ),
     )
   )
     return false;

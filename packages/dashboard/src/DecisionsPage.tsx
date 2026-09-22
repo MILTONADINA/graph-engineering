@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { DecisionRecord, RunRecord } from "@graph-engineering/contracts";
+import type { DecisionRecord } from "@graph-engineering/contracts";
+import type { AccountingSummary } from "./types";
 import type { Api } from "./api";
 import {
   Badge,
@@ -12,14 +13,18 @@ import {
   Status,
   useResource,
 } from "./components";
-import { date, number, readable, sumUsage } from "./view-model";
+import { accountingCost, date, number, readable } from "./view-model";
+import { UsagePanel } from "./UsagePanel";
 
 export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
   const decisions = useResource<DecisionRecord[]>(
     api,
     active ? "/api/decisions" : null,
   );
-  const runs = useResource<RunRecord[]>(api, active ? "/api/runs" : null);
+  const accounting = useResource<AccountingSummary>(
+    api,
+    active ? "/api/usage" : null,
+  );
   const [mode, setMode] = useState("all");
   const [category, setCategory] = useState("all");
   const records = decisions.data ?? [];
@@ -34,7 +39,7 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
     )
     .slice()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const usage = sumUsage(runs.data ?? []);
+  const usage = accountingCost(accounting.data);
   return (
     <>
       <PageHeading
@@ -45,7 +50,7 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
             variant="secondary"
             onClick={() => {
               decisions.reload();
-              runs.reload();
+              accounting.reload();
             }}
           >
             <Icon name="refresh" size={16} />
@@ -53,11 +58,11 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
           </Button>
         }
       >
-        Inspect the choices behind the work, and the usage providers actually
-        report.
+        Inspect the choices behind the work, reported usage, and estimates
+        retained for unresolved calls.
       </PageHeading>
       <ErrorNotice message={decisions.error} retry={decisions.reload} />
-      <ErrorNotice message={runs.error} retry={runs.reload} />
+      <ErrorNotice message={accounting.error} retry={accounting.reload} />
       <div className="metric-grid">
         <div className="metric">
           <span className="metric-label">
@@ -86,21 +91,14 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
         </div>
         <div className="metric">
           <span className="metric-label">
-            {usage.estimated ? "Known estimated cost" : "Known reported cost"}
+            {usage.label}
             <Icon name="run" size={16} />
           </span>
-          <strong>
-            {usage.cost === null ? "—" : `$${usage.cost.toFixed(4)}`}
-          </strong>
-          <span className="metric-foot">
-            {usage.missing
-              ? `${usage.missing} run${usage.missing === 1 ? "" : "s"} with unreported cost`
-              : runs.data?.length
-                ? "Across runs that reported cost"
-                : "No usage has been reported"}
-          </span>
+          <strong>{usage.value}</strong>
+          <span className="metric-foot">{usage.detail}</span>
         </div>
       </div>
+      {accounting.data && <UsagePanel summary={accounting.data} />}
       <div className="notice notice-subtle">
         <Icon name="shield" size={18} />
         <span>

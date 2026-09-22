@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, symlink, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -35,6 +35,43 @@ afterEach(async () => {
   );
 });
 describe("project boundaries", () => {
+  it("allows nested public graph artifacts while consistently rejecting private descendants", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "graph-artifact-path-"));
+    directories.push(root);
+    await mkdir(path.join(root, "examples/app/.graph"), { recursive: true });
+    const artifact = "examples/app/.graph/manifest.json";
+    expect(isAllowedPath(artifact, DEFAULT_POLICY)).toBe(true);
+    await expect(safePath(root, artifact, DEFAULT_POLICY)).resolves.toBe(
+      path.join(await realpath(root), artifact),
+    );
+    for (const file of [
+      "examples/app/.graph/local/state.json",
+      "examples/app/.graph/cache/index.sqlite",
+      "examples/app/.graph/workspaces/run/source.ts",
+      "examples/app/.graph/project.json",
+      "examples/app/.graph/providers.json",
+      "examples/app/.graph/decisions.json",
+      "examples/app/.GRAPH/LOCAL/state.json",
+      "examples/app/.git/config",
+      "examples/app/node_modules/pkg/index.js",
+      ".graph/manifest.json",
+    ]) {
+      expect(isAllowedPath(file, DEFAULT_POLICY), file).toBe(false);
+      expect(
+        isAllowedPath(file, { ...DEFAULT_POLICY, exportPaths: ["**"] }, true),
+        file,
+      ).toBe(false);
+      await expect(safePath(root, file, DEFAULT_POLICY)).rejects.toThrow(
+        "scope",
+      );
+    }
+    expect(
+      isAllowedPath("src/private/file.ts", {
+        ...DEFAULT_POLICY,
+        excludedPaths: ["private"],
+      }),
+    ).toBe(false);
+  });
   it("rejects nested policy and credential paths instead of matching only their basename", () => {
     for (const file of [
       ".git/config",

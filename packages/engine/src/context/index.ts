@@ -81,7 +81,7 @@ const BUILTIN_EXCLUSIONS = [
 export const estimateTokens = (text: string): number =>
   Buffer.byteLength(text, "utf8");
 // Preserve portable path identity while still allowing .graph/project.json as
-// local context; worker isAllowedPath intentionally forbids all .graph writes.
+// local context; worker policy separately protects execution-control metadata.
 const safePath = (path: string): boolean =>
   !!path &&
   !isAbsolute(path) &&
@@ -152,15 +152,20 @@ export class ContextEngine {
     }
   }
   private excluded(path: string): boolean {
-    return (
-      !safePath(path) ||
-      [...BUILTIN_EXCLUSIONS, ...this.policy.excludedPaths].some((pattern) =>
-        picomatch(pattern, {
-          dot: true,
-          nocase: true,
-          basename: !pattern.includes("/"),
-        })(path),
-      )
+    if (!safePath(path)) return true;
+    const segments = path.split("/");
+    const prefixes = segments.map((_, index) =>
+      segments.slice(0, index + 1).join("/"),
+    );
+    return [...BUILTIN_EXCLUSIONS, ...this.policy.excludedPaths].some(
+      (pattern) =>
+        prefixes.some((prefix) =>
+          picomatch(pattern, {
+            dot: true,
+            nocase: true,
+            basename: !pattern.includes("/"),
+          })(prefix),
+        ),
     );
   }
   private async git(args: string[]): Promise<string | null> {
@@ -906,9 +911,19 @@ export class ContextEngine {
       )
         throw new Error("Memory source does not match indexed evidence");
     }
-    await this.db.run(
-      "INSERT INTO memories(id,project_id,status,payload) VALUES(?,?,?,?)",
-      [record.id, this.projectId, record.status, JSON.stringify(record)],
+    await this.db.batch(
+      [
+        {
+          sql: "INSERT INTO memories(id,project_id,status,payload) VALUES(?,?,?,?)",
+          params: [
+            record.id,
+            this.projectId,
+            record.status,
+            JSON.stringify(record),
+          ],
+        },
+      ],
+      [...new Set(record.sources.map((source) => source.snapshotId))],
     );
     return record;
   }

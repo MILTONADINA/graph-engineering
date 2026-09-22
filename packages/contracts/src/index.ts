@@ -88,6 +88,7 @@ export interface ProviderConfig {
   inputCostPerMillion?: number;
   outputCostPerMillion?: number;
   maxContextTokens?: number;
+  localOptions?: { enableThinking?: boolean; thinkingBudget?: number };
 }
 export interface RepositorySnapshot {
   version: typeof SCHEMA_VERSION;
@@ -218,6 +219,12 @@ export interface RunRecord {
   usage: Usage;
   commit?: string;
   pullRequest?: string;
+  completion?: {
+    automatedChecksPassed: boolean;
+    humanAcceptance: "pending";
+    reviewScope:
+      "normal" | "security" | "architecture" | "security-and-architecture";
+  };
 }
 export interface DecisionRecord {
   version: typeof SCHEMA_VERSION;
@@ -259,7 +266,7 @@ export const policySchema = {
     maxTurns: { type: "integer", minimum: 1, maximum: 100 },
     timeoutSeconds: { type: "integer", minimum: 1, maximum: 86400 },
     maxCostUsd: {
-      anyOf: [{ type: "null" }, { type: "number", exclusiveMinimum: 0 }],
+      anyOf: [{ type: "null" }, { type: "number", minimum: 0 }],
     },
     decisionMode: { enum: ["shadow", "promoted"] },
     promotedCategories: strings,

@@ -178,7 +178,9 @@ it("can stop an automated run without granting acceptance, review, or merge appr
   });
   expect(result.action).toBe("complete");
   const sent = JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body));
-  expect(JSON.stringify(sent)).toContain("human acceptance and review remain pending");
+  expect(JSON.stringify(sent)).toContain(
+    "human acceptance and review remain pending",
+  );
   expect(JSON.stringify(sent)).toContain("does not approve human acceptance");
   expect(result).not.toHaveProperty("humanAcceptance");
   expect(result).not.toHaveProperty("mergeApproved");
@@ -187,18 +189,21 @@ it("can stop an automated run without granting acceptance, review, or merge appr
 it.each([
   { requiredTestsPassed: false, policyValid: true, expected: "continue" },
   { requiredTestsPassed: true, policyValid: false, expected: "human" },
-])("automated completion still enforces tests and policy: %j", async (gates) => {
-  answer({ completion: "complete" });
-  const result = await controlCompletion({
-    ...session(["stop"]),
-    acceptanceSatisfied: false,
-    requiredReviewsPassed: false,
-    completionScope: "automated-run",
-    ...gates,
-  });
-  expect(result.action).toBe(gates.expected);
-  expect(result.records[0]?.candidates).not.toContain("complete");
-});
+])(
+  "automated completion still enforces tests and policy: %j",
+  async (gates) => {
+    answer({ completion: "complete" });
+    const result = await controlCompletion({
+      ...session(["stop"]),
+      acceptanceSatisfied: false,
+      requiredReviewsPassed: false,
+      completionScope: "automated-run",
+      ...gates,
+    });
+    expect(result.action).toBe(gates.expected);
+    expect(result.records[0]?.candidates).not.toContain("complete");
+  },
+);
 
 it("refuses retries beyond the attempt budget and cannot discard required audit evidence", async () => {
   answer({ recovery: "retry" });

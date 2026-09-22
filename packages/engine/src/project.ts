@@ -62,8 +62,19 @@ const providerSchema = z
     inputCostPerMillion: z.number().nonnegative().optional(),
     outputCostPerMillion: z.number().nonnegative().optional(),
     maxContextTokens: z.number().int().positive().optional(),
+    localOptions: z
+      .object({
+        enableThinking: z.boolean().optional(),
+        thinkingBudget: z.number().int().nonnegative().optional(),
+      })
+      .strict()
+      .optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (provider) => !provider.localOptions || provider.kind === "local",
+    "Local inference options apply only to local providers",
+  );
 export async function loadProviders(
   dataDir: string,
 ): Promise<ProviderConfig[]> {

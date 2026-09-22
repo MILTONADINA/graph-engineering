@@ -44,6 +44,53 @@ afterEach(async () => {
 });
 
 describe("local context indexing", () => {
+  it("excludes directory descendants in Git inventory and historical retrieval after policy changes", async () => {
+    const { engine } = await fixture({
+      "src/PrIvAtE/nested.ts": "export function privateDirectoryCanary() {}",
+      "src/private/deeper/value.ts": "export function privateNestedCanary() {}",
+      "src/internal/value.ts": "export function internalDirectoryCanary() {}",
+      "src/private-lookalike/public.ts": "export function publicFunction() {}",
+    });
+    const initial = await engine.index();
+    expect(initial.fileCount).toBe(4);
+    expect(
+      await engine.searchSymbols("privateDirectoryCanary", initial.id),
+    ).toHaveLength(1);
+
+    engine.updatePolicy({
+      ...structuredClone(DEFAULT_POLICY),
+      excludedPaths: [
+        ...DEFAULT_POLICY.excludedPaths,
+        "private",
+        "src/internal",
+      ],
+    });
+    for (const name of [
+      "privateDirectoryCanary",
+      "privateNestedCanary",
+      "internalDirectoryCanary",
+    ])
+      expect(await engine.searchSymbols(name, initial.id)).toEqual([]);
+    const packet = await engine.getContext({
+      query:
+        "privateDirectoryCanary privateNestedCanary internalDirectoryCanary publicFunction",
+      snapshotId: initial.id,
+    });
+    expect(
+      packet.items.every(
+        (item) =>
+          !item.source ||
+          item.source.path === "src/private-lookalike/public.ts",
+      ),
+    ).toBe(true);
+
+    const current = await engine.index();
+    expect(current.fileCount).toBe(1);
+    expect(
+      await engine.searchSymbols("publicFunction", current.id),
+    ).toHaveLength(1);
+  });
+
   it("excludes case aliases and uses the shared credential scanner", async () => {
     const { engine } = await fixture({
       ".ENV": "PRIVATE_CASE_CANARY",

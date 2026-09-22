@@ -2470,6 +2470,32 @@ input::placeholder {
     font-size: 27px;
   }
 }
+.accounting-panel {
+  margin-bottom: 22px;
+}
+.accounting-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 24px;
+  padding: 0 26px;
+  margin: 0 0 24px;
+}
+.accounting-grid dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.accounting-grid dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.accounting-explanation {
+  padding: 0 26px 16px;
+  margin: 0;
+  line-height: 1.7;
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

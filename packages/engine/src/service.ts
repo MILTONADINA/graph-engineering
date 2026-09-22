@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import type {
   ContextPacket,
   ExecutionPlan,
+  ExecutionStep,
   ProjectConfig,
   ProviderConfig,
   RunRecord,
@@ -18,7 +20,7 @@ import {
   redact,
   safePath,
 } from "./policy.js";
-import { errorMessage, hash, id, now, readJson } from "./util.js";
+import { errorMessage, hash, id, now, readJson, writeJson } from "./util.js";
 import {
   decide,
   decisionProviders,
@@ -27,8 +29,10 @@ import {
 import {
   invokeApiWorker,
   estimateRequestCost,
+  fitWorkerContext,
   type WorkerInput,
   type WorkerResult,
+  proposalSchema,
 } from "./workers/api.js";
 import {
   invokeInstalledWorker,
@@ -47,30 +51,40 @@ import {
 import { publishRun } from "./execution/publish.js";
 import { checkedGit } from "./execution/git.js";
 import { routePlan, WORKFLOWS } from "./planning.js";
+import {
+  renderTemplateProposal,
+  templateRuntimeCapability,
+} from "./templates.js";
+import {
+  runDag,
+  validateDag,
+  DagReconciliationError,
+  type DagCheckpoint,
+} from "./execution/dag.js";
+import type { DecisionBudget, DecisionBatchResult } from "./decision-batch.js";
+import {
+  routeRetrieval,
+  selectContext,
+  routeScopes,
+  controlRecovery,
+  controlCompletion,
+  controlMemoryWrite,
+  type DecisionSession,
+} from "./decision-controls.js";
 
 export interface EngineDependencies {
   worker?: (input: WorkerInput, workspace: string) => Promise<WorkerResult>;
   verify?: typeof verifyInContainer;
   dockerAvailable?: typeof dockerAvailable;
 }
-const emptyUsage = (): Usage => ({
-  inputTokens: 0,
-  outputTokens: 0,
-  cachedTokens: 0,
-  costUsd: 0,
-  estimated: true,
-});
-function sumUsage(a: Usage, b: Usage): Usage {
-  const sum = (x: number | null, y: number | null) =>
-    x === null || y === null ? null : x + y;
-  return {
-    inputTokens: sum(a.inputTokens, b.inputTokens),
-    outputTokens: sum(a.outputTokens, b.outputTokens),
-    cachedTokens: sum(a.cachedTokens, b.cachedTokens),
-    costUsd: sum(a.costUsd, b.costUsd),
-    estimated: a.estimated || b.estimated,
-  };
-}
+const cloudSignals = (state: Record<string, unknown>) =>
+  Object.fromEntries(
+    Object.entries(state).filter(
+      ([, value]) =>
+        typeof value === "boolean" ||
+        (typeof value === "number" && Number.isFinite(value)),
+    ),
+  );
 export class GraphEngine {
   readonly context: ContextEngine;
   readonly store: RunStore;
@@ -105,6 +119,101 @@ export class GraphEngine {
   async providers(): Promise<ProviderConfig[]> {
     return loadProviders(this.dataDir);
   }
+  private decisionBudget(ownerId: string): DecisionBudget {
+    return {
+      reserve: async ({ callId, provider, amountUsd }) =>
+        this.store.reserveCall(
+          ownerId,
+          callId,
+          provider,
+          amountUsd,
+          this.config.policy.maxCostUsd,
+        ),
+      settle: async (usage) =>
+        this.store.settleCall(ownerId, usage.callId, usage.provider, {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cachedTokens: 0,
+          costUsd: usage.chargedUsd,
+          estimated: usage.reportedCostUsd === null,
+        }),
+    };
+  }
+  private async decisionSession(
+    ownerId: string,
+    state: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<DecisionSession> {
+    let evidence: PromotionEvidence[] = [];
+    try {
+      evidence = await readJson(path.join(this.dataDir, "promotions.json"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    return {
+      projectId: this.config.projectId,
+      state,
+      // Only non-content operational counters/flags are eligible for hosted
+      // routing by default. Source text, paths, objectives and memories stay out.
+      cloudState: cloudSignals(state),
+      policy: this.config.policy,
+      providers: await decisionProviders(this.dataDir),
+      evidence,
+      signal,
+      budget: this.decisionBudget(ownerId),
+    };
+  }
+  private captureDecision(
+    run: RunRecord,
+    stage: string,
+    result: DecisionBatchResult,
+  ): void {
+    for (const record of result.records) this.store.decision(record);
+    run.usage = this.store.usage(run.plan.id);
+    this.store.saveRun(run);
+    this.store.event(run.id, `decision.${stage}`, {
+      selections: result.selections,
+      callUsage: result.usage,
+    });
+  }
+  private async invokeWorker(
+    input: WorkerInput,
+    workspace: string,
+    ownerId: string,
+  ): Promise<WorkerResult> {
+    input = fitWorkerContext(input);
+    const callId = `worker-${id()}`;
+    const started = Date.now();
+    while (!this.store.tryAcquireWorker(callId, input.policy.maxWorkers)) {
+      if (Date.now() - started > input.policy.timeoutSeconds * 1000)
+        throw new Error("Worker concurrency wait timed out");
+      await delay(50, undefined, { signal: input.signal });
+    }
+    try {
+      if (input.signal?.aborted) throw new Error("Run cancelled");
+      this.store.reserveCall(
+        ownerId,
+        callId,
+        input.provider.id,
+        estimateRequestCost(
+          input.provider,
+          input.policy.maxContextTokens,
+          input.policy.maxOutputTokens,
+        ),
+        input.policy.maxCostUsd,
+        input.policy.maxTurns,
+      );
+      const result = this.deps.worker
+        ? await this.deps.worker(input, workspace)
+        : ["codex", "claude", "cursor"].includes(input.provider.kind)
+          ? await invokeInstalledWorker(input, workspace)
+          : await invokeApiWorker(input);
+      this.store.settleCall(ownerId, callId, input.provider.id, result.usage);
+      return result;
+    } finally {
+      this.store.releaseWorker(callId);
+    }
+  }
   async refresh(): Promise<ProjectConfig> {
     const config = await loadProject(this.root);
     if (config.projectId !== this.config.projectId)
@@ -119,6 +228,7 @@ export class GraphEngine {
     acceptance: string[];
     providerId?: string;
     effort?: string;
+    steps?: ExecutionStep[];
   }): Promise<ExecutionPlan> {
     await this.refresh();
     if (
@@ -129,7 +239,31 @@ export class GraphEngine {
       throw new Error(
         "An objective and explicit acceptance criteria are required",
       );
-    const snapshot = await this.context.index();
+    const snapshot = await this.context.index({ semantic: false });
+    const planId = id();
+    if (input.steps) {
+      const validated = validateDag(input.steps).steps;
+      if (validated.every((step) => step.kind === "template")) {
+        for (const step of validated)
+          if (!templateRuntimeCapability(step.templateId!).executable)
+            throw new Error(`Template ${step.templateId} is not executable`);
+        const plan: ExecutionPlan = {
+          version: "1.0.0",
+          id: planId,
+          projectId: this.config.projectId,
+          snapshotId: snapshot.id,
+          policyHash: hash(this.config.policy),
+          createdAt: now(),
+          objective: input.objective,
+          acceptance: input.acceptance,
+          steps: validated,
+          verification: structuredClone(this.config.verification),
+          publication: this.config.policy.publication,
+        };
+        this.store.savePlan(plan);
+        return plan;
+      }
+    }
     const configured = await this.providers();
     const installed = configured.some((p) =>
       ["codex", "claude", "cursor"].includes(p.kind),
@@ -180,6 +314,12 @@ export class GraphEngine {
         policy: this.config.policy,
         providers: await decisionProviders(this.dataDir),
         evidence,
+        budget: this.decisionBudget(planId),
+        cloudState: {
+          fileCount: snapshot.fileCount,
+          workerCount: available.length,
+        },
+        exportable: true,
       });
       records.forEach((record) => this.store.decision(record));
       const selected = records.find(
@@ -204,28 +344,35 @@ export class GraphEngine {
       policy: this.config.policy,
       providers: await decisionProviders(this.dataDir),
       evidence: routingEvidence,
+      budget: this.decisionBudget(planId),
+      cloudState: {
+        fileCount: snapshot.fileCount,
+        maxContextTokens: this.config.policy.maxContextTokens,
+      },
     });
     routing.records.forEach((record) => this.store.decision(record));
     assertProvider(provider, this.config.policy, routing.effort);
     const plan: ExecutionPlan = {
       version: "1.0.0",
-      id: id(),
+      id: planId,
       projectId: this.config.projectId,
       snapshotId: snapshot.id,
       policyHash: hash(this.config.policy),
       createdAt: now(),
       objective: input.objective,
       acceptance: input.acceptance,
-      steps: [
-        {
-          id: "implement",
-          kind: "worker",
-          objective: `${input.objective}\n\nWorkflow: ${WORKFLOWS[routing.workflow]}`,
-          dependsOn: [],
-          providerId: provider.id,
-          effort: routing.effort,
-        },
-      ],
+      steps: input.steps
+        ? validateDag(input.steps).steps
+        : [
+            {
+              id: "implement",
+              kind: "worker",
+              objective: `${input.objective}\n\nWorkflow: ${WORKFLOWS[routing.workflow]}`,
+              dependsOn: [],
+              providerId: provider.id,
+              effort: routing.effort,
+            },
+          ],
       routing: {
         workflow: routing.workflow,
         contextBudgetTokens: routing.contextBudgetTokens,
@@ -234,6 +381,17 @@ export class GraphEngine {
       verification: structuredClone(this.config.verification),
       publication: this.config.policy.publication,
     };
+    for (const step of plan.steps) {
+      if (step.kind === "worker") {
+        const worker = available.find(
+          (candidate) => candidate.id === step.providerId,
+        );
+        if (!worker)
+          throw new Error(`Step ${step.id} uses an unavailable worker`);
+        assertProvider(worker, this.config.policy, step.effort);
+      } else if (!templateRuntimeCapability(step.templateId!).executable)
+        throw new Error(`Template ${step.templateId} is not executable`);
+    }
     this.store.savePlan(plan);
     return plan;
   }
@@ -248,7 +406,7 @@ export class GraphEngine {
       throw new Error("Configure verification commands before running work");
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
-    const snapshot = await this.context.index();
+    const snapshot = await this.context.index({ semantic: false });
     if (snapshot.id !== plan.snapshotId)
       throw new Error("Source changed since planning; create a fresh plan");
     if (
@@ -264,7 +422,7 @@ export class GraphEngine {
       status: "planned",
       createdAt: now(),
       updatedAt: now(),
-      usage: emptyUsage(),
+      usage: this.store.usage(plan.id),
     };
     this.store.reserve(run, this.config.policy.maxWorkers);
     this.launch(run);
@@ -312,6 +470,9 @@ export class GraphEngine {
       throw new Error(
         "Inspect the retained workspace and events, then resume with explicit reconciliation acknowledgement",
       );
+    // Legacy aggregate usage is not a call ledger. Validate before any recovery
+    // work can replace those counters or regain historical cost/turn headroom.
+    this.store.assertResumeAccounting(runId);
     await this.refresh();
     if (hash(this.config.policy) !== run.plan.policyHash)
       throw new Error("Policy changed; create a fresh plan");
@@ -323,7 +484,7 @@ export class GraphEngine {
       throw new Error("A running Docker-compatible engine is required");
     if (
       !run.workspace &&
-      (await this.context.index()).id !== run.plan.snapshotId
+      (await this.context.index({ semantic: false })).id !== run.plan.snapshotId
     )
       throw new Error(
         "Source changed before workspace creation; create a fresh plan",
@@ -367,12 +528,100 @@ export class GraphEngine {
       const budgetTokens =
         run.plan.routing?.contextBudgetTokens ??
         Math.floor(this.config.policy.maxContextTokens * 0.7);
+      const session = await this.decisionSession(
+        run.plan.id,
+        {
+          objective: run.plan.objective.slice(0, 700),
+          stepCount: run.plan.steps.length,
+        },
+        signal,
+      );
+      const withState = (state: Record<string, unknown>) => ({
+        ...session,
+        state,
+        cloudState: cloudSignals(state),
+      });
+      const retrieval = await routeRetrieval({
+        ...session,
+        graphAvailable: true,
+        semanticAvailable: true,
+      });
+      this.captureDecision(run, "retrieval", retrieval);
+      const scope = await routeScopes({
+        ...session,
+        allowedTools: ["context.get", "symbols.search", "graph.neighbors"],
+        focusedTools: ["context.get"],
+        requiredTools: ["context.get"],
+        requiredChecks: run.plan.verification.map((_, i) => String(i)),
+        focusedChecks: [],
+        availableChecks: run.plan.verification.map((_, i) => String(i)),
+        securityReviewRequired:
+          /\b(auth|credential|security|permission|token|crypto)\b/i.test(
+            run.plan.objective,
+          ),
+        architectureReviewRequired: /\b(architecture|migration|schema)\b/i.test(
+          run.plan.objective,
+        ),
+      });
+      this.captureDecision(run, "scopes", scope);
+      const toolEvidence: { symbols: string[]; edges: string[] } = {
+        symbols: [],
+        edges: [],
+      };
+      if (scope.tools.includes("symbols.search")) {
+        const terms = [
+          ...new Set(
+            run.plan.objective.match(/[A-Za-z_][A-Za-z_0-9]{3,}/g) ?? [],
+          ),
+        ].slice(0, 4);
+        for (const term of terms) {
+          const symbols = (
+            await this.context.searchSymbols(term, run.plan.snapshotId)
+          ).slice(0, 4);
+          toolEvidence.symbols.push(...symbols.map((symbol) => symbol.id));
+          if (scope.tools.includes("graph.neighbors"))
+            for (const symbol of symbols.slice(0, 2))
+              toolEvidence.edges.push(
+                ...(
+                  await this.context.neighbors(
+                    symbol.id,
+                    run.plan.snapshotId,
+                    1,
+                  )
+                )
+                  .slice(0, 10)
+                  .map((edge) => edge.id),
+              );
+        }
+      }
+      this.store.event(run.id, "context.tools_completed", {
+        tools: scope.tools,
+        evidence: toolEvidence,
+        reviewRequired: scope.review,
+      });
       const originalPacket = await this.context.getContext({
         query: run.plan.objective,
         snapshotId: run.plan.snapshotId,
         budgetTokens,
         mandatory: run.plan.acceptance,
+        retrieval: retrieval.scope,
       });
+      const selection = await selectContext({
+        ...session,
+        candidates: originalPacket.items.map((item) => ({
+          id: item.id,
+          kind:
+            item.kind === "memory" ? ("memory" as const) : ("file" as const),
+          label: item.source
+            ? `${item.source.path}:${item.source.startLine}-${item.source.endLine}`
+            : item.text.slice(0, 160),
+          baselineInclude: true,
+        })),
+      });
+      this.captureDecision(run, "context_selection", selection);
+      originalPacket.items = originalPacket.items.filter((item) =>
+        selection.selectedIds.includes(item.id),
+      );
       const currentContext = async () => {
         const latest = new ContextEngine({
           projectId: this.config.projectId,
@@ -386,6 +635,7 @@ export class GraphEngine {
             query: run.plan.objective,
             budgetTokens,
             mandatory: originalPacket.mandatory,
+            retrieval: retrieval.scope,
           });
           return {
             ...current,
@@ -444,120 +694,96 @@ export class GraphEngine {
         feedback = compactFailures(checks);
         return verified;
       };
-      for (const step of run.plan.steps) {
-        verified = false;
-        // An acknowledged recovery checks the retained patch first. It never
-        // reapplies the original exact-substring patch to an already edited file.
-        if (
-          resuming &&
-          priorEvents.some(
-            (event) =>
-              event.type === "publication.started" ||
-              (event.type === "patch.applied" && event.stepId === step.id),
-          )
-        ) {
-          if (await verify(step.id)) {
-            this.store.event(run.id, "step.reconciled", {}, step.id);
-            continue;
+      if (
+        run.plan.steps.length > 1 ||
+        run.plan.steps.some((step) => step.kind === "template")
+      ) {
+        const checkpointPath = path.join(
+          this.dataDir,
+          "checkpoints",
+          `${run.id}.json`,
+        );
+        let checkpoint: DagCheckpoint | undefined;
+        if (resuming) {
+          try {
+            checkpoint = await readJson(checkpointPath);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           }
         }
-        const provider = (await this.providers()).find(
-          (p) => p.id === step.providerId,
-        );
-        if (!provider)
-          throw new Error("The planned provider is no longer configured");
-        let stepPacket: ContextPacket = packet;
-        for (
-          let attempt = 1;
-          attempt <= this.config.policy.maxAttempts;
-          attempt++
-        ) {
-          if (signal.aborted) throw new Error("Run cancelled");
-          await this.refresh();
-          if (hash(this.config.policy) !== run.plan.policyHash)
-            throw new Error(
-              "Policy changed during execution; dispatch stopped",
-            );
-          assertProvider(provider, this.config.policy, step.effort);
-          this.store.event(
-            run.id,
-            "attempt.started",
-            { attempt, providerId: provider.id },
-            step.id,
-          );
-          let proposalApplied = false;
-          for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
+        await runDag({
+          steps: run.plan.steps,
+          workspace,
+          policy: this.config.policy,
+          signal,
+          checkpoint,
+          // Strict paid reservations are cross-process; each DAG uses the configured bound.
+          maxParallel: this.config.policy.maxWorkers,
+          saveCheckpoint: (value) => writeJson(checkpointPath, value),
+          beforeApply: async () => {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
-              throw new Error("Policy changed during execution");
-            const estimate = estimateRequestCost(
-              provider,
-              this.config.policy.maxContextTokens,
-              this.config.policy.maxOutputTokens,
+              throw new Error("Policy changed before DAG patch application");
+          },
+          onEvent: (event) => {
+            this.store.event(run.id, event.type, event.data, event.stepId);
+          },
+          generate: async (step, state) => {
+            await this.refresh();
+            if (hash(this.config.policy) !== run.plan.policyHash)
+              throw new Error("Policy changed during DAG execution");
+            if (step.kind === "template") {
+              const { targetDirectory, ...inputs } = step.inputs ?? {};
+              if (
+                targetDirectory !== undefined &&
+                typeof targetDirectory !== "string"
+              )
+                throw new Error("Template targetDirectory must be a string");
+              return renderTemplateProposal({
+                templateId: step.templateId!,
+                instanceId: step.id,
+                inputs,
+                targetDirectory,
+                workspace,
+                policy: this.config.policy,
+              });
+            }
+            const provider = (await this.providers()).find(
+              (provider) => provider.id === step.providerId,
             );
-            if (
-              this.config.policy.maxCostUsd !== null &&
-              (estimate === null ||
-                run.usage.costUsd === null ||
-                run.usage.costUsd + estimate > this.config.policy.maxCostUsd)
-            )
-              throw new Error(
-                "The next call exceeds the configured estimated cost budget",
+            if (!provider)
+              throw new Error("DAG worker is no longer configured");
+            let stepPacket = await currentContext();
+            for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
+              await this.refresh();
+              if (hash(this.config.policy) !== run.plan.policyHash)
+                throw new Error("Policy changed during DAG execution");
+              const result = await this.invokeWorker(
+                {
+                  provider,
+                  policy: this.config.policy,
+                  context: stepPacket,
+                  objective: step.objective,
+                  acceptance: run.plan.acceptance,
+                  effort: step.effort,
+                  signal: state.signal,
+                },
+                workspace,
+                run.plan.id,
               );
-            this.store.event(
-              run.id,
-              "worker.dispatched",
-              {
-                provider: provider.id,
-                model: provider.model,
-                effort: step.effort ?? null,
-                attempt,
-                turn,
-                contextItems: stepPacket.items.length,
-              },
-              step.id,
-            );
-            // Test logs may quote private source even when they contain no key-like
-            // strings. They stay local; remote workers get only a generic failure.
-            const workerFeedback =
-              provider.kind === "local"
-                ? feedback
-                : feedback
-                  ? "Required verification failed. Request explicitly exportable source to investigate."
-                  : "";
-            const input: WorkerInput = {
-              provider,
-              policy: this.config.policy,
-              context: stepPacket,
-              objective: step.objective,
-              acceptance: run.plan.acceptance,
-              effort: step.effort,
-              feedback: workerFeedback,
-              signal,
-            };
-            const result = this.deps.worker
-              ? await this.deps.worker(input, workspace)
-              : ["codex", "claude", "cursor"].includes(provider.kind)
-                ? await invokeInstalledWorker(input, workspace)
-                : await invokeApiWorker(input);
-            run.usage = sumUsage(run.usage, result.usage);
-            save("running");
-            this.store.event(
-              run.id,
-              "worker.completed",
-              {
-                usage: result.usage,
-                model: result.model,
-                summary: result.proposal.summary,
-              },
-              step.id,
-            );
-            if (signal.aborted) throw new Error("Run cancelled");
-            await this.refresh();
-            if (hash(this.config.policy) !== run.plan.policyHash)
-              throw new Error("Policy changed before patch application");
-            if (result.proposal.requests.length) {
-              const items = [];
+              run.usage = this.store.usage(run.plan.id);
+              save("running");
+              this.store.event(
+                run.id,
+                "worker.completed",
+                { model: result.model, usage: result.usage },
+                step.id,
+              );
+              await this.refresh();
+              if (hash(this.config.policy) !== run.plan.policyHash)
+                throw new Error("Policy changed before DAG patch application");
+              if (!result.proposal.requests.length) return result;
+              const items: ContextPacket["items"] = [];
               for (const relative of result.proposal.requests) {
                 if (
                   provider.kind !== "local" &&
@@ -566,25 +792,23 @@ export class GraphEngine {
                   throw new Error(
                     `Source request is not exportable: ${relative}`,
                   );
-                const content = await readFile(
+                const text = await readFile(
                   await safePath(workspace, relative, this.config.policy),
                   "utf8",
                 );
-                if (content.length > this.config.policy.maxContextTokens * 3)
-                  throw new Error(
-                    `Requested file is too large for the context budget: ${relative}`,
-                  );
+                if (Buffer.byteLength(text) > budgetTokens)
+                  throw new Error("Requested source exceeds context budget");
                 items.push({
-                  id: hash(relative + content),
-                  kind: "code" as const,
-                  text: content,
+                  id: hash(relative + text),
+                  kind: "code",
+                  text,
                   score: 1,
                   source: {
                     path: relative,
                     startLine: 1,
-                    endLine: content.split("\n").length,
-                    contentHash: hash(content),
-                    snapshotId: run.plan.snapshotId,
+                    endLine: text.split("\n").length,
+                    contentHash: hash(text),
+                    snapshotId: stepPacket.snapshotId,
                   },
                 });
               }
@@ -592,35 +816,277 @@ export class GraphEngine {
                 ...stepPacket,
                 items,
                 estimatedTokens:
-                  Math.ceil(JSON.stringify(items).length / 3) +
-                  Math.ceil(JSON.stringify(stepPacket.mandatory).length / 3),
+                  Buffer.byteLength(JSON.stringify(items)) +
+                  Buffer.byteLength(JSON.stringify(stepPacket.mandatory)),
               };
-              contextForProvider(stepPacket, provider, this.config.policy);
+            }
+            throw new Error(
+              "DAG worker exhausted its context-request turn budget",
+            );
+          },
+        });
+        if (!(await verify("dag")))
+          throw new Error(
+            "DAG checks failed; inspect retained per-step evidence and create a repair plan",
+          );
+      } else
+        for (const step of run.plan.steps) {
+          verified = false;
+          // An acknowledged recovery checks the retained patch first. It never
+          // reapplies the original exact-substring patch to an already edited file.
+          if (
+            resuming &&
+            priorEvents.some(
+              (event) =>
+                event.type === "publication.started" ||
+                (event.type === "patch.applied" && event.stepId === step.id),
+            )
+          ) {
+            if (await verify(step.id)) {
+              this.store.event(run.id, "step.reconciled", {}, step.id);
               continue;
             }
-            const changed = await applyProposal(
-              workspace,
-              result.proposal,
-              this.config.policy,
-            );
+          }
+          let provider = (await this.providers()).find(
+            (p) => p.id === step.providerId,
+          );
+          if (!provider)
+            throw new Error("The planned provider is no longer configured");
+          let stepPacket: ContextPacket = packet;
+          const solutionInput = {
+            key: `worker:${hash({ objective: step.objective, acceptance: run.plan.acceptance })}`,
+            inputs: {
+              provider: provider.id,
+              model: provider.model,
+              verification: run.plan.verification,
+              policy: run.plan.policyHash,
+            },
+            snapshotId: run.plan.snapshotId,
+          };
+          const cached = resuming
+            ? null
+            : await this.context.getSolution(solutionInput);
+          let reusableProposal: WorkerResult["proposal"] | undefined;
+          if (cached) {
+            const proposal = proposalSchema.parse(JSON.parse(cached.value));
+            await applyProposal(workspace, proposal, this.config.policy);
             this.store.event(
               run.id,
-              "patch.applied",
-              { paths: changed },
+              "solution.cache_hit",
+              { key: solutionInput.key },
               step.id,
             );
-            proposalApplied = true;
-            break;
+            if (await verify(step.id)) continue;
+            stepPacket = await currentContext();
           }
-          if (!proposalApplied)
-            throw new Error("Worker exhausted its turn budget without a patch");
-          if (await verify(step.id)) break;
-          save("running");
-          stepPacket = await currentContext();
+          for (
+            let attempt = 1;
+            attempt <= this.config.policy.maxAttempts;
+            attempt++
+          ) {
+            if (signal.aborted) throw new Error("Run cancelled");
+            await this.refresh();
+            if (hash(this.config.policy) !== run.plan.policyHash)
+              throw new Error(
+                "Policy changed during execution; dispatch stopped",
+              );
+            assertProvider(provider, this.config.policy, step.effort);
+            this.store.event(
+              run.id,
+              "attempt.started",
+              { attempt, providerId: provider.id },
+              step.id,
+            );
+            let proposalApplied = false;
+            for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
+              await this.refresh();
+              if (hash(this.config.policy) !== run.plan.policyHash)
+                throw new Error("Policy changed during execution");
+              const estimate = estimateRequestCost(
+                provider,
+                this.config.policy.maxContextTokens,
+                this.config.policy.maxOutputTokens,
+              );
+              if (
+                this.config.policy.maxCostUsd !== null &&
+                (estimate === null ||
+                  run.usage.costUsd === null ||
+                  run.usage.costUsd + estimate > this.config.policy.maxCostUsd)
+              )
+                throw new Error(
+                  "The next call exceeds the configured estimated cost budget",
+                );
+              this.store.event(
+                run.id,
+                "worker.dispatched",
+                {
+                  provider: provider.id,
+                  model: provider.model,
+                  effort: step.effort ?? null,
+                  attempt,
+                  turn,
+                  contextItems: stepPacket.items.length,
+                },
+                step.id,
+              );
+              // Test logs may quote private source even when they contain no key-like
+              // strings. They stay local; remote workers get only a generic failure.
+              const workerFeedback =
+                provider.kind === "local"
+                  ? feedback
+                  : feedback
+                    ? "Required verification failed. Request explicitly exportable source to investigate."
+                    : "";
+              const input: WorkerInput = {
+                provider,
+                policy: this.config.policy,
+                context: stepPacket,
+                objective: step.objective,
+                acceptance: run.plan.acceptance,
+                effort: step.effort,
+                feedback: workerFeedback,
+                signal,
+              };
+              const result = await this.invokeWorker(
+                input,
+                workspace,
+                run.plan.id,
+              );
+              run.usage = this.store.usage(run.plan.id);
+              save("running");
+              this.store.event(
+                run.id,
+                "worker.completed",
+                {
+                  usage: result.usage,
+                  model: result.model,
+                  summary: result.proposal.summary,
+                },
+                step.id,
+              );
+              if (signal.aborted) throw new Error("Run cancelled");
+              await this.refresh();
+              if (hash(this.config.policy) !== run.plan.policyHash)
+                throw new Error("Policy changed before patch application");
+              if (result.proposal.requests.length) {
+                const items = [];
+                for (const relative of result.proposal.requests) {
+                  if (
+                    provider.kind !== "local" &&
+                    !isAllowedPath(relative, this.config.policy, true)
+                  )
+                    throw new Error(
+                      `Source request is not exportable: ${relative}`,
+                    );
+                  const content = await readFile(
+                    await safePath(workspace, relative, this.config.policy),
+                    "utf8",
+                  );
+                  if (Buffer.byteLength(content) > budgetTokens)
+                    throw new Error(
+                      `Requested file is too large for the context budget: ${relative}`,
+                    );
+                  items.push({
+                    id: hash(relative + content),
+                    kind: "code" as const,
+                    text: content,
+                    score: 1,
+                    source: {
+                      path: relative,
+                      startLine: 1,
+                      endLine: content.split("\n").length,
+                      contentHash: hash(content),
+                      snapshotId: run.plan.snapshotId,
+                    },
+                  });
+                }
+                stepPacket = {
+                  ...stepPacket,
+                  items,
+                  estimatedTokens:
+                    Buffer.byteLength(JSON.stringify(items)) +
+                    Buffer.byteLength(JSON.stringify(stepPacket.mandatory)),
+                };
+                contextForProvider(stepPacket, provider, this.config.policy);
+                continue;
+              }
+              const changed = await applyProposal(
+                workspace,
+                result.proposal,
+                this.config.policy,
+              );
+              reusableProposal =
+                attempt === 1 && !cached && !resuming
+                  ? result.proposal
+                  : undefined;
+              this.store.event(
+                run.id,
+                "patch.applied",
+                { paths: changed },
+                step.id,
+              );
+              proposalApplied = true;
+              break;
+            }
+            if (!proposalApplied)
+              throw new Error(
+                "Worker exhausted its turn budget without a patch",
+              );
+            if (await verify(step.id)) {
+              if (reusableProposal) {
+                try {
+                  await this.context.putSolution({
+                    ...solutionInput,
+                    value: JSON.stringify(reusableProposal),
+                    sources: originalPacket.items.flatMap((item) =>
+                      item.source ? [item.source] : [],
+                    ),
+                  });
+                } catch (error) {
+                  this.store.event(run.id, "solution.capture_failed", {
+                    error: errorMessage(error),
+                  });
+                }
+              }
+              break;
+            }
+            save("running");
+            const alternatives = (await this.providers()).filter(
+              (candidate) => {
+                try {
+                  assertProvider(candidate, this.config.policy, step.effort);
+                  return candidate.id !== provider!.id;
+                } catch {
+                  return false;
+                }
+              },
+            );
+            const recovery = await controlRecovery({
+              ...withState({
+                attempt,
+                verificationPassed: false,
+                repeatedFailure: attempt > 1,
+              }),
+              attempt,
+              maxAttempts: this.config.policy.maxAttempts,
+              needsMoreContext: false,
+              alternativeProviderAvailable: alternatives.length > 0,
+              securityConcern: false,
+              repeatedFailure: attempt > 1,
+            });
+            this.captureDecision(run, "recovery", recovery);
+            if (recovery.action === "human" || recovery.action === "stop")
+              throw new Error(
+                "Required checks failed; recovery controller stopped for review",
+              );
+            if (recovery.action === "escalate") provider = alternatives[0]!;
+            stepPacket = await currentContext();
+          }
+          if (!verified)
+            throw new Error(
+              "Required checks failed after the allowed attempts",
+            );
         }
-        if (!verified)
-          throw new Error("Required checks failed after the allowed attempts");
-      }
       if (signal.aborted) throw new Error("Run cancelled");
       await this.refresh();
       if (hash(this.config.policy) !== run.plan.policyHash)
@@ -628,6 +1094,63 @@ export class GraphEngine {
       if (!verifiedHash)
         throw new Error(
           "No verified source snapshot is available for publication",
+        );
+      const changedPaths = [
+        ...(await checkedGit(workspace, ["diff", "--name-only", "HEAD"])).split(
+          "\n",
+        ),
+        ...(
+          await checkedGit(workspace, [
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+          ])
+        ).split("\n"),
+      ].filter(Boolean);
+      const sensitivePaths = changedPaths.some((file) =>
+        /(?:^|\/)(?:auth\w*|security\w*|crypt\w*|permissions?\w*|polic(?:y|ies)|secrets?\w*|credentials?\w*)(?:[./_-]|$)/i.test(
+          file,
+        ),
+      );
+      const architecturePaths = changedPaths.some((file) =>
+        /(?:^|\/)(?:migrations?|schema|infrastructure|infra)(?:[./_-]|$)/i.test(
+          file,
+        ),
+      );
+      if (sensitivePaths)
+        scope.review = scope.review.includes("architecture")
+          ? "security-and-architecture"
+          : "security";
+      if (architecturePaths)
+        scope.review = scope.review.includes("security")
+          ? "security-and-architecture"
+          : "architecture";
+      run.completion = {
+        automatedChecksPassed: verified,
+        humanAcceptance: "pending",
+        reviewScope: scope.review,
+      };
+      this.store.event(run.id, "acceptance.pending_review", {
+        automatedChecksPassed: verified,
+        reviewScope: scope.review,
+        note: "Passing configured checks does not establish arbitrary prose acceptance criteria or authorize a merge.",
+      });
+      const completion = await controlCompletion({
+        ...withState({
+          verificationPassed: true,
+          securityReview: scope.review.includes("security"),
+          architectureReview: scope.review.includes("architecture"),
+        }),
+        acceptanceSatisfied: false,
+        requiredTestsPassed: verified,
+        requiredReviewsPassed: false,
+        completionScope: "automated-run",
+        policyValid: true,
+      });
+      this.captureDecision(run, "completion", completion);
+      if (completion.action !== "complete")
+        throw new Error(
+          "Automated checks passed; additional review is required before completing this managed run",
         );
       this.store.event(run.id, "publication.started", {
         mode: run.plan.publication,
@@ -644,16 +1167,24 @@ export class GraphEngine {
       save("succeeded");
       this.store.event(run.id, "run.succeeded", { usage: run.usage });
       try {
-        await this.context.createMemory({
-          kind: "observation",
-          text: `Completed task: ${run.plan.objective}. Required automated checks passed. Run ${run.id}${run.commit ? `, commit ${run.commit}` : ""}. Acceptance still receives human PR review.`,
+        const memory = await controlMemoryWrite({
+          ...withState({ completed: true, committed: Boolean(run.commit) }),
+          durable: Boolean(run.commit),
+          requiredAuditRecord: false,
         });
+        this.captureDecision(run, "memory", memory);
+        if (memory.action === "propose")
+          await this.context.createMemory({
+            kind: "observation",
+            text: `Completed task: ${run.plan.objective}. Required automated checks passed. Run ${run.id}${run.commit ? `, commit ${run.commit}` : ""}. Acceptance still receives human PR review.`,
+          });
       } catch (error) {
         this.store.event(run.id, "memory.capture_failed", {
           error: errorMessage(error),
         });
       }
     } catch (error) {
+      run.usage = this.store.usage(run.plan.id);
       run.error = redact(errorMessage(error));
       const events = this.store.events(run.id);
       const publishing =
@@ -662,7 +1193,7 @@ export class GraphEngine {
       save(
         signal.aborted
           ? "cancelled"
-          : publishing
+          : publishing || error instanceof DagReconciliationError
             ? "needs_reconciliation"
             : "failed",
       );

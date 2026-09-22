@@ -468,6 +468,29 @@ describe("storage and maintenance safety", () => {
       }),
     ).rejects.toThrow("verification");
   });
+  it("rejects memory writes whose evidence is concurrently pruned before pinning", async () => {
+    const { engine, root } = await fixture();
+    const first = await engine.index({ semantic: false });
+    const source = (await engine.searchSymbols("main", first.id))[0]!.source;
+    await writeFile(join(root, "src/main.ts"), "function changed() {}");
+    await engine.index({ semantic: false });
+    const database = (engine as any).db,
+      batch = database.batch.bind(database);
+    vi.spyOn(database, "batch").mockImplementationOnce(
+      async (statements, requiredSnapshots) => {
+        await engine.pruneSnapshots({ keepLatest: 1, dryRun: false });
+        return batch(statements, requiredSnapshots);
+      },
+    );
+    await expect(
+      engine.createMemory({
+        kind: "observation",
+        text: "Preserve verified evidence",
+        sources: [source],
+      }),
+    ).rejects.toThrow("pruned");
+    expect(await engine.listMemories()).toHaveLength(0);
+  });
   it("watches with backpressure, reports changed snapshots, and stops cleanly", async () => {
     const { engine, root } = await fixture();
     const received: string[] = [];
