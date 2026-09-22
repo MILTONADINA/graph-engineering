@@ -44,6 +44,14 @@ jobs:
       - name: Evaluation fixture self-checks
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: node --test evaluation/runner.test.mjs
+      - name: Generated backend template integration
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -t graph-backend-template-test:local packages/engine/tests/fixtures/backend-runtime
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-backend.test.ts tests/template-runtime.test.ts
+        env:
+          GRAPH_ENGINE_BACKEND_DOCKER_TESTS: "1"
+          GRAPH_ENGINE_DOCKER_TESTS: "1"
       - name: Browser integration
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
