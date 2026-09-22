@@ -349,7 +349,7 @@ describe("audited composed CRUD runtime", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       const output = checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "");
-      expect(output).toMatch(/Tests\s+37 passed/);
+      expect(output).toMatch(/Tests\s+44 passed/);
       console.info(
         JSON.stringify({
           imageId: checks[0].imageId,
