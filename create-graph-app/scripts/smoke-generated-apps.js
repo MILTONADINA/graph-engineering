@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execNpmSync } = require('./npm-command');
 const { Registry, generate } = require('../dist');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-generated-smoke-'));
@@ -18,8 +18,7 @@ console.log(`Generated-app smoke workspace: ${root}`);
 for (const scenario of cases.filter(c => !process.argv[2] || c.name === process.argv[2])) {
   const targetDir = path.join(root, scenario.name);
   generate(registry, scenario.config, scenario.ids, { targetDir, dryRun: false, force: false, installDependencies: false });
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const run = args => execFileSync(npm, args, { cwd: targetDir, stdio: 'inherit', env: { ...process.env, NEXT_TELEMETRY_DISABLED: '1' } });
+  const run = args => execNpmSync(args, { cwd: targetDir, stdio: 'inherit', env: { ...process.env, NEXT_TELEMETRY_DISABLED: '1' } });
   console.log(`Checking generated ${scenario.name}`);
   run(['install', '--no-audit', '--no-fund']);
   const workspaceArgs = scenario.name === 'fullstack' ? ['--workspaces'] : [];
