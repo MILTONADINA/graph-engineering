@@ -10,7 +10,7 @@ import type {
 } from "@graph-engineering/contracts";
 
 export const PARSER_VERSION =
-  "web-tree-sitter:0.25.10/grammars:0.1.13/extractor:2";
+  "web-tree-sitter:0.25.10/grammars:0.1.13/extractor:3";
 export const hash = (input: string | Uint8Array) =>
   createHash("sha256").update(input).digest("hex");
 const grammars = new Map<string, Promise<Grammar>>();
@@ -131,9 +131,49 @@ export async function parseFile(
     if (!tree) throw new Error("Parser returned no syntax tree");
     try {
       result.parsed = true;
+      const bindings = new Set<string>();
+      const owners = new Map<string, string>();
+      const functionKinds = new Set([
+        "function_declaration",
+        "function_definition",
+        "function_item",
+      ]);
+      const bareCalls = new Set<string>();
+      const identifiers = (node: Node) => {
+        if (
+          [
+            "identifier",
+            "pattern_identifier",
+            "shorthand_property_identifier_pattern",
+          ].includes(node.type)
+        )
+          bindings.add(node.text);
+        for (const child of node.namedChildren) if (child) identifiers(child);
+      };
       if (tree.rootNode.hasError)
         result.errors.push(`${path}: syntax errors; graph may be incomplete`);
       const visit = (node: Node, owner: string) => {
+        // Reject a name across the whole file if any ordinary binding can shadow
+        // it. This loses recall intentionally instead of guessing scope/types.
+        if (/parameter|import|use_declaration|using_directive/.test(node.type))
+          identifiers(node);
+        if (
+          [
+            "variable_declarator",
+            "assignment",
+            "assignment_expression",
+            "augmented_assignment",
+            "let_declaration",
+            "short_var_declaration",
+            "for_in_clause",
+          ].includes(node.type)
+        ) {
+          const binding =
+            node.childForFieldName("name") ??
+            node.childForFieldName("left") ??
+            node.childForFieldName("pattern");
+          if (binding) identifiers(binding);
+        }
         let currentOwner = owner;
         let isDeclaration = declarations.has(node.type);
         if (node.type === "variable_declarator") {
@@ -150,6 +190,7 @@ export async function parseFile(
             currentOwner = hash(
               `${path}:${node.type}:${name.text}:${node.startIndex}`,
             );
+            owners.set(currentOwner, owner);
             result.symbols.push({
               id: currentOwner,
               name: name.text,
@@ -187,10 +228,18 @@ export async function parseFile(
                 node.namedChildren[0]?.text ??
                 node.text
               ).slice(0, 500);
+          const edgeId = hash(
+            `${path}:${node.startIndex}:${node.endIndex}:${node.type}`,
+          );
+          if (
+            calls.has(node.type) &&
+            callable?.type === "identifier" &&
+            !node.childForFieldName("object") &&
+            !node.childForFieldName("receiver")
+          )
+            bareCalls.add(edgeId);
           result.edges.push({
-            id: hash(
-              `${path}:${node.startIndex}:${node.endIndex}:${node.type}`,
-            ),
+            id: edgeId,
             from: currentOwner,
             to: null,
             target,
@@ -206,6 +255,33 @@ export async function parseFile(
           if (child) visit(child, currentOwner);
       };
       visit(tree.rootNode, fileId);
+      if (!tree.rootNode.hasError)
+        for (const edge of result.edges) {
+          if (
+            edge.kind !== "calls" ||
+            !bareCalls.has(edge.id) ||
+            bindings.has(edge.target)
+          )
+            continue;
+          const candidates = result.symbols.filter(
+            (symbol) =>
+              symbol.name === edge.target && functionKinds.has(symbol.kind),
+          );
+          if (candidates.length !== 1) continue;
+          const candidate = candidates[0]!;
+          // Lexical ancestor visibility only; never resolve sibling nested scopes,
+          // member dispatch, imported aliases, overloads, or syntax-error trees.
+          const lineage = new Set([fileId]);
+          let current: string | undefined = edge.from;
+          while (current && !lineage.has(current)) {
+            lineage.add(current);
+            current = owners.get(current);
+          }
+          if (lineage.has(owners.get(candidate.id) ?? "")) {
+            edge.to = candidate.id;
+            edge.evidence = "heuristic"; // lexical candidate, NOT a runtime call-graph proof
+          }
+        }
     } finally {
       tree.delete();
     }

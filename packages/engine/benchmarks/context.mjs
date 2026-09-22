@@ -1,0 +1,125 @@
+/** Reproducible synthetic index benchmark; not a model-quality evaluation.
+ * Build first: npm run build -w @graph-engineering/contracts && npm run build -w @graph-engineering/engine
+ * Run: node packages/engine/benchmarks/context.mjs 5000
+ */
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir, platform, arch, cpus } from "node:os";
+import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
+import { ContextEngine } from "../dist/context/index.js";
+import { DEFAULT_POLICY } from "@graph-engineering/contracts";
+
+const fileCount = Number(process.argv[2] ?? 1000);
+if (!Number.isInteger(fileCount) || fileCount < 100 || fileCount > 10000)
+  throw new Error("Choose 100–10000 synthetic files");
+const directory = await mkdtemp(join(tmpdir(), "graph-context-benchmark-"));
+const root = join(directory, "repo"),
+  dataDir = join(directory, "data");
+await mkdir(root);
+let sourceBytes = 0;
+const source = (index, changed = false) =>
+  `${index % 20 ? `import { helper${index - 1} } from './module${index - 1}';\n` : ""}export function helper${index}(value: number): number {\n  return value + ${index + Number(changed)};\n}\nexport function lookup${index}(key: string) {\n  // Synthetic searchable feature_${index}; no real workload accuracy claim.\n  const result = helper${index}(key.length);\n  return { key, result, module: ${index} };\n}\n`;
+for (let index = 0; index < fileCount; index++) {
+  const group = join(root, `group${Math.floor(index / 20)}`);
+  await mkdir(group, { recursive: true });
+  const text = source(index);
+  sourceBytes += Buffer.byteLength(text);
+  await writeFile(join(group, `module${index}.ts`), text);
+}
+const engine = new ContextEngine({
+  projectId: "synthetic-context-benchmark",
+  root,
+  dataDir,
+  policy: structuredClone(DEFAULT_POLICY),
+});
+const timings = {};
+async function measure(name, operation) {
+  const start = performance.now();
+  const value = await operation();
+  timings[name] = Number((performance.now() - start).toFixed(3));
+  return value;
+}
+try {
+  const first = await measure("coldIndexMs", () => engine.index());
+  const warm = await measure("unchangedIndexMs", () => engine.index());
+  if (first.id !== warm.id || first.fileCount !== fileCount)
+    throw new Error("Snapshot invariants failed");
+  await writeFile(join(root, "group0/module0.ts"), source(0, true));
+  const updated = await measure("oneFileChangedIndexMs", () => engine.index());
+  if (updated.id === first.id) throw new Error("Dirty change was not detected");
+  const summaries = await measure("summariesMs", () =>
+    engine.listSummaries(updated.id),
+  );
+  const packets = [];
+  for (const retrieval of ["lexical", "graph", "hybrid"])
+    packets.push(
+      await measure(`${retrieval}QueryMs`, () =>
+        engine.getContext({
+          query: `feature_${fileCount - 1}`,
+          snapshotId: updated.id,
+          retrieval,
+        }),
+      ),
+    );
+  const databaseBytes = (await stat(join(dataDir, "context.sqlite"))).size;
+  const walBytes = await stat(join(dataDir, "context.sqlite-wal"))
+    .then((info) => info.size)
+    .catch(() => 0);
+  const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  const record = {
+    version: 1,
+    kind: "synthetic-context-performance",
+    measuredAt: new Date().toISOString(),
+    environment: {
+      node: process.version,
+      platform: platform(),
+      arch: arch(),
+      cpu: cpus()[0]?.model,
+      logicalCpus: cpus().length,
+    },
+    implementationSha256: digest(
+      await readFile(new URL("../dist/context/index.js", import.meta.url)),
+    ),
+    harnessSha256: digest(await readFile(new URL(import.meta.url))),
+    dataset: {
+      fileCount,
+      sourceBytes,
+      languages: ["typescript"],
+      generatedFunctions: fileCount * 2,
+    },
+    timings,
+    processRssBytes: process.memoryUsage().rss,
+    processMaxRssBytes: process.resourceUsage().maxRSS * 1024,
+    databaseBytes,
+    walBytes,
+    summaries: summaries.length,
+    retrieval: packets.map((packet, index) => ({
+      mode: ["lexical", "graph", "hybrid"][index],
+      returnedItems: packet.items.length,
+      estimatedTokens: packet.estimatedTokens,
+      semanticAvailable: packet.coverage.semantic,
+      expectedFilePresent: packet.items.some((item) =>
+        item.source?.path.endsWith(`/module${fileCount - 1}.ts`),
+      ),
+    })),
+    limits: [
+      "Synthetic generated TypeScript only; not representative engineering accuracy",
+      "Embeddings intentionally unprovisioned; hybrid falls back to lexical+graph",
+      "Warm index verifies every source content hash and reuses parser artifacts",
+      "No hosted API, model inference, or production throughput claim",
+    ],
+  };
+  process.stdout.write(JSON.stringify(record, null, 2) + "\n");
+} finally {
+  await engine.close();
+  // This exact directory was generated by this harness, never supplied by user.
+  await rm(directory, { recursive: true, force: true });
+}
