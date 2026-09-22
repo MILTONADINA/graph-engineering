@@ -687,6 +687,23 @@ export class GraphEngine {
           throw new Error(
             "Verification modified project source; review the retained workspace before retrying",
           );
+        const infrastructureFailure = checks.find(
+          (check) =>
+            check.code === 125 ||
+            (check.code === 78 &&
+              check.stderr.startsWith("[graph-verifier:setup-failed]")),
+        );
+        if (infrastructureFailure) {
+          this.store.event(
+            run.id,
+            "verification.infrastructure_blocked",
+            { code: infrastructureFailure.code, snapshotHash: after },
+            stepId,
+          );
+          throw new Error(
+            "Verification infrastructure failed. Inspect and repair the verifier, then explicitly reconcile and resume the retained patch. No model retry was attempted.",
+          );
+        }
         verified =
           checks.length === run.plan.verification.length &&
           checks.every((c) => c.code === 0);
