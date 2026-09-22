@@ -6,17 +6,17 @@ review workflow, not completed calibration**. No expected decision labels,
 partner signatures, promotion approvals, or unseen held-out results are supplied.
 Task category, complexity, and risk are explicitly proposed classifications.
 
-| Case                                 | Proposed stratum / complexity               | Recorded repair | Current readiness                                                              |
-| ------------------------------------ | ------------------------------------------- | --------------- | ------------------------------------------------------------------------------ |
-| `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing    |
-| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing            |
-| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                    |
-| `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                    |
-| `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                    |
-| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Intake only; native Linux check required                                       |
-| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Trusted-history fixture adapter; native Windows/generated-patch checks missing |
-| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Intake only                                                                    |
-| `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                    |
+| Case                                 | Proposed stratum / complexity               | Recorded repair | Current readiness                                                            |
+| ------------------------------------ | ------------------------------------------- | --------------- | ---------------------------------------------------------------------------- |
+| `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing  |
+| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing          |
+| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                  |
+| `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                  |
+| `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                  |
+| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Intake only; native Linux check required                                     |
+| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing |
+| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Intake only                                                                  |
+| `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                  |
 
 Each manifest case records full base/repair commit IDs, exact paths, Git blob
 IDs, regular-file modes, SHA256 source hashes, objective, acceptance criteria,
@@ -54,9 +54,9 @@ otherwise both run. The reviewed manifest pin is mandatory. The runner accepts
 only its fixed adapter registry and exact hash-verified Git source; **there is
 no worker-patch input**. Node's `vm` provides instrumentation, not a security
 sandbox. Do not use these adapters to execute arbitrary generated code on the
-host. A separate isolated, independently guarded candidate verifier is still
-needed for the portable-npm case before model evaluation. The budget case now
-has the separate verifier described below. Source, adapter/verifier and runtime identities
+host. The two cases now have the separate isolated candidate verifier described
+below; those guest checks are distinct from these trusted-history adapters.
+Source, adapter/verifier and runtime identities
 are recorded with actual check results. No cost saving or calibration approval
 is inferred.
 
@@ -117,6 +117,47 @@ history as held-out data, or authorize promotion. QuickJS limits are defense in
 depth, not a substitute for the container/process boundary. Provisioning and
 trusting the reviewed image remain operator responsibilities. See the
 [guest runtime](../evaluation/guest-runtime/README.md) for protocol and limits.
+
+## Verify isolated portable npm callers
+
+The same runner also accepts `--task portable-npm-spawn`. Supply a JSON source
+map with both `create-graph-app/scripts/check-pack-contents.js` and
+`create-graph-app/scripts/smoke-generated-apps.js`; the recorded repair's added
+`create-graph-app/scripts/npm-command.js` helper is optional. No other paths are
+accepted. Each source is limited to 100,000 UTF-8 bytes, the combined sources to
+200,000 bytes, and the entire escaped request to 256 KiB before Docker starts.
+
+```sh
+node evaluation/isolated-candidate.mjs \
+  --expected-sha256 REVIEWED_MANIFEST_SHA256 \
+  --task portable-npm-spawn --validate-history \
+  --output /private/new-portable-fixture-receipt.json
+```
+
+Sixteen host-owned witnesses cover Windows CLI lookup, paths with spaces,
+missing-CLI refusal, Linux/macOS controls, and frontend/backend/full-stack smoke
+command sequences. Both callers must exhibit their known Windows baseline
+failure, and every repaired witness must pass. The guest's CommonJS loader
+exposes only simulated path/filesystem/process interfaces and an inert generator.
+Actual command/argv/options and exit requests are copied into controller-owned
+traces; returned success markers are not evidence. Check-pack intentionally stops
+at its first command. Smoke traces cover install/build/test order and options,
+but do not actually install, generate, pack or build applications.
+
+Proxy constructors are unavailable in this supported guest API slice. Accessor
+arguments are refused and primitive fields are copied before recording, preventing
+prototype serialization and descriptor tricks from rewriting the observed call.
+This is bounded simulated behavior, not complete Node compatibility.
+
+The separate `GRAPH_ENGINE_NATIVE_NPM_TESTS=1` Windows-only test checks the
+exact trusted historical callers' captured `npm`/`npm.cmd` executables against
+native launch errors, the recorded helper against real `npm --version`, and
+Node/CLI paths and argv containing spaces or shell punctuation. It executes no
+generated candidate and does not supply native Windows generated-app build
+acceptance. It must run on Windows and is provisioned in that CI job; the Mac's
+default suite explicitly skips it. The original corpus remains immutable: its
+readiness fields describe the pinned intake snapshot, while this workflow and
+the current executable registry describe the subsequently added tooling.
 
 ## Inspect and freeze provenance
 

@@ -393,6 +393,34 @@ checkpoint is not evidence for these later changes until their own run finishes.
 No test proves a general-purpose secure JavaScript sandbox, native Windows
 behavior, full program correctness, human review, or production promotion.
 
+That isolated-budget checkpoint (`d87200f`) subsequently passed all six fork
+CI jobs, including real Linux x64 guest execution and Windows protocol checks
+([run 35717354713](https://github.com/MILTONADINA/graph-engineering/actions/runs/35717354713)).
+
+The next portable-npm extension has a separate
+[fixture receipt](../evaluation/isolated-portable-fixture-validation.json):
+32 offline container executions covered sixteen scenarios on each historical
+revision. The baseline completed every scenario and failed eleven Windows
+witnesses; the repaired callers/helper passed all sixteen. A mixed candidate
+with only check-pack repaired correctly failed the smoke-caller checks.
+
+The final local guest suite passed 20 tests and the host runner suite passed
+10, including both historical task pairs, malformed inputs, hostile capability
+arguments, source/protocol bounds and cancellation. A QuickJS global-property
+regression required an accessor-based removal of `Proxy`; ordinary data-property
+freezing did not prevent the tested redefinition in this pinned runtime. The
+final adversarial test passed, and acceptance never relies on guest object
+freezing for trace ownership. Final image:
+`sha256:e74d285e9f704fd3940032396e0df0e45978a420c9877310b0868fc3e07f6fff`.
+The earlier pre-final receipt was retained privately, not relabeled as this run.
+
+The newly added Windows-only launch fixture is a separate CI check, not a Mac
+result. It probes the exact trusted callers' captured `npm`/`npm.cmd` executable
+choices, the recorded helper with real `npm --version`, and fixed argv/path
+boundaries. It performs no generated-candidate/native application build and
+does not supply calibration labels or promotion authority. Its native Windows
+result remains pending until that new CI job actually executes.
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering

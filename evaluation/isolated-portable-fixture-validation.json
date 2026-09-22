@@ -1,0 +1,1800 @@
+{
+  "version": "1.0.0",
+  "manifestSha256": "443b490cd991b9afaa77a66ccb8eea7466d438e50b20f80170dd3a4cd237f049",
+  "taskId": "task:0b1dbad59eb48ee2f223090bc710f0df79ad54625160f7217e406c24bbaff181",
+  "taskSha256": "9bdefc5cbbb148d5cf46bbdb8b7592bb06add760ae479f38ad7141d9d88b70aa",
+  "splitId": "split:846c3178149b6015c89bc90b5af2904be514ae1db04c4dd9ded1e68057637dec",
+  "split": "calibration",
+  "historyVerified": true,
+  "modelCalls": 0,
+  "promotionEligible": false,
+  "kind": "isolated-historical-fixture-validation",
+  "results": {
+    "base": {
+      "version": "1.0.0",
+      "kind": "isolated-historical-candidate-verification",
+      "taskId": "portable-npm-spawn",
+      "startedAt": "2026-09-22T10:59:40.062Z",
+      "finishedAt": "2026-09-22T10:59:45.841Z",
+      "runnerSha256": "d2bd73f97a226a7e9d84fef1117a4d550ff2046506998c505c0d4088d5f14b8b",
+      "transportSha256": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "receiptSha256": "318e5dff62edda59d55fae3dd19041993e0909dfd0d65d8dcbc779faafeacf8a",
+      "historyHelperSha256": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321",
+      "hostDependencyLockSha256": "ef0887a343df93cca88532bff39ae87e5880ff9796be4e7aa32556054ab513e0",
+      "hostRuntime": {
+        "node": "v26.3.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "typescript": "5.9.3"
+      },
+      "oracleSha256": "f5347d70586a62b82303ef568b79203d158d0a52a40edbb9cd4fe537c3ce82bc",
+      "portableOracleSha256": "a3c06c757e28104b46f89b960128f130ea6a4be2e920d2a732b822eb98b4806d",
+      "imageId": "sha256:e74d285e9f704fd3940032396e0df0e45978a420c9877310b0868fc3e07f6fff",
+      "runtime": {
+        "version": "1.0.0",
+        "node": "v24.16.0",
+        "quickjs": "0.32.0",
+        "typescript": "5.9.3",
+        "zod": "3.25.76",
+        "esbuild": "0.28.2",
+        "wasmSha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+        "zodBundleSha256": "0ffb0fb5dda0b3a05a351f0d746dd79e05aeb737816c8e0abbea9713248ff597",
+        "executorSha256": "3c16fe09136df30f2aeeb247237bbce4d010e9bc2894d2ba348d2daa22de4d37",
+        "packageLockSha256": "6899a00ed4afdd14facd71f4823e3cdaf01da7130758e9d0d2d679c742f87391"
+      },
+      "sourceHashes": {
+        "create-graph-app/scripts/check-pack-contents.js": "bd4e8376fe9702bb72b7a1a7beef67f26cf953a0031f612e78b65111d50287d3",
+        "create-graph-app/scripts/smoke-generated-apps.js": "4ee79d1693034f58958df5c129b0544b7af6ade592aad858a34c7d7adbebf7c9"
+      },
+      "expectedChecks": 16,
+      "allCompleted": true,
+      "checks": [
+        {
+          "id": "check-pack--windows-lifecycle-spaces",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "C:\\Users\\Example User\\Temp\\portable fixture",
+                  "--json"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "df17389d8946c25b3f62a7b6f5b1ee1b9abd8df2642dff75e482fdc91e9d8b49",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-lifecycle-spaces",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "97d956f2218fede056684eb7daa72492806dd19ed0d13c309c364eeb9a51e74e",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--windows-node-relative",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "C:\\Users\\Example User\\Temp\\portable fixture",
+                  "--json"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "df17389d8946c25b3f62a7b6f5b1ee1b9abd8df2642dff75e482fdc91e9d8b49",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-node-relative",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "f8fa4a68fb7c008636bea92ac40469c00158e3e8a27f51c3d8bdf429e41485bc",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--windows-case-insensitive-path",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "C:\\Users\\Example User\\Temp\\portable fixture",
+                  "--json"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "df17389d8946c25b3f62a7b6f5b1ee1b9abd8df2642dff75e482fdc91e9d8b49",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-case-insensitive-path",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "Path": "C:\\Users\\Example User\\npm"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "Path": "C:\\Users\\Example User\\npm"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "Path": "C:\\Users\\Example User\\npm"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "7ad541137d79681dd9356ce38b04be0e8b93ab4a07fe9e020f5360e109540e21",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--windows-no-unsafe-fallback",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "C:\\Users\\Example User\\Temp\\portable fixture",
+                  "--json"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "df17389d8946c25b3f62a7b6f5b1ee1b9abd8df2642dff75e482fdc91e9d8b49",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-no-unsafe-fallback",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "f8fa4a68fb7c008636bea92ac40469c00158e3e8a27f51c3d8bdf429e41485bc",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--linux-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "/tmp/portable fixture",
+                  "--json"
+                ],
+                "cwd": "/tmp/portable fixture/package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "492fa52c46e022ccfbe5ba0cf8fb0213e45dc3b03a52170f7d57899a5c1ac8c7",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--linux-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "63717fa7962b042f54c8bec3738441ace01d5ed8ba7f180b05b0b3c6372234ba",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--darwin-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "/tmp/portable fixture",
+                  "--json"
+                ],
+                "cwd": "/tmp/portable fixture/package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "492fa52c46e022ccfbe5ba0cf8fb0213e45dc3b03a52170f7d57899a5c1ac8c7",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--darwin-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "63717fa7962b042f54c8bec3738441ace01d5ed8ba7f180b05b0b3c6372234ba",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-frontend--windows-lifecycle-spaces",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "51c208a1b2671e3768ae1918076fc8363660a7580b9f218ba40eac352a9781a0",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-backend--windows-lifecycle-spaces",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "43290b3f22bb528d477389dad79cb0c2912dfeb94abcc213c589b8303109b162",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-all--windows-lifecycle-spaces",
+          "passed": false,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "npm.cmd",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "671a807290b83843b8c27b7b1d9a870212269f54f795e36fa51e7227daa1dd53",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-all--linux-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "/tmp/portable fixture/frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "/tmp/portable fixture/frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "/tmp/portable fixture/backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "/tmp/portable fixture/backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "2267ad3f7ae9e7745fd3755492710ab5298e3ad60eb03814453da9c687648c70",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "failed",
+      "modelCalls": 0,
+      "actualNetworkCalls": 0,
+      "promotionEligible": false,
+      "limitations": [
+        "Pure host behavioral witnesses only: no candidate execution, isolation proof, model calls, calibration labels or promotion authority.",
+        "Both historical callers are checked against independent primitive callback traces; candidate-provided passed fields or process traces cannot be trusted.",
+        "Windows, Linux and Darwin surfaces are controlled fixtures, not native OS validation. A separate native Windows execution receipt remains required.",
+        "Check-pack stops at its first captured command; tar inspection, npm installation, generation and application builds are not executed or validated.",
+        "The two callers are required and the added npm-command helper is optional. Per-file and aggregate source limits do not replace the runner's serialized-packet byte limit.",
+        "Only the declared historical task and simulated capabilities are checked; no complete program correctness or provider behavior is proved.",
+        "QuickJS limits are defense in depth; the external process deadline and container memory boundary are mandatory.",
+        "The operator must provision the reviewed image; matching hashes do not authenticate the operator or eliminate runtime vulnerabilities.",
+        "This is candidate verification, not a measured model run, independent label, held-out result, or promotion authorization."
+      ]
+    },
+    "repair": {
+      "version": "1.0.0",
+      "kind": "isolated-historical-candidate-verification",
+      "taskId": "portable-npm-spawn",
+      "startedAt": "2026-09-22T10:59:45.843Z",
+      "finishedAt": "2026-09-22T10:59:51.571Z",
+      "runnerSha256": "d2bd73f97a226a7e9d84fef1117a4d550ff2046506998c505c0d4088d5f14b8b",
+      "transportSha256": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "receiptSha256": "318e5dff62edda59d55fae3dd19041993e0909dfd0d65d8dcbc779faafeacf8a",
+      "historyHelperSha256": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321",
+      "hostDependencyLockSha256": "ef0887a343df93cca88532bff39ae87e5880ff9796be4e7aa32556054ab513e0",
+      "hostRuntime": {
+        "node": "v26.3.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "typescript": "5.9.3"
+      },
+      "oracleSha256": "f5347d70586a62b82303ef568b79203d158d0a52a40edbb9cd4fe537c3ce82bc",
+      "portableOracleSha256": "a3c06c757e28104b46f89b960128f130ea6a4be2e920d2a732b822eb98b4806d",
+      "imageId": "sha256:e74d285e9f704fd3940032396e0df0e45978a420c9877310b0868fc3e07f6fff",
+      "runtime": {
+        "version": "1.0.0",
+        "node": "v24.16.0",
+        "quickjs": "0.32.0",
+        "typescript": "5.9.3",
+        "zod": "3.25.76",
+        "esbuild": "0.28.2",
+        "wasmSha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+        "zodBundleSha256": "0ffb0fb5dda0b3a05a351f0d746dd79e05aeb737816c8e0abbea9713248ff597",
+        "executorSha256": "3c16fe09136df30f2aeeb247237bbce4d010e9bc2894d2ba348d2daa22de4d37",
+        "packageLockSha256": "6899a00ed4afdd14facd71f4823e3cdaf01da7130758e9d0d2d679c742f87391"
+      },
+      "sourceHashes": {
+        "create-graph-app/scripts/check-pack-contents.js": "2b0a8f8ae362e6044b4ffed5ec49fb9c194d7094bed7b61f473b3a1ff5030256",
+        "create-graph-app/scripts/smoke-generated-apps.js": "095668cf3cd6ce9198770ae4acc354bedd64bef60ea67f47c5453325f3d15912",
+        "create-graph-app/scripts/npm-command.js": "c6b165238deab14fd1893da5b092c651c9f2d75e5b7b90ae4062ca9f3fa3f6e6"
+      },
+      "expectedChecks": 16,
+      "allCompleted": true,
+      "checks": [
+        {
+          "id": "check-pack--windows-lifecycle-spaces",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "pack",
+                  "--pack-destination",
+                  "C:\\Users\\Example User\\Temp\\portable fixture",
+                  "--json"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ca03d639df20a19fe53c7275409b4f07bf750646664498c6a17297daade38a6f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-lifecycle-spaces",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "0e589da5bd4568d171fad855e95bf9c225ae966b1152827f3fe7d915ac08bb06",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--windows-node-relative",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "pack",
+                  "--pack-destination",
+                  "C:\\Users\\Example User\\Temp\\portable fixture",
+                  "--json"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ca03d639df20a19fe53c7275409b4f07bf750646664498c6a17297daade38a6f",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-node-relative",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "446c7aab1092f6f0c9a6b1611a4fdd080e47a050bd83c81f2bd7b2ba4bcc2167",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--windows-case-insensitive-path",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Users\\Example User\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+                  "pack",
+                  "--pack-destination",
+                  "C:\\Users\\Example User\\Temp\\portable fixture",
+                  "--json"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "C:\\Other\\node.exe",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "c05a55426ab5aeab7b19c7764d9dbcf3023df1c2c373e9a517f837e05a777889",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-case-insensitive-path",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Users\\Example User\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "Path": "C:\\Users\\Example User\\npm"
+                },
+                "executable": "C:\\Other\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Users\\Example User\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "Path": "C:\\Users\\Example User\\npm"
+                },
+                "executable": "C:\\Other\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Users\\Example User\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "Path": "C:\\Users\\Example User\\npm"
+                },
+                "executable": "C:\\Other\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "23f628599f01d75ea99395a4b990eff9e2b80d1217eeb45d841781b15d59a79b",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--windows-no-unsafe-fallback",
+          "passed": true,
+          "observed": {
+            "calls": [],
+            "error": "Cannot locate npm-cli.js",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "1cac6c798908469c4ab8ea70324e156500c73bb29be16b2f6a73c9196770cb20",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--windows-no-unsafe-fallback",
+          "passed": true,
+          "observed": {
+            "calls": [],
+            "error": "Cannot locate npm-cli.js",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "1cac6c798908469c4ab8ea70324e156500c73bb29be16b2f6a73c9196770cb20",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--linux-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "/tmp/portable fixture",
+                  "--json"
+                ],
+                "cwd": "/tmp/portable fixture/package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "492fa52c46e022ccfbe5ba0cf8fb0213e45dc3b03a52170f7d57899a5c1ac8c7",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--linux-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "63717fa7962b042f54c8bec3738441ace01d5ed8ba7f180b05b0b3c6372234ba",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "check-pack--darwin-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "pack",
+                  "--pack-destination",
+                  "/tmp/portable fixture",
+                  "--json"
+                ],
+                "cwd": "/tmp/portable fixture/package",
+                "encoding": "utf8",
+                "env": null,
+                "executable": "npm",
+                "shell": false,
+                "stdio": null
+              }
+            ],
+            "error": "GRAPH_CANDIDATE_INVOCATION_CAPTURED",
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "492fa52c46e022ccfbe5ba0cf8fb0213e45dc3b03a52170f7d57899a5c1ac8c7",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-fullstack--darwin-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "63717fa7962b042f54c8bec3738441ace01d5ed8ba7f180b05b0b3c6372234ba",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-frontend--windows-lifecycle-spaces",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "66615d20e304f7d1e6e168a25a14691a04073bb61045d38e0284a7b025f5a447",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-backend--windows-lifecycle-spaces",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "42296c925e82859cde2d12f86537c3b9daa8263c7a165167c9e1d62bc3a1bb27",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-all--windows-lifecycle-spaces",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "install",
+                  "--no-audit",
+                  "--no-fund"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "run",
+                  "build",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": [
+                  "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+                  "test",
+                  "--workspaces"
+                ],
+                "cwd": "C:\\Users\\Example User\\Temp\\portable fixture\\fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1",
+                  "npm_execpath": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js"
+                },
+                "executable": "C:\\Program Files\\nodejs\\node.exe",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "4cd6086dbcdba25556e36e842fc016f62cf1e12ae57eb2f49a628991917de553",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "smoke-all--linux-direct-npm",
+          "passed": true,
+          "observed": {
+            "calls": [
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "/tmp/portable fixture/frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "/tmp/portable fixture/frontend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build"],
+                "cwd": "/tmp/portable fixture/backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test"],
+                "cwd": "/tmp/portable fixture/backend",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["install", "--no-audit", "--no-fund"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["run", "build", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "args": ["test", "--workspaces"],
+                "cwd": "/tmp/portable fixture/fullstack",
+                "encoding": null,
+                "env": {
+                  "NEXT_TELEMETRY_DISABLED": "1"
+                },
+                "executable": "npm",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "error": null,
+            "exitCode": null
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "2267ad3f7ae9e7745fd3755492710ab5298e3ad60eb03814453da9c687648c70",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed",
+      "modelCalls": 0,
+      "actualNetworkCalls": 0,
+      "promotionEligible": false,
+      "limitations": [
+        "Pure host behavioral witnesses only: no candidate execution, isolation proof, model calls, calibration labels or promotion authority.",
+        "Both historical callers are checked against independent primitive callback traces; candidate-provided passed fields or process traces cannot be trusted.",
+        "Windows, Linux and Darwin surfaces are controlled fixtures, not native OS validation. A separate native Windows execution receipt remains required.",
+        "Check-pack stops at its first captured command; tar inspection, npm installation, generation and application builds are not executed or validated.",
+        "The two callers are required and the added npm-command helper is optional. Per-file and aggregate source limits do not replace the runner's serialized-packet byte limit.",
+        "Only the declared historical task and simulated capabilities are checked; no complete program correctness or provider behavior is proved.",
+        "QuickJS limits are defense in depth; the external process deadline and container memory boundary are mandatory.",
+        "The operator must provision the reviewed image; matching hashes do not authenticate the operator or eliminate runtime vulnerabilities.",
+        "This is candidate verification, not a measured model run, independent label, held-out result, or promotion authorization."
+      ]
+    }
+  },
+  "fixtureValid": true
+}

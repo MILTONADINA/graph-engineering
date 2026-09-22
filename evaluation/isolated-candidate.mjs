@@ -15,7 +15,11 @@ export const GUEST_IMAGE = "graph-evaluation-guest:local";
 const IMAGE_ID = /^sha256:[a-f0-9]{64}$/;
 const CONTAINER_NAME = /^graph-candidate-[a-f0-9-]{36}$/;
 const root = fileURLToPath(new URL("../", import.meta.url));
-const LIMITS = Object.freeze({ timeoutMs: 5000, outputBytes: 65536 });
+const LIMITS = Object.freeze({
+  timeoutMs: 5000,
+  outputBytes: 65536,
+  inputBytes: 256 * 1024,
+});
 const runtimeSchema = z
   .object({
     version: z.literal("1.0.0"),
@@ -264,6 +268,21 @@ export async function verifyCandidate({
     timeoutMs > LIMITS.timeoutMs
   )
     throw new Error("Invalid isolated candidate timeout");
+  const packets = registry.scenarios.map((scenario) => {
+    const packet = {
+      version: "1.0.0",
+      taskId,
+      files: candidate,
+      scenario: Object.fromEntries(
+        Object.entries(scenario).filter(([key]) => key !== "id"),
+      ),
+    };
+    // JSON escaping can expand otherwise permitted source well beyond its raw
+    // UTF-8 size. Reject every oversized packet before Docker or candidate work.
+    if (Buffer.byteLength(JSON.stringify(packet)) > LIMITS.inputBytes)
+      throw new Error("Serialized candidate packet exceeds its byte limit");
+    return packet;
+  });
   const sourceHashes = Object.fromEntries(
     Object.entries(candidate).map(([name, text]) => [name, hash(text)]),
   );
@@ -288,6 +307,9 @@ export async function verifyCandidate({
     oracleSha256: hash(
       await readFile(new URL("candidate-cases.mjs", import.meta.url)),
     ),
+    portableOracleSha256: hash(
+      await readFile(new URL("candidate-portable.mjs", import.meta.url)),
+    ),
     imageId,
   };
   const startedAt = new Date().toISOString();
@@ -303,18 +325,9 @@ export async function verifyCandidate({
     infrastructureError = true;
   }
   if (!infrastructureError)
-    for (const scenario of registry.scenarios) {
+    for (const [index, scenario] of registry.scenarios.entries()) {
       signal?.throwIfAborted();
-      const input = {
-        version: "1.0.0",
-        taskId,
-        files: candidate,
-        scenario: {
-          input: scenario.input,
-          responseChoice: scenario.responseChoice,
-          responseConfidence: scenario.responseConfidence,
-        },
-      };
+      const input = packets[index];
       let result;
       try {
         result = await invokeGuest(imageId, endpoint, input, {
@@ -439,7 +452,7 @@ async function main() {
     throw new Error(
       "Provide a pinned manifest, exclusive new output, and exactly one of --candidate JSON_FILES or --validate-history",
     );
-  candidateCase(values.task);
+  const registry = candidateCase(values.task);
   try {
     await lstat(values.output);
     throw new Error("Output already exists");
@@ -491,8 +504,11 @@ async function main() {
       fixtureValid:
         results.base.status === "failed" &&
         results.base.allCompleted &&
-        results.base.checks.find((check) => check.id === "capped-unmetered-0")
-          ?.passed === false &&
+        registry.baselineFailureIds.every(
+          (id) =>
+            results.base.checks.find((check) => check.id === id)?.passed ===
+            false,
+        ) &&
         results.repair.status === "passed",
     };
   } else {

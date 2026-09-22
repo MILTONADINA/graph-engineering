@@ -43,7 +43,7 @@ function example(id) {
 }
 
 test("candidate registry and exact source scope are closed and detached", () => {
-  assert.throws(() => candidateCase("portable-npm-spawn"), /Unknown/);
+  assert.throws(() => candidateCase("unknown-task"), /Unknown/);
   assert.throws(() => validateCandidateFiles("other", {}), /Unknown/);
   const files = { [file]: "export async function decide() {}" };
   const validated = validateCandidateFiles(task, files);

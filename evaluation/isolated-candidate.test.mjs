@@ -145,6 +145,22 @@ test("candidate inputs and image/deadline scope fail before any container operat
         timeoutMs,
       }),
     );
+  await assert.rejects(
+    verifyCandidate({
+      taskId: "unmetered-decision-budget",
+      files: { [filename]: "x" + "\u0001".repeat(99999) },
+      imageId: image,
+    }),
+    /Serialized candidate packet exceeds/,
+  );
+  await assert.rejects(
+    verifyCandidate({
+      taskId: "portable-npm-spawn",
+      files: { "create-graph-app/scripts/check-pack-contents.js": source },
+      imageId: image,
+    }),
+    /requires both exact script paths/,
+  );
 });
 
 const native = process.env.GRAPH_ENGINE_CANDIDATE_DOCKER_TESTS === "1";
@@ -271,5 +287,75 @@ test(
     } finally {
       clearTimeout(timer);
     }
+  },
+);
+
+test(
+  "portable candidate verification covers both scripts, optional added helper and complete platform traces",
+  { skip: !native, timeout: 180000 },
+  async () => {
+    const corpus = validateCorpus(
+      JSON.parse(
+        await readFile(
+          new URL("calibration-corpus.json", import.meta.url),
+          "utf8",
+        ),
+      ),
+    );
+    const packet = await exportTask(corpus, "portable-npm-spawn", {
+      repository: fileURLToPath(new URL("../", import.meta.url)),
+      audience: "review",
+    });
+    const files = (variant) =>
+      Object.fromEntries(
+        packet.task.evidence
+          .filter(
+            (item) =>
+              item.role === "source" &&
+              packet.files[item.path][variant] !== undefined,
+          )
+          .map((item) => [item.path, packet.files[item.path][variant]]),
+      );
+    const imageId = await inspectGuestImage();
+    const verify = (sources) =>
+      verifyCandidate({
+        taskId: "portable-npm-spawn",
+        files: sources,
+        imageId,
+      });
+    const base = await verify(files("base"));
+    assert.equal(base.status, "failed", JSON.stringify(base));
+    assert.equal(base.allCompleted, true, JSON.stringify(base));
+    for (const id of [
+      "check-pack--windows-lifecycle-spaces",
+      "smoke-fullstack--windows-lifecycle-spaces",
+    ])
+      assert.equal(base.checks.find((check) => check.id === id).passed, false);
+    const repair = await verify(files("repair"));
+    assert.equal(repair.status, "passed", JSON.stringify(repair));
+    assert.equal(repair.checks.length, 16);
+    assert.equal(Object.keys(base.sourceHashes).length, 2);
+    assert.equal(Object.keys(repair.sourceHashes).length, 3);
+    assert.match(repair.portableOracleSha256, /^[a-f0-9]{64}$/);
+    assert.equal(repair.promotionEligible, false);
+    const partial = await verify({
+      ...files("repair"),
+      "create-graph-app/scripts/smoke-generated-apps.js":
+        files("base")["create-graph-app/scripts/smoke-generated-apps.js"],
+    });
+    assert.equal(partial.allCompleted, true, JSON.stringify(partial));
+    assert.equal(partial.status, "failed");
+    assert.equal(
+      partial.checks.find(
+        (check) => check.id === "check-pack--windows-lifecycle-spaces",
+      ).passed,
+      true,
+    );
+    assert.equal(
+      partial.checks.find(
+        (check) => check.id === "smoke-fullstack--windows-lifecycle-spaces",
+      ).passed,
+      false,
+    );
   },
 );

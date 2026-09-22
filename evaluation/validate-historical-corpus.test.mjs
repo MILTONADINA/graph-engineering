@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { validateCorpus } from "./calibration-corpus.mjs";
+import { validateCorpus, exportTask } from "./corpus-history.mjs";
 import { validateHistoricalFixtures } from "./validate-historical-corpus.mjs";
 import { historicalDecisionAdapter } from "./replays/unmetered-decision-budget/adapter.mjs";
 import { historicalNpmInvocation } from "./replays/portable-npm-spawn/adapter.mjs";
@@ -98,5 +98,45 @@ test(
       4,
     );
     assert.equal(artifact.results[1].oracle.checks.length, 5);
+  },
+);
+
+test(
+  "native launch fixture captures both original caller executables without running npm",
+  {
+    skip: !historyAvailable && process.env.GRAPH_ENGINE_HISTORY_TESTS !== "1",
+  },
+  async () => {
+    assert.equal(historyAvailable, true);
+    const packet = await exportTask(corpus, "portable-npm-spawn", {
+      repository,
+      audience: "review",
+    });
+    const files = Object.fromEntries(
+      packet.task.evidence
+        .filter((item) => item.role === "source" && item.base)
+        .map((item) => [item.path, packet.files[item.path].base]),
+    );
+    for (const [entrypoint, executable] of [
+      ["create-graph-app/scripts/check-pack-contents.js", "npm"],
+      ["create-graph-app/scripts/smoke-generated-apps.js", "npm.cmd"],
+    ]) {
+      const observed = historicalNpmInvocation(files, {
+        entrypoint,
+        platform: "win32",
+        execPath: "C:\\Node\\node.exe",
+        env: {},
+        existing: [],
+        tmpDir: "C:\\Temp\\native fixture",
+      });
+      assert.equal(observed.calls.length, 1);
+      assert.equal(observed.calls[0].executable, executable);
+      assert.equal(observed.calls[0].shell, false);
+      assert.equal(observed.error, "GRAPH_HISTORICAL_INVOCATION_CAPTURED");
+    }
+    assert.throws(
+      () => historicalNpmInvocation(files, { entrypoint: "unreviewed.js" }),
+      /Unknown/,
+    );
   },
 );
