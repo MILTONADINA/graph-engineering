@@ -1,0 +1,22 @@
+"use client";
+import { useAuth } from "../../lib/auth/AuthContext";
+export default function SessionFixture() {
+  const { user, isLoading, error, refetch, logout } = useAuth();
+  return (
+    <main>
+      <h1>Generated authentication integration</h1>
+      <p data-testid="state">
+        {isLoading ? "loading" : user ? "authenticated" : "anonymous"}
+      </p>
+      <p data-testid="identity">{user?.email ?? "none"}</p>
+      {error && <p role="alert">{error}</p>}
+      <button type="button" onClick={() => void refetch()}>
+        Reload identity
+      </button>
+      <button type="button" onClick={() => void logout().catch(() => {})}>
+        Sign out
+      </button>
+      <a href="/login">Sign in</a>
+    </main>
+  );
+}

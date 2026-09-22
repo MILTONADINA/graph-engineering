@@ -21,12 +21,13 @@ jobs:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -54,7 +55,8 @@ jobs:
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
           docker build -t graph-backend-template-test:local packages/engine/tests/fixtures/backend-runtime
-          npm test -w @graph-engineering/engine -- --run tests/template-runtime-backend.test.ts tests/template-runtime-crud.test.ts tests/template-runtime.test.ts
+          docker pull node:24-bookworm-slim
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-backend.test.ts tests/template-runtime-crud.test.ts tests/template-runtime-devops.test.ts tests/template-runtime.test.ts
         env:
           GRAPH_ENGINE_BACKEND_DOCKER_TESTS: "1"
           GRAPH_ENGINE_DOCKER_TESTS: "1"
@@ -65,7 +67,50 @@ jobs:
           npm test -w @graph-engineering/engine -- --run tests/template-runtime-testing.test.ts
         env:
           GRAPH_ENGINE_TESTING_DOCKER_TESTS: "1"
-      - name: Browser integration
+      - name: Generated authentication with isolated PostgreSQL races
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -f packages/engine/tests/fixtures/auth-db-runtime/Dockerfile -t graph-auth-template-db-test:local packages/engine/tests/fixtures
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts
+        env:
+          GRAPH_ENGINE_BACKEND_DOCKER_TESTS: "1"
+          GRAPH_ENGINE_AUTH_POSTGRES_TESTS: "1"
+      - name: Generated database lifecycle with isolated PostgreSQL
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -t graph-database-template-test:local packages/engine/tests/fixtures/database-runtime
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-database.test.ts
+        env:
+          GRAPH_ENGINE_DATABASE_DOCKER_TESTS: "1"
+      - name: Generated storage authorization and SDK signing
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -t graph-storage-template-test:local packages/engine/tests/fixtures/storage-runtime
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-storage.test.ts
+        env:
+          GRAPH_ENGINE_STORAGE_DOCKER_TESTS: "1"
+      - name: Generated Express scaffold and compiled server
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -t graph-project-template-test:local packages/engine/tests/fixtures/project-runtime
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-project.test.ts
+        env:
+          GRAPH_ENGINE_PROJECT_DOCKER_TESTS: "1"
+      - name: Generated frontend build and browser integration
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -t graph-frontend-template-test:local packages/engine/tests/fixtures/frontend-runtime
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-frontend.test.ts
+        env:
+          GRAPH_ENGINE_FRONTEND_DOCKER_TESTS: "1"
+      - name: Generated full-stack authentication with real PostgreSQL and Chromium
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker build -f packages/engine/tests/fixtures/fullstack-runtime/Dockerfile -t graph-fullstack-template-test:local packages/engine/tests/fixtures
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-fullstack.test.ts
+        env:
+          GRAPH_ENGINE_FULLSTACK_DOCKER_TESTS: "1"
+      - name: Platform dashboard browser integration
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
           npx playwright install --with-deps chromium
@@ -75,8 +120,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -87,8 +134,10 @@ jobs:
   sidecar:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - run: python -m unittest discover -s sidecars/laya -p 'test_*.py' -v
