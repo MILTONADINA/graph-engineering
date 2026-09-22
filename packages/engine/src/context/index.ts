@@ -74,6 +74,7 @@ import {
   csharpRuntime,
   resolveCSharpBindings,
 } from "./csharp.js";
+import { RUST_VERSION, rustRuntime, resolveRustBindings } from "./rust.js";
 import {
   attachReviewedAssertions,
   parseReviewedAssertions,
@@ -345,6 +346,9 @@ export class ContextEngine {
     const csharp = files.some((file) => file.path.endsWith(".cs"))
       ? await csharpRuntime()
       : null;
+    const rust = files.some((file) => file.path.endsWith(".rs"))
+      ? await rustRuntime()
+      : null;
     const id = hash(
       JSON.stringify({
         project: this.projectId,
@@ -358,6 +362,7 @@ export class ContextEngine {
         goBindings: [GO_VERSION, go?.identity ?? "unavailable"],
         javaBindings: [JAVA_VERSION, java?.identity ?? "unavailable"],
         csharpBindings: [CSHARP_VERSION, csharp?.identity ?? "unavailable"],
+        rustBindings: [RUST_VERSION, rust?.identity ?? "unavailable"],
         summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
@@ -450,6 +455,7 @@ export class ContextEngine {
       resolveGoBindings(parsedFiles, id, { runtime: go }),
       resolveJavaBindings(parsedFiles, id, { runtime: java }),
       resolveCSharpBindings(parsedFiles, id, { runtime: csharp }),
+      resolveRustBindings(parsedFiles, id, { runtime: rust }),
     ]);
     snapshot.coverage.errors.push(
       ...bindings.flatMap((result) => result.diagnostics),
@@ -953,7 +959,7 @@ export class ContextEngine {
         graph:
           retrieval === "lexical"
             ? "Graph expansion intentionally disabled by lexical retrieval mode."
-            : "Syntax declarations, imports and calls with bounded snapshot-only TypeScript/JavaScript and isolated CPython static bindings where resolution metadata is present. Static bindings are not runtime proofs; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Dynamic/member dispatch stays unresolved except direct module imports. Expansion limited to 1 hop, 5 seed files.",
+            : "Syntax declarations, imports and calls with bounded snapshot-only JS/TS, Python, Go, Java, C# and Rust declaration bindings where resolution metadata is present and a trusted runtime is available. Static bindings are not runtime proofs or full-program typechecks; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Expansion limited to 1 hop, 5 seed files.",
         warnings,
       },
     };

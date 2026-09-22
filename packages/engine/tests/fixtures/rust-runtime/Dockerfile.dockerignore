@@ -1,0 +1,16 @@
+**
+!tsconfig.base.json
+!packages/
+!packages/contracts/
+!packages/contracts/src/
+!packages/contracts/src/**
+!packages/contracts/tsconfig.json
+!packages/engine/
+!packages/engine/src/
+!packages/engine/src/**
+!packages/engine/tests/
+!packages/engine/tests/context-rust.test.ts
+!packages/engine/tests/context-rust-integration.test.ts
+!packages/engine/tests/fixtures/
+!packages/engine/tests/fixtures/rust-runtime/
+!packages/engine/tests/fixtures/rust-runtime/vitest.config.mjs
