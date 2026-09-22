@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Explicit benchmark adapter: sends only the synthetic fixture to configured
+// Explicit benchmark adapter: sends only the selected evaluation fixture to configured
 // API workers. The outer runner independently verifies the resulting source.
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
@@ -43,7 +43,7 @@ async function main() {
   assertProjectConfig({
     version: "1.0.0",
     projectId,
-    name: "Synthetic evaluation",
+    name: "Isolated evaluation",
     policy: profile.policy,
     verification: [],
   });
