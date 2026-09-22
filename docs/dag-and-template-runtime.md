@@ -19,6 +19,14 @@ Before each patch, the scheduler durably records a pending application. Afterwar
 
 The scheduler does not claim tests passed. The service must verify the resulting source in its restricted container before publication.
 
+Every completed proposal path must remain in the Git-based verification inventory.
+A new ignored file, or a later `.gitignore` edit hiding an earlier generated file,
+stops acceptance. The DAG retains its pending checkpoint on this post-application
+failure; inspect the retained workspace rather than assuming a rollback occurred.
+Sequential and cached proposals undergo the same inventory check before verification.
+Legacy cache-replay events without a recorded path inventory require explicit source
+review and cannot silently establish acceptance during resume.
+
 ## Fine-grained runtime availability
 
 Twenty-one graph-node templates have audited deterministic proposal renderers. Catalog status and runtime capability are separate: 42 catalog entries are implemented, and these 21 are executable through this runtime (subject to prerequisites and project policy).

@@ -188,6 +188,26 @@ export async function workspaceFingerprint(
     }
   return hash(pieces);
 }
+/** Every proposed file must actually reach the fingerprint/verifier inventory.
+ * A new Git-ignored file is otherwise invisible to both checks and publication. */
+export async function assertVerificationPaths(
+  workspace: string,
+  paths: string[],
+  policy: ProjectPolicy,
+): Promise<void> {
+  if (!paths.length) return;
+  const visible = new Set(await gitFiles(workspace));
+  for (const relative of new Set(paths)) {
+    if (!visible.has(relative) || !isAllowedPath(relative, policy))
+      throw new Error(
+        `Proposed file is absent from the verification inventory (possibly Git-ignored): ${relative}. Review the retained workspace before continuing.`,
+      );
+    if (!(await stat(await safePath(workspace, relative, policy))).isFile())
+      throw new Error(
+        `Proposed verification input is not a regular file: ${relative}`,
+      );
+  }
+}
 export async function listDirectory(
   root: string,
   relative: string,
