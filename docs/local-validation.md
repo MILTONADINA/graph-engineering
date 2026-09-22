@@ -224,6 +224,32 @@ expectation: absent trusted CPython must report an explicit syntax-only fallback
 The focused fix passed 22 tests locally; fork run `35703779516` at `629915a` passed
 all six checks. This receipt does not certify later commits before their own CI.
 
+## Compiler resource-limit corrections
+
+Fork run `35707812487` at `932dfe9` passed macOS, Windows, generated-apps and
+sidecar checks, but failed the combined Python resource-limit assertion on both
+Linux runners. That assertion did not identify which option failed, so its exact
+failing limit cannot be recovered from the log. The investigation reproduced two
+independent enforcement gaps: results could beat an overdue timer callback, and
+a short-lived analyzer could finish between parent RSS samples.
+
+The corrected resolver includes synchronous spawn in its monotonic deadline and
+rejects late completion independently of timer delivery. The fixed helper checks
+its own peak RSS before publishing output. Deterministic before/after checks
+showed the prior resolver accepting 20 ms of synchronous spawn or completion work
+under a 5 ms budget; the corrected resolver rejected both. The old helper ignored
+the low RSS limit; the corrected helper rejected it without a parent `ps` sample.
+Offline Linux ARM checks repeated node/output/deadline/RSS limits 30 times each
+without accepting evidence. Default deadline regressions no longer assume that
+every interpreter must take more than 1 ms to finish. CI confirmation of a later
+commit remains separate from these local observations.
+
+The shared command transport now also rejects successful exits observed after
+its deadline. Three focused checks cover ordinary success, output overflow, and
+a real subprocess exit while timeout callback delivery is deliberately disabled.
+Go's new compiler helper passed both offline helper and native Linux tests; see
+[the versioned runtime proof and limitations](context-lifecycle.md#snapshot-only-go-bindings).
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering

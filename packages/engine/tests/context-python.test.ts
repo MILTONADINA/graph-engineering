@@ -1,15 +1,23 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as childProcess from "node:child_process";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { mkdtemp, mkdir, rm, writeFile, access } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { parseFile } from "../src/context/parser.js";
 import { pythonRuntime, resolvePythonBindings } from "../src/context/python.js";
+import { PYTHON_HELPER } from "../src/context/python-helper.js";
 import { ContextEngine } from "../src/context/index.js";
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+}));
 const runtime = await pythonRuntime();
 const roots: string[] = [],
   engines: ContextEngine[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const engine of engines.splice(0)) await engine.close();
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
@@ -125,7 +133,7 @@ describe("isolated CPython snapshot bindings", () => {
     },
   );
   it.runIf(!!runtime)(
-    "handles UTF-8 byte columns, stale hashes, input/node/output limits and wall deadlines",
+    "handles UTF-8 byte columns, stale hashes and snapshot source limits",
     async () => {
       const files = await parse({
         "main.py": "def target():\n    pass\ntext = '🔒'; target()\n",
@@ -133,16 +141,6 @@ describe("isolated CPython snapshot bindings", () => {
       expect(
         (await resolvePythonBindings(files, "snapshot")).resolvedCalls,
       ).toBe(1);
-      for (const options of [
-        { maxNodes: 1 },
-        { maxOutputBytes: 1 },
-        { timeoutMs: 1 },
-        { maxRssKiB: 1 },
-      ])
-        expect(
-          (await resolvePythonBindings(files, "snapshot", options))
-            .resolvedCalls,
-        ).toBe(0);
       files[0]!.text += "\n# stale";
       expect(
         (await resolvePythonBindings(files, "snapshot")).resolvedCalls,
@@ -153,6 +151,98 @@ describe("isolated CPython snapshot bindings", () => {
       expect(
         (await resolvePythonBindings(large, "snapshot")).diagnostics.join(" "),
       ).toContain("limits");
+    },
+  );
+  it
+    .runIf(!!runtime)
+    .each([{ maxNodes: 1 }, { maxOutputBytes: 1 }, { maxRssKiB: 1 }])(
+    "enforces each configured resource limit independently: %j",
+    async (options) => {
+      const files = await parse({
+        "main.py": "def target():\n    pass\ntarget()\n",
+      });
+      const result = await resolvePythonBindings(files, "snapshot", options);
+      expect(result.resolvedCalls).toBe(0);
+      expect(result.updates).toEqual([]);
+      expect(result.diagnostics.join(" ")).toMatch(/limit|timed out/i);
+    },
+  );
+  it.runIf(!!runtime).each(["spawn", "completion"] as const)(
+    "rejects elapsed deadlines when synchronous %s work prevents the timer callback from running",
+    async (blockedPhase) => {
+      const files = await parse({
+        "main.py": "def target():\n    pass\ntarget()\n",
+      });
+      const baseline = await resolvePythonBindings(files, "snapshot");
+      expect(baseline.resolvedCalls).toBe(1);
+      const output = JSON.stringify({
+        version: runtime!.version,
+        updates: baseline.updates.map((edge) => ({
+          edgeId: edge.id,
+          to: edge.to,
+          sources: edge.resolution!.sources,
+        })),
+        diagnostics: [],
+        analyzedFiles: 1,
+      });
+      const delay = () =>
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        pid: undefined,
+        exitCode: null,
+        signalCode: null,
+        kill: vi.fn(() => true),
+        stdin: Object.assign(new EventEmitter(), {
+          end: () => {
+            if (blockedPhase === "completion") delay();
+            child.stdout.emit("data", Buffer.from(output));
+            child.emit("close", 0);
+          },
+        }),
+      });
+      vi.spyOn(childProcess, "spawn").mockImplementation((() => {
+        if (blockedPhase === "spawn") delay();
+        return child;
+      }) as unknown as typeof childProcess.spawn);
+      const result = await resolvePythonBindings(files, "snapshot", {
+        timeoutMs: 5,
+      });
+      expect(result.resolvedCalls).toBe(0);
+      expect(result.updates).toEqual([]);
+      expect(result.diagnostics.join(" ")).toContain("timed out");
+    },
+  );
+  it.runIf(!!runtime)(
+    "enforces RSS inside even a short-lived isolated helper without relying on a ps sample",
+    async () => {
+      const files = await parse({
+        "main.py": "def target():\n    pass\ntarget()\n",
+      });
+      const output = await new Promise<{ code: number | null; stdout: string }>(
+        (resolve, reject) => {
+          const child = childProcess.spawn(
+            runtime!.executable,
+            ["-I", "-S", "-B", "-c", PYTHON_HELPER],
+            { cwd: "/", env: {}, stdio: ["pipe", "pipe", "ignore"] },
+          );
+          let stdout = "";
+          child.stdout.on("data", (chunk) => {
+            stdout += chunk.toString();
+          });
+          child.on("error", reject);
+          child.on("close", (code) => resolve({ code, stdout }));
+          child.stdin.end(
+            JSON.stringify({ files, maxNodes: 100000, maxRssKiB: 1 }),
+          );
+        },
+      );
+      expect(output.code).toBe(0);
+      const result = JSON.parse(output.stdout);
+      expect(result.updates).toEqual([]);
+      expect(result.analyzedFiles).toBe(0);
+      expect(result.diagnostics.join(" ")).toContain("resource limit");
     },
   );
   it.runIf(!!runtime)(
