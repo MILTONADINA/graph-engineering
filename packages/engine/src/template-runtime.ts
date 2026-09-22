@@ -23,6 +23,7 @@ import { crudTemplates } from "./template-runtime-crud.js";
 import { documentationTemplates } from "./template-runtime-docs.js";
 import { testingTemplates } from "./template-runtime-testing.js";
 import { environmentTemplates } from "./template-runtime-environments.js";
+import { authenticationTemplates } from "./template-runtime-auth.js";
 import { storageTemplates } from "./template-runtime-storage.js";
 import { devopsTemplates } from "./template-runtime-devops.js";
 import { databaseTemplates } from "./template-runtime-database.js";
@@ -241,6 +242,7 @@ const extensions: Record<string, AuditedTemplateExtension> = {
   ...documentationTemplates,
   ...testingTemplates,
   ...environmentTemplates,
+  ...authenticationTemplates,
   ...storageTemplates,
   ...devopsTemplates,
   ...databaseTemplates,
@@ -831,23 +833,6 @@ async function renderArtifacts(
           /product(?=Service|Controller|Routes)/g,
           String(inputs.entityNameCamel),
         );
-    }
-    if (templateId === "backend.error-handler") {
-      source = exactReplace(
-        source,
-        "const status = err.status || 500;",
-        "const status = err instanceof APIError && Number.isInteger(err.status) && err.status >= 400 && err.status <= 599 ? err.status : 500;",
-      );
-      source = exactReplace(
-        source,
-        "const message = err.message || 'Something went wrong';",
-        "const message = err instanceof APIError ? err.message : 'Something went wrong';",
-      );
-      test = exactReplace(
-        test,
-        "{ message: 'boom', status: 500 }",
-        "{ message: 'Something went wrong', status: 500 }",
-      );
     }
     if (templateId === "backend.service") {
       source = exactReplace(

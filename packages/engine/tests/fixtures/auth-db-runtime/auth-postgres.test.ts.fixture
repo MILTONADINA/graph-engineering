@@ -1,0 +1,460 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import request from "supertest";
+import jwt from "jsonwebtoken";
+import { eq } from "drizzle-orm";
+import app from "../src/app";
+import { database, pool } from "../src/config/database";
+import {
+  userTable,
+  userProfileTable,
+  authTokenTable,
+  refreshTokenTable,
+} from "../src/config/schema";
+import { AuthenticationRepository } from "../src/repository/Authentication";
+import { generateRefreshToken, verifyAccessToken } from "../src/utils/tokens";
+import { SECRETS } from "../src/utils/helpers";
+
+const id = "11111111-1111-4111-8111-111111111111";
+let initialHash: string;
+const repository = new AuthenticationRepository();
+beforeAll(async () => {
+  if (
+    process.env.DATABASE_URL !==
+    "postgresql://graph_test@127.0.0.1:54329/graph_auth_test"
+  )
+    throw new Error(
+      "Only the disposable isolated auth test database is allowed",
+    );
+  await pool.query(
+    "CREATE TYPE user_role AS ENUM ('customer','admin'); CREATE TYPE user_status AS ENUM ('active','suspended'); CREATE TYPE auth_token_type AS ENUM ('email_verification','password_reset');",
+  );
+  await pool.query(
+    "CREATE TABLE users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),email varchar(320) UNIQUE NOT NULL,password_hash varchar(255) NOT NULL,role user_role NOT NULL DEFAULT 'customer',status user_status NOT NULL DEFAULT 'active',email_verified_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());",
+  );
+  await pool.query(
+    "CREATE TABLE user_profiles (user_id uuid PRIMARY KEY REFERENCES users(id),first_name varchar(100) NOT NULL,last_name varchar(100) NOT NULL,phone varchar(32),avatar_url varchar(2048),created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now());",
+  );
+  await pool.query(
+    "CREATE TABLE auth_tokens (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL REFERENCES users(id),type auth_token_type NOT NULL,token_hash varchar(64) UNIQUE NOT NULL,expires_at timestamptz NOT NULL,consumed_at timestamptz,created_at timestamptz NOT NULL DEFAULT now());",
+  );
+  await pool.query(
+    "CREATE TABLE refresh_tokens (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid NOT NULL,token_hash varchar(64) UNIQUE NOT NULL,expires_at timestamptz NOT NULL,revoked_at timestamptz,created_at timestamptz NOT NULL DEFAULT now());",
+  );
+  initialHash = await repository.hashPassword("test-initial-password");
+});
+afterAll(() => pool.end());
+beforeEach(async () => {
+  await pool.query("TRUNCATE users,user_profiles,auth_tokens,refresh_tokens");
+  await database.insert(userTable).values({
+    id,
+    email: "fixture@example.invalid",
+    passwordHash: initialHash,
+    role: "admin",
+    status: "active",
+    emailVerifiedAt: new Date(),
+  });
+  await database
+    .insert(userProfileTable)
+    .values({ userId: id, firstName: "Fixture", lastName: "User" });
+});
+const refreshRequest = (token: string) =>
+  request(app)
+    .post("/api/auth/refresh")
+    .set("Origin", SECRETS.CORS_ORIGIN)
+    .set("Cookie", "refresh_token=" + token);
+const logoutRequest = (token: string, access = "expired") =>
+  request(app)
+    .post("/api/auth/logout")
+    .set("Origin", SECRETS.CORS_ORIGIN)
+    .set("Cookie", "refresh_token=" + token + "; access_token=" + access);
+function expectClearedCookies(response: {
+  headers: Record<string, unknown>;
+}): void {
+  const cookies = response.headers["set-cookie"] as string[];
+  expect(cookies).toHaveLength(2);
+  expect(
+    cookies.every(
+      (cookie) =>
+        /^(?:access|refresh)_token=;/.test(cookie) &&
+        cookie.includes("HttpOnly") &&
+        cookie.includes("SameSite=Strict") &&
+        cookie.includes("Expires=Thu, 01 Jan 1970"),
+    ),
+  ).toBe(true);
+}
+const resetRequest = (token: string) =>
+  request(app)
+    .post("/api/auth/reset-password/" + token)
+    .set("Origin", SECRETS.CORS_ORIGIN)
+    .send({
+      password: "test-reset-password-new",
+      confirmPassword: "test-reset-password-new",
+    });
+async function waitForAdvisoryWaiters(expected: number): Promise<void> {
+  for (let attempt = 0; attempt < 250; attempt++) {
+    const result = await pool.query(
+      "SELECT count(*)::integer AS count FROM pg_locks WHERE locktype='advisory' AND NOT granted",
+    );
+    if (result.rows[0].count >= expected) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(
+    "Expected concurrent account-lock contention was not observed",
+  );
+}
+describe("real PostgreSQL authentication transaction boundaries", () => {
+  it("allows at most one concurrent refresh and revokes replacement refresh sessions on detected replay", async () => {
+    const refresh = generateRefreshToken();
+    await database.insert(refreshTokenTable).values({
+      userId: id,
+      tokenHash: refresh.tokenHash,
+      expiresAt: refresh.expiresAt,
+    });
+    const results = await Promise.all([
+      refreshRequest(refresh.token),
+      refreshRequest(refresh.token),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([200, 401]);
+    const success = results.find((result) => result.status === 200)!;
+    const access = (success.headers["set-cookie"] as unknown as string[])
+      .find((value) => value.startsWith("access_token="))!
+      .split(";")[0]
+      .slice("access_token=".length);
+    expect(verifyAccessToken(decodeURIComponent(access))?.role).toBe("admin");
+    const rows = await database.select().from(refreshTokenTable);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
+  });
+  it("allows only one concurrent password reset and revokes prior refresh sessions atomically", async () => {
+    const action = await repository.generatePasswordResetToken(id),
+      refresh = generateRefreshToken();
+    await database.insert(refreshTokenTable).values({
+      userId: id,
+      tokenHash: refresh.tokenHash,
+      expiresAt: refresh.expiresAt,
+    });
+    const passwords = ["test-reset-password-one", "test-reset-password-two"];
+    const results = await Promise.all(
+      passwords.map((value) =>
+        request(app)
+          .post("/api/auth/reset-password/" + action.token)
+          .set("Origin", SECRETS.CORS_ORIGIN)
+          .send({ password: value, confirmPassword: value }),
+      ),
+    );
+    expect(results.map((result) => result.status).sort()).toEqual([200, 400]);
+    const [user] = await database
+      .select()
+      .from(userTable)
+      .where(eq(userTable.id, id));
+    const matches = await Promise.all(
+      passwords.map((value) =>
+        repository.comparePasswords(value, user.passwordHash),
+      ),
+    );
+    expect(matches.filter(Boolean)).toHaveLength(1);
+    expect(
+      (await database.select().from(authTokenTable))[0].consumedAt,
+    ).not.toBeNull();
+    expect(
+      (await database.select().from(refreshTokenTable))[0].revokedAt,
+    ).not.toBeNull();
+  });
+  it("allows one concurrent verification and rejects expired action tokens without consuming them", async () => {
+    await database.update(userTable).set({ emailVerifiedAt: null });
+    const action = await repository.generateEmailVerificationToken(id);
+    const results = await Promise.all(
+      [0, 1].map(() =>
+        request(app)
+          .post("/api/auth/verify-email/" + action.token)
+          .set("Origin", SECRETS.CORS_ORIGIN),
+      ),
+    );
+    expect(results.map((result) => result.status).sort()).toEqual([200, 400]);
+    expect(
+      (await database.select().from(userTable))[0].emailVerifiedAt,
+    ).not.toBeNull();
+    const expired = await repository.generatePasswordResetToken(id);
+    await database
+      .update(authTokenTable)
+      .set({ expiresAt: new Date(0), consumedAt: null });
+    expect(
+      await repository.consumeActionToken(
+        expired.token,
+        "password_reset",
+        "test-prepared-hash",
+      ),
+    ).toBeNull();
+    expect((await database.select().from(userTable))[0].passwordHash).toBe(
+      initialHash,
+    );
+  });
+  it("rolls back action-token consumption when the credential mutation fails", async () => {
+    const action = await repository.generatePasswordResetToken(id);
+    await pool.query(
+      "CREATE FUNCTION reject_test_password_change() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''fixture rollback''; END;'; CREATE TRIGGER reject_test_password_change BEFORE UPDATE OF password_hash ON users FOR EACH ROW EXECUTE FUNCTION reject_test_password_change();",
+    );
+    try {
+      await expect(
+        repository.consumeActionToken(
+          action.token,
+          "password_reset",
+          "test-prepared-hash",
+        ),
+      ).rejects.toThrow();
+      expect(
+        (await database.select().from(authTokenTable))[0].consumedAt,
+      ).toBeNull();
+      expect((await database.select().from(userTable))[0].passwordHash).toBe(
+        initialHash,
+      );
+    } finally {
+      await pool.query(
+        "DROP TRIGGER reject_test_password_change ON users; DROP FUNCTION reject_test_password_change();",
+      );
+    }
+  });
+  it("rolls back refresh consumption if inserting the rotated token fails", async () => {
+    const refresh = generateRefreshToken();
+    await database.insert(refreshTokenTable).values({
+      userId: id,
+      tokenHash: refresh.tokenHash,
+      expiresAt: refresh.expiresAt,
+    });
+    await pool.query(
+      "CREATE FUNCTION reject_test_refresh_insert() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''fixture rollback''; END;'; CREATE TRIGGER reject_test_refresh_insert BEFORE INSERT ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION reject_test_refresh_insert();",
+    );
+    try {
+      expect((await refreshRequest(refresh.token)).status).toBe(500);
+      const rows = await database.select().from(refreshTokenTable);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].revokedAt).toBeNull();
+    } finally {
+      await pool.query(
+        "DROP TRIGGER reject_test_refresh_insert ON refresh_tokens; DROP FUNCTION reject_test_refresh_insert();",
+      );
+    }
+  });
+  it.each(["reset", "logout"] as const)(
+    "revokes the newly rotated refresh token when %s waits behind an in-flight refresh",
+    async (operation) => {
+      const action = await repository.generatePasswordResetToken(id),
+        refresh = generateRefreshToken();
+      await database.insert(refreshTokenTable).values({
+        userId: id,
+        tokenHash: refresh.tokenHash,
+        expiresAt: refresh.expiresAt,
+      });
+      const gate = await pool.connect();
+      const pending: Promise<any>[] = [];
+      await gate.query("SELECT pg_advisory_lock(817263)");
+      await pool.query(
+        "CREATE FUNCTION pause_test_refresh_insert() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN PERFORM pg_advisory_xact_lock(817263); RETURN NEW; END;'; CREATE TRIGGER pause_test_refresh_insert BEFORE INSERT ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION pause_test_refresh_insert();",
+      );
+      try {
+        pending.push(refreshRequest(refresh.token).then((result) => result));
+        await waitForAdvisoryWaiters(1);
+        pending.push(
+          (operation === "reset"
+            ? resetRequest(action.token)
+            : logoutRequest(refresh.token)
+          ).then((result) => result),
+        );
+        await waitForAdvisoryWaiters(2);
+        await gate.query("SELECT pg_advisory_unlock(817263)");
+        const results = await Promise.all(pending);
+        expect(results.map((result) => result.status)).toEqual([200, 200]);
+        const rows = await database.select().from(refreshTokenTable);
+        expect(rows).toHaveLength(2);
+        expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
+      } finally {
+        await gate.query("SELECT pg_advisory_unlock_all()");
+        await Promise.allSettled(pending);
+        gate.release();
+        await pool.query(
+          "DROP TRIGGER pause_test_refresh_insert ON refresh_tokens; DROP FUNCTION pause_test_refresh_insert();",
+        );
+      }
+    },
+  );
+  it("logs out an expired-access session and all its account refresh sessions without trusting the access JWT", async () => {
+    const refresh = generateRefreshToken(),
+      other = generateRefreshToken();
+    await database
+      .insert(refreshTokenTable)
+      .values(
+        [refresh, other].map((value) => ({
+          userId: id,
+          tokenHash: value.tokenHash,
+          expiresAt: value.expiresAt,
+        })),
+      );
+    const expired = jwt.sign(
+      { sub: id, role: "admin", type: "access" },
+      SECRETS.ACCESS_TOKEN_SECRET,
+      {
+        algorithm: "HS256",
+        expiresIn: -1,
+        issuer: SECRETS.CORS_ORIGIN,
+        audience: SECRETS.CORS_ORIGIN + "/api",
+      },
+    );
+    expect(verifyAccessToken(expired)).toBeNull();
+    const response = await logoutRequest(refresh.token, expired);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ message: "Logged out", data: null });
+    expectClearedCookies(response);
+    expect(
+      (await database.select().from(refreshTokenTable)).every(
+        (row) => row.revokedAt !== null,
+      ),
+    ).toBe(true);
+  });
+  it("uses an unexpired rotated predecessor to revoke its replacement but not an expired historical credential", async () => {
+    const refresh = generateRefreshToken();
+    await database
+      .insert(refreshTokenTable)
+      .values({
+        userId: id,
+        tokenHash: refresh.tokenHash,
+        expiresAt: refresh.expiresAt,
+      });
+    expect((await refreshRequest(refresh.token)).status).toBe(200);
+    expect((await logoutRequest(refresh.token)).status).toBe(200);
+    expect(
+      (await database.select().from(refreshTokenTable)).every(
+        (row) => row.revokedAt !== null,
+      ),
+    ).toBe(true);
+    const fresh = generateRefreshToken();
+    await database
+      .insert(refreshTokenTable)
+      .values({
+        userId: id,
+        tokenHash: fresh.tokenHash,
+        expiresAt: fresh.expiresAt,
+      });
+    await database
+      .update(refreshTokenTable)
+      .set({ expiresAt: new Date(0) })
+      .where(eq(refreshTokenTable.tokenHash, refresh.tokenHash));
+    expect((await logoutRequest(refresh.token)).status).toBe(200);
+    const [current] = await database
+      .select()
+      .from(refreshTokenTable)
+      .where(eq(refreshTokenTable.tokenHash, fresh.tokenHash));
+    expect(current.revokedAt).toBeNull();
+  });
+  it("clears browser cookies but reports failure if database logout revocation rolls back", async () => {
+    const refresh = generateRefreshToken();
+    await database
+      .insert(refreshTokenTable)
+      .values({
+        userId: id,
+        tokenHash: refresh.tokenHash,
+        expiresAt: refresh.expiresAt,
+      });
+    await pool.query(
+      "CREATE FUNCTION reject_test_logout() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''PRIVATE_LOGOUT_CANARY''; END;'; CREATE TRIGGER reject_test_logout BEFORE UPDATE OF revoked_at ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION reject_test_logout();",
+    );
+    try {
+      const response = await logoutRequest(refresh.token);
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({
+        error: { message: "Something went wrong", status: 500 },
+      });
+      expectClearedCookies(response);
+      expect(
+        (await database.select().from(refreshTokenTable))[0].revokedAt,
+      ).toBeNull();
+    } finally {
+      await pool.query(
+        "DROP TRIGGER reject_test_logout ON refresh_tokens; DROP FUNCTION reject_test_logout();",
+      );
+    }
+  });
+  it("rejects a refresh waiting behind account-wide logout without issuing a new cookie", async () => {
+    const refresh = generateRefreshToken();
+    await database
+      .insert(refreshTokenTable)
+      .values({
+        userId: id,
+        tokenHash: refresh.tokenHash,
+        expiresAt: refresh.expiresAt,
+      });
+    const gate = await pool.connect(),
+      pending: Promise<any>[] = [];
+    await gate.query("SELECT pg_advisory_lock(817263)");
+    await pool.query(
+      "CREATE FUNCTION pause_test_logout() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN PERFORM pg_advisory_xact_lock(817263); RETURN NEW; END;'; CREATE TRIGGER pause_test_logout BEFORE UPDATE OF revoked_at ON refresh_tokens FOR EACH ROW EXECUTE FUNCTION pause_test_logout();",
+    );
+    try {
+      pending.push(logoutRequest(refresh.token).then((result) => result));
+      await waitForAdvisoryWaiters(1);
+      pending.push(refreshRequest(refresh.token).then((result) => result));
+      await waitForAdvisoryWaiters(2);
+      await gate.query("SELECT pg_advisory_unlock(817263)");
+      const results = await Promise.all(pending);
+      expect(results.map((result) => result.status)).toEqual([200, 401]);
+      expectClearedCookies(results[0]);
+      expect(results[1].headers["set-cookie"]).toBeUndefined();
+      const rows = await database.select().from(refreshTokenTable);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].revokedAt).not.toBeNull();
+    } finally {
+      await gate.query("SELECT pg_advisory_unlock_all()");
+      await Promise.allSettled(pending);
+      gate.release();
+      await pool.query(
+        "DROP TRIGGER pause_test_logout ON refresh_tokens; DROP FUNCTION pause_test_logout();",
+      );
+    }
+  });
+  it.each(["refresh", "login"] as const)(
+    "rejects stale %s credentials when it waits behind a password reset",
+    async (operation) => {
+      const action = await repository.generatePasswordResetToken(id),
+        refresh = generateRefreshToken();
+      await database.insert(refreshTokenTable).values({
+        userId: id,
+        tokenHash: refresh.tokenHash,
+        expiresAt: refresh.expiresAt,
+      });
+      const gate = await pool.connect();
+      const pending: Promise<any>[] = [];
+      await gate.query("SELECT pg_advisory_lock(817263)");
+      await pool.query(
+        "CREATE FUNCTION pause_test_password_change() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN PERFORM pg_advisory_xact_lock(817263); RETURN NEW; END;'; CREATE TRIGGER pause_test_password_change BEFORE UPDATE OF password_hash ON users FOR EACH ROW EXECUTE FUNCTION pause_test_password_change();",
+      );
+      try {
+        pending.push(resetRequest(action.token).then((result) => result));
+        await waitForAdvisoryWaiters(1);
+        const attempt =
+          operation === "refresh"
+            ? refreshRequest(refresh.token)
+            : request(app)
+                .post("/api/auth/login")
+                .set("Origin", SECRETS.CORS_ORIGIN)
+                .send({
+                  email: "fixture@example.invalid",
+                  password: "test-initial-password",
+                });
+        pending.push(attempt.then((result) => result));
+        await waitForAdvisoryWaiters(2);
+        await gate.query("SELECT pg_advisory_unlock(817263)");
+        const results = await Promise.all(pending);
+        expect(results.map((result) => result.status)).toEqual([200, 401]);
+        const rows = await database.select().from(refreshTokenTable);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].revokedAt).not.toBeNull();
+      } finally {
+        await gate.query("SELECT pg_advisory_unlock_all()");
+        await Promise.allSettled(pending);
+        gate.release();
+        await pool.query(
+          "DROP TRIGGER pause_test_password_change ON users; DROP FUNCTION pause_test_password_change();",
+        );
+      }
+    },
+  );
+});

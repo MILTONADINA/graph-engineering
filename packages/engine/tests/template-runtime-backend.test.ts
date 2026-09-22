@@ -160,7 +160,7 @@ describe("audited backend template composition", () => {
     expect(templateRuntimeCapability("database.transactions").executable).toBe(
       true,
     );
-    for (const id of ["authentication.jwt", "api.webhooks"])
+    for (const id of ["api.webhooks"])
       expect(templateRuntimeCapability(id).executable).toBe(false);
   });
   it("renders the foundation and two distinct entity chains with exact, idempotent modifications", async () => {
@@ -420,7 +420,7 @@ describe('generated backend behavior boundaries', () => {
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout).toContain("Tests");
       const output = checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "");
-      expect(output).toMatch(/Tests\s+29 passed/);
+      expect(output).toMatch(/Tests\s+36 passed/);
       console.info(
         JSON.stringify({
           imageId: checks[0].imageId,
