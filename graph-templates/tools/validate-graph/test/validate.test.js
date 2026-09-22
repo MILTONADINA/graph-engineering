@@ -9,9 +9,21 @@ const { validate, normalizeArchitecture, normalizeManifest, normalizeArtifactTyp
 
 const templates = path.resolve(__dirname, '../../..');
 const example = path.join(templates, 'examples/multi-tenant-saas');
+// This is a fixed test contract, not a list inferred from the implementation.
+// Fixtures document names with blank values; they never need exported env files.
+const requiredEnvironment = [
+  ['authentication.jwt', 'ACCESS_TOKEN_SECRET'],
+  ['database.neon-postgres.connection', 'DATABASE_URL'],
+  ['storage.aws-s3', 'AWS_ENDPOINT_URL_S3'],
+  ['storage.aws-s3', 'AWS_REGION'],
+  ['storage.aws-s3', 'AWS_ACCESS_KEY_ID'],
+  ['storage.aws-s3', 'AWS_SECRET_ACCESS_KEY'],
+];
+const expectedMissingTests = ['database.migrations', 'database.neon-postgres.connection', 'database.transactions', 'testing.api', 'testing.unit'];
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-contract-test-'));
-  fs.cpSync(example, dir, { recursive: true });
+  fs.cpSync(example, dir, { recursive: true, filter: source => path.basename(source) !== '.env.example' });
+  fs.writeFileSync(path.join(dir, '.env.example'), requiredEnvironment.map(([, name]) => `${name}=\n`).join(''));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -31,12 +43,41 @@ test('legacy singleton architecture imports without mutating or losing input dat
   assert.equal(validate(path.join(templates, 'examples/express-neon-s3-app'), templates).valid, true);
 });
 
-test('two complete CRUD entity chains validate against real registry', () => {
-  const result = validate(example, templates);
+test('two complete CRUD entity chains validate against real registry', t => {
+  const dir = fixture(t);
+  const result = validate(dir, templates);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
-  assert.deepEqual(result.warnings.map(w => w.nodeId).sort(), ['database.migrations', 'database.neon-postgres.connection', 'database.transactions', 'testing.api', 'testing.unit']);
-  const architecture = JSON.parse(fs.readFileSync(path.join(example, 'architecture.json'), 'utf8'));
+  assert.deepEqual(result.warnings.map(w => [w.rule, w.nodeId]).sort(), expectedMissingTests.map(nodeId => ['missing-tests', nodeId]).sort());
+  const architecture = JSON.parse(fs.readFileSync(path.join(dir, 'architecture.json'), 'utf8'));
   assert.deepEqual(architecture.data.nodes.filter(n => n.id === 'api.crud').map(n => n.inputs.entityName), ['Project', 'Invoice']);
+});
+
+test('omitted environment documentation produces exactly the required variable warnings', t => {
+  const dir = fixture(t);
+  fs.unlinkSync(path.join(dir, '.env.example'));
+  const result = validate(dir, templates);
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
+  assert.deepEqual(result.warnings.filter(w => w.rule === 'missing-tests').map(w => w.nodeId).sort(), expectedMissingTests);
+  assert.deepEqual(
+    result.warnings.filter(w => w.rule !== 'missing-tests').map(w => [w.rule, w.nodeId, w.message]).sort(),
+    requiredEnvironment.map(([nodeId, name]) => ['missing-environment-variables', nodeId, `"${name}" is not documented in .env.example`]).sort(),
+  );
+  assert.deepEqual(result.repairs.map(r => [r.rule, r.nodeId, r.message]).sort(),
+    requiredEnvironment.map(([nodeId, name]) => ['missing-environment-variables', nodeId, `Add "${name}=" to .env.example`]).sort());
+});
+
+test('comments and prefixed names do not satisfy required environment assignments', t => {
+  const dir = fixture(t);
+  fs.writeFileSync(path.join(dir, '.env.example'), [
+    '# ACCESS_TOKEN_SECRET=', 'NOT_DATABASE_URL=', 'AWS_ENDPOINT_URL_S3=',
+    'export AWS_REGION=', 'AWS_ACCESS_KEY_ID=', 'AWS_SECRET_ACCESS_KEY=',
+  ].join('\n'));
+  const result = validate(dir, templates);
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
+  assert.deepEqual(result.warnings.filter(w => w.rule !== 'missing-tests').map(w => [w.rule, w.nodeId]).sort(), [
+    ['missing-environment-variables', 'authentication.jwt'],
+    ['missing-environment-variables', 'database.neon-postgres.connection'],
+  ]);
 });
 
 test('duplicate invocation identities fail', t => {
