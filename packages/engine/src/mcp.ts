@@ -113,7 +113,9 @@ export function createMcpServer(
     },
     async ({ symbolId, depth }) => {
       await allowed();
-      const edges = await engine.context.neighbors(symbolId, undefined, depth);
+      const edges = await engine.context.neighbors(symbolId, undefined, depth, {
+        exportOnly: options.client === "cloud",
+      });
       return result(
         options.client === "cloud"
           ? edges.filter(

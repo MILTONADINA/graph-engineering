@@ -76,7 +76,7 @@ Configure the installed CLI as a stdio MCP server:
 }
 ```
 
-Use `--client local` only for a consumer whose inference actually stays local. Cloud-backed clients are refused for offline projects. MCP exposes context, symbols, graph relationships, templates, memory proposals, and run status. `--allow-run` separately enables starting existing managed plans. MCP does not replace a native client's own permissions or intercept all its model calls.
+Use `--client local` only for a consumer whose inference actually stays local. Cloud-backed clients are refused for offline projects. Cloud graph lookups apply the export allowlist to seeds and both resolved endpoints before traversal, so non-exportable files cannot disclose target identifiers or connect otherwise separate public nodes. MCP exposes context, symbols, graph relationships, templates, memory proposals, and run status. `--allow-run` separately enables starting existing managed plans. MCP does not replace a native client's own permissions or intercept all its model calls.
 
 ## Configure workers
 
