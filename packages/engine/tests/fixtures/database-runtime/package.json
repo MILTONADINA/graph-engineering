@@ -1,0 +1,22 @@
+{
+  "name": "graph-database-runtime-verification",
+  "version": "1.0.0",
+  "private": true,
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
+  },
+  "dependencies": {
+    "dotenv": "16.6.1",
+    "drizzle-orm": "0.45.3",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.0.0",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

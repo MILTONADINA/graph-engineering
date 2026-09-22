@@ -24,6 +24,8 @@ import { documentationTemplates } from "./template-runtime-docs.js";
 import { testingTemplates } from "./template-runtime-testing.js";
 import { environmentTemplates } from "./template-runtime-environments.js";
 import { storageTemplates } from "./template-runtime-storage.js";
+import { devopsTemplates } from "./template-runtime-devops.js";
+import { databaseTemplates } from "./template-runtime-database.js";
 import { readTemplateManifest } from "./template-runtime-public.js";
 
 const catalogRoot = path.resolve(
@@ -240,6 +242,8 @@ const extensions: Record<string, AuditedTemplateExtension> = {
   ...testingTemplates,
   ...environmentTemplates,
   ...storageTemplates,
+  ...devopsTemplates,
+  ...databaseTemplates,
 };
 export interface TemplateExecutionManifest {
   version: "1.0.0";

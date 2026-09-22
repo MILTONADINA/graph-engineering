@@ -1,0 +1,50 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const {spawnSync}=require('node:child_process');
+const {Pool,Client}=require('pg');
+const {databaseOptions}=require('../dist/config/database-url.js');
+const {migrateDatabase}=require('../dist/scripts/migrate.js');
+const {seedDatabase}=require('../dist/scripts/seed.js');
+
+test('migration and seed lifecycle: real apply, idempotent migration, failed transaction rollback, drift and concurrency refusal',async()=>{
+  // Pinned pg's authentication path must not consult ambient credentials, even
+  // when the deliberately isolated trust-auth fixture has an empty password.
+  process.env.PGPASSWORD='AMBIENT_CREDENTIAL_CANARY';process.env.PGUSER='ambient_identity';
+  process.env.PGPASSFILE='/tmp/forbidden-ambient-pgpass';
+  process.env.PGOPTIONS='-c search_path=ambient_private';
+  const isolated=new Client(databaseOptions(process.env.DATABASE_URL));
+  assert.equal(typeof isolated.password,'function');assert.equal(isolated.user,'graph_test');
+  assert.equal(isolated.connectionParameters.options,'-c search_path=public -c lock_timeout=5000');delete process.env.PGOPTIONS;
+  await new Promise(resolve=>isolated._getPassword(resolve));assert.equal(isolated.password,'');
+  assert.throws(()=>databaseOptions('postgresql://u@example.invalid/db'));
+  const pool=new Pool({connectionString:process.env.DATABASE_URL});
+  const query=(sql,values)=>pool.query(sql,values);
+  const count=async(table)=>Number((await query('SELECT count(*) AS count FROM '+table)).rows[0].count);
+  try{
+    await migrateDatabase();await migrateDatabase();assert.equal(await count('drizzle.__drizzle_migrations'),1);
+    await seedDatabase();assert.equal(await count('fixture'),1);assert.equal(await count('other'),1);
+    await assert.rejects(seedDatabase(),/Reviewed seed failed/);assert.equal(await count('fixture'),1);
+    await query('TRUNCATE fixture, other');
+    await query("INSERT INTO other(id,name) VALUES ('33333333-3333-4333-8333-333333333333','existing')");
+    await assert.rejects(seedDatabase(),/Reviewed seed failed/);assert.equal(await count('fixture'),0);assert.equal(await count('other'),1);
+    await query('TRUNCATE other');
+    const lock=await pool.connect();try{await lock.query('SELECT pg_advisory_lock(174824711,1)');await assert.rejects(seedDatabase());await assert.rejects(migrateDatabase());assert.equal(await count('fixture'),0);}finally{await lock.query('SELECT pg_advisory_unlock(174824711,1)');lock.release();}
+    const journalPath='src/migrations/meta/_journal.json',journal=JSON.parse(fs.readFileSync(journalPath,'utf8'));
+    const original=JSON.stringify(journal),first=journal.entries[0],sqlPath='src/migrations/'+first.tag+'.sql',sql=fs.readFileSync(sqlPath,'utf8');
+    fs.writeFileSync(sqlPath,sql+'\n-- edited applied history\n');await assert.rejects(migrateDatabase());fs.writeFileSync(sqlPath,sql);
+    const next={...first,idx:1,when:first.when+1,tag:'0001_expected_failure'};
+    journal.entries.push(next);fs.writeFileSync(journalPath,JSON.stringify(journal));
+    fs.writeFileSync('src/migrations/'+next.tag+'.sql','CREATE TABLE rollback_probe (id integer PRIMARY KEY);\n--> statement-breakpoint\nINSERT INTO missing_fixture_table VALUES (1);');
+    await assert.rejects(migrateDatabase(),/Reviewed migration failed/);
+    assert.equal((await query("SELECT to_regclass('rollback_probe') AS name")).rows[0].name,null);
+    assert.equal(await count('drizzle.__drizzle_migrations'),1);
+    fs.writeFileSync(journalPath,original);fs.unlinkSync('src/migrations/'+next.tag+'.sql');await migrateDatabase();
+    const before=fs.readdirSync('src/migrations').filter(file=>file.endsWith('.sql'));
+    const generation=spawnSync(process.execPath,['node_modules/drizzle-kit/bin.cjs','generate'],{encoding:'utf8'});assert.equal(generation.status,0,generation.stdout+generation.stderr);
+    assert.deepEqual(fs.readdirSync('src/migrations').filter(file=>file.endsWith('.sql')),before);
+    const rejected=spawnSync(process.execPath,['dist/scripts/seed.js'],{encoding:'utf8',env:{...process.env,NODE_ENV:'production',SEED_DATABASE_URL:'postgresql://private_user:SECRET_CANARY@127.0.0.1:1/live'}});
+    assert.equal(rejected.status,1);assert(!rejected.stderr.includes('SECRET_CANARY'));assert(!rejected.stderr.includes('private_user'));
+    const implicit=spawnSync(process.execPath,['dist/scripts/migrate.js'],{encoding:'utf8',env:{...process.env,MIGRATION_DATABASE_URL:''}});assert.equal(implicit.status,1);
+  }finally{await pool.end();}
+});
