@@ -51,6 +51,16 @@ jobs:
           node evaluation/calibration-corpus.mjs validate
         env:
           GRAPH_ENGINE_HISTORY_TESTS: "1"
+      - name: Snapshot-only Go compiler bindings
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker pull golang@sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804
+          npm run verify:image
+          npm test -w @graph-engineering/engine -- --run tests/context-go.test.ts
+          docker build --pull=false --network=none -f packages/engine/tests/fixtures/go-runtime/Dockerfile -t graph-go-native-test:local .
+          docker run --rm --network=none --read-only --tmpfs /tmp:rw,exec,nosuid,size=768m --memory=1536m --cpus=2 --pids-limit=128 --cap-drop=ALL --security-opt=no-new-privileges graph-go-native-test:local
+        env:
+          GRAPH_ENGINE_GO_DOCKER_TESTS: "1"
       - name: Generated backend template integration
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |

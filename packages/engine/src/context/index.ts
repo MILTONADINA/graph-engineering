@@ -67,6 +67,7 @@ import {
   PYTHON_VERSION,
   resolvePythonBindings,
 } from "./python.js";
+import { GO_VERSION, goRuntime, resolveGoBindings } from "./go.js";
 import {
   attachReviewedAssertions,
   parseReviewedAssertions,
@@ -329,6 +330,9 @@ export class ContextEngine {
     const python = files.some((file) => file.path.endsWith(".py"))
       ? await pythonRuntime()
       : null;
+    const go = files.some((file) => file.path.endsWith(".go"))
+      ? await goRuntime()
+      : null;
     const id = hash(
       JSON.stringify({
         project: this.projectId,
@@ -339,6 +343,7 @@ export class ContextEngine {
         parser: PARSER_VERSION,
         staticBindings: SEMANTIC_VERSION,
         pythonBindings: [PYTHON_VERSION, python?.identity ?? "unavailable"],
+        goBindings: [GO_VERSION, go?.identity ?? "unavailable"],
         summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
@@ -428,6 +433,7 @@ export class ContextEngine {
     const bindings = await Promise.all([
       resolveSnapshotBindings(parsedFiles, id),
       resolvePythonBindings(parsedFiles, id, { runtime: python }),
+      resolveGoBindings(parsedFiles, id, { runtime: go }),
     ]);
     snapshot.coverage.errors.push(
       ...bindings.flatMap((result) => result.diagnostics),

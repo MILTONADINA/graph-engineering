@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { ContextEngine } from "../src/context/index.js";
 import { pythonRuntime } from "../src/context/python.js";
+import { goRuntime } from "../src/context/go.js";
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -169,7 +170,7 @@ describe("local context indexing", () => {
         "export function authenticate(token: string) { return verify(token); }",
       "auth.js": "export function authorize(user) { return validate(user); }",
       "auth.py": "def refresh(token):\n    return validate(token)\n",
-      "auth.go": "package auth\nfunc Login() { verify() }",
+      "auth.go": "package auth\nfunc Login() { Login() }",
       "auth.rs": "fn revoke() { verify(); }",
       "Auth.java": "class Auth { void login() { verify(); } }",
       "Auth.cs": "class Auth { void Refresh() { Verify(); } }",
@@ -184,13 +185,19 @@ describe("local context indexing", () => {
       "rust",
       "typescript",
     ]);
-    expect(snapshot.coverage.errors).toEqual(
-      (await pythonRuntime())
+    const expectedRuntimeDiagnostics = [
+      ...((await pythonRuntime())
         ? []
         : [
             "Trusted isolated CPython runtime unavailable; Python syntax evidence retained.",
-          ],
-    );
+          ]),
+      ...((await goRuntime())
+        ? []
+        : [
+            "Trusted Go compiler/helper unavailable; Go syntax evidence retained.",
+          ]),
+    ];
+    expect(snapshot.coverage.errors).toEqual(expectedRuntimeDiagnostics);
     expect(snapshot.coverage.parsed).toBe(7);
     const symbols = await engine.searchSymbols("authenticate", snapshot.id);
     expect(symbols).toHaveLength(1);
