@@ -165,6 +165,11 @@ is currently unavailable through the decision interface, so using it marks
 total cost unknown and blocks cost-based promotion. `policyViolation` is an
 observed audit signal, not evidence of exhaustive adversarial testing.
 
+Decision confidence follows the same rule: missing/null confidence is retained
+as `null`, never invented as zero. Genuine measured zero remains zero. Raw
+receipts preserve unknown-confidence observations and abstentions; invalid
+numeric ranges or nonnumeric values are rejected.
+
 ## Artifacts and labels
 
 `artifact.schema.json` describes the recorded results. Each variant stores
@@ -196,8 +201,9 @@ Decision labels are separate, reviewed input, never inferred from model output:
 ```
 
 Pass `--labels /path/to/labels.json --rows-output /path/to/new-rows.json` to
-produce evaluator rows for observed, labeled decisions with known costs. Tasks
-without labels or measured costs remain in the raw artifact but contribute no
+produce evaluator rows for observed, labeled decisions with known costs and
+confidence. Tasks without labels, measured costs or confidence remain in the
+raw artifact but contribute no
 promotion evidence. Run `graph-engine evaluate <rows.json>` afterward.
 
 One routing decision per task yields only 60 observations, so this corpus alone

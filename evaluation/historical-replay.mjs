@@ -379,12 +379,15 @@ async function main() {
     validateLocalReplayProfile(JSON.parse(profileText));
   const sourceCodeHashes = Object.fromEntries(
     await Promise.all(
-      ["historical-replay.mjs", "api-adapter.mjs", "run.mjs"].map(
-        async (name) => [
-          name,
-          digest(await readFile(fileURLToPath(new URL(name, import.meta.url)))),
-        ],
-      ),
+      [
+        "historical-replay.mjs",
+        "api-adapter.mjs",
+        "run.mjs",
+        "receipt.mjs",
+      ].map(async (name) => [
+        name,
+        digest(await readFile(fileURLToPath(new URL(name, import.meta.url)))),
+      ]),
     ),
   );
   const task = await loadHistoricalTask();
