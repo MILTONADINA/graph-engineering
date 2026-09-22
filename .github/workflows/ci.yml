@@ -61,6 +61,21 @@ jobs:
           docker run --rm --network=none --read-only --tmpfs /tmp:rw,exec,nosuid,size=768m --memory=1536m --cpus=2 --pids-limit=128 --cap-drop=ALL --security-opt=no-new-privileges graph-go-native-test:local
         env:
           GRAPH_ENGINE_GO_DOCKER_TESTS: "1"
+      - name: Snapshot-only Java compiler bindings
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker pull eclipse-temurin@sha256:92a2a4d7a928d057e7bd999c418d66c26a34eb9a0442f3ab67721c3f88110b2d
+          docker build --pull=false --network=none -f packages/engine/tests/fixtures/java-runtime/Dockerfile -t graph-java-native-test:local .
+          docker run --rm --network=none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=256m --memory=1g --cpus=2 --pids-limit=128 --cap-drop=ALL --security-opt=no-new-privileges graph-java-native-test:local
+      - name: Snapshot-only C# compiler bindings
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker pull mcr.microsoft.com/dotnet/sdk@sha256:78235e09001f52b6592c458ac010775ebac6725422e80cd0c1650590f67b2743
+          npm test -w @graph-engineering/engine -- --run tests/context-csharp.test.ts
+          docker build --pull=false --network=none -f packages/engine/tests/fixtures/csharp-runtime/Dockerfile -t graph-csharp-native-test:local .
+          docker run --rm --network=none --read-only --tmpfs /tmp:rw,exec,nosuid,size=768m --memory=1536m --cpus=2 --pids-limit=128 --cap-drop=ALL --security-opt=no-new-privileges graph-csharp-native-test:local
+        env:
+          GRAPH_ENGINE_CSHARP_DOCKER_TESTS: "1"
       - name: Generated backend template integration
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |

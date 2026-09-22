@@ -16,6 +16,8 @@ import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { ContextEngine } from "../src/context/index.js";
 import { pythonRuntime } from "../src/context/python.js";
 import { goRuntime } from "../src/context/go.js";
+import { javaRuntime } from "../src/context/java.js";
+import { csharpRuntime } from "../src/context/csharp.js";
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -172,8 +174,8 @@ describe("local context indexing", () => {
       "auth.py": "def refresh(token):\n    return validate(token)\n",
       "auth.go": "package auth\nfunc Login() { Login() }",
       "auth.rs": "fn revoke() { verify(); }",
-      "Auth.java": "class Auth { void login() { verify(); } }",
-      "Auth.cs": "class Auth { void Refresh() { Verify(); } }",
+      "Auth.java": "class Auth { static void login() { login(); } }",
+      "Auth.cs": "class Auth { static void Refresh() { Refresh(); } }",
     });
     const snapshot = await engine.index();
     expect(snapshot.languages).toEqual([
@@ -195,6 +197,18 @@ describe("local context indexing", () => {
         ? []
         : [
             "Trusted Go compiler/helper unavailable; Go syntax evidence retained.",
+          ]),
+      ...((await javaRuntime())
+        ? []
+        : [
+            "Trusted JDK/compiler helper unavailable; Java syntax evidence retained.",
+          ]),
+      ...((await csharpRuntime())
+        ? [
+            "C# static binding limitation: sources without a represented supported project are analyzed in isolation, not merged across files.",
+          ]
+        : [
+            "Trusted .NET SDK8/Roslyn helper unavailable; C# syntax evidence retained.",
           ]),
     ];
     expect(snapshot.coverage.errors).toEqual(expectedRuntimeDiagnostics);

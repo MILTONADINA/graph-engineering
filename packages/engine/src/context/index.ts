@@ -68,6 +68,12 @@ import {
   resolvePythonBindings,
 } from "./python.js";
 import { GO_VERSION, goRuntime, resolveGoBindings } from "./go.js";
+import { JAVA_VERSION, javaRuntime, resolveJavaBindings } from "./java.js";
+import {
+  CSHARP_VERSION,
+  csharpRuntime,
+  resolveCSharpBindings,
+} from "./csharp.js";
 import {
   attachReviewedAssertions,
   parseReviewedAssertions,
@@ -333,6 +339,12 @@ export class ContextEngine {
     const go = files.some((file) => file.path.endsWith(".go"))
       ? await goRuntime()
       : null;
+    const java = files.some((file) => file.path.endsWith(".java"))
+      ? await javaRuntime()
+      : null;
+    const csharp = files.some((file) => file.path.endsWith(".cs"))
+      ? await csharpRuntime()
+      : null;
     const id = hash(
       JSON.stringify({
         project: this.projectId,
@@ -344,6 +356,8 @@ export class ContextEngine {
         staticBindings: SEMANTIC_VERSION,
         pythonBindings: [PYTHON_VERSION, python?.identity ?? "unavailable"],
         goBindings: [GO_VERSION, go?.identity ?? "unavailable"],
+        javaBindings: [JAVA_VERSION, java?.identity ?? "unavailable"],
+        csharpBindings: [CSHARP_VERSION, csharp?.identity ?? "unavailable"],
         summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
@@ -434,6 +448,8 @@ export class ContextEngine {
       resolveSnapshotBindings(parsedFiles, id),
       resolvePythonBindings(parsedFiles, id, { runtime: python }),
       resolveGoBindings(parsedFiles, id, { runtime: go }),
+      resolveJavaBindings(parsedFiles, id, { runtime: java }),
+      resolveCSharpBindings(parsedFiles, id, { runtime: csharp }),
     ]);
     snapshot.coverage.errors.push(
       ...bindings.flatMap((result) => result.diagnostics),

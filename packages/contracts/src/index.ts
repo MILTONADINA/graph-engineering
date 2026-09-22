@@ -129,7 +129,13 @@ export interface GraphEdge {
   /** Static compiler binding, not proof of runtime dispatch. */
   resolution?: {
     kind: "static";
-    engine: "typescript" | "cpython" | "go-types";
+    engine:
+      | "typescript"
+      | "cpython"
+      | "go-types"
+      | "javac"
+      | "roslyn"
+      | "rust-analyzer";
     version: string;
     /** Additional indexed evidence: configuration, package metadata, or intermediate import/re-export sources. */
     sources?: SourceReference[];
