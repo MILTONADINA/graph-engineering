@@ -1,0 +1,230 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile, access } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { DEFAULT_POLICY } from "@graph-engineering/contracts";
+import { parseFile } from "../src/context/parser.js";
+import { pythonRuntime, resolvePythonBindings } from "../src/context/python.js";
+import { ContextEngine } from "../src/context/index.js";
+const runtime = await pythonRuntime();
+const roots: string[] = [],
+  engines: ContextEngine[] = [];
+afterEach(async () => {
+  for (const engine of engines.splice(0)) await engine.close();
+  for (const root of roots.splice(0))
+    await rm(root, { recursive: true, force: true });
+});
+const parse = (files: Record<string, string>) =>
+  Promise.all(
+    Object.entries(files).map(([path, text]) =>
+      parseFile(path, text, "snapshot"),
+    ),
+  );
+describe("isolated CPython snapshot bindings", () => {
+  it.runIf(!!runtime)(
+    "does not infer unimported package attributes or bypass dynamic package initializers",
+    async () => {
+      const files = await parse({
+        "pkg/__init__.py": "",
+        "pkg/hidden.py": "def target():\n    pass\n",
+        "pkg/loaded.py": "def target():\n    pass\n",
+        "dynamic/__init__.py": "def __getattr__(name):\n    return object()\n",
+        "dynamic/child.py": "def target():\n    pass\n",
+        "main.py":
+          "import pkg\nimport pkg.loaded\nfrom pkg import hidden as explicit\nimport dynamic.child\npkg.hidden.target()\npkg.loaded.target()\nexplicit.target()\ndynamic.child.target()\n",
+      });
+      const result = await resolvePythonBindings(files, "snapshot");
+      expect(
+        result.updates
+          .filter((edge) => edge.kind === "calls")
+          .map((edge) => edge.target)
+          .sort(),
+      ).toEqual(["explicit.target", "pkg.loaded.target"]);
+    },
+  );
+  it("reports absent and untrusted runtime identities without executing them", async () => {
+    const files = await parse({
+      "main.py": "def target():\n    pass\ntarget()\n",
+    });
+    expect(
+      (
+        await resolvePythonBindings(files, "snapshot", { runtime: null })
+      ).diagnostics.join(" "),
+    ).toContain("unavailable");
+    expect(
+      (
+        await resolvePythonBindings(files, "snapshot", {
+          runtime: {
+            executable: "/tmp/project-code",
+            version: "3.14.0",
+            identity: "untrusted",
+          },
+        })
+      ).resolvedCalls,
+    ).toBe(0);
+  });
+  it.runIf(!!runtime)(
+    "resolves direct, aliased, namespace, relative, re-export, nested lexical calls and constructors",
+    async () => {
+      const files = await parse({
+        "pkg/__init__.py": "from .lib import target as exported\n",
+        "pkg/lib.py": "def target():\n    return 1\nclass Builder:\n    pass\n",
+        "main.py":
+          "from pkg.lib import target as alias, Builder\nimport pkg.lib as module\nimport pkg.lib\nfrom pkg import exported\nalias()\nmodule.target()\npkg.lib.target()\nexported()\nBuilder()\ndef outer():\n    def inner():\n        pass\n    inner()\nouter()\n",
+      });
+      const result = await resolvePythonBindings(files, "snapshot");
+      expect(result.diagnostics).toEqual([]);
+      expect(result.resolvedCalls).toBe(7);
+      expect(
+        result.updates
+          .filter((edge) => edge.kind === "calls")
+          .every(
+            (edge) =>
+              edge.resolution?.engine === "cpython" &&
+              edge.resolution.version === runtime!.version,
+          ),
+      ).toBe(true);
+    },
+  );
+  it.runIf(!!runtime)(
+    "abstains on shadowing, rebinding, decorators, star imports, conditional definitions and dynamic dispatch",
+    async () => {
+      const files = await parse({
+        "lib.py": "def target():\n    pass\n",
+        "main.py":
+          "from lib import target\ndef shadow(target):\n    target()\ndef changed():\n    target()\n    target = None\n@decorator\ndef decorated():\n    pass\nif condition:\n    def conditional():\n        pass\ndecorated()\nconditional()\nobj.target()\ngetattr(obj, 'target')()\ntarget()\n",
+        "star.py": "from lib import *\ntarget()\n",
+        "dynamic.py":
+          "from lib import target\nexec('target = None')\ntarget()\n",
+      });
+      const result = await resolvePythonBindings(files, "snapshot");
+      expect(
+        result.updates
+          .filter((edge) => edge.kind === "calls")
+          .map((edge) => [edge.source.path, edge.target]),
+      ).toEqual([["main.py", "target"]]);
+    },
+  );
+  it.runIf(!!runtime)(
+    "rejects module reassignment, ambiguous package names, nonlocal writes, missing and namespace-package targets",
+    async () => {
+      const files = await parse({
+        "lib.py": "def target():\n    pass\n",
+        "patch.py": "import lib\nlib.target = replacement\nlib.target()\n",
+        "other.py":
+          "from lib import target\ntarget()\ndef outer():\n    def local():\n        pass\n    def change():\n        nonlocal local\n        local = None\n    local()\n",
+        "ambiguous.py": "def target():\n    pass\n",
+        "ambiguous/__init__.py": "def target():\n    pass\n",
+        "namespace/lib.py": "def target():\n    pass\n",
+        "main.py":
+          "from ambiguous import target as a\nfrom missing import target as b\nfrom namespace.lib import target as c\na()\nb()\nc()\n",
+      });
+      expect(
+        (await resolvePythonBindings(files, "snapshot")).resolvedCalls,
+      ).toBe(0);
+    },
+  );
+  it.runIf(!!runtime)(
+    "handles UTF-8 byte columns, stale hashes, input/node/output limits and wall deadlines",
+    async () => {
+      const files = await parse({
+        "main.py": "def target():\n    pass\ntext = '🔒'; target()\n",
+      });
+      expect(
+        (await resolvePythonBindings(files, "snapshot")).resolvedCalls,
+      ).toBe(1);
+      for (const options of [
+        { maxNodes: 1 },
+        { maxOutputBytes: 1 },
+        { timeoutMs: 1 },
+        { maxRssKiB: 1 },
+      ])
+        expect(
+          (await resolvePythonBindings(files, "snapshot", options))
+            .resolvedCalls,
+        ).toBe(0);
+      files[0]!.text += "\n# stale";
+      expect(
+        (await resolvePythonBindings(files, "snapshot")).resolvedCalls,
+      ).toBe(0);
+      const large = await parse({
+        "main.py": "#" + "a".repeat(4 * 1024 * 1024),
+      });
+      expect(
+        (await resolvePythonBindings(large, "snapshot")).diagnostics.join(" "),
+      ).toContain("limits");
+    },
+  );
+  it.runIf(!!runtime)(
+    "never imports or executes source or startup hooks and filters private re-export evidence",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "graph-python-"));
+      roots.push(root);
+      const repo = join(root, "repo");
+      await mkdir(repo);
+      const sentinel = join(root, "EXECUTED");
+      const write = async (path: string, text: string) => {
+        await mkdir(join(repo, path, ".."), { recursive: true });
+        await writeFile(join(repo, path), text);
+      };
+      await write(
+        "sitecustomize.py",
+        `open(${JSON.stringify(sentinel)}, 'w').write('bad')\n`,
+      );
+      await write(
+        "lib.py",
+        `open(${JSON.stringify(sentinel)}, 'w').write('bad')\ndef target():\n    pass\n`,
+      );
+      await write("private.py", "from lib import target\n");
+      await write(
+        "main.py",
+        "from private import target\ndef main():\n    target()\n",
+      );
+      const engine = new ContextEngine({
+        projectId: "python-project",
+        root: repo,
+        dataDir: join(root, "data"),
+        policy: {
+          ...structuredClone(DEFAULT_POLICY),
+          exportPaths: ["main.py", "lib.py"],
+        },
+      });
+      engines.push(engine);
+      const first = await engine.index({ semantic: false }),
+        main = (await engine.searchSymbols("main", first.id)).find(
+          (symbol) => symbol.kind !== "file",
+        )!;
+      const call = (await engine.neighbors(main.id, first.id)).find(
+        (edge) => edge.kind === "calls",
+      )!;
+      expect(call.resolution?.engine).toBe("cpython");
+      expect(
+        call.resolution?.sources?.some(
+          (source) => source.path === "private.py",
+        ),
+      ).toBe(true);
+      expect(
+        (
+          await engine.neighbors(main.id, first.id, 3, { exportOnly: true })
+        ).some((edge) => edge.kind === "calls"),
+      ).toBe(false);
+      await expect(access(sentinel)).rejects.toThrow();
+      await write("lib.py", "def different():\n    pass\n");
+      const second = await engine.index({ semantic: false });
+      expect(
+        (await engine.neighbors(main.id, second.id)).find(
+          (edge) => edge.kind === "calls",
+        )?.resolution,
+      ).toBeUndefined();
+      engine.updatePolicy({
+        ...engine.policy,
+        excludedPaths: [...engine.policy.excludedPaths, "private.py"],
+      });
+      expect(
+        (await engine.neighbors(main.id, first.id)).find(
+          (edge) => edge.kind === "calls",
+        )?.resolution,
+      ).toBeUndefined();
+    },
+  );
+});

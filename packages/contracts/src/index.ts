@@ -125,7 +125,13 @@ export interface GraphEdge {
   kind: "imports" | "calls" | "references" | "contains";
   evidence: "syntactic" | "resolved" | "heuristic";
   /** Static compiler binding, not proof of runtime dispatch. */
-  resolution?: { kind: "static"; engine: "typescript"; version: string };
+  resolution?: {
+    kind: "static";
+    engine: "typescript" | "cpython";
+    version: string;
+    /** Additional indexed evidence: configuration, package metadata, or intermediate import/re-export sources. */
+    sources?: SourceReference[];
+  };
   source: SourceReference;
 }
 export interface ContextItem {
