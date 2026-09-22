@@ -1,4 +1,48 @@
-# Reproducible synthetic engineering fixtures
+# Reproducible engineering evaluations
+
+## Recorded repository replay
+
+`historical-replay.mjs` isolates the actual zero-budget validation defect from
+this repository's immutable Git history. It first proves that the recorded
+broken source fails and the recorded repair passes a separate, read-only Docker
+harness. Only broken source, the objective and acceptance criteria reach the
+worker; neither the repair nor harness is supplied. The verifier first requires
+byte-identical code outside `policySchema.properties.maxCostUsd` and bounds that
+initializer to inert numeric-schema literals. Calls, accessors, spreads,
+computed/duplicate/prototype keys, arbitrary schema extensions and executable
+changes are rejected before candidate compilation. This prevents a candidate
+from printing a success marker and exiting before the assertions. The historical
+oracle transplants only the recorded schema repair into the broken baseline;
+unrelated interface additions from the repair commit are excluded, with both
+full-source and projected-oracle hashes recorded. Git replace objects are ignored.
+This is one retrospectively selected, deliberately restricted case, **not** a
+representative, arbitrary-patch or held-out benchmark.
+
+```sh
+node --test evaluation/historical-replay.test.mjs
+node evaluation/historical-replay.mjs --validate-only --output /path/to/new-fixture-receipt.json
+node evaluation/historical-replay.mjs --profile /path/to/private-local-profile.json --output /path/to/new-replay-receipt.json
+```
+
+Provision the repository verification image explicitly with `npm run verify:image`
+first. Required Git commits must already exist locally; this runner never fetches
+history or pulls images. The profile uses the shape below, but must specify one
+loopback local worker with explicit zero input/output API prices, no decision
+providers, a $0 ceiling, exactly one turn, at most 180 seconds, 2,000 output
+tokens and 64,000 context tokens. The complete project policy is also validated
+by the real worker adapter before inference. Missing or malformed limits fail
+closed. Hosted providers are not supported by this replay command.
+
+Each attempt uses a new temporary workspace and exclusive private receipt;
+existing receipts cannot be overwritten. Failed fixture checks record evidence
+without calling a model. Later stages independently verify the worker's source
+and record unknown usage as unknown. Current receipts retain the resulting
+source for inspection; keep them private. No manual correction/resume exists
+inside a measured attempt. Neither a passing replay nor `synthetic: false`
+authorizes production decision promotion, PR acceptance, or a cost-savings claim.
+See [local validation](../docs/local-validation.md) for the first real result.
+
+## Synthetic cross-language corpus
 
 This corpus contains 60 small, explicitly synthetic bug-fix tasks: ten boundary
 and arithmetic regressions in each of JavaScript, Python, Go, Rust, Java, and
@@ -13,6 +57,15 @@ workers only the broken program, objective, and acceptance criteria. Baseline
 and candidate receive separate workspaces. Verification mounts those workspaces
 and a separate harness read-only in a preprovisioned Docker image with networking
 disabled. It does not trust an adapter's claim that tests passed.
+
+The general synthetic fixtures are regression smoke tests, not adversarial
+verification or proof of arbitrary generated-code correctness. Some harnesses
+load candidate code into their own process, so read-only mounts alone do not
+prevent that code from interfering with assertions or completion markers.
+Passing these synthetic checks never qualifies for production promotion. The
+restricted historical schema replay additionally checks that executable code
+outside the permitted inert schema initializer is unchanged before loading it;
+that guard applies only to that specific replay, not to this entire corpus.
 
 ```sh
 node evaluation/run.mjs --list
