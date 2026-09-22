@@ -29,4 +29,19 @@ describe("zero-cost policy", () => {
     config.policy.maxCostUsd = -1;
     expect(() => assertProjectConfig(config)).toThrow();
   });
+
+  it.each([NaN, Infinity, -Infinity])(
+    "rejects non-finite programmatic ceilings: %s",
+    (maxCostUsd) => {
+      expect(() =>
+        assertProjectConfig({
+          version: "1.0.0",
+          projectId: "finite-budget-tests",
+          name: "Finite budget",
+          policy: { ...DEFAULT_POLICY, maxCostUsd },
+          verification: [],
+        }),
+      ).toThrow();
+    },
+  );
 });

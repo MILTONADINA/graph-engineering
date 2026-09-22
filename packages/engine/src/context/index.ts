@@ -61,6 +61,12 @@ import {
   type ParsedFile,
 } from "./parser.js";
 import { containsSecret } from "../policy.js";
+import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
+import {
+  attachReviewedAssertions,
+  parseReviewedAssertions,
+  reviewSupersession,
+} from "./memory-assertions.js";
 export { containsSecret } from "../policy.js";
 
 const execFileAsync = promisify(execFile);
@@ -323,6 +329,7 @@ export class ContextEngine {
         branch: branch?.trim(),
         contentHash,
         parser: PARSER_VERSION,
+        staticBindings: SEMANTIC_VERSION,
         summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
@@ -408,9 +415,18 @@ export class ContextEngine {
       snapshot.coverage.errors.push(...parsed.errors);
       if (!snapshot.languages.includes(parsed.language))
         snapshot.languages.push(parsed.language);
+    }
+    const bindings = await resolveSnapshotBindings(parsedFiles, id);
+    snapshot.coverage.errors.push(...bindings.diagnostics);
+    const bindingUpdates = new Map(
+      bindings.updates.map((edge) => [edge.id, edge]),
+    );
+    for (const parsed of parsedFiles) {
       statements.push({
         sql: "INSERT INTO files(snapshot_id,path,content_hash,payload) VALUES(?,?,?,?)",
-        params: [id, file.path, file.hash, JSON.stringify(parsed)],
+        // Cache syntax extraction only. Compiler bindings depend on OTHER files
+        // and must be recomputed when any snapshot input changes.
+        params: [id, parsed.path, parsed.hash, JSON.stringify(parsed)],
       });
       for (const symbol of parsed.symbols)
         statements.push({
@@ -420,7 +436,13 @@ export class ContextEngine {
       for (const edge of parsed.edges)
         statements.push({
           sql: "INSERT INTO edges(snapshot_id,id,source_id,target_id,payload) VALUES(?,?,?,?,?)",
-          params: [id, edge.id, edge.from, edge.to, JSON.stringify(edge)],
+          params: [
+            id,
+            edge.id,
+            edge.from,
+            (bindingUpdates.get(edge.id) ?? edge).to,
+            JSON.stringify(bindingUpdates.get(edge.id) ?? edge),
+          ],
         });
       for (const chunk of chunkFile(parsed, id)) {
         statements.push({
@@ -428,15 +450,15 @@ export class ContextEngine {
           params: [
             chunk.id,
             id,
-            file.path,
-            file.hash,
+            parsed.path,
+            parsed.hash,
             chunk.text,
             JSON.stringify(chunk),
           ],
         });
         statements.push({
           sql: "INSERT INTO chunks_fts(id,snapshot_id,path,text) VALUES(?,?,?,?)",
-          params: [chunk.id, id, file.path, chunk.text],
+          params: [chunk.id, id, parsed.path, chunk.text],
         });
       }
     }
@@ -613,6 +635,20 @@ export class ContextEngine {
         for (const row of rows) {
           const edge = json<GraphEdge>(row);
           if (this.excluded(edge.source.path)) continue;
+          if (edge.to) {
+            const target = await this.db.get<Payload>(
+              "SELECT payload FROM symbols WHERE snapshot_id=? AND id=?",
+              [snapshot.id, edge.to],
+            );
+            if (
+              !target ||
+              this.excluded(json<CodeSymbol>(target).source.path)
+            ) {
+              edge.to = null;
+              edge.evidence = "syntactic";
+              delete edge.resolution;
+            }
+          }
           edges.set(edge.id, edge);
           next.push(edge.from);
           if (edge.to) next.push(edge.to);
@@ -828,7 +864,7 @@ export class ContextEngine {
         graph:
           retrieval === "lexical"
             ? "Graph expansion intentionally disabled by lexical retrieval mode."
-            : "Syntax-based declarations, imports and calls; unambiguous relative JS/TS imports resolve to files. Unshadowed same-file lexical call candidates are heuristic, not runtime proofs. Dynamic/member dispatch and other imports stay unresolved. Expansion limited to 1 hop, 5 seed files.",
+            : "Syntax declarations, imports and calls with bounded snapshot-only TypeScript/JavaScript static bindings where resolution metadata is present. Static bindings are not runtime proofs; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Dynamic/member dispatch stays unresolved except direct namespace imports. Expansion limited to 1 hop, 5 seed files.",
         warnings,
       },
     };
@@ -877,6 +913,8 @@ export class ContextEngine {
       throw new Error("Memory has an invalid or excluded source");
     if (record.supersedes && !/^[a-zA-Z0-9_-]{8,80}$/.test(record.supersedes))
       throw new Error("Invalid superseded memory id");
+    if (record.assertions !== undefined)
+      record.assertions = parseReviewedAssertions(record.assertions);
   }
   async createMemory(input: {
     text: string;
@@ -927,17 +965,36 @@ export class ContextEngine {
     );
     return record;
   }
-  private async memory(id: string): Promise<MemoryRecord> {
+  private async memoryPayload(id: string): Promise<string> {
     const row = await this.db.get<Payload>(
       "SELECT payload FROM memories WHERE id=? AND project_id=?",
       [id, this.projectId],
     );
     if (!row) throw new Error("Memory is unavailable in this project");
-    return json(row);
+    return row.payload;
+  }
+  private async memory(id: string): Promise<MemoryRecord> {
+    return JSON.parse(await this.memoryPayload(id)) as MemoryRecord;
+  }
+  async setMemoryAssertions(id: string, input: unknown): Promise<MemoryRecord> {
+    await this.ready;
+    const original = await this.memoryPayload(id);
+    const previous = JSON.parse(original) as MemoryRecord;
+    const record = attachReviewedAssertions(previous, input);
+    this.validateMemory(record);
+    await this.db.batch([
+      {
+        sql: "UPDATE memories SET payload=? WHERE id=? AND project_id=? AND status='proposed' AND payload=?",
+        params: [JSON.stringify(record), id, this.projectId, original],
+        expectedChanges: 1,
+      },
+    ]);
+    return record;
   }
   async acceptMemory(id: string): Promise<MemoryRecord> {
     await this.ready;
-    const record = await this.memory(id);
+    const original = await this.memoryPayload(id);
+    const record = JSON.parse(original) as MemoryRecord;
     if (record.status === "superseded" || record.status === "conflicted")
       throw new Error("A superseded or conflicted memory cannot be accepted");
     this.validateMemory(record);
@@ -945,23 +1002,42 @@ export class ContextEngine {
     record.status = "accepted";
     const statements: Statement[] = [];
     if (record.supersedes) {
-      const previous = await this.memory(record.supersedes);
+      const previousPayload = await this.memoryPayload(record.supersedes);
+      const previous = JSON.parse(previousPayload) as MemoryRecord;
       if (previous.status !== "accepted")
         throw new Error("Only an accepted memory can be superseded");
+      this.validateMemory(previous);
+      const findings = reviewSupersession(record, await this.listMemories());
+      if (findings.length)
+        throw new Error(
+          `Supersession requires review: ${findings.map((finding) => finding.reason).join(" ")}`,
+        );
       previous.status = "superseded";
       statements.push({
-        sql: "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=?",
+        sql: "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=? AND status='accepted' AND payload=? AND NOT EXISTS (SELECT 1 FROM memories AS sibling WHERE sibling.project_id=? AND sibling.id<>? AND sibling.status IN ('accepted','conflicted') AND json_extract(sibling.payload,'$.supersedes')=?)",
         params: [
           previous.status,
           JSON.stringify(previous),
           previous.id,
           this.projectId,
+          previousPayload,
+          this.projectId,
+          record.id,
+          previous.id,
         ],
+        expectedChanges: 1,
       });
     }
     statements.push({
-      sql: "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=?",
-      params: [record.status, JSON.stringify(record), id, this.projectId],
+      sql: "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=? AND payload=?",
+      params: [
+        record.status,
+        JSON.stringify(record),
+        id,
+        this.projectId,
+        original,
+      ],
+      expectedChanges: 1,
     });
     await this.db.batch(statements);
     return record;
@@ -970,7 +1046,8 @@ export class ContextEngine {
     id: string,
   ): Promise<{ path: string; record: MemoryRecord }> {
     await this.ready;
-    const record = await this.memory(id);
+    const original = await this.memoryPayload(id);
+    const record = JSON.parse(original) as MemoryRecord;
     this.validateMemory(record);
     if (record.status !== "accepted")
       throw new Error("Only accepted memories can be shared");
@@ -994,10 +1071,13 @@ export class ContextEngine {
       ))
         throw error;
     }
-    await this.db.run(
-      "UPDATE memories SET payload=? WHERE id=? AND project_id=?",
-      [JSON.stringify(record), id, this.projectId],
-    );
+    await this.db.batch([
+      {
+        sql: "UPDATE memories SET payload=? WHERE id=? AND project_id=? AND status='accepted' AND payload=?",
+        params: [JSON.stringify(record), id, this.projectId, original],
+        expectedChanges: 1,
+      },
+    ]);
     return { path, record };
   }
   async importSharedMemories(): Promise<number> {
@@ -1038,22 +1118,29 @@ export class ContextEngine {
       );
       if (existing) {
         const previous = json<MemoryRecord>(existing);
+        this.validateMemory(previous);
         if (
           previous.text !== record.text ||
           previous.kind !== record.kind ||
           JSON.stringify(previous.sources) !== JSON.stringify(record.sources) ||
+          canonicalJson(previous.assertions ?? null) !==
+            canonicalJson(record.assertions ?? null) ||
           previous.supersedes !== record.supersedes
         ) {
           previous.status = "conflicted";
-          await this.db.run(
-            "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=?",
-            [
-              previous.status,
-              JSON.stringify(previous),
-              previous.id,
-              this.projectId,
-            ],
-          );
+          await this.db.batch([
+            {
+              sql: "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=? AND payload=?",
+              params: [
+                previous.status,
+                JSON.stringify(previous),
+                previous.id,
+                this.projectId,
+                existing.payload,
+              ],
+              expectedChanges: 1,
+            },
+          ]);
         }
         continue;
       }
@@ -1067,40 +1154,48 @@ export class ContextEngine {
     }
     // Imported links can conflict or form cycles. Preserve every record for
     // review rather than letting filename order choose an architecture decision.
-    const allMemories = await this.listMemories();
+    const memoryRows = await this.db.all<Payload>(
+      "SELECT payload FROM memories WHERE project_id=? ORDER BY rowid",
+      [this.projectId],
+    );
+    const allMemories = memoryRows.map((row) => json<MemoryRecord>(row));
+    const payloads = new Map(
+      memoryRows.map((row) => [json<MemoryRecord>(row).id, row.payload]),
+    );
     const byId = new Map(allMemories.map((record) => [record.id, record]));
+    const guards: Statement[] = [];
+    const transitions: Statement[] = [];
     for (const record of allMemories)
       if (record.status === "accepted" && record.supersedes) {
-        if (
-          allMemories.filter(
-            (other) =>
-              other.status === "accepted" &&
-              other.supersedes === record.supersedes,
-          ).length !== 1
-        )
-          continue;
-        let cursor: MemoryRecord | undefined = record;
-        const visited = new Set<string>();
-        while (cursor && !visited.has(cursor.id)) {
-          visited.add(cursor.id);
-          cursor = cursor.supersedes ? byId.get(cursor.supersedes) : undefined;
-        }
-        if (cursor) continue;
+        if (reviewSupersession(record, allMemories).length) continue;
         const previous = byId.get(record.supersedes);
         if (!previous) continue;
         if (previous.status === "accepted") {
-          previous.status = "superseded";
-          await this.db.run(
-            "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=?",
-            [
-              previous.status,
-              JSON.stringify(previous),
+          this.validateMemory(previous);
+          guards.push({
+            sql: "UPDATE memories SET payload=payload WHERE id=? AND project_id=? AND status='accepted' AND payload=?",
+            params: [record.id, this.projectId, payloads.get(record.id)!],
+            expectedChanges: 1,
+          });
+          transitions.push({
+            sql: "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=? AND status='accepted' AND payload=? AND NOT EXISTS (SELECT 1 FROM memories AS sibling WHERE sibling.project_id=? AND sibling.id<>? AND sibling.status IN ('accepted','conflicted') AND json_extract(sibling.payload,'$.supersedes')=?)",
+            params: [
+              "superseded",
+              JSON.stringify({ ...previous, status: "superseded" }),
               previous.id,
               this.projectId,
+              payloads.get(previous.id)!,
+              this.projectId,
+              record.id,
+              previous.id,
             ],
-          );
+            expectedChanges: 1,
+          });
         }
       }
+    // Validate every candidate before any transition; chain order must not pick
+    // which ancestor survives. A concurrent edit/sibling rolls the batch back.
+    if (transitions.length) await this.db.batch([...guards, ...transitions]);
     return imported;
   }
   async listSummaries(snapshotId?: string): Promise<ContextSummary[]> {

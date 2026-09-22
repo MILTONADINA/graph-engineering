@@ -386,6 +386,19 @@ cli
   .command("memory-accept <id>")
   .action((id) => withEngine((engine) => engine.context.acceptMemory(id)));
 cli
+  .command("memory-assertions <id> <json>")
+  .description(
+    "Attach explicitly reviewed structured assertions to a proposed memory; does not accept it",
+  )
+  .action((id, file) =>
+    withEngine(async (engine) =>
+      engine.context.setMemoryAssertions(
+        id,
+        await readJson(path.resolve(file)),
+      ),
+    ),
+  );
+cli
   .command("memory-share <id>")
   .action((id) => withEngine((engine) => engine.context.promoteMemory(id)));
 cli

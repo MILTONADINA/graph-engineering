@@ -70,6 +70,46 @@ it("requires a local token, rejects hostile origins, and returns real persisted 
       payload: { kind: "decision", text: "Use dev for integration" },
     });
     expect(created.statusCode).toBe(200);
+    const memory = created.json();
+    const assertions = {
+      version: "1.0.0",
+      claims: [
+        {
+          subject: "git",
+          predicate: "integration-branch",
+          scope: {},
+          value: { type: "string", value: "dev" },
+          exclusive: true,
+        },
+      ],
+      review: {
+        reviewer: "unit-test",
+        reviewedAt: memory.createdAt,
+        evidence: ["Synthetic review fixture"],
+      },
+    };
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/memories/${memory.id}/assertions`,
+          headers: { host: "localhost" },
+          payload: assertions,
+        })
+      ).statusCode,
+    ).toBe(401);
+    const annotated = await app.inject({
+      method: "POST",
+      url: `/api/memories/${memory.id}/assertions`,
+      headers,
+      payload: assertions,
+    });
+    expect(annotated.statusCode).toBe(200);
+    expect(annotated.json()).toMatchObject({
+      status: "proposed",
+      visibility: "private",
+      assertions,
+    });
     const list = await app.inject({ url: "/api/memories", headers });
     expect(list.json()).toHaveLength(1);
     expect(list.json()[0].visibility).toBe("private");

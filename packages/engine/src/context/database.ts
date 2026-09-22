@@ -4,6 +4,8 @@ import { Worker } from "node:worker_threads";
 export interface Statement {
   sql: string;
   params?: unknown[];
+  /** Fail the entire transaction if a concurrent writer changed the expected row. */
+  expectedChanges?: number;
 }
 
 // SQLite's synchronous native API belongs to this dedicated thread. Statements
@@ -72,7 +74,11 @@ export class ContextDatabase {
           }).immediate();
           else if (operation === 'batch') value = db.transaction(() => {
             for (const required of requiredSnapshots || []) if (!db.prepare('SELECT 1 FROM snapshots WHERE id=?').get(required)) throw new Error('Memory snapshot evidence was pruned before it could be pinned');
-            return statements.map(s => db.prepare(s.sql).run(...(s.params || [])));
+            return statements.map(s => {
+              const result = db.prepare(s.sql).run(...(s.params || []));
+              if (s.expectedChanges !== undefined && result.changes !== s.expectedChanges) throw new Error('Concurrent memory update; reload and review again');
+              return result;
+            });
           }).immediate();
           else if (operation === 'snapshotBatch') value = db.transaction(() => {
             if (db.prepare('SELECT id FROM snapshots WHERE id=?').get(snapshotId)) return false;

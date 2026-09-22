@@ -107,6 +107,12 @@ export function createServer(
       z.object({ id: z.string() }).parse(request.params).id,
     ),
   );
+  app.post("/api/memories/:id/assertions", (request) =>
+    engine.context.setMemoryAssertions(
+      z.object({ id: z.string() }).parse(request.params).id,
+      request.body,
+    ),
+  );
   app.post("/api/memories/:id/promote", (request) =>
     engine.context.promoteMemory(
       z.object({ id: z.string() }).parse(request.params).id,
