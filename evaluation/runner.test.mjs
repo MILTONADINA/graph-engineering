@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import childProcess from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,6 +9,89 @@ import { tasks } from "./tasks.mjs";
 import { parseReceipt, runCommand, toEvaluationRows } from "./run.mjs";
 import Ajv2020 from "ajv/dist/2020.js";
 import { normalizeDecisionConfidence } from "./receipt.mjs";
+
+function freezeCommandTimers(t) {
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  t.mock.method(globalThis, "setTimeout", () => ({ unref() {} }));
+  t.mock.method(globalThis, "clearTimeout", () => {});
+  return (value) => {
+    now = value;
+  };
+}
+
+test("command rejects invalid deadlines before spawning", () => {
+  for (const timeoutMs of [NaN, Infinity, -Infinity, -1, "1", null, false])
+    assert.throws(
+      () =>
+        runCommand([process.execPath, "-e", "process.exitCode = 0"], {
+          timeoutMs,
+        }),
+      /finite nonnegative/,
+    );
+});
+
+test("command deadline rejects late completion when timer delivery is disabled", async (t) => {
+  const setNow = freezeCommandTimers(t);
+  const pending = runCommand([process.execPath, "-e", "process.exitCode = 0"], {
+    timeoutMs: 1000,
+  });
+  setNow(2000);
+  const result = await pending;
+  assert.equal(result.code, null);
+  assert.equal(result.terminated, true);
+});
+
+test("command deadline refuses late stdout even before the timeout callback runs", async (t) => {
+  const setNow = freezeCommandTimers(t);
+  const pending = runCommand(
+    [process.execPath, "-e", "process.stdout.write('late-success')"],
+    { timeoutMs: 1000 },
+  );
+  setNow(2000);
+  const result = await pending;
+  assert.equal(result.stdout, "");
+  assert.equal(result.code, null);
+  assert.equal(result.terminated, true);
+});
+
+test("command deadline includes synchronous spawn time", async (t) => {
+  const setNow = freezeCommandTimers(t);
+  const realSpawn = childProcess.spawn;
+  const mockedSpawn = t.mock.method(childProcess, "spawn", (...args) => {
+    const child = realSpawn(...args);
+    setNow(2000);
+    return child;
+  });
+  syncBuiltinESMExports();
+  try {
+    const result = await runCommand(
+      [process.execPath, "-e", "process.exitCode = 0"],
+      { timeoutMs: 1000 },
+    );
+    assert.equal(result.code, null);
+    assert.equal(result.terminated, true);
+  } finally {
+    mockedSpawn.mock.restore();
+    syncBuiltinESMExports();
+  }
+});
+
+test("command preserves timely success and output overflow still fails independently", async () => {
+  assert.deepEqual(
+    await runCommand([process.execPath, "-e", "process.stdout.write('ok')"], {
+      timeoutMs: 10000,
+    }),
+    { code: 0, stdout: "ok", stderr: "", terminated: false },
+  );
+  const overflow = await runCommand(
+    [process.execPath, "-e", "process.stdout.write('x'.repeat(2000001))"],
+    { timeoutMs: 10000 },
+  );
+  assert.equal(overflow.code, null);
+  assert.equal(overflow.terminated, true);
+  assert.ok(Buffer.byteLength(overflow.stdout) <= 2_000_000);
+});
 
 test("60 synthetic tasks cover six language families, with distinct broken and oracle files", () => {
   assert.equal(tasks.length, 60);

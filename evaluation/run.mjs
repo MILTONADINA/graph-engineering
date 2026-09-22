@@ -31,7 +31,16 @@ export function runCommand(argv, { cwd, input, timeoutMs = 600000 } = {}) {
     argv.some((value) => typeof value !== "string" || !value)
   )
     throw new Error("Command must be a nonempty JSON array of argv strings");
+  if (
+    typeof timeoutMs !== "number" ||
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs < 0
+  )
+    throw new Error("Command timeout must be a finite nonnegative number");
   return new Promise((resolve, reject) => {
+    // Timer delivery can be delayed behind child events. Include synchronous
+    // spawn time and separately refuse evidence received past this deadline.
+    const expiresAt = performance.now() + timeoutMs;
     const child = spawn(argv[0], argv.slice(1), {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
@@ -56,7 +65,7 @@ export function runCommand(argv, { cwd, input, timeoutMs = 600000 } = {}) {
       force = setTimeout(() => kill("SIGKILL"), 1000);
       force.unref();
     };
-    const timer = setTimeout(stop, timeoutMs);
+    const timer = setTimeout(stop, Math.max(0, expiresAt - performance.now()));
     timer.unref();
     const finish = () => {
       clearTimeout(timer);
@@ -67,6 +76,11 @@ export function runCommand(argv, { cwd, input, timeoutMs = 600000 } = {}) {
       [child.stderr, "stderr"],
     ])
       stream.on("data", (buffer) => {
+        if (terminated) return;
+        if (performance.now() >= expiresAt) {
+          stop();
+          return;
+        }
         bytes += buffer.length;
         if (bytes > 2_000_000) {
           stop();
@@ -80,11 +94,14 @@ export function runCommand(argv, { cwd, input, timeoutMs = 600000 } = {}) {
       reject(error);
     });
     child.on("close", (code) => {
+      // The process is already closed; do not signal a potentially reused PID.
+      if (performance.now() >= expiresAt) terminated = true;
       finish();
       resolve({ code: terminated ? null : code, stdout, stderr, terminated });
     });
     child.stdin.on("error", () => {});
-    child.stdin.end(input);
+    if (performance.now() >= expiresAt) stop();
+    child.stdin.end(terminated ? undefined : input);
   });
 }
 export function parseReceipt(text) {
