@@ -29,7 +29,7 @@ export {
 } from "./rust-snapshot.js";
 
 export const RUST_VERSION =
-  "snapshot-rust-analyzer:1/edition:2021/release:2026-09-21";
+  "snapshot-rust-analyzer:2/edition:2021/release:2026-09-21";
 export const RUST_ANALYZER_VERSION = "0.3.3057-standalone";
 export const RUST_BINARY_HASHES = Object.freeze({
   arm64: "6d7a24eafea0f5a1d3b624b6dfe162931d5aa2a1117e69b8f90f3cbf22bc72b2",

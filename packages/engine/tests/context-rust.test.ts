@@ -217,15 +217,45 @@ describe("Rust snapshot-only boundary", () => {
         RUST_ANALYZER_VERSION,
       ),
     ).toBeNull();
+    for (const targetUri of [
+      // Drive-less file URLs are unrepresentable on Windows; other platforms
+      // still must reject them when they name a file outside the snapshot.
+      "file:///private/secret.rs",
+      "file:///C:/outside.rs",
+      "file://remote.invalid/owned/snapshot/helpers.rs",
+      "not-a-uri",
+      "file:///%",
+      "file:///%GG",
+      "https://example.invalid/helpers.rs",
+      "data:text/plain,helpers.rs",
+      value.targetUri.replace(/helpers\.rs$/, "parent%2Fhelpers.rs"),
+      value.targetUri.replace(/helpers\.rs$/, "parent%5Chelpers.rs"),
+      value.targetUri.replace(/helpers\.rs$/, "%68elpers.rs"),
+      value.targetUri.replace(/helpers\.rs$/, "folder/../helpers.rs"),
+      value.targetUri + "?ignored=1",
+      value.targetUri + "#ignored",
+    ]) {
+      expect(
+        validateRustDefinition(
+          [{ ...value, targetUri }],
+          query,
+          prepared,
+          root,
+          RUST_ANALYZER_VERSION,
+        ),
+        targetUri,
+      ).toBeNull();
+    }
+    // Rejecting URI aliases must not weaken or disable the positive exact link.
     expect(
       validateRustDefinition(
-        [{ ...value, targetUri: "file:///private/secret.rs" }],
+        [value],
         query,
         prepared,
         root,
         RUST_ANALYZER_VERSION,
-      ),
-    ).toBeNull();
+      )?.to,
+    ).toBe(target.id);
     expect(
       validateRustDefinition(
         [
