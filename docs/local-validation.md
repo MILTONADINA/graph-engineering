@@ -275,6 +275,25 @@ interpreter runs with injected zero/no-process, missing-sampler and over-limit
 samples. Reproducible Java/C# fixtures and exact subsets are linked from
 [context lifecycle](context-lifecycle.md).
 
+## Linux Python accounting correction
+
+The subsequent Java/C# checkpoint `cf1465f` passed five of six fork jobs in
+run `35712316286`. Linux x64 failed the unchanged seven-language context test:
+the Python helper incorrectly reported a resource-limit fallback. An isolated
+reproduction showed `ru_maxrss` retaining 414,108 KiB from the large pre-exec
+Node parent while the new interpreter's `/proc/self/status` reported a peak of
+8,380 KiB. This was a false rejection, not evidence that the interpreter had
+exceeded its 256-MiB allowance.
+
+The corrected Linux helper reads the current interpreter image's `VmHWM` from
+that fixed kernel path with bounded, strict parsing. Address-space, CPU, parent
+RSS and wall limits remain unchanged. Tests require a successful real binding
+under an inflated parent, rejection at a 1-KiB limit, retained enforcement after
+a 64-MiB allocation is freed, and rejection of malformed/oversized accounting.
+The Python/context suite passed all 36 checks in offline Linux and 33 checks on
+macOS (three Linux-only cases skipped). These local results do not certify a
+new fork CI run before it completes.
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering

@@ -8,10 +8,20 @@ import ast, symtable, json, hashlib, posixpath
 
 max_rss_kib = 256 * 1024
 def check_peak_rss():
-    # ru_maxrss is bytes on macOS and KiB on Linux. Unlike a parent ps sample,
-    # this high-water mark cannot miss a short-lived analyzer's peak allocation.
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if sys.platform == 'darwin': peak /= 1024
+    if sys.platform == 'linux':
+        # Linux ru_maxrss survives exec and can retain the pre-exec Node parent's
+        # large RSS. VmHWM belongs to the interpreter's current memory image.
+        # Read only this fixed kernel path, bounded and fail-closed; never source.
+        with open('/proc/self/status', 'r', encoding='ascii') as status:
+            text = status.read(65537)
+        if len(text) > 65536: raise MemoryError('RSS accounting limit')
+        fields = [line.split() for line in text.splitlines() if line.startswith('VmHWM:')]
+        if len(fields) != 1 or len(fields[0]) != 3 or fields[0][2] != 'kB' or not fields[0][1].isascii() or not fields[0][1].isdigit(): raise MemoryError('RSS accounting unavailable')
+        peak = int(fields[0][1])
+        if peak <= 0: raise MemoryError('RSS accounting unavailable')
+    else:
+        # macOS reports bytes and does not use Linux's inherited exec accounting.
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     if peak > max_rss_kib: raise MemoryError('RSS limit')
 
 def main():

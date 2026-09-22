@@ -10,6 +10,7 @@ import { parseFile } from "../src/context/parser.js";
 import { pythonRuntime, resolvePythonBindings } from "../src/context/python.js";
 import { PYTHON_HELPER } from "../src/context/python-helper.js";
 import { ContextEngine } from "../src/context/index.js";
+import { checked } from "../src/util.js";
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
 }));
@@ -53,6 +54,110 @@ const parse = (files: Record<string, string>) =>
     ),
   );
 describe("isolated CPython snapshot bindings", () => {
+  it.runIf(!!runtime && process.platform === "linux")(
+    "measures the interpreter image rather than inherited Linux pre-exec parent RSS",
+    async () => {
+      const files = await parse({
+        "main.py": "def target():\n    pass\ntarget()\n",
+      });
+      // A separate fixed Node parent owns the allocation, so this test does not
+      // inflate the long-lived Vitest worker or retain hundreds of MiB afterward.
+      const parent = String.raw`
+const {spawnSync}=require('node:child_process');
+const request=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
+const retained=Buffer.alloc(384*1024*1024,65);
+const execute=(program,input)=>{
+ const child=spawnSync(request.executable,['-I','-S','-B','-c',program],{cwd:'/',env:{},encoding:'utf8',input,maxBuffer:65536,timeout:5000});
+ if(child.error||child.status!==0)throw new Error('Isolated Python probe failed');
+ return JSON.parse(child.stdout);
+};
+const measured=execute('import json,resource\nwith open("/proc/self/status") as f: lines=f.read().splitlines()\nprint(json.dumps({"inheritedPeakKiB":resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,"imagePeakKiB":int(next(line for line in lines if line.startswith("VmHWM:")).split()[1])}))');
+const regular=execute(request.helper,JSON.stringify({...request.input,maxRssKiB:262144}));
+const tiny=execute(request.helper,JSON.stringify({...request.input,maxRssKiB:1}));
+process.stdout.write(JSON.stringify({parentRss:process.memoryUsage().rss,measured,regular,tiny,retained:retained[0]}));
+`;
+      const result = JSON.parse(
+        await checked(process.execPath, ["-e", parent], {
+          cwd: "/",
+          env: {},
+          timeoutMs: 10000,
+          maxBytes: 65536,
+          input: JSON.stringify({
+            executable: runtime!.executable,
+            helper: PYTHON_HELPER,
+            input: { files, maxNodes: 100000 },
+          }),
+        }),
+      );
+      expect(result.parentRss).toBeGreaterThan(256 * 1024 * 1024);
+      expect(result.measured.inheritedPeakKiB).toBeGreaterThan(256 * 1024);
+      expect(result.measured.imagePeakKiB).toBeLessThan(256 * 1024);
+      expect(result.regular.diagnostics).toEqual([]);
+      expect(result.regular.analyzedFiles).toBe(1);
+      expect(result.regular.updates).toHaveLength(1);
+      expect(result.tiny.updates).toEqual([]);
+      expect(result.tiny.diagnostics.join(" ")).toContain("resource limit");
+    },
+  );
+  it.runIf(!!runtime && process.platform === "linux")(
+    "retains Linux interpreter high-water enforcement after an allocation is freed",
+    async () => {
+      const definitions = PYTHON_HELPER.split(
+        "\ntry:\n    output = json.dumps(main()",
+        1,
+      )[0]!;
+      const probe =
+        definitions +
+        String.raw`
+max_rss_kib = 32 * 1024
+allocated = bytearray(64 * 1024 * 1024)
+for index in range(0, len(allocated), 4096): allocated[index] = 1
+del allocated
+try:
+    check_peak_rss()
+    print('MISSED_PEAK')
+except MemoryError:
+    print('REJECTED_PEAK')
+`;
+      expect(
+        await checked(runtime!.executable, ["-I", "-S", "-B", "-c", probe], {
+          cwd: "/",
+          env: {},
+          timeoutMs: 5000,
+          maxBytes: 1000,
+        }),
+      ).toBe("REJECTED_PEAK");
+    },
+  );
+  it.runIf(!!runtime && process.platform === "linux")(
+    "fails closed on unavailable, malformed or oversized Linux peak accounting",
+    async () => {
+      const definitions = PYTHON_HELPER.split(
+        "\ntry:\n    output = json.dumps(main()",
+        1,
+      )[0]!;
+      const probe =
+        definitions +
+        String.raw`
+import builtins, io
+cases = ['Name: python\n', 'VmHWM: bad kB\n', 'VmHWM: 0 kB\n', 'VmHWM: 1 MB\n', 'VmHWM: 1 kB\nVmHWM: 2 kB\n', 'x'*65537]
+rejected = 0
+for text in cases:
+    builtins.open = lambda *args, **kwargs: io.StringIO(text)
+    try: check_peak_rss()
+    except MemoryError: rejected += 1
+print(rejected)
+`;
+      expect(
+        await checked(runtime!.executable, ["-I", "-S", "-B", "-c", probe], {
+          cwd: "/",
+          env: {},
+          timeoutMs: 5000,
+          maxBytes: 1000,
+        }),
+      ).toBe("6");
+    },
+  );
   it.runIf(!!runtime)(
     "does not infer unimported package attributes or bypass dynamic package initializers",
     async () => {
