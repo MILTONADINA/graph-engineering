@@ -331,6 +331,26 @@ range and provenance checks. The adapter snapshot version was incremented.
 The targeted suite passed 33 native Linux checks and 26 Mac checks (seven native
 cases skipped). Windows confirmation remains a separate later CI result.
 
+## Evaluation evidence integrity corrections
+
+Raw decision receipts now preserve unknown confidence as `null`, including in
+the published artifact schema. Unknown-confidence observations remain in raw
+results but cannot become scored rows; genuine zero and known-confidence
+abstentions remain valid. Invalid values fail closed. The shared normalization
+code participates in each affected receipt's source-code identity.
+
+The evaluation subprocess runner also checks a monotonic deadline that includes
+synchronous spawn time. Late output is discarded, and late completion cannot
+be a successful result even if timeout callback delivery is delayed. Deterministic
+real-subprocess regressions failed before this fix and pass afterward. Closing
+an already-exited child never signals a potentially reused process group.
+
+All 35 evaluation tests, formatting and the full local platform check passed.
+The previous `a833127` fork run completed with five successful jobs, including
+all expanded Linux integrations; only its Windows URI-negative test failed.
+That result does not certify the later URI/evaluation fixes before their own CI.
+No paid inference, generated confidence, human labels or promotion was involved.
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering
