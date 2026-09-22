@@ -18,6 +18,7 @@ import { pythonRuntime } from "../src/context/python.js";
 import { goRuntime } from "../src/context/go.js";
 import { javaRuntime } from "../src/context/java.js";
 import { csharpRuntime } from "../src/context/csharp.js";
+import { rustRuntime } from "../src/context/rust.js";
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -173,7 +174,7 @@ describe("local context indexing", () => {
       "auth.js": "export function authorize(user) { return validate(user); }",
       "auth.py": "def refresh(token):\n    return validate(token)\n",
       "auth.go": "package auth\nfunc Login() { Login() }",
-      "auth.rs": "fn revoke() { verify(); }",
+      "auth.rs": "fn revoke() { revoke(); }",
       "Auth.java": "class Auth { static void login() { login(); } }",
       "Auth.cs": "class Auth { static void Refresh() { Refresh(); } }",
     });
@@ -209,6 +210,13 @@ describe("local context indexing", () => {
           ]
         : [
             "Trusted .NET SDK8/Roslyn helper unavailable; C# syntax evidence retained.",
+          ]),
+      ...((await rustRuntime())
+        ? [
+            "Rust-analyzer declaration binding uses an isolated edition-2021 snapshot, not Cargo configuration or a full compiler/typecheck. Macros, attributes/cfg, external crates, trait/impl methods and generic/function-value targets are not promoted.",
+          ]
+        : [
+            "Pinned isolated rust-analyzer unavailable; Rust syntax evidence retained.",
           ]),
     ];
     expect(snapshot.coverage.errors).toEqual(expectedRuntimeDiagnostics);

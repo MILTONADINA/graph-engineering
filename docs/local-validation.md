@@ -294,6 +294,32 @@ The Python/context suite passed all 36 checks in offline Linux and 33 checks on
 macOS (three Linux-only cases skipped). These local results do not certify a
 new fork CI run before it completes.
 
+## Rust declaration binding integration
+
+The pinned `rust-analyzer 0.3.3057-standalone` adapter was integrated into context
+indexing, snapshot identity, graph storage and provenance-aware retrieval. Its
+official archive and expanded binary hashes were verified by the reproducible
+provisioning script, without host/global installation. The isolated Linux ARM64
+adapter suite passed 33 checks. Independent review reproduced and verified fixes
+for shared-crate module ownership, duplicate declaration/import bindings, and
+argument-position `impl Trait` targets. None of those cases now promotes an edge.
+
+The additional real-runtime context integration exercises SQLite persistence,
+unchanged snapshot reuse, changed-source invalidation, complete private-source
+provenance, cloud export filtering and historical exclusion changes. The fixture
+passed 34 tests; its unavailable-runtime-only case correctly skipped because the
+native runtime was present. The exact image was
+`sha256:84b677b893faae715f1b4c127447cbcc685845bc86227c265e031dcee9a27f93`.
+The fixture
+does not evaluate Cargo/configuration or compile/run repository code. Runtime
+availability is mandatory in its native job. macOS/Windows retain explicit
+fallback; the feature is LSP declaration navigation, not full Rust compilation.
+
+The full local `npm run check` passed: 59 scaffold tests, nine dashboard tests,
+347 engine tests, and all typechecks/builds. The 47 skipped engine tests include
+native-runtime and separately opted-in container cases; they are not counted as
+successful execution. Fork CI for this newer stack remains separate evidence.
+
 ## Remaining evidence boundaries
 
 Hosted Jev/cloud inference, real native worker execution, reviewed engineering

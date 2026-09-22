@@ -76,6 +76,13 @@ jobs:
           docker run --rm --network=none --read-only --tmpfs /tmp:rw,exec,nosuid,size=768m --memory=1536m --cpus=2 --pids-limit=128 --cap-drop=ALL --security-opt=no-new-privileges graph-csharp-native-test:local
         env:
           GRAPH_ENGINE_CSHARP_DOCKER_TESTS: "1"
+      - name: Snapshot-only Rust declaration bindings
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          RUST_FIXTURE_TOOLS=$(mktemp -d)
+          node packages/engine/tests/fixtures/rust-runtime/provision.mjs x64 "$RUST_FIXTURE_TOOLS"
+          docker buildx build --load --pull=false --network=none --build-context rust_tool="$RUST_FIXTURE_TOOLS" -f packages/engine/tests/fixtures/rust-runtime/Dockerfile -t graph-rust-native-test:local .
+          docker run --rm --network=none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=256m --memory=1g --cpus=2 --pids-limit=128 --cap-drop=ALL --security-opt=no-new-privileges graph-rust-native-test:local
       - name: Generated backend template integration
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
