@@ -908,6 +908,7 @@ export class GraphEngine {
                 "Policy changed during execution; dispatch stopped",
               );
             assertProvider(provider, this.config.policy, step.effort);
+            save("running");
             this.store.event(
               run.id,
               "attempt.started",
