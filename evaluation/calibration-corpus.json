@@ -1,0 +1,696 @@
+{
+  "version": "1.0.0",
+  "corpusId": "graph-history-intake-v1",
+  "repositoryId": "MILTONADINA.graph-engineering",
+  "repositoryUrl": "https://github.com/MILTONADINA/graph-engineering",
+  "createdAt": "2026-09-22T07:27:55.998Z",
+  "population": "Retrospectively selected engineering fixes in this repository, spanning privacy, budgets, recovery, native process/runtime portability, CI and graph contracts. Classification strata are proposed, not independently reviewed.",
+  "families": [
+    {
+      "id": "budget-policy",
+      "split": "calibration",
+      "rationale": "Known public history inspected during development; related fixes stay together and cannot be treated as unseen held-out evidence."
+    },
+    {
+      "id": "context-privacy",
+      "split": "calibration",
+      "rationale": "Known public history inspected during development; related fixes stay together and cannot be treated as unseen held-out evidence."
+    },
+    {
+      "id": "run-recovery",
+      "split": "calibration",
+      "rationale": "Known public history inspected during development; related fixes stay together and cannot be treated as unseen held-out evidence."
+    },
+    {
+      "id": "runtime-portability",
+      "split": "calibration",
+      "rationale": "Known public history inspected during development; related fixes stay together and cannot be treated as unseen held-out evidence."
+    },
+    {
+      "id": "build-pipeline",
+      "split": "calibration",
+      "rationale": "Known public history inspected during development; related fixes stay together and cannot be treated as unseen held-out evidence."
+    },
+    {
+      "id": "graph-contracts",
+      "split": "calibration",
+      "rationale": "Known public history inspected during development; related fixes stay together and cannot be treated as unseen held-out evidence."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "zero-api-budget",
+      "family": "budget-policy",
+      "category": "configuration-validation",
+      "complexity": "localized",
+      "risk": "high",
+      "classification": "proposed-not-reviewed",
+      "exposure": "previously-replayed",
+      "baseCommit": "3bb1556272160080e4748737c5358b226608e303",
+      "repairCommit": "6d7d67da92320328182472872694b1f6a745e065",
+      "objective": "Permit an explicit zero external-inference budget while retaining rejection of negative and nonnumeric JSON budgets and all unrelated configuration checks.",
+      "acceptance": [
+        "Accept zero, positive, and null budget ceilings.",
+        "Reject negative and nonnumeric JSON ceilings.",
+        "Preserve unrelated project validation; only change the inert maxCostUsd schema initializer."
+      ],
+      "evidence": [
+        {
+          "path": "packages/contracts/src/index.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "d1a8fbf0f2db965aa04b62241ec97109fb63e698",
+            "sha256": "af6e93535a951e1fe35e8d7a09395ba5f8b4b06e34ad87a1a57ef260c2fb4280",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "6c855150a7634571cb42532878ef97bb79dda556",
+            "sha256": "82170ad97f10da78197f17b84fa119548fa8cf941eb9c48beb9913a893b00f18",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "harness-available",
+        "runner": "historical-replay.mjs",
+        "taskId": "recorded-zero-api-budget",
+        "missing": [
+          "Independent partner review of task, label, and outcome evidence.",
+          "Paired baseline/candidate observations with known costs and immutable configuration identities.",
+          "Representative tasks beyond one narrowly bounded schema repair."
+        ],
+        "runnerRevision": "8258eecc7487243591a8ac65b4ae675fe64effe1",
+        "runnerSha256": "da24b250f486941576f1d993e596e3c61d4d5aa962d0506b5d436f8a9956ec43"
+      },
+      "limitations": [
+        "Repair commit includes unrelated changes; existing guarded replay projects only the schema initializer.",
+        "Previously replayed locally, including an earlier invalid broad harness and one later guarded attempt; never held-out evidence."
+      ]
+    },
+    {
+      "id": "unmetered-decision-budget",
+      "family": "budget-policy",
+      "category": "spend-control",
+      "complexity": "localized",
+      "risk": "critical",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "b6a878dc8b08809f996f85834d801e0979014889",
+      "repairCommit": "545e23025be2624203bcff9f2613282a096bd9d3",
+      "objective": "Prevent hosted typed-decision inference with unavailable usage accounting when a project has an explicit spend ceiling; preserve the deterministic/local fallback.",
+      "acceptance": [
+        "Capped hosted unmetered routing makes no network request.",
+        "The decision abstains with an auditable failure reason.",
+        "Offline and local decision paths continue to work."
+      ],
+      "evidence": [
+        {
+          "path": "packages/engine/src/decisions.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "dfc5a0090f4a0033c0fab2b30a0a2e2fa28daa39",
+            "sha256": "42be304c01b9cb95da5e99430fc45581b0971c7e17b5333e4d50f334b50a855a",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "b3ac21f47e56d0792a3b90bfed1c99fd58db8fff",
+            "sha256": "01086cb061967dc5886846cefa72aae0dc3a25f25da0121a9e67d7c3748bdab1",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "packages/engine/tests/decisions.test.ts",
+          "role": "test",
+          "base": {
+            "blobOid": "260917d8a7ba057cc1e3fded12974735a8493139",
+            "sha256": "2f3dc779c6d974e20dfb1d854c2c171637214dd303f6f9c77fe62fd0548d38c3",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "9ff49c047f5fad467daaa98c4e1f65e5dc688512",
+            "sha256": "7d759c489463ee4dc99471b01b95987cbb8e4cf5b228afbedec4060fdaf72b87",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "fixture-adapter-available",
+        "implementationStatus": "trusted-history-only",
+        "adapterPath": "evaluation/replays/unmetered-decision-budget/adapter.mjs",
+        "harnessPath": "evaluation/replays/unmetered-decision-budget/verify.mjs",
+        "requiredAdapter": "Build an isolated historical engine slice and use a recording no-network fetch adapter.",
+        "requiredHarness": "Independent fetch-count and abstention assertions against immutable baseline and repaired decisions.ts; exercise zero, finite, and null ceilings.",
+        "missing": [
+          "Sandboxed independent acceptance adapter for arbitrary worker-generated patches; current fixtures execute trusted history only.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "This historical adapter predates current explicit pricing/reservation support; do not apply its blanket restriction as current product policy."
+      ]
+    },
+    {
+      "id": "cloud-graph-export",
+      "family": "context-privacy",
+      "category": "privacy-boundary",
+      "complexity": "multi-file",
+      "risk": "critical",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "83c1f36094223a516bf5fd93233a55cb219522cf",
+      "repairCommit": "fd7081d589b7bee08b9bea8b88029fcc6b142099",
+      "objective": "Enforce cloud graph export permissions before traversing resolved relationships, without changing local graph access.",
+      "acceptance": [
+        "Cloud responses omit resolved private target identities and resolution metadata.",
+        "A public-to-private-to-public chain cannot disclose reachability through the private node.",
+        "Permitted public bindings and local private relationships remain available."
+      ],
+      "evidence": [
+        {
+          "path": "packages/engine/src/context/index.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "ba2d55b27ea8123e3026584b76212a73c8d8018c",
+            "sha256": "ae993fd1cb8b77c1756e617b43ee8638d2f079a632ad44bf40ce0e4f56923947",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "f131c715726e47d1fa1a259664241d1f037c31b1",
+            "sha256": "005d5fcef976bd557a5943cb5e7bc1b2dc2c62cbf2345dca2795004780237c5f",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "packages/engine/src/mcp.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "16521a449946478e525b1d90696edb17ca8a6ec4",
+            "sha256": "22344dc9791ddd01a290fbe9fce1aa5e836daaca1eea4347cb4a0dbd57b594dd",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "b2592da4f3e4208ab9f2a0a2788f574925828be4",
+            "sha256": "5729c600cab04927f88117c6153f44cdf93c4fdaf57fc2b511d0ab032d90308a",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "packages/engine/tests/mcp.test.ts",
+          "role": "test",
+          "base": {
+            "blobOid": "eac7b2520b1dccd46c17a6414fe7625126af94d5",
+            "sha256": "f9b0472e01869613c62b39e9871ee67cab70d742894215408f3457442f1652e1",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "ca0f100ded9e071c24bf6b8e26ead07917b285b6",
+            "sha256": "b4ce4efab910c788423e56689cd13df30e629afc3d307a3eeba7fa3bdef7b177",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "intake-only",
+        "implementationStatus": "not-implemented",
+        "adapterPath": "evaluation/replays/cloud-graph-export/adapter.mjs",
+        "harnessPath": "evaluation/replays/cloud-graph-export/verify.mjs",
+        "requiredAdapter": "Historical engine build with in-memory MCP clients, temporary indexed repository, and no inference/network.",
+        "requiredHarness": "Extract independent public/private chain fixture and compare local/cloud responses on both revisions; keep assertions outside editable workspace.",
+        "missing": [
+          "Independent isolated adapter/harness implementation.",
+          "Broken baseline failure and repaired oracle success receipts.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "Requires a compiler-enabled historical engine and matching dependencies; the full graph fixture is not yet an isolated replay adapter."
+      ]
+    },
+    {
+      "id": "retry-state-visibility",
+      "family": "run-recovery",
+      "category": "state-consistency",
+      "complexity": "localized",
+      "risk": "moderate",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "06e16897649bd72baa90a05f3732474a2292ecdc",
+      "repairCommit": "5703abad6c19cd851329a2ed5f0b7891c7fb8cf9",
+      "objective": "Persist the run's implementation state when a verification failure starts a repair attempt so observers do not continue to see the stale verification state.",
+      "acceptance": [
+        "Each repair worker attempt observes run.status as running.",
+        "Verification state is retained only during verification.",
+        "No extra worker call or usage reset is introduced."
+      ],
+      "evidence": [
+        {
+          "path": "packages/engine/src/service.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "684f3043864e892751fd6473227c2f9d057370b5",
+            "sha256": "8407e01f6c19257107def02a485c684f4e4c521e763b23bea9826f8d07a114c5",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "1757689669660ac0335be63631de5f4d57f0490c",
+            "sha256": "b1395eb46197e2ceca2c469fb39c7d1671df50379ae000c05ea413ea583a9634",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "packages/engine/tests/verification-recovery.test.ts",
+          "role": "test",
+          "base": {
+            "blobOid": "08b4ab7efe9a0f9e6f803aebf567c9fdd246094f",
+            "sha256": "e5844513e693a7cd4ee394006a4949b4eb62d5b81ddd70988a18adee96dae8e4",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "71b03dd164378324409850154aed94f7b84dfe8e",
+            "sha256": "b9c1eb49e40e64f40bb68fd59f66cc02d3e0514876e6cd3522ea7c57ab4d6c0b",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "intake-only",
+        "implementationStatus": "not-implemented",
+        "adapterPath": "evaluation/replays/retry-state-visibility/adapter.mjs",
+        "harnessPath": "evaluation/replays/retry-state-visibility/verify.mjs",
+        "requiredAdapter": "Historical GraphEngine service with deterministic stub worker/verifier and durable temporary RunStore.",
+        "requiredHarness": "Record state at every worker dispatch and verification transition; assert call count and ledger continuity independently.",
+        "missing": [
+          "Independent isolated adapter/harness implementation.",
+          "Broken baseline failure and repaired oracle success receipts.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "One-line historical fix is not evidence of broad orchestration competence; context/setup dependencies need isolation."
+      ]
+    },
+    {
+      "id": "verifier-infrastructure-stop",
+      "family": "run-recovery",
+      "category": "failure-classification",
+      "complexity": "system-integration",
+      "risk": "high",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "99133f54c992d998fbd40534670755482aca2817",
+      "repairCommit": "06e16897649bd72baa90a05f3732474a2292ecdc",
+      "objective": "Stop generation after trusted verifier setup or Docker launch failures, while allowing ordinary test failures to follow the existing bounded repair policy.",
+      "acceptance": [
+        "Exit 125 stops before another model call.",
+        "Exit 78 with the trusted setup marker stops and requires inspection/reconciliation.",
+        "Ordinary test EACCES remains a test failure, not an infrastructure setup signal.",
+        "Known and unknown usage survive stopping and resuming."
+      ],
+      "evidence": [
+        {
+          "path": "packages/engine/src/service.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "c415b0945a980313f20bd8186b986363a7d40e3c",
+            "sha256": "4629de2dfc0274f7496d5a98024fdf757bb69fdb90fe20e26c9b24212773b32c",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "684f3043864e892751fd6473227c2f9d057370b5",
+            "sha256": "8407e01f6c19257107def02a485c684f4e4c521e763b23bea9826f8d07a114c5",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "scripts/verify-project.mjs",
+          "role": "source",
+          "base": {
+            "blobOid": "01b9f92e462a1b07730764f2277de98b61e6b6d9",
+            "sha256": "f0965f30556140d8440f4dd81b219202f8ec5cce087f216828150dcb2e518896",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "b5a8d470f98d23e029f2b11a1a7301afaf27a4f4",
+            "sha256": "24a8f14d9366f239c827f6b5bf7bda8e65f177906cfeaef4f158393db01c2325",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "packages/engine/tests/verification-recovery.test.ts",
+          "role": "test",
+          "base": null,
+          "repair": {
+            "blobOid": "08b4ab7efe9a0f9e6f803aebf567c9fdd246094f",
+            "sha256": "e5844513e693a7cd4ee394006a4949b4eb62d5b81ddd70988a18adee96dae8e4",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "scripts/verification-setup.test.mjs",
+          "role": "test",
+          "base": null,
+          "repair": {
+            "blobOid": "8e207904b71692be2947059c817ce717ac39c7ae",
+            "sha256": "996ea965c5055c8a011a2a118a36f957799f76cc93c42bbca15a3cdf7ecfc763",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "intake-only",
+        "implementationStatus": "not-implemented",
+        "adapterPath": "evaluation/replays/verifier-infrastructure-stop/adapter.mjs",
+        "harnessPath": "evaluation/replays/verifier-infrastructure-stop/verify.mjs",
+        "requiredAdapter": "Historical service/verifier setup adapters with stubbed container exit evidence, independent run ledger, and no actual inference.",
+        "requiredHarness": "Separate trusted setup-marker and ordinary-test failure matrix; assert no retry/model call on infrastructure errors and preserved accounting.",
+        "missing": [
+          "Independent isolated adapter/harness implementation.",
+          "Broken baseline failure and repaired oracle success receipts.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "The repair combines verifier setup changes with orchestration guards; independent replay must preserve both boundaries.",
+        "Docker exit provenance cannot be replaced with untrusted generated stdout."
+      ]
+    },
+    {
+      "id": "linux-private-verification-mount",
+      "family": "runtime-portability",
+      "category": "container-permissions",
+      "complexity": "system-integration",
+      "risk": "high",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "b135c373d288526e55feb7d0c92abbbe6187cad8",
+      "repairCommit": "fc5676816a4f892113de03aca7c8765c2f421789",
+      "objective": "Allow isolated verification to traverse a host-owned private bind mount on Linux without weakening its permissions or restoring dropped capabilities.",
+      "acceptance": [
+        "Container invocation uses the Linux host uid/gid when available.",
+        "Private files do not become world-readable and DAC_OVERRIDE remains absent.",
+        "Platforms without process uid/gid APIs retain compatible invocation."
+      ],
+      "evidence": [
+        {
+          "path": "packages/engine/src/execution/docker.ts",
+          "role": "source",
+          "base": {
+            "blobOid": "7daedd77a193b327e051a249eadd08c4ce58c901",
+            "sha256": "fcf3f81da4499bee5988bd56fa745fc5a0cfbcbc7f9d5ee5508a342f916c44f4",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "011cbe3ab019f144635de7e412966375e55b1291",
+            "sha256": "13f465c423575c73bfda05d73c249cd362171f2aed9dba022c7d993105d07d2f",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "packages/engine/tests/execution.test.ts",
+          "role": "test",
+          "base": {
+            "blobOid": "382c31230dcecbdd38b9d3244a899a1c632deead",
+            "sha256": "d2bcadcdd7884df4fd0e9173960bafa6e4ae53fd55eb168cbc076b0555ea838f",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "9a31ee53b7cc213e96983d1dabd19e2fe5944d88",
+            "sha256": "16fdfa92f8680892dff09c8dc71bd3e4905f0b061791b996a708647ca2d3cfec",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "intake-only",
+        "implementationStatus": "not-implemented",
+        "adapterPath": "evaluation/replays/linux-private-verification-mount/adapter.mjs",
+        "harnessPath": "evaluation/replays/linux-private-verification-mount/verify.mjs",
+        "requiredAdapter": "Historical Docker argv recorder plus an explicitly provisioned Linux uid-owned mount integration fixture.",
+        "requiredHarness": "Verify argv on all platform branches and run a non-root Linux 0700 bind-mount check; fail on permission widening or capabilities.",
+        "missing": [
+          "Independent isolated adapter/harness implementation.",
+          "Broken baseline failure and repaired oracle success receipts.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "An argv unit test alone cannot establish native Linux filesystem behavior; actual Linux fixture remains required."
+      ]
+    },
+    {
+      "id": "portable-npm-spawn",
+      "family": "runtime-portability",
+      "category": "windows-process-launch",
+      "complexity": "multi-file",
+      "risk": "moderate",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "fc5676816a4f892113de03aca7c8765c2f421789",
+      "repairCommit": "b6a878dc8b08809f996f85834d801e0979014889",
+      "objective": "Run npm script checks portably on native Windows using Node and npm's JavaScript entry point, retaining argument boundaries and paths with spaces without command-shell shims.",
+      "acceptance": [
+        "Windows resolves npm-cli.js from lifecycle or Node/PATH locations.",
+        "Arguments containing spaces remain separate argv entries.",
+        "Missing Windows npm CLI fails clearly instead of falling back to a shell.",
+        "POSIX direct npm invocation remains supported."
+      ],
+      "evidence": [
+        {
+          "path": "create-graph-app/scripts/check-pack-contents.js",
+          "role": "source",
+          "base": {
+            "blobOid": "41ad5f6b8ae060c1c721ad7327d4846b862c86a4",
+            "sha256": "bd4e8376fe9702bb72b7a1a7beef67f26cf953a0031f612e78b65111d50287d3",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "a3b13dddaa9b85bc6c12fd6aea3dce26961fe5ab",
+            "sha256": "2b0a8f8ae362e6044b4ffed5ec49fb9c194d7094bed7b61f473b3a1ff5030256",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "create-graph-app/scripts/smoke-generated-apps.js",
+          "role": "source",
+          "base": {
+            "blobOid": "28f269caff601240eea3e41f69b205959ea7df43",
+            "sha256": "4ee79d1693034f58958df5c129b0544b7af6ade592aad858a34c7d7adbebf7c9",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "d4579cfe5f31485739c2a1f8bac8298405ac103f",
+            "sha256": "095668cf3cd6ce9198770ae4acc354bedd64bef60ea67f47c5453325f3d15912",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "create-graph-app/scripts/npm-command.js",
+          "role": "source",
+          "base": null,
+          "repair": {
+            "blobOid": "69c363b3ef6b9ce2cac7b39edc4281ce19b805dc",
+            "sha256": "c6b165238deab14fd1893da5b092c651c9f2d75e5b7b90ae4062ca9f3fa3f6e6",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "create-graph-app/tests/npm-command.test.ts",
+          "role": "test",
+          "base": null,
+          "repair": {
+            "blobOid": "1b58e740da84042bb28fc736f44866ba3ddeded1",
+            "sha256": "873c29c58fe6f267afa98b87e6e578c37b372e768b02a66d3edd626d0edeb80b",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "fixture-adapter-available",
+        "implementationStatus": "trusted-history-only",
+        "adapterPath": "evaluation/replays/portable-npm-spawn/adapter.mjs",
+        "harnessPath": "evaluation/replays/portable-npm-spawn/verify.mjs",
+        "requiredAdapter": "Historical scaffolder source export with a platform/argv filesystem adapter; native Windows smoke run separately.",
+        "requiredHarness": "Independent mocked Windows path/argv matrix plus native Windows generated-app smoke; prohibit shell invocation.",
+        "missing": [
+          "Native Windows process/generated-app validation; current fixture instruments Windows APIs on the host.",
+          "Sandboxed independent acceptance adapter for arbitrary worker-generated patches; current fixtures execute trusted history only.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "Platform mocks cannot substitute for a native Windows validation receipt."
+      ]
+    },
+    {
+      "id": "clean-workspace-dependency-order",
+      "family": "build-pipeline",
+      "category": "build-ci",
+      "complexity": "multi-file",
+      "risk": "moderate",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "942f75f7d86f9774f87c4083b41f601e571afcb7",
+      "repairCommit": "b135c373d288526e55feb7d0c92abbbe6187cad8",
+      "objective": "Make clean-checkout typecheck and test commands build the workspace packages whose generated entry points are needed by downstream workspaces.",
+      "acceptance": [
+        "Dependency build includes the scaffolder and contracts before downstream typecheck/test.",
+        "Checks work without pre-existing dist outputs.",
+        "Workspace build ordering does not rely on accidental local artifacts."
+      ],
+      "evidence": [
+        {
+          "path": "package.json",
+          "role": "source",
+          "base": {
+            "blobOid": "4c1c811a06ab66df6172294787cced3ff8a568b1",
+            "sha256": "c51d887734514a0d8d67b690e5e7c12006b5925b1da4509394ae3d406c38235b",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "f311eef8c2427541aa8e094eee365c28cf96a1b0",
+            "sha256": "c3641732514aae52e37d81bcf407e36c470b6ddb70c609f6403915e767903115",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "role": "context",
+          "base": {
+            "blobOid": "f8830fa73f11b02dae47d8c7e4f0ab858eea138b",
+            "sha256": "de00c154e8f1071e8f492571e06df7e58964b7f90c3a818899390790ebcb2634",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "c199d266ba576d658399946f619e283a67d48f03",
+            "sha256": "67f88f11936bcb7f174c46c562ec2535eb8a69ef4de0bcb328e3c8596087d559",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "intake-only",
+        "implementationStatus": "not-implemented",
+        "adapterPath": "evaluation/replays/clean-workspace-dependency-order/adapter.mjs",
+        "harnessPath": "evaluation/replays/clean-workspace-dependency-order/verify.mjs",
+        "requiredAdapter": "Disposable historical worktree with exact lockfile dependencies preprovisioned offline; never delete artifacts in the active repository.",
+        "requiredHarness": "Run clean dependency/typecheck/test entry points in an isolated worktree and prove missing dist outputs are rebuilt before imports.",
+        "missing": [
+          "Independent isolated adapter/harness implementation.",
+          "Broken baseline failure and repaired oracle success receipts.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "The same repair commit also narrows workflow branch triggers; that unrelated policy change is not part of this task.",
+        "No independent reproduction harness or clean-checkout receipt is attached to this intake."
+      ]
+    },
+    {
+      "id": "distinct-template-node-invocations",
+      "family": "graph-contracts",
+      "category": "graph-schema-validation",
+      "complexity": "multi-file",
+      "risk": "high",
+      "classification": "proposed-not-reviewed",
+      "exposure": "known-history",
+      "baseCommit": "e9bdbe0096a86ff467736016f1a9f9e060115469",
+      "repairCommit": "a07076c273117bd488a8971258c82c5eb149cf29",
+      "objective": "Validate graph node invocation identities independently from reusable template identities so repeated use of one template is supported while duplicate node IDs and invalid references are rejected.",
+      "acceptance": [
+        "Distinct node IDs may invoke the same template.",
+        "Duplicate node IDs and references to unknown node IDs are rejected.",
+        "Architecture and test artifact references use invocation identity consistently."
+      ],
+      "evidence": [
+        {
+          "path": "graph-templates/tools/validate-graph/index.js",
+          "role": "source",
+          "base": {
+            "blobOid": "758b89dd40184bda2459d1fa305a87fdabd1ec7b",
+            "sha256": "a7193e0c08cab9a3bbfe49c79477912a0f2679bbb3ba365f6c7d764ff7ea3ff5",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "5eae2f9e6b4f21ea6528dc893c79286753e3c78c",
+            "sha256": "b0ac281c6c3de239424b42ae37946b3c1642026441107932d03ae0b4691ed67b",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "graph-templates/tools/validate-graph/contracts.js",
+          "role": "source",
+          "base": null,
+          "repair": {
+            "blobOid": "f6c248e6608a6a9a04a990e59a0b985e49c457f2",
+            "sha256": "f4290b6270553c0712a0ddc8b62d9dcf358d84f6b597ac2e8cfe6092aa1b8110",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "graph-templates/tools/validate-graph/validate.js",
+          "role": "source",
+          "base": null,
+          "repair": {
+            "blobOid": "57d1b0b4730dcba6eea02db5593a48e864871bba",
+            "sha256": "8c75d75111fa015480ef735a305ce947e9d1549c29d07a5016f4ed0954fe5c2c",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "graph-templates/tools/validate-graph/test/validate.test.js",
+          "role": "test",
+          "base": null,
+          "repair": {
+            "blobOid": "7e92077594795a1fbd6cc1d2bdcd0a332024d155",
+            "sha256": "fab0234944369adb79a9481d010549ae3889a157787d5851b077ce33ea5d5cff",
+            "mode": "100644"
+          }
+        },
+        {
+          "path": "graph-templates/GRAPH-NODE-SPEC.md",
+          "role": "context",
+          "base": {
+            "blobOid": "3c619bd90c0b5a936b063a9a9360f59883de3d7a",
+            "sha256": "8055cc5751297d64916678a0302c6dcb09e8efc7b814ebef53029162bfde512b",
+            "mode": "100644"
+          },
+          "repair": {
+            "blobOid": "9f5fa65895e945631003af366fb15d52403ff168",
+            "sha256": "1d1fb974cda9747dae84ce7ea4eff12f4fb0bea32b977aa82111caf042c829f6",
+            "mode": "100644"
+          }
+        }
+      ],
+      "replay": {
+        "status": "intake-only",
+        "implementationStatus": "not-implemented",
+        "adapterPath": "evaluation/replays/distinct-template-node-invocations/adapter.mjs",
+        "harnessPath": "evaluation/replays/distinct-template-node-invocations/verify.mjs",
+        "requiredAdapter": "Historical standalone graph validator wrapper with pinned JSON-schema dependencies and fixture-only filesystem.",
+        "requiredHarness": "Independent repeated-template/duplicate-ID/dangling-reference and artifact-consistency examples, tested on broken and repaired revisions.",
+        "missing": [
+          "Independent isolated adapter/harness implementation.",
+          "Broken baseline failure and repaired oracle success receipts.",
+          "Partner task/strata review plus distinct labeler/reviewer attestations.",
+          "Paired measured decisions/outcomes/costs; no synthetic labels or unknown-cost substitution."
+        ]
+      },
+      "limitations": [
+        "Repair commit substantially restructures validation and examples; isolate the invocation-identity scope before measurement."
+      ]
+    }
+  ],
+  "limitations": [
+    "Nine candidates from one repository are not a representative production benchmark.",
+    "All repairs are known retrospectively; no unseen held-out population is claimed.",
+    "No partner label or review attestations are supplied; no category is promoted.",
+    "Git/file identity validation proves provenance, not task correctness, independence, or worker competence."
+  ]
+}
