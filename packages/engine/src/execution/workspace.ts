@@ -116,11 +116,11 @@ export async function createWorkspace(
     }
   return { workspace, branch };
 }
-export async function applyProposal(
+export async function prepareProposal(
   workspace: string,
   proposal: WorkerProposal,
   policy: ProjectPolicy,
-): Promise<string[]> {
+): Promise<Map<string, { absolute: string; content: string }>> {
   const staged = new Map<string, { absolute: string; content: string }>();
   for (const change of proposal.changes) {
     const absolute = await safePath(workspace, change.path, policy);
@@ -153,6 +153,14 @@ export async function applyProposal(
       throw new Error(`Patch includes a potential secret in ${change.path}`);
     staged.set(change.path, { absolute, content });
   }
+  return staged;
+}
+export async function applyProposal(
+  workspace: string,
+  proposal: WorkerProposal,
+  policy: ProjectPolicy,
+): Promise<string[]> {
+  const staged = await prepareProposal(workspace, proposal, policy);
   // Validate the complete proposal before making any writes.
   for (const { absolute, content } of staged.values()) {
     await mkdir(path.dirname(absolute), { recursive: true });
