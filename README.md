@@ -55,7 +55,7 @@ Pruning previews unless `--apply` is supplied. `backup NEW_ARCHIVE_DIRECTORY` in
 | `sidecars/laya`      | Explicitly provisioned, offline-serving decision sidecar                                 |
 | `evaluation`         | Synthetic smoke fixtures, measured baseline/candidate runner, recorded-evidence workflow |
 | `create-graph-app`   | Existing coarse-grained app scaffolder and six working templates                         |
-| `graph-templates`    | Fine-node contracts and validation; three audited deterministic runtime adapters         |
+| `graph-templates`    | Fine-node contracts and validation; ten audited deterministic runtime adapters           |
 | `reference-app`      | Source application behind the original templates                                         |
 
 The two template systems intentionally retain their different schemas. Existing scaffolding remains usable independently; see [create-graph-app](create-graph-app/README.md), [graph templates](graph-templates/README.md), and the [reference architecture](reference-app/REFERENCE_ARCHITECTURE.md).
@@ -73,7 +73,7 @@ Use focused feature branches, reviewed PRs, and `dev` as the integration branch.
 
 ## Current boundaries
 
-The graph is syntax-backed, not a complete semantic call graph; lexical call candidates remain labeled heuristic. Missing resolution and unavailable embeddings are reported. Local storage does not make a cloud-backed coding client offline: cloud export requires explicit policy and source-path permission, and private mandatory context blocks export. Exact cached-proposal replay reruns required checks. Laya/Jev scores do not prove code correct; required verification and human acceptance remain independent. Unknown token usage/cost stays unknown rather than becoming zero.
+The graph combines syntax evidence with bounded, compiler-backed static JS/TS bindings—not a complete runtime call graph. Other lexical call candidates remain labeled heuristic; unsupported resolution and unavailable embeddings are reported. Reviewed typed memory claims enable exact scoped contradiction checks without choosing which claim is true. Local storage does not make a cloud-backed coding client offline: cloud export requires explicit policy and source-path permission, and private mandatory context blocks export. Exact cached-proposal replay reruns required checks. Laya/Jev scores do not prove code correct; required verification and human acceptance remain independent. Unknown token usage/cost stays unknown rather than becoming zero.
 
 Only `backend.api-response`, `backend.pagination`, and `backend.validation` have deterministic fine-template renderers; other nodes remain catalog-only for execution. The DAG requires reviewed explicit steps. Snapshot storage currently duplicates source payloads; retention and private backups are operational requirements, not optional proof of production readiness.
 

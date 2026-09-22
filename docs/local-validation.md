@@ -72,16 +72,64 @@ with completed-call records and unresolved reservations preserved. Recorded
 marginal external API cost is $0. Do not convert this run into an accuracy,
 latency, or cost-savings benchmark.
 
+## Unassisted historical replay
+
+The new local-only historical runner replayed the repository's recorded
+zero-budget schema defect on 2026-09-22, **07:06:05.923–07:07:05.177 UTC**.
+It supplied Qwen only the broken contracts source from commit
+`3bb1556272160080e4748737c5358b226608e303`, the objective and JSON-input
+acceptance criteria. The known repair was used only to validate the independent
+harness, never as worker context. The harness rejects every edit outside the
+budget-schema initializer and requires its replacement to be inert, bounded
+numeric-schema literals before compilation. The oracle projects only the recorded
+schema repair, excluding unrelated historical interface additions. One worker
+call produced a patch that passed the external, network-disabled Docker checks
+without assistant correction. Reported usage was **3,387 input tokens, 161 output
+tokens, $0 marginal API spend**; worker-adapter elapsed time was 58.25 seconds
+on the shared local server. This is not an isolated inference-latency benchmark.
+
+The receipt is retained privately at
+`.graph/local/historical-qwen-guarded-20260922.json`. It retains generated source
+and records source, harness, profile and image hashes. The final verification
+image was `sha256:b8fbb70d27b3989e2243e466c967214cc4496197d8a7a961d8e3907200218a1a`.
+Seven harness regressions and three actual Docker marker/early-exit attacks
+passed/rejected as expected before this fresh model attempt.
+
+The earlier `.graph/local/historical-qwen-20260922.json` receipt remains as
+preliminary history: its marker-only verifier lacked the inert-change guard,
+so it is not counted as independently verified repair evidence. The new attempt
+started again from broken source; no preliminary patch or oracle reached the
+worker. An initial harness-only validation also incorrectly
+expected the historical repair to reject non-finite JavaScript numbers; that
+validation failed before any model call. The replay was corrected to match its
+recorded JSON-configuration scope. Separately, current programmatic schema
+validation now rejects non-finite numbers with regression tests.
+
+This is a single retrospective, restricted schema repair—not unassisted completion
+of a broad repository task, independent engineering calibration, or a paired
+token-savings result. It cannot promote any decision category. The earlier
+assisted full-repository run and its failures remain unchanged.
+
 ## Verification and operations
 
-The final local complete check passed 59 CLI, 9 dashboard, and 169 engine tests
-(three opt-in tests excluded from that default run), plus typechecks and
-production builds. The two Docker-enabled suites passed all 19 tests; the real
-embedding test was exercised separately. Six desktop/mobile browser checks,
-20 standalone graph validator checks, five evaluation-harness checks, nine
-Python sidecar tests, package-content validation, and the production dependency
-audit also passed. Counts are observations at the final local checkpoint,
-not a promise that later regression additions leave counts unchanged.
+The latest local complete check passed 59 CLI, 9 dashboard, and 212 engine tests
+(four opt-in tests excluded from that default run), plus typechecks and
+production builds. Existing Docker-enabled suites passed all 19 tests, and the
+new backend-composition suite passed all seven tests with Docker enabled.
+Its generated Product/Invoice code compiled under strict TypeScript and passed
+29 emitted/integration checks in an offline container against locked dependencies.
+The generated-app checks mock database operations; no live PostgreSQL/migration
+coverage is claimed. The real embedding test was exercised separately earlier.
+Six desktop/mobile browser checks, 20 standalone graph-validator checks,
+nine Python sidecar tests, package-content validation and the production dependency
+audit also passed after these changes. Counts describe observed checkpoints, not a promise that
+later regression additions leave counts unchanged.
+
+Live lexical indexing also exercised the compiler pass on this repository:
+929 files, 263 parsed sources and 666 text-only records. Its receipt explicitly
+reports omitted credential-like fixtures, source fragments with syntax errors,
+unsupported package imports and ambiguous/missing module targets. The compiler
+does not infer complete coverage from the absence of a crash.
 
 All 60 cross-language synthetic tasks failed in their broken state and passed
 their supplied oracle in 120 actual offline container runs; see
