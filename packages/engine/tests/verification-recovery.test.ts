@@ -51,6 +51,7 @@ async function fixture(
   });
   let workerCalls = 0;
   const worker = vi.fn<NonNullable<EngineDependencies["worker"]>>(async () => {
+    expect(engine.store.runs()[0]?.status).toBe("running");
     const before = ++workerCalls;
     return {
       model: "fixture",
