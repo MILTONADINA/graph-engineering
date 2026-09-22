@@ -93,12 +93,20 @@ export async function verifyInContainer(
             "--pids-limit=256",
             "--memory=4g",
             "--cpus=2",
+            // With all capabilities dropped, container root cannot traverse a
+            // private (0700) bind mount owned by the Linux host user. Match the
+            // owner instead of granting DAC_OVERRIDE or opening private files.
+            ...(process.getuid && process.getgid
+              ? ["--user", `${process.getuid()}:${process.getgid()}`]
+              : []),
             "--mount",
             `type=bind,source=${view},target=/workspace`,
             "--workdir",
             "/workspace",
             "--env",
             "CI=true",
+            "--env",
+            "HOME=/tmp",
             imageId,
             ...check.argv,
           ],
