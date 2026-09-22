@@ -18,6 +18,7 @@ const requiredEnvironment = [
   ['storage.aws-s3', 'AWS_REGION'],
   ['storage.aws-s3', 'AWS_ACCESS_KEY_ID'],
   ['storage.aws-s3', 'AWS_SECRET_ACCESS_KEY'],
+  ['testing.integration', 'TEST_DATABASE_URL'],
 ];
 const expectedMissingTests = ['database.migrations', 'database.neon-postgres.connection', 'database.transactions', 'testing.api', 'testing.unit'];
 function fixture(t) {
@@ -70,13 +71,22 @@ test('comments and prefixed names do not satisfy required environment assignment
   const dir = fixture(t);
   fs.writeFileSync(path.join(dir, '.env.example'), [
     '# ACCESS_TOKEN_SECRET=', 'NOT_DATABASE_URL=', 'AWS_ENDPOINT_URL_S3=',
-    'export AWS_REGION=', 'AWS_ACCESS_KEY_ID=', 'AWS_SECRET_ACCESS_KEY=',
+    'export AWS_REGION=', 'AWS_ACCESS_KEY_ID=', 'AWS_SECRET_ACCESS_KEY=', 'TEST_DATABASE_URL=',
   ].join('\n'));
   const result = validate(dir, templates);
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.deepEqual(result.warnings.filter(w => w.rule !== 'missing-tests').map(w => [w.rule, w.nodeId]).sort(), [
     ['missing-environment-variables', 'authentication.jwt'],
     ['missing-environment-variables', 'database.neon-postgres.connection'],
+  ]);
+});
+
+test('integration testing requires its own documented database rather than the application fallback', t => {
+  const dir = fixture(t);
+  fs.writeFileSync(path.join(dir, '.env.example'), requiredEnvironment.filter(([, name]) => name !== 'TEST_DATABASE_URL').map(([, name]) => `${name}=\n`).join(''));
+  const result = validate(dir, templates);
+  assert.deepEqual(result.warnings.filter(w => w.rule === 'missing-environment-variables').map(w => [w.nodeId, w.message]), [
+    ['testing.integration', '"TEST_DATABASE_URL" is not documented in .env.example'],
   ]);
 });
 
