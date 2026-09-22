@@ -4,7 +4,10 @@ import type {
   ProviderConfig,
 } from "@graph-engineering/contracts";
 import {
-  decide,
+  decideBatch,
+  type DecisionBudget,
+  type DecisionCallUsage,
+  type DecisionQuestion,
   type DecisionProvider,
   type PromotionEvidence,
 } from "./decisions.js";
@@ -30,11 +33,15 @@ export async function routePlan(options: {
   policy: ProjectPolicy;
   providers: DecisionProvider[];
   evidence: PromotionEvidence[];
+  cloudState?: Record<string, unknown>;
+  budget?: DecisionBudget;
+  signal?: AbortSignal;
 }): Promise<{
   workflow: Workflow;
   effort?: string;
   contextBudgetTokens: number;
   records: DecisionRecord[];
+  usage: DecisionCallUsage[];
 }> {
   const { objective, provider, policy } = options;
   const baseline: Workflow = /\b(fix|bug|fail|regression)\b/i.test(objective)
@@ -59,9 +66,22 @@ export async function routePlan(options: {
     ),
   ];
   const effort = options.explicitEffort ?? provider.defaultEffort;
-  const specs = [
-    { category: "workflow", candidates: { ...WORKFLOWS }, baseline },
+  const specs: DecisionQuestion[] = [
     {
+      id: "workflow",
+      category: "workflow",
+      candidates: {
+        "bug-fix": "Reproduce and fix a defect",
+        feature: "Implement acceptance criteria",
+        refactor: "Preserve behavior while restructuring",
+        investigate: "Gather and explain evidence",
+      },
+      baseline,
+      exportable: true,
+    },
+    {
+      id: "context-budget",
+      exportable: true,
       category: "context-budget",
       candidates: Object.fromEntries(
         budgets.map((value) => [
@@ -74,6 +94,8 @@ export async function routePlan(options: {
     ...(!options.explicitEffort && provider.efforts?.length
       ? [
           {
+            id: "effort",
+            exportable: true,
             category: "effort",
             candidates: Object.fromEntries(
               ["default", ...provider.efforts].map((value) => [
@@ -88,29 +110,18 @@ export async function routePlan(options: {
         ]
       : []),
   ];
-  const groups = await Promise.all(
-    specs.map((spec) =>
-      decide({
-        ...options,
-        ...spec,
-        state: {
-          objective: objective.slice(0, 800),
-          model: provider.model,
-          workerKind: provider.kind,
-          maxContextTokens: contextLimit,
-        },
-      }),
-    ),
-  );
+  const result = await decideBatch({
+    ...options,
+    questions: specs,
+    state: {
+      objective: objective.slice(0, 800),
+      model: provider.model,
+      workerKind: provider.kind,
+      maxContextTokens: contextLimit,
+    },
+  });
   const selected = (category: string, fallback: string) =>
-    groups
-      .flat()
-      .find(
-        (record) =>
-          record.category === category &&
-          record.mode === "promoted" &&
-          record.selected,
-      )?.selected ?? fallback;
+    result.selections[category] ?? fallback;
   const selectedEffort = selected("effort", effort ?? "default");
   return {
     workflow: selected("workflow", baseline) as Workflow,
@@ -118,6 +129,7 @@ export async function routePlan(options: {
     contextBudgetTokens: Number(
       selected("context-budget", String(contextLimit)),
     ),
-    records: groups.flat(),
+    records: result.records,
+    usage: result.usage,
   };
 }

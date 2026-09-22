@@ -6,6 +6,16 @@ import { z } from "zod";
 import path from "node:path";
 import { assertEndpoint, containsSecret } from "./policy.js";
 import { hash, id, now, readJson } from "./util.js";
+import { decideBatch, type DecisionBudget } from "./decision-batch.js";
+export { decideBatch } from "./decision-batch.js";
+export type {
+  DecisionQuestion,
+  DecisionBatchOptions,
+  DecisionBatchResult,
+  DecisionBudget,
+  DecisionCallUsage,
+  DecisionReservation,
+} from "./decision-batch.js";
 
 export interface DecisionProvider {
   id: "laya" | "jev";
@@ -13,6 +23,12 @@ export interface DecisionProvider {
   model: string;
   apiKeyEnv?: string;
   maxStateChars: number;
+  /** Reviewed fixed-unit price; no default or inferred hosted pricing. */
+  pricing?: {
+    unit: "request" | "question";
+    usdPerUnit: number;
+    version: string;
+  };
 }
 export interface PromotionEvidence {
   version: string;
@@ -28,6 +44,9 @@ export interface PromotionEvidence {
   candidateCost: number;
   calibrationError: number;
   minimumConfidence: number;
+  dataOrigin?: "recorded" | "synthetic" | "unverified";
+  provenanceComplete?: boolean;
+  datasetId?: string | null;
 }
 const labelSchema = z
   .string()
@@ -51,6 +70,11 @@ export const promotionEvidenceSchema = z
     candidateCost: costSchema,
     calibrationError: z.number().finite().min(0).max(1),
     minimumConfidence: z.number().finite().min(0.5).max(1),
+    dataOrigin: z
+      .enum(["recorded", "synthetic", "unverified"])
+      .default("unverified"),
+    provenanceComplete: z.boolean().default(false),
+    datasetId: labelSchema.nullable().default(null),
   })
   .strict()
   .refine(
@@ -61,6 +85,9 @@ export function canPromote(e: PromotionEvidence): boolean {
   const valid = promotionEvidenceSchema.safeParse(e);
   if (!valid.success) return false;
   return (
+    valid.data.dataOrigin === "recorded" &&
+    valid.data.provenanceComplete &&
+    valid.data.datasetId !== null &&
     e.calibrationCount >= 50 &&
     e.heldOutCount >= 200 &&
     e.taskCount >= 60 &&
@@ -70,7 +97,7 @@ export function canPromote(e: PromotionEvidence): boolean {
     e.calibrationError <= 0.05
   );
 }
-const providerSchema = z
+export const decisionProviderSchema = z
   .object({
     id: z.enum(["laya", "jev"]),
     endpoint: z.string().url(),
@@ -80,6 +107,14 @@ const providerSchema = z
       .regex(/^[A-Z][A-Z0-9_]*$/)
       .optional(),
     maxStateChars: z.number().int().min(64).max(100000),
+    pricing: z
+      .object({
+        unit: z.enum(["request", "question"]),
+        usdPerUnit: costSchema,
+        version: labelSchema,
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export async function decisionProviders(
@@ -87,7 +122,7 @@ export async function decisionProviders(
 ): Promise<DecisionProvider[]> {
   try {
     return z
-      .array(providerSchema)
+      .array(decisionProviderSchema)
       .parse(await readJson(path.join(dataDir, "decisions.json")));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
@@ -98,165 +133,29 @@ export async function decide(options: {
   projectId: string;
   category: string;
   state: Record<string, unknown>;
+  cloudState?: Record<string, unknown>;
+  exportable?: boolean;
   candidates: Record<string, string>;
   baseline: string;
   policy: ProjectPolicy;
   providers: DecisionProvider[];
   evidence?: PromotionEvidence[];
   signal?: AbortSignal;
+  budget?: DecisionBudget;
 }): Promise<DecisionRecord[]> {
-  const { policy, candidates, baseline, category } = options;
-  if (!Object.hasOwn(candidates, baseline))
-    throw new Error(
-      "Decision baseline must belong to the allowed candidate set",
-    );
-  const promotionEvidence = z
-    .array(promotionEvidenceSchema)
-    .parse(options.evidence ?? []);
-  const state = JSON.stringify(options.state);
-  if (containsSecret(state))
-    throw new Error("Decision state contains a potential secret");
-  const records: DecisionRecord[] = [];
-  for (const provider of options.providers) {
-    const evidence = promotionEvidence.find(
-      (e) =>
-        e.category === category &&
-        e.provider === provider.id &&
-        e.model === provider.model,
-    );
-    const promoted =
-      policy.decisionMode === "promoted" &&
-      policy.promotedCategories.includes(category) &&
-      !!evidence &&
-      canPromote(evidence);
-    let selected: string | null = null,
-      confidence: number | null = null,
-      modelVersion = provider.model,
-      failure: string | undefined;
-    try {
-      if (!policy.providers.includes(provider.id))
-        throw new Error(`Decision provider ${provider.id} is not permitted`);
-      assertEndpoint(provider.endpoint, policy, provider.id === "laya");
-      if (
-        provider.id === "jev" &&
-        (policy.inference === "local" || policy.network === "deny")
-      )
-        throw new Error("Jev is disabled by offline policy");
-      if (provider.id === "jev" && policy.maxCostUsd !== null)
-        throw new Error(
-          "Jev usage cannot be metered by this adapter; cost-capped projects use local decisions",
-        );
-      if (state.length > provider.maxStateChars)
-        throw new Error(
-          "Compact decision state exceeds the configured model limit; abstaining",
-        );
-      const key = provider.apiKeyEnv
-        ? process.env[provider.apiKeyEnv]
-        : undefined;
-      if (provider.apiKeyEnv && !key)
-        throw new Error(`Missing ${provider.apiKeyEnv}`);
-      const response = await fetch(provider.endpoint, {
-        method: "POST",
-        redirect: "error",
-        headers: {
-          "Content-Type": "application/json",
-          ...(key ? { Authorization: `Bearer ${key}` } : {}),
-        },
-        body: JSON.stringify({
-          model: provider.model,
-          state,
-          questions: {
-            action: {
-              type: "choice",
-              instructions: `Choose the best permitted ${category} action from the evidence.`,
-              criteria: candidates,
-            },
-          },
-        }),
-        signal: AbortSignal.any([
-          options.signal ?? new AbortController().signal,
-          AbortSignal.timeout(10000),
-        ]),
-      });
-      if (!response.ok)
-        throw new Error(`Decision provider HTTP ${response.status}`);
-      const result = (await response.json()) as {
-        model?: string;
-        answers?: {
-          action?: {
-            choice?: string;
-            confidence?: number;
-            probabilities?: Record<string, number>;
-          };
-        };
-      };
-      const answer = result.answers?.action;
-      if (!answer?.choice || !Object.hasOwn(candidates, answer.choice))
-        throw new Error("Decision provider returned an invalid choice");
-      selected = answer.choice;
-      if (answer.probabilities) {
-        const probabilities = answer.probabilities,
-          keys = Object.keys(probabilities),
-          values = Object.values(probabilities);
-        if (
-          keys.length !== Object.keys(candidates).length ||
-          keys.some((key) => !Object.hasOwn(candidates, key)) ||
-          values.some(
-            (value) =>
-              typeof value !== "number" ||
-              !Number.isFinite(value) ||
-              value < 0 ||
-              value > 1,
-          ) ||
-          Math.abs(values.reduce((sum, value) => sum + value, 0) - 1) > 0.01
-        )
-          throw new Error("Decision provider returned invalid probabilities");
-        confidence = probabilities[answer.choice];
-      } else
-        confidence =
-          typeof answer.confidence === "number" &&
-          Number.isFinite(answer.confidence) &&
-          answer.confidence >= 0 &&
-          answer.confidence <= 1
-            ? answer.confidence
-            : null;
-      modelVersion = result.model ?? "unreported";
-      if (
-        promoted &&
-        (modelVersion !== provider.model ||
-          confidence === null ||
-          confidence < evidence!.minimumConfidence)
-      )
-        selected = null;
-    } catch (error) {
-      selected = null;
-      failure =
-        error instanceof Error ? error.message : "Decision provider failed";
-    }
-    const record: DecisionRecord = {
-      version: "1.0.0",
-      id: id(),
-      projectId: options.projectId,
-      category,
-      candidates: Object.keys(candidates),
-      selected,
-      baseline,
-      provider: provider.id,
-      modelVersion,
-      policyVersion: hash(policy),
-      confidence,
-      mode: promoted ? "promoted" : "shadow",
-      createdAt: now(),
-      evidence: {
-        stateHash: hash(state),
-        promotionVersion: evidence?.version ?? null,
-        ...(failure ? { failure } : {}),
+  const result = await decideBatch({
+    ...options,
+    questions: [
+      {
+        id: "action",
+        category: options.category,
+        candidates: options.candidates,
+        baseline: options.baseline,
+        exportable: options.exportable,
       },
-    };
-    records.push(record);
-    if (promoted && selected) break;
-  }
-  return records;
+    ],
+  });
+  return result.records;
 }
 
 export interface EvaluationRow {
@@ -274,8 +173,16 @@ export interface EvaluationRow {
   baselineCost: number;
   candidateCost: number;
   policyViolation: boolean;
+  recordId?: string;
+  candidates?: string[];
+  repositoryId?: string;
+  risk?: string;
+  observedAt?: string;
+  labeler?: string;
+  labelEvidence?: string[];
+  outcomeEvidence?: string[];
 }
-const evaluationRowSchema = z
+export const evaluationRowSchema = z
   .object({
     split: z.enum(["calibration", "held-out"]),
     category: labelSchema,
@@ -291,17 +198,64 @@ const evaluationRowSchema = z
     baselineCost: costSchema,
     candidateCost: costSchema,
     policyViolation: z.boolean(),
+    recordId: labelSchema.optional(),
+    candidates: z.array(labelSchema).min(1).max(1000).optional(),
+    repositoryId: labelSchema.optional(),
+    risk: labelSchema.optional(),
+    observedAt: z.string().datetime().optional(),
+    labeler: labelSchema.optional(),
+    labelEvidence: z.array(labelSchema).min(1).optional(),
+    outcomeEvidence: z.array(labelSchema).min(1).optional(),
+  })
+  .strict()
+  .refine(
+    (row) =>
+      !row.candidates ||
+      (row.candidates.includes(row.expected) &&
+        (row.selected === null || row.candidates.includes(row.selected))),
+    "Evaluation labels must belong to the observed candidate set",
+  );
+export const evaluationProvenanceSchema = z
+  .object({
+    origin: z.enum(["recorded", "synthetic"]),
+    datasetId: labelSchema,
+    population: z.string().min(20).max(4000),
+    repositoryIds: z.array(labelSchema).min(1),
+    riskStrata: z.array(labelSchema).min(1),
+    reviewedBy: labelSchema,
+    reviewedAt: z.string().datetime(),
+    limitations: z.array(z.string().min(1).max(2000)).min(1),
   })
   .strict();
-export function evaluateDecisions(rows: EvaluationRow[]): {
+export const evaluationDatasetSchema = z
+  .object({
+    version: z.literal("1.0.0"),
+    provenance: evaluationProvenanceSchema,
+    rows: z.array(evaluationRowSchema).min(1).max(1_000_000),
+  })
+  .strict();
+export type EvaluationDataset = z.infer<typeof evaluationDatasetSchema>;
+export function evaluateDecisions(input: EvaluationRow[] | EvaluationDataset): {
   reports: PromotionEvidence[];
   sampleCount: number;
 } {
-  rows = z.array(evaluationRowSchema).min(1).max(1_000_000).parse(rows);
+  const dataset = Array.isArray(input)
+    ? null
+    : evaluationDatasetSchema.parse(input);
+  const rows =
+    dataset?.rows ??
+    z.array(evaluationRowSchema).min(1).max(1_000_000).parse(input);
   const splits = new Map<string, string>(),
     observations = new Set<string>(),
+    recordIds = new Set<string>(),
     cases = new Map<string, string>();
   for (const row of rows) {
+    if (row.recordId) {
+      const key = JSON.stringify([row.provider, row.model, row.recordId]);
+      if (recordIds.has(key))
+        throw new Error("Duplicate recorded observation in evaluation data");
+      recordIds.add(key);
+    }
     const previousSplit = splits.get(row.taskId);
     if (previousSplit && previousSplit !== row.split)
       throw new Error("Calibration and held-out task IDs must be disjoint");
@@ -387,7 +341,30 @@ export function evaluateDecisions(rows: EvaluationRow[]): {
     const taskIds = new Set(accepted.map((row) => row.taskId));
     const [category, provider, model] = key.split("\0");
     reports.push({
-      version: hash(group),
+      version: hash({ rows: group, provenance: dataset?.provenance ?? null }),
+      dataOrigin: dataset?.provenance.origin ?? "unverified",
+      datasetId: dataset?.provenance.datasetId ?? null,
+      provenanceComplete:
+        !!dataset &&
+        group.every(
+          (row) =>
+            row.recordId &&
+            row.candidates?.length &&
+            row.repositoryId &&
+            row.risk &&
+            row.observedAt &&
+            row.labeler &&
+            row.labelEvidence?.length &&
+            row.outcomeEvidence?.length &&
+            dataset.provenance.repositoryIds.includes(row.repositoryId) &&
+            dataset.provenance.riskStrata.includes(row.risk),
+        ) &&
+        dataset.provenance.repositoryIds.every((repository) =>
+          group.some((row) => row.repositoryId === repository),
+        ) &&
+        dataset.provenance.riskStrata.every((risk) =>
+          group.some((row) => row.risk === risk),
+        ),
       category,
       provider,
       model,
