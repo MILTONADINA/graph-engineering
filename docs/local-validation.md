@@ -112,7 +112,7 @@ assisted full-repository run and its failures remain unchanged.
 
 ## Verification and operations
 
-The latest local complete check passed 59 CLI, 9 dashboard, and 212 engine tests
+The earlier backend-foundation complete check passed 59 CLI, 9 dashboard, and 212 engine tests
 (four opt-in tests excluded from that default run), plus typechecks and
 production builds. Existing Docker-enabled suites passed all 19 tests, and the
 new backend-composition suite passed all seven tests with Docker enabled.
@@ -124,6 +124,27 @@ Six desktop/mobile browser checks, 20 standalone graph-validator checks,
 nine Python sidecar tests, package-content validation and the production dependency
 audit also passed after these changes. Counts describe observed checkpoints, not a promise that
 later regression additions leave counts unchanged.
+
+The expanded 21-renderer checkpoint subsequently passed the complete workspace
+check: 59 CLI, 9 dashboard and 249 engine tests, six explicit opt-in skips,
+typechecks and production builds. Both backend container suites passed 13 engine
+tests, including strict generated-code compilation and separate 29-test foundation
+and 37-test CRUD suites. The new testing-template suite passed against a disposable
+PostgreSQL instance inside its network-disabled container: selected-table cleanup,
+foreign-key refusal without CASCADE, and preservation of an unlisted table were
+executed as real SQL. No host database or provider credentials were used.
+
+The first fork CI run for this checkpoint correctly flagged three stale graph
+fixture expectations: the hardened integration template now requires an explicit
+`TEST_DATABASE_URL`. The fixed fixture documents that seventh required variable
+and independently tests its omission; all 21 standalone validator checks pass.
+This change preserves the missing-environment warnings instead of suppressing them.
+
+Nine actual historical cases now have pinned intake provenance. Two additional
+retrospective fixture adapters reproduce failing baselines and passing recorded
+repairs across 22 variant checks, without model/network calls. These are not
+arbitrary-patch verifiers, independent labels, or paired model measurements; see
+[the corpus evidence and limits](calibration-corpus.md).
 
 Live lexical indexing also exercised the compiler pass on this repository:
 929 files, 263 parsed sources and 666 text-only records. Its receipt explicitly
