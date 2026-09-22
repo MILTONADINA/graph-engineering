@@ -190,7 +190,7 @@ export async function validateFixtures({
       containerExecutions: results.length * 2,
       sourceCodeHash: hash(
         await Promise.all(
-          ["tasks.mjs", "run.mjs", "validate-fixtures.mjs"].map(
+          ["tasks.mjs", "run.mjs", "validate-fixtures.mjs", "receipt.mjs"].map(
             async (name) => [
               name,
               hash(await readFile(new URL(name, import.meta.url))),

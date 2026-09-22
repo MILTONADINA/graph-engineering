@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import { tasks } from "./tasks.mjs";
+import { normalizeDecisionConfidence } from "./receipt.mjs";
 const hash = (value) =>
   createHash("sha256")
     .update(
@@ -112,11 +113,7 @@ export function parseReceipt(text) {
       ["caseId", "category", "provider", "model"].some(
         (key) => typeof decision[key] !== "string" || !decision[key],
       ) ||
-      !(decision.selected === null || typeof decision.selected === "string") ||
-      typeof decision.confidence !== "number" ||
-      !Number.isFinite(decision.confidence) ||
-      decision.confidence < 0 ||
-      decision.confidence > 1
+      !(decision.selected === null || typeof decision.selected === "string")
     )
       throw new Error("Invalid observed decision receipt");
   return {
@@ -128,7 +125,7 @@ export function parseReceipt(text) {
         provider,
         model,
         selected,
-        confidence,
+        confidence: normalizeDecisionConfidence(confidence),
       }),
     ),
     policyViolation: value.policyViolation === true,
@@ -220,6 +217,8 @@ export function toEvaluationRows(results, labels) {
   const rows = [];
   for (const result of results)
     for (const decision of result.candidate.decisions) {
+      const confidence = normalizeDecisionConfidence(decision.confidence);
+      if (confidence === null) continue;
       const label = labels.find(
         (item) =>
           item.taskId === result.taskId &&
@@ -240,6 +239,7 @@ export function toEvaluationRows(results, labels) {
         throw new Error("Invalid external decision label");
       rows.push({
         ...decision,
+        confidence,
         expected: label.expected,
         split: label.split,
         taskId: result.taskId,
@@ -346,10 +346,12 @@ async function main() {
   const startedAt = new Date().toISOString();
   const sourceCodeHash = hash(
     await Promise.all(
-      ["tasks.mjs", "run.mjs", "api-adapter.mjs"].map(async (name) => [
-        name,
-        hash(await readFile(new URL(name, import.meta.url))),
-      ]),
+      ["tasks.mjs", "run.mjs", "api-adapter.mjs", "receipt.mjs"].map(
+        async (name) => [
+          name,
+          hash(await readFile(new URL(name, import.meta.url))),
+        ],
+      ),
     ),
   );
   try {

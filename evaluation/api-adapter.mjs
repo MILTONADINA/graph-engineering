@@ -12,6 +12,7 @@ import { invokeApiWorker } from "../packages/engine/dist/workers/api.js";
 import { applyProposal } from "../packages/engine/dist/execution/workspace.js";
 import { assertProvider } from "../packages/engine/dist/policy.js";
 import { decide } from "../packages/engine/dist/decisions.js";
+import { normalizeDecisionConfidence } from "./receipt.mjs";
 
 const hash = (text) => createHash("sha256").update(text).digest("hex");
 const usage = { inputTokens: 0, outputTokens: 0, costUsd: 0 },
@@ -88,7 +89,7 @@ async function main() {
         provider: observed.provider,
         model: observed.modelVersion,
         selected: observed.selected,
-        confidence: observed.confidence ?? 0,
+        confidence: normalizeDecisionConfidence(observed.confidence),
       });
     if (observed?.selected)
       provider = profile.providers.find(
