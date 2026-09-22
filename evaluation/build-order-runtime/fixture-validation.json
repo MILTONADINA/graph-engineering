@@ -1,0 +1,77 @@
+{
+  "version": "1.0.0",
+  "kind": "retrospective-offline-historical-build-witness",
+  "recordedAt": "2026-09-22T11:23:42Z",
+  "taskId": "clean-workspace-dependency-order",
+  "baseCommit": "942f75f7d86f9774f87c4083b41f601e571afcb7",
+  "repairCommit": "b135c373d288526e55feb7d0c92abbbe6187cad8",
+  "workspaceTree": "171c68a705b88d27e1bac99c6669721480447ee1",
+  "workspaceFiles": 880,
+  "sourceManifestSha256": "22018411df204325da90f86b7a00f4a5c21083bc55e033c1c93b3de1f59cf669",
+  "nodeImage": "node@sha256:40ad9f3064e67d6860b4bc3fe1880b2953934fd6320ada990e45fe0efa6badd7",
+  "imageId": "sha256:949a59befba81f89d0e75943659dfca523a73b9d6b9973a27389881f1fc1c7eb",
+  "node": "v24.16.0",
+  "platform": "linux",
+  "architecture": "arm64",
+  "lockSha256": "4a63d4c60686aedf37d0e3e0bd29083ae819035e3e9179aefc17a86f7b75a860",
+  "dependencyTreeSha256": "88581f1d2cb8d11a2fe00f355d56915a457abaee84d3eefcd9ba1722bc43ddff",
+  "dependencyFiles": 12020,
+  "legacyLockEntriesWithoutIntegrity": 10,
+  "sourceHashes": {
+    "evaluation/candidate-build-order.mjs": "b177f7bf74702c913b7d21292da0b5fafbed61c251687b3bf984c1cf550a2577",
+    "evaluation/verify-build-order.mjs": "82c81d414c53c10fdfe2497448926b674a0e97e79291b4aa08c9dfea17e78efb",
+    "evaluation/verify-build-order.test.mjs": "0691c07f67ead6cec75c6fe1461402f2832e14ad37a379b277cb3b1eab13c0f7",
+    "evaluation/build-order-runtime/container.mjs": "e179df9aae9da14c4cc22f69bf4e2679295a1f4f440028d567d99dac6b20c4f2",
+    "evaluation/build-order-runtime/constants.mjs": "cc02784dc63ed5ab847355dc4eddc16a8ec6b44d2cc397d8917613cc4d002988",
+    "evaluation/build-order-runtime/provision-check.mjs": "8e151c632c909a5bf9dbe28b3e27a835f16ca8ae5249355dda19cb743e08ad79",
+    "evaluation/build-order-runtime/provision.mjs": "7d349e804a2cc5856f583914cb600b1fba896423bebfa86b5e024388bf85dce4",
+    "evaluation/build-order-runtime/Dockerfile": "47d625efe07ad49861da894337a46b8b69bacbdefe2cae4e8c14e4d9fd37faa2"
+  },
+  "command": "GRAPH_ENGINE_HISTORY_TESTS=1 GRAPH_ENGINE_BUILD_ORDER_DOCKER_TESTS=1 node --test evaluation/verify-build-order.test.mjs evaluation/candidate-build-order.test.mjs",
+  "tests": { "passed": 13, "failed": 0, "skipped": 0 },
+  "witnesses": [
+    {
+      "candidate": "baseline",
+      "entrypoint": "typecheck",
+      "outcome": "missing-generated-entrypoint",
+      "downstreamExitCode": 2
+    },
+    {
+      "candidate": "baseline",
+      "entrypoint": "test",
+      "outcome": "missing-generated-entrypoint",
+      "downstreamExitCode": 1
+    },
+    {
+      "candidate": "projected-repair",
+      "entrypoint": "typecheck",
+      "outcome": "passed",
+      "downstreamExitCode": 0
+    },
+    {
+      "candidate": "projected-repair",
+      "entrypoint": "test",
+      "outcome": "passed",
+      "downstreamExitCode": 0
+    }
+  ],
+  "freshWorkspacePerWitness": true,
+  "initialDistAbsentInAllFourWorkspaces": true,
+  "runtimeNetwork": "none",
+  "candidateScriptStringsExecuted": false,
+  "repairHistoricalTests": {
+    "scaffolderPassed": 54,
+    "dashboardPassed": 7,
+    "enginePassed": 70,
+    "engineOriginalOptInSkipped": 2
+  },
+  "independentReview": null,
+  "modelCalls": 0,
+  "promotionEligible": false,
+  "limitations": [
+    "Retrospective historical Linux arm64 fixture; not unseen/held-out calibration or native Windows/macOS execution evidence.",
+    "Candidate JSON is projected into validated fixed operations against unchanged historical workspace source. Arbitrary candidate scripts or other source edits are unsupported.",
+    "Ten legacy dependency lock entries lack integrity fields. Their provisioned bytes are included in the installed dependency-tree hash, not independently authenticated upstream.",
+    "Two original engine opt-in tests remain skipped: Docker worker execution and downloaded embedding-model inference. The outer verifier uses Docker, but supplies no Docker socket or model weights to historical tests."
+  ]
+}
