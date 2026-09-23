@@ -304,6 +304,17 @@ Existing `promotions.json` files remain untouched and readable as advisory
 metrics, but cannot authorize decisions, even if policy requests `promoted` mode.
 All service loaders and direct batch decisions enforce this boundary.
 
+Runtime dispatch now carries only an opaque, process-local binding issued by
+`loadPromotionAuthority`; neither `DecisionBatchOptions` nor `decide` accepts a
+caller-supplied current identity or raw authority. The binding is checked
+against its private WeakMap state and the current project/policy for each
+evidence report. A future verified importer must attach a resolver that returns
+the matching authority grant **paired with** a freshly recomputed
+category/provider identity for that exact report; one batch-wide grant cannot
+stand in for multiple routes. Today the loader attaches no resolver, so even a well-formed
+`promotions.json`, fabricated option, or serialized/cast binding remains in
+shadow mode. This wiring does not mint a grant or verify held-out evidence.
+
 This is a temporary safety checkpoint, **not completed promotion tooling**.
 There is no production authority issuer yet. Completing it requires original
 signed row reviews, separately approved current trust, a signed aggregate

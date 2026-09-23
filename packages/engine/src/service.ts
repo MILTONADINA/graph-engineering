@@ -155,7 +155,7 @@ export class GraphEngine {
       policy: this.config.policy,
       providers: await decisionProviders(this.dataDir),
       evidence: promotion.evidence,
-      promotionAuthority: promotion.authority,
+      promotionBinding: promotion.binding,
       signal,
       budget: this.decisionBudget(ownerId),
     };
@@ -309,7 +309,7 @@ export class GraphEngine {
         policy: this.config.policy,
         providers: await decisionProviders(this.dataDir),
         evidence: promotion.evidence,
-        promotionAuthority: promotion.authority,
+        promotionBinding: promotion.binding,
         budget: this.decisionBudget(planId),
         cloudState: {
           fileCount: snapshot.fileCount,
@@ -336,7 +336,7 @@ export class GraphEngine {
       policy: this.config.policy,
       providers: await decisionProviders(this.dataDir),
       evidence: routingPromotion.evidence,
-      promotionAuthority: routingPromotion.authority,
+      promotionBinding: routingPromotion.binding,
       budget: this.decisionBudget(planId),
       cloudState: {
         fileCount: snapshot.fileCount,

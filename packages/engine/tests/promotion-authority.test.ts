@@ -15,8 +15,8 @@ import {
 } from "../src/decisions.js";
 import {
   authorizesPromotion,
+  authorizesPromotionFromBinding,
   loadPromotionAuthority,
-  type VerifiedPromotionAuthority,
 } from "../src/promotion-authority.js";
 import { hash } from "../src/util.js";
 
@@ -107,20 +107,31 @@ it("ideal unsigned reports retain metric eligibility but JSON, flags, casts and 
 
 it("promotion files are loaded as advisory evidence without mutating or manufacturing authority", async () => {
   const directory = await temporary();
-  expect(await loadPromotionAuthority(directory, scope)).toEqual({
-    evidence: [],
-    authority: undefined,
-    status: "absent",
-  });
+  const absent = await loadPromotionAuthority(directory, scope);
+  expect(absent.evidence).toEqual([]);
+  expect(absent.status).toBe("absent");
+  expect(
+    await authorizesPromotionFromBinding(absent.binding, report(), scope),
+  ).toBe(false);
   const filename = path.join(directory, "promotions.json");
   const original = JSON.stringify([report()]);
   await writeFile(filename, original);
   const loaded = await loadPromotionAuthority(directory, scope);
   expect(loaded.status).toBe("unverified");
   expect(loaded.evidence).toEqual([report()]);
-  expect(loaded.authority).toBeUndefined();
   expect(
-    canPromote(loaded.evidence[0]!, { ...scope, authority: loaded.authority }),
+    await authorizesPromotionFromBinding(
+      loaded.binding,
+      loaded.evidence[0]!,
+      scope,
+    ),
+  ).toBe(false);
+  expect(
+    await authorizesPromotionFromBinding(
+      { ...loaded.binding, currentIdentity: { forged: true } },
+      loaded.evidence[0]!,
+      scope,
+    ),
   ).toBe(false);
   expect(await readFile(filename, "utf8")).toBe(original);
   await writeFile(
@@ -131,6 +142,7 @@ it("promotion files are loaded as advisory evidence without mutating or manufact
 });
 
 it("direct batch and single-decision APIs keep baseline selection despite ideal forged summaries and explicit promoted policy", async () => {
+  const loaded = await loadPromotionAuthority(await temporary(), scope);
   vi.stubGlobal(
     "fetch",
     vi.fn(
@@ -161,9 +173,9 @@ it("direct batch and single-decision APIs keep baseline selection despite ideal 
       },
     ],
     evidence: [report()],
-    promotionAuthority: {
-      verified: true,
-    } as unknown as VerifiedPromotionAuthority,
+    promotionBinding: loaded.binding,
+    // A raw extra field cannot replace trusted fresh runtime resolution.
+    currentIdentity: { category: "worker", providerKind: "laya" },
   };
   const result = await decideBatch({
     ...options,
