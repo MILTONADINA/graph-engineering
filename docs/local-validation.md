@@ -526,3 +526,40 @@ and common bearer/named-token secret-pattern misses; those regression tests
 pass. Pattern screening is not complete DLP. A frozen packet and local SQLite
 claim do not authenticate git provenance, original model output, global
 one-shot execution, or operator-approved promotion.
+
+## Call-bound sealed collection checkpoint — 2026-09-23 UTC
+
+The private oracle claim now requires exactly one completed local call after
+public dispatch. The collector reconstructs the frozen request from the exact
+public packet, reads the retained model response, derives the proposal with a
+shared strict parser, and claims the oracle before launching its offline guest.
+The guest's private verdict is retained and reread before a ledger reference is
+written. Neither verdict status nor the oracle digest is returned in the
+worker-facing observation. A call-bound digest verdict cannot count as measured
+engineering success. Version 2–4 ledgers remain readable; the old version 4
+unbound proposal hash is an identity-only commitment, not audited proposal
+bytes. Local SQLite one-shot behavior does not protect against a separate
+malicious database writer, rollback, or a copied ledger.
+
+A separate bounded private inspector verifies original-byte digests, the
+response-to-proposal join, canonical private digest-verdict shape, row review
+signatures, and purpose-separated collector/reviewer aggregate signatures.
+Its synthetic tests passed, including wrong packet/request, mismatched
+response, malformed verdict, and closure-chronology cases. It accepts at most
+2 MB of embedded JSON input and caller-supplied artifacts/trust pins, so it is
+**not** an authenticated cohort-scale provenance witness or a promotion grant.
+It returns `promotionEligible: false`. Independent re-audit found no direct
+promotion/privacy bypass after the packet/request and byte-count joins were
+added, but did not turn synthetic signatures into partner attestations.
+
+The complete local workspace check passed 421 engine tests (47 explicit
+opt-in skips), 59 scaffolder tests, nine dashboard tests, all typechecks and
+builds. The sealed pure suite passed 88 tests with four native opt-in skips;
+separate native runs passed all eight public-intake/relay and eleven private
+oracle checks using the pinned offline images. Formatting passed. The relay's
+model endpoint was a fake loopback server, not a fresh Qwen or paid-provider
+inference call. A previous fork run for the immediately preceding stack failed
+only because a Windows test fixture attempted to remove an open SQLite file;
+that cleanup order was corrected and its subsequent Windows job passed. The
+new call-bound/aggregate changes require their own fork CI confirmation after
+push; no result from an older run certifies them.
