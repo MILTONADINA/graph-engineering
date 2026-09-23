@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import os from "node:os";
@@ -75,6 +75,7 @@ function baseEnvironment(): NodeJS.ProcessEnv {
   for (const key of [
     "PATH",
     "HOME",
+    "USER",
     "USERPROFILE",
     "SystemRoot",
     "SYSTEMROOT",
@@ -94,11 +95,20 @@ function baseEnvironment(): NodeJS.ProcessEnv {
 async function probe(
   executable: string,
   argv: string[],
+  environment?: NodeJS.ProcessEnv,
 ): Promise<string | null> {
   try {
     const result = await command(executable, argv, {
       cwd: os.tmpdir(),
-      env: baseEnvironment(),
+      env: environment ?? {
+        ...baseEnvironment(),
+        ...(executable === "claude"
+          ? {
+              CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+              DISABLE_AUTOUPDATER: "1",
+            }
+          : {}),
+      },
       timeoutMs: 5000,
       maxBytes: 100_000,
     });
@@ -108,8 +118,116 @@ async function probe(
   }
 }
 
+function claudeEnvironment(
+  maxOutputTokens: number,
+  key?: string,
+  endpoint?: string,
+): NodeJS.ProcessEnv {
+  return {
+    ...baseEnvironment(),
+    ...(key ? { ANTHROPIC_API_KEY: key, ANTHROPIC_BASE_URL: endpoint } : {}),
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    DISABLE_AUTOUPDATER: "1",
+    DISABLE_TELEMETRY: "1",
+    DISABLE_ERROR_REPORTING: "1",
+  };
+}
+
+async function existsOrCannotInspect(target: string): Promise<boolean> {
+  try {
+    await access(target);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ENOENT";
+  }
+}
+
+/** OAuth is permitted only when this host can rule out managed Claude policy. */
+async function claudeSubscriptionReady(
+  environment: NodeJS.ProcessEnv,
+): Promise<boolean> {
+  const rawAuth = await probe("claude", ["auth", "status"], environment);
+  let auth: Record<string, unknown>;
+  try {
+    auth = JSON.parse(rawAuth ?? "");
+  } catch {
+    return false;
+  }
+  if (
+    auth.loggedIn !== true ||
+    auth.authMethod !== "claude.ai" ||
+    !["pro", "max"].includes(String(auth.subscriptionType).toLowerCase())
+  )
+    return false;
+
+  // Safe mode still honors administrator-managed hooks. The doctor report is
+  // intentionally treated as a version-specific allowlist, not a best-effort
+  // warning: an unfamiliar or missing policy status fails closed.
+  const doctor = await probe("claude", ["doctor"], environment);
+  if (
+    !doctor?.includes(
+      "Managed settings (remote): not fetched — requires an Enterprise or Team subscription",
+    ) ||
+    !doctor.includes(
+      "Organization policy: not applicable to Pro and Max accounts",
+    )
+  )
+    return false;
+
+  const systemRoot =
+    process.platform === "darwin"
+      ? "/Library/Application Support/ClaudeCode"
+      : process.platform === "linux"
+        ? "/etc/claude-code"
+        : null;
+  if (!systemRoot) return false;
+  for (const entry of [
+    "managed-settings.json",
+    "managed-settings.d",
+    "managed-mcp.json",
+  ])
+    if (await existsOrCannotInspect(path.join(systemRoot, entry))) return false;
+
+  if (process.platform === "darwin") {
+    const enrollment = await probe(
+      "profiles",
+      ["status", "-type", "enrollment"],
+      environment,
+    );
+    if (
+      !enrollment?.includes("Enrolled via DEP: No") ||
+      !enrollment.includes("MDM enrollment: No")
+    )
+      return false;
+    try {
+      const managedDomain = await command(
+        "defaults",
+        ["read", "com.anthropic.claudecode"],
+        {
+          cwd: os.tmpdir(),
+          env: environment,
+          timeoutMs: 5000,
+          maxBytes: 100_000,
+        },
+      );
+      if (
+        managedDomain.code === 0 ||
+        !/Domain ['"]?com\.anthropic\.claudecode['"]? not found\./.test(
+          managedDomain.stderr,
+        )
+      )
+        return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 async function inspect(
   kind: InstalledKind,
+  claudeRunEnv?: NodeJS.ProcessEnv,
 ): Promise<InstalledWorkerCapability> {
   const executable = kind === "cursor" ? "agent" : kind;
   const rawVersion = await probe(executable, ["--version"]);
@@ -225,9 +343,16 @@ async function inspect(
   }
   result.available = true;
   result.mode = "proposal-only";
-  result.authentication = "api-key";
+  result.supportsSubscription = await claudeSubscriptionReady(
+    claudeRunEnv ?? claudeEnvironment(4000),
+  );
+  result.authentication = result.supportsSubscription
+    ? "native-login"
+    : "api-key";
   result.limits.push(
-    "Bare mode uses an Anthropic API key; installed OAuth/subscription credentials are not read.",
+    result.supportsSubscription
+      ? "A verified Pro/Max login can be used without an API key; apiKeyEnv explicitly selects bare API-key mode."
+      : "Subscription mode requires a verified claude.ai Pro/Max login and no managed policy; apiKeyEnv selects bare API-key mode.",
     "Output-token limits apply to each model response; native prompt overhead and retries remain client-controlled.",
   );
   return result;
@@ -237,7 +362,9 @@ async function inspect(
 export async function discoverInstalledWorkers(): Promise<
   InstalledWorkerCapability[]
 > {
-  return Promise.all((["codex", "claude", "cursor"] as const).map(inspect));
+  return Promise.all(
+    (["codex", "claude", "cursor"] as const).map((kind) => inspect(kind)),
+  );
 }
 
 function finiteCount(value: unknown): number | null {
@@ -695,17 +822,37 @@ export async function invokeInstalledWorker(
     )
   )
     throw new Error("Worker instructions contain a potential secret");
-  const capability = await inspect(provider.kind as InstalledKind);
-  if (!capability.available)
-    throw new Error(capability.reason ?? "Installed worker is unavailable");
-  if (provider.kind === "codex") return invokeCodexWorker(input);
+  if (provider.kind !== "claude") {
+    const capability = await inspect(provider.kind as InstalledKind);
+    if (!capability.available)
+      throw new Error(capability.reason ?? "Installed worker is unavailable");
+    if (provider.kind === "codex") return invokeCodexWorker(input);
+    throw new Error("Cursor proposal worker is unavailable");
+  }
+  const subscription = provider.apiKeyEnv === undefined;
+  if (subscription && provider.endpoint)
+    throw new Error(
+      "Claude subscription mode does not allow endpoint overrides",
+    );
   const endpoint = provider.endpoint ?? "https://api.anthropic.com";
   assertEndpoint(endpoint, policy);
-  const keyName = provider.apiKeyEnv ?? "ANTHROPIC_API_KEY";
-  const key = process.env[keyName];
-  if (!key)
+  if (subscription) assertEndpoint("https://claude.ai", policy);
+  const key = provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined;
+  if (!subscription && !key)
     throw new Error(
-      `Claude bare mode requires ${keyName}; it cannot reuse subscription authentication`,
+      `Claude bare mode requires ${provider.apiKeyEnv}; it cannot reuse subscription authentication`,
+    );
+  const env = claudeEnvironment(
+    policy.maxOutputTokens,
+    subscription ? undefined : key,
+    endpoint,
+  );
+  const capability = await inspect("claude", env);
+  if (!capability.available)
+    throw new Error(capability.reason ?? "Installed worker is unavailable");
+  if (subscription && !capability.supportsSubscription)
+    throw new Error(
+      "Claude subscription mode requires a verified claude.ai Pro/Max login and no managed policy",
     );
   const packet = contextForProvider(input.context, provider, policy);
   const prompt = JSON.stringify({
@@ -737,18 +884,8 @@ export async function invokeInstalledWorker(
   const temporary = await mkdtemp(path.join(os.tmpdir(), "graph-worker-"));
   try {
     signal?.throwIfAborted();
-    const env: NodeJS.ProcessEnv = {
-      ...baseEnvironment(),
-      ANTHROPIC_API_KEY: key,
-      ANTHROPIC_BASE_URL: endpoint,
-      CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(policy.maxOutputTokens),
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-      DISABLE_AUTOUPDATER: "1",
-      DISABLE_TELEMETRY: "1",
-      DISABLE_ERROR_REPORTING: "1",
-    };
     const argv = [
-      "--bare",
+      ...(!subscription ? ["--bare"] : []),
       "--restricted",
       "--safe-mode",
       "--print",
@@ -817,6 +954,7 @@ export async function invokeInstalledWorker(
       }
     }
     const usage = resultUsage(result);
+    if (subscription) usage.costUsd = null;
     // Detect a client that ignored the requested response budget; never label its output successful.
     if (
       usage.outputTokens !== null &&

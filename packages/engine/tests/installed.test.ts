@@ -39,10 +39,18 @@ let transportMode:
 let rpcRequests: any[] = [];
 let nativeCalls: any[] = [];
 let child: any;
+let nativeAuth: Record<string, unknown>;
+let nativeDoctor: string;
 
 function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
   return {
-    provider: { id: "native", kind, model: "fixture-model", efforts: ["low"] },
+    provider: {
+      id: "native",
+      kind,
+      model: "fixture-model",
+      efforts: ["low"],
+      ...(kind === "claude" ? { apiKeyEnv: "ANTHROPIC_API_KEY" } : {}),
+    },
     effort: "low",
     policy: {
       ...structuredClone(DEFAULT_POLICY),
@@ -50,7 +58,12 @@ function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
       network: "allowlisted",
       providers: ["native"],
       exportPaths: ["src/**"],
-      allowedHosts: ["api.anthropic.com", "api.openai.com", "chatgpt.com"],
+      allowedHosts: [
+        "api.anthropic.com",
+        "claude.ai",
+        "api.openai.com",
+        "chatgpt.com",
+      ],
     },
     objective: "Fix the boolean",
     acceptance: ["Return true"],
@@ -97,11 +110,19 @@ function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
 
 beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-native-api-key");
+  vi.stubEnv("USER", "test-user");
   vi.stubEnv("UNRELATED_PRIVATE_CREDENTIAL", "should-not-be-inherited");
   restrictedCodex = true;
   nativeExit = 0;
   rpcRequests = [];
   nativeCalls = [];
+  nativeAuth = {
+    loggedIn: true,
+    authMethod: "claude.ai",
+    subscriptionType: "max",
+  };
+  nativeDoctor =
+    "Managed settings (remote): not fetched — requires an Enterprise or Team subscription\nOrganization policy: not applicable to Pro and Max accounts\n";
   transportMode = "normal";
   nativeResult = {
     type: "result",
@@ -122,6 +143,30 @@ beforeEach(() => {
             stderr: "",
           };
         if (argv[0] === "--help") return { code: 0, stdout: flags, stderr: "" };
+        if (executable === "claude" && argv[0] === "auth")
+          return {
+            code: 0,
+            stdout: JSON.stringify(nativeAuth),
+            stderr: "",
+          };
+        if (executable === "claude" && argv[0] === "doctor")
+          return {
+            code: 0,
+            stdout: nativeDoctor,
+            stderr: "",
+          };
+        if (executable === "profiles" && argv[0] === "status")
+          return {
+            code: 0,
+            stdout: "Enrolled via DEP: No\nMDM enrollment: No\n",
+            stderr: "",
+          };
+        if (executable === "defaults" && argv[0] === "read")
+          return {
+            code: 1,
+            stdout: "",
+            stderr: "Error: Domain 'com.anthropic.claudecode' not found.",
+          };
         if (argv.includes("generate-json-schema")) {
           const root = argv[argv.indexOf("--out") + 1];
           await mkdir(path.join(root, "v2"));
@@ -327,8 +372,8 @@ describe("installed capability discovery", () => {
     expect(capabilities.find((c) => c.kind === "claude")).toMatchObject({
       installed: true,
       available: true,
-      authentication: "api-key",
-      supportsSubscription: false,
+      authentication: "native-login",
+      supportsSubscription: true,
     });
     expect(capabilities.find((c) => c.kind === "codex")).toMatchObject({
       available: true,
@@ -359,6 +404,58 @@ describe("installed capability discovery", () => {
 });
 
 describe("native Claude proposals", () => {
+  it("uses the existing Max subscription without exposing an API key or tools", async () => {
+    const request = input();
+    delete request.provider.apiKeyEnv;
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    const result = await invokeInstalledWorker(request);
+    expect(result.proposal).toEqual(proposal);
+    const run = nativeCalls[0];
+    expect(run.argv).not.toContain("--bare");
+    expect(run.argv).toContain("--restricted");
+    expect(run.argv).toContain("--safe-mode");
+    expect(run.argv[run.argv.indexOf("--tools") + 1]).toBe("");
+    expect(run.options.env.USER).toBe("test-user");
+    expect(run.options.env.ANTHROPIC_API_KEY).toBeUndefined();
+    const authProbe = mocks.command.mock.calls.find(
+      ([executable, argv]) => executable === "claude" && argv[0] === "auth",
+    );
+    expect(authProbe?.[2].env).toEqual(run.options.env);
+    expect(run.options.input).not.toContain("PRIVATE_CONTEXT_CANARY");
+    expect(result.usage.costUsd).toBeNull();
+  });
+  it("rejects subscription mode without a verified claude.ai Pro/Max login", async () => {
+    const request = input();
+    delete request.provider.apiKeyEnv;
+    nativeAuth = { loggedIn: false, authMethod: "none" };
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "subscription",
+    );
+    expect(nativeCalls).toEqual([]);
+  });
+  it("rejects subscription mode when effective managed policy cannot be ruled out", async () => {
+    const request = input();
+    delete request.provider.apiKeyEnv;
+    nativeDoctor =
+      "Managed settings (remote): loaded\nOrganization policy: active\n";
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "managed policy",
+    );
+    expect(nativeCalls).toEqual([]);
+  });
+  it("refuses an API-key login when subscription mode was requested", async () => {
+    const request = input();
+    delete request.provider.apiKeyEnv;
+    nativeAuth = {
+      loggedIn: true,
+      authMethod: "apiKey",
+      subscriptionType: "max",
+    };
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "subscription",
+    );
+    expect(nativeCalls).toEqual([]);
+  });
   it("launches bare, zero-tools in empty scratch with only exportable context and selected credential", async () => {
     const result = await invokeInstalledWorker(input(), "/a/real/repository");
     expect(result.proposal).toEqual(proposal);
