@@ -84,6 +84,7 @@ export function oracleDockerCommand(
     ![
       "/opt/sealed-oracle/executor.mjs",
       "/opt/sealed-oracle/engineering-executor.mjs",
+      "/opt/sealed-oracle/module-graph-executor.mjs",
     ].includes(executor)
   )
     throw new Error("Exact provisioned oracle image and owned name required");
