@@ -251,47 +251,49 @@ test("vault wrapper verifies a live synthetic signed aggregate without granting 
   assert.equal(JSON.stringify(receipt).includes("sealed-digest-oracle"), false);
 });
 
-test("plain built engine re-derives engineering originals through a bounded manifest", async () => {
-  const { engineeringFixture, nowMs } = await tsImport(
+test("plain built engine re-derives engineering and module-graph originals", async () => {
+  const { engineeringFixture, moduleGraphFixture, nowMs } = await tsImport(
     syntheticFixtureUrl.href,
     import.meta.url,
   );
-  const { input } = await engineeringFixture();
-  const { originalArtifacts, ...aggregateInput } = input;
-  const originals = new Map(
-    originalArtifacts.map((item) => [item.role, item.bytesBase64]),
-  );
-  const manifest = {
-    version: "1.0.0",
-    kind: "sealed-original-byte-manifest",
-    collectionId: input.cohort.inspection.plan.collectionId,
-    planSha256: input.cohort.inspection.planSha256,
-    entries: originalArtifacts
-      .map((item) => ({
-        role: item.role,
-        sha256: item.sha256,
-        bytes: Buffer.from(item.bytesBase64, "base64").length,
-      }))
-      .sort((left, right) =>
-        left.role < right.role ? -1 : left.role > right.role ? 1 : 0,
-      ),
-  };
   const { inspectPrivateSealedAggregateFromManifest } = await import(
     new URL(
       "../../../packages/engine/dist/sealed-aggregate-provenance.js",
       import.meta.url,
     ).href
   );
-  const receipt = await inspectPrivateSealedAggregateFromManifest(
-    aggregateInput,
-    manifest,
-    hashJson(manifest),
-    async ({ role }) => Buffer.from(originals.get(role), "base64"),
-    { nowMs },
-  );
-  assert.equal(receipt.callBoundProposalJoinsChecked, 1);
-  assert.equal(receipt.protectedExecutionVerified, false);
-  assert.equal(receipt.promotionEligible, false);
+  for (const makeFixture of [engineeringFixture, moduleGraphFixture]) {
+    const { input } = await makeFixture();
+    const { originalArtifacts, ...aggregateInput } = input;
+    const originals = new Map(
+      originalArtifacts.map((item) => [item.role, item.bytesBase64]),
+    );
+    const manifest = {
+      version: "1.0.0",
+      kind: "sealed-original-byte-manifest",
+      collectionId: input.cohort.inspection.plan.collectionId,
+      planSha256: input.cohort.inspection.planSha256,
+      entries: originalArtifacts
+        .map((item) => ({
+          role: item.role,
+          sha256: item.sha256,
+          bytes: Buffer.from(item.bytesBase64, "base64").length,
+        }))
+        .sort((left, right) =>
+          left.role < right.role ? -1 : left.role > right.role ? 1 : 0,
+        ),
+    };
+    const receipt = await inspectPrivateSealedAggregateFromManifest(
+      aggregateInput,
+      manifest,
+      hashJson(manifest),
+      async ({ role }) => Buffer.from(originals.get(role), "base64"),
+      { nowMs },
+    );
+    assert.equal(receipt.callBoundProposalJoinsChecked, 1);
+    assert.equal(receipt.protectedExecutionVerified, false);
+    assert.equal(receipt.promotionEligible, false);
+  }
 });
 
 test("vault wrapper detects a blob changed after the compiled reader finished", async (t) => {
