@@ -49,6 +49,14 @@ not retroactively counted as successful. Two further local-only Qwen runs
 received the scanner source (and, in the second, the regression itself),
 applied isolated patches, failed the focused Docker check, and stopped without
 publication. They prove the verification gate, not autonomous repair success.
+Two more bounded local Qwen replays on a fresh pre-fix worktree also failed:
+the 16K provider packet lost all requested source during transport fitting;
+raising that cap to 32K delivered the scanner and regression, but the proposed
+patch hardcoded an example identifier and failed the focused offline check.
+A subsequent smaller, proposal-only Claude Max diagnostic exited natively
+without a proposal or usage; it was not retried. None changed this branch or
+counts as successful repair. Exact evidence is in
+[local validation](local-validation.md).
 
 A separate [security-review routing replay](local-validation.md) reached a
 green focused offline Docker check on a real pre-fix defect (plan
