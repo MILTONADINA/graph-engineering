@@ -3,7 +3,10 @@
 This is **validation, local bookkeeping and retained-byte verification**, not a
 sealed evaluation pipeline. A local model relay, narrow offline digest
 verifier, and bounded JavaScript engineering verifiers exist, but not a
-general protected repository-test pipeline. Signature inspectors exist, but
+general protected repository-test pipeline. A selected-file v1 and an
+operator-declared safe-tree v2 repository oracle exist within their explicit
+scope limits; neither safely executes an arbitrary private repository.
+Signature inspectors exist, but
 there is no signer/key provisioning, reviewer approval, promotion issuer, or
 user-configuration activation. Every summary and closure remains
 `promotionEligible: false`.
@@ -398,6 +401,15 @@ digests or revisions; its receipt reports `witnessAuthenticationVerified: false`
 `antiRollbackVerified: false` and `promotionEligible: false`. The project
 owners have not selected an independently controlled witness service, so this
 is an integration point, not externally anchored anti-rollback.
+
+The optional version 2 checkpoint also compares the declared source inventory,
+signed population bundle and selector/auditor trust, plus a witness revision
+for the first attempt-reservation event. Readiness requires this version when a
+witness is supplied. Its population revision must precede that first attempt;
+the plan digest already commits the selection seed. A caller-provided reader
+can fabricate or backdate both revisions, so the comparison still does not
+authenticate pre-run chronology or grant promotion. Version 1 remains a
+standalone closed-ledger comparison without population precommit coverage.
 
 The aggregate receipt is **private collection metadata**: even counts, sizes and manifest
 hashes should not be sent through the public source/docs MCP path. It returns
