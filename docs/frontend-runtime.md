@@ -1,6 +1,6 @@
 # Audited frontend runtime
 
-`project.nextjs`, `frontend.nextjs`, `frontend.authentication`, `frontend.forms` and `frontend.tables` have reviewed deterministic proposal renderers. Catalog hooks and arbitrary user templates are not executed. Exact manifests, safe bounded literals, fixed paths, dependency pins and export prerequisites are checked; divergent existing files are not overwritten. The hardened implementation is in `template-runtime-frontend*.ts`, not a verbatim execution of the historical catalog asset files.
+`project.nextjs`, `frontend.nextjs`, `frontend.authentication`, `frontend.forms`, `frontend.tables` and `frontend.dashboards` have reviewed deterministic proposal renderers. Catalog hooks and arbitrary user templates are not executed. Exact manifests, safe bounded literals, fixed paths, dependency pins and export prerequisites are checked; divergent existing files are not overwritten. Most hardened implementations are in `template-runtime-frontend*.ts`; the dashboard component and generated test are fixed-hash catalog assets reviewed by its renderer, not interpreted prompts.
 
 ## Scaffold and policy
 
@@ -19,6 +19,8 @@ API configuration accepts an HTTPS origin or explicit loopback HTTP origin, with
 `useFormState` manages **string-valued** fields, per-field/display errors and a frozen submission snapshot. A synchronous guard prevents duplicate same-tick submissions; unmounted components are not updated. Client validation is not backend authorization or input validation. Unknown errors receive a constant message.
 
 `useQueryTable` caps page size at 100, tracks page/sort/filter state and aborts stale requests. It allows at most eight bounded filters, forbids reserved pagination/prototype keys and validates response rows/pagination before publishing state. Row field schemas are still application-specific. `DataTable` escapes text, handles unsupported nested cell values without calling their conversion hooks, caps ordinary displayed cell text at 4,096 characters, and disables stale pagination. Custom cell renderers are trusted application code; backend filter/sort/row-authorization allowlists remain authoritative.
+
+`frontend.dashboards` emits a reusable `Dashboard` component and generated test. It composes the exact reviewed auth, form and table files, displays role-filtered local navigation and caller-supplied stat tiles, and can mount a caller-configured table or profile form. The table hook does not mount while authentication is loading or signed out. No route, statistics feed, table path or profile-save endpoint is generated; applications must review those inputs and backend access controls. Hidden links are only presentation, not authorization.
 
 ## Cookie-only authentication
 

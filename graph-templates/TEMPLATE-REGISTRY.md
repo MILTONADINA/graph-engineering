@@ -6,7 +6,7 @@ The human-readable catalog of every graph node in this library. **This file is a
 node tools/generate-registry/index.js . > template-registry.json
 ```
 
-`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 42 implemented, 13 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
+`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 43 implemented, 12 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
 
 ## project
 
@@ -119,7 +119,7 @@ No reference-app precedent (the reference app ships no frontend) — implemented
 | I | `frontend.authentication` | `AuthProvider`/`useAuth` (hydrates via a new `GET /api/auth/me` this node required adding to `authentication.password`) + login/register pages. |
 | I | `frontend.forms` | `useFormState<T>` — generic field values/errors/submit-in-flight, framework for any validation approach. |
 | I | `frontend.tables` | `useQueryTable`/`DataTable` — paginated list fetching matching `backend.pagination`/`api.crud`'s exact query-param contract. |
-| P | `frontend.dashboards` | A composition of the four rows above (nav + stat tiles + forms + tables) — not yet implemented since it's pure composition, lower priority than the primitives. |
+| I | `frontend.dashboards` | Reusable authenticated dashboard composition with display-only role navigation, caller-supplied stats, optional bounded table and profile-save callback; no route or endpoint is invented. |
 | P | `frontend.react` | Non-Next.js SPA scaffold (Vite) — deferred pending a check of how much of the Next.js-targeted nodes above is actually framework-specific vs. reusable as-is. |
 
 ## ai (orchestration agents — not templates, see `ai/README.md`)

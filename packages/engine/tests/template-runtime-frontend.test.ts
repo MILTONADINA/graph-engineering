@@ -72,9 +72,10 @@ async function all(root: string) {
   await apply(root, "frontend.forms");
   await apply(root, "frontend.tables");
   await apply(root, "frontend.authentication");
+  await apply(root, "frontend.dashboards");
 }
 describe("audited frontend template runtime", () => {
-  it("renders all five nodes and exact idempotent modifications with deterministic public ledger", async () => {
+  it("renders all six nodes and exact idempotent modifications with deterministic public ledger", async () => {
     const root = await fixture();
     await all(root);
     for (const id of [
@@ -82,6 +83,7 @@ describe("audited frontend template runtime", () => {
       "frontend.forms",
       "frontend.tables",
       "frontend.authentication",
+      "frontend.dashboards",
     ])
       expect(
         (await renderTemplateProposal(options(root, id))).proposal.changes,
@@ -112,6 +114,60 @@ describe("audited frontend template runtime", () => {
     expect(a.proposal.changes.map((item) => [item.path, item.after])).toEqual(
       b.proposal.changes.map((item) => [item.path, item.after]),
     );
+  });
+  it("composes only reviewed frontend dependencies and emits no assumed dashboard API or route", async () => {
+    const root = await fixture();
+    await all(root);
+    const rendered = await renderTemplateProposal(
+      options(root, "frontend.dashboards"),
+    );
+    expect(rendered.proposal.changes).toEqual([]);
+    expect(rendered.manifest.outputs).toEqual({
+      files: ["components/Dashboard.tsx", "tests/Dashboard.test.tsx"],
+      exports: [
+        "Dashboard",
+        "DashboardNavItem",
+        "DashboardStat",
+        "DashboardTable",
+        "DashboardProps",
+      ],
+    });
+    const source = await readFile(
+      join(root, "components/Dashboard.tsx"),
+      "utf8",
+    );
+    expect(source).toContain(
+      "Server-side authentication, row scope and authorization remain mandatory",
+    );
+    expect(source).toContain("onSaveProfile");
+    for (const dependency of [
+      "../lib/auth/AuthContext",
+      "../lib/forms/useFormState",
+      "../lib/tables/useQueryTable",
+      "./DataTable",
+    ]) {
+      expect(source).toContain(`from '${dependency}'`);
+      const target = join(root, "components", dependency) + ".tsx";
+      const alternative = join(root, "components", dependency) + ".ts";
+      await expect(
+        readFile(target, "utf8").catch(() => readFile(alternative, "utf8")),
+      ).resolves.toBeTruthy();
+    }
+    expect(source).not.toContain("'/api/");
+    expect(source).not.toContain("fetch(");
+    await expect(
+      renderTemplateProposal(
+        options(root, "frontend.dashboards", { endpoint: "/api/assumed" }),
+      ),
+    ).rejects.toThrow("Invalid template inputs");
+    const authPath = join(root, "lib/auth/AuthContext.tsx");
+    await writeFile(
+      authPath,
+      (await readFile(authPath, "utf8")) + "// local edit\n",
+    );
+    await expect(
+      renderTemplateProposal(options(root, "frontend.dashboards")),
+    ).rejects.toThrow("Edited dashboard dependency");
   });
   it("requires explicit ledger/environment-example permission and refuses existing files", async () => {
     const root = await fixture();
@@ -252,7 +308,7 @@ describe("audited frontend template runtime", () => {
         )
       )[0]!;
       expect(result.code, result.stdout + result.stderr).toBe(0);
-      expect(result.stdout).toMatch(/Tests.*31 passed/);
+      expect(result.stdout).toMatch(/Tests.*35 passed/);
       expect(result.stdout).toContain("FRONTEND_BROWSER_PASSED");
       console.info(
         JSON.stringify({
@@ -260,7 +316,7 @@ describe("audited frontend template runtime", () => {
           next: "16.3.5",
           react: "19.3.0",
           strictTypecheck: "passed",
-          generatedAndSecurityTests: 31,
+          generatedAndSecurityTests: 35,
           productionBuild: "passed",
           browser: "Chromium; localhost fixture API only",
           network: "none",
