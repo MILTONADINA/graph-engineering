@@ -91,6 +91,14 @@ workspace as `GRAPH ENGINEERING`, but its separate project `graph-engineering`
 MCP server was discovered in a disconnected state and has not passed a live
 Cursor tool call.
 
+An additional isolated stdio CLI smoke spawned the actual project MCP command
+with a fresh `GRAPH_ENGINE_DATA_DIR` outside the repository. `tools/list`
+exposed `template_list`, and `tools/call` returned 61 catalog entries,
+including implemented, executable `api.search` and `api.webhooks`. The MCP
+client was closed after the call. This exercised the configured server path
+without touching shared Serena or the default project databases; it did not
+establish a Cursor in-app connection.
+
 A later one-call test of the managed Claude worker used the same existing Max
 subscription through a new fail-closed adapter path. The request contained
 only a selected, tracked public `policy.ts` snippet from the real
@@ -866,5 +874,50 @@ offline image. The registry validator checked all 55 catalog
 identities with no errors or warnings; engine typecheck passed. This proves the
 generated gate's bounded behavior, not application grant semantics or deployment
 readiness. It checks only user-global grants; tenant isolation is separate.
-Eleven planned entries remain, including three documented aliases
+At that checkpoint, eleven planned entries remained, including three documented aliases
 whose filtering, pagination and sorting capabilities already live elsewhere.
+
+## PostgreSQL full-text search — 2026-09-23 UTC
+
+`api.search` adds a distinct, bounded PostgreSQL English full-text search
+renderer for one reviewed UUID-primary-key Drizzle table. Focused red-to-green tests
+cover literal table/field validation, proposed GIN index, pre-route mount and authenticated
+route, parameterized ranked query, formatted shared-file idempotence and
+rejection without writes. The already-local backend verification image ran
+strict TypeScript plus all four emitted search tests with networking disabled.
+
+The already-local database verification image generated the migration using
+the pinned Drizzle Kit, applied its `products_search_fts_idx` to a disposable
+PostgreSQL instance, and ran the emitted search SQL through a real `pg` pool.
+Two matching rows had stable ranked pagination and an out-of-range page
+retained the correct total. Malformed inputs failed, SQL metacharacters were
+treated as search text rather than a broadened predicate, and `EXPLAIN` used
+the GIN index with sequential scans disabled. This is isolated fixture
+evidence, not a production migration or deployment approval. The route
+requires authentication but does not supply row/tenant isolation; those
+predicates and a reviewed migration apply remain application responsibilities.
+
+A later privacy regression first reproduced Morgan `dev` logging the full
+search URL (including `q`) on a denied request. The renderer now installs a
+fixed, delimiter-safe `/api/search` and `/api/search/` skip guard in the reviewed scaffold
+logger. Pinned offline generated-code tests captured stdout and verified that
+GET, case/trailing-slash GET, namespace-root GET and unmatched POST search requests do not emit
+the query canary, while `/` and `/api/searching` remain logged. The guard uses
+`req.baseUrl + req.path` because Morgan evaluates `skip` at response finish,
+after Express can trim the mounted path from `req.path`. Percent-encoded
+namespace spellings outside those literals and other logging layers remain
+outside this fixture evidence.
+
+## Generic HMAC webhook ingress — 2026-09-23 UTC
+
+`api.webhooks` emits one fixed HMAC-SHA256 raw-JSON ingress route before the
+reviewed Express JSON parser. Its focused renderer tests passed, including
+formatted rerendering, parser-order drift and a comment-spoofed secret
+declaration. The already-local backend image compiled the generated app under
+strict TypeScript and passed five emitted behavior tests covering signature,
+timestamp, delivery ID, body, size, duplicate and storage-error boundaries.
+The first strict test exposed Supertest's serialization of a Buffer fixture;
+the fixture was corrected to send exact JSON bytes before the successful run.
+No image or model was downloaded. These tests use a fake inbox adapter; real
+secret provisioning, provider compatibility and durable atomic replay handling
+remain application-owned and unverified.
