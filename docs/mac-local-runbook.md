@@ -96,9 +96,10 @@ Cursor has activated Serena in this workspace under the registered project
 name `GRAPH ENGINEERING`. That validates Serena, not the separate
 `graph-engineering` project MCP server: Cursor currently discovers the latter
 but reports it disconnected. Enable only that server under Customize → MCPs
-and verify its read-only `template_list` tool; leave Serena and global servers
-unchanged. Cloud MCP retrieval is not fully offline and does not
-replace each client's own tool-permission controls.
+and verify its read-only `template_list` tool. Do not activate, deactivate, or
+reconfigure Serena for this check: it is shared with other Cursor sessions and
+projects. Leave global servers unchanged. Cloud MCP retrieval is not fully
+offline and does not replace each client's own tool-permission controls.
 
 A fresh Git clone does not contain ignored provider/decision/MCP settings,
 tokens, models, or databases. Recreate these explicitly; MCP configurations
