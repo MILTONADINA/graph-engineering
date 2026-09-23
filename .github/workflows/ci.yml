@@ -297,3 +297,12 @@ jobs:
           GRAPH_SEALED_ORACLE_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-oracle:ci)" \
           GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
             node --test --test-concurrency=1 evaluation/sealed/tests/oracle-runtime.test.mjs
+      - name: Offline QuickJS engineering oracle
+        run: |
+          docker build --pull=false \
+            -f evaluation/sealed/oracle-runtime/Dockerfile.engineering \
+            -t graph-sealed-engineering:ci .
+          GRAPH_SEALED_ENGINEERING_NATIVE_TESTS=1 \
+          GRAPH_SEALED_ENGINEERING_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-engineering:ci)" \
+          GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
+            node --test --test-concurrency=1 evaluation/sealed/tests/engineering-oracle.test.mjs

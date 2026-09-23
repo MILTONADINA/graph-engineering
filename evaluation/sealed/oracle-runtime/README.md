@@ -102,6 +102,74 @@ caller already possesses the private oracle bytes.
 The Docker runtime requires a local Unix socket. Pure ledger/verifier tests
 also run on Windows, but native protected execution there is unsupported.
 
+## Bounded JSON-function engineering verifier
+
+`runProtectedEngineeringOracle()` is a separate, non-authorizing first slice of
+behavioral verification. It accepts one JavaScript source file exporting a
+synchronous `module.exports.solve(input)` function. The frozen baseline blob is
+canonical JSON with `kind: "sealed-engineering-baseline"`, `path`, and `source`.
+The private oracle blob is canonical JSON with
+`kind: "sealed-json-function-oracle"`, the same path, and 2–12 cases containing
+`id`, JSON `input`, and private JSON `expected`. Each blob is retained in the
+private artifact vault and its hash is frozen in the task plan. The public
+packet must contain exactly the baseline source at that path; the task permits
+only that output path. This bounded contract does not run a full repository,
+package manager, test command, or multiple source files.
+
+The collector re-reads the original completed local model response and frozen
+public packet, verifies the exact model request hash, derives the proposal with
+the relay's strict parser, and applies one replacement that occurs exactly once
+in the baseline. It retains canonical result-source bytes, then commits a
+`sealed-call-bound-engineering-invocation-claim` before any guest execution.
+The claim shares the ledger's one-shot oracle slot: a digest or engineering
+claim consumes the opportunity, prevents further model calls, and survives a
+process restart. A timeout, crash, malformed output, or failed cleanup cannot
+be retried. The claim is not atomic with Docker or the artifact vault.
+
+Each baseline and candidate case runs in a fresh, fixed offline Docker guest.
+Candidate source executes in QuickJS/WASM with memory, stack and time limits;
+imports and pending jobs are refused. The guest receives only candidate source,
+one input, and a nonce. Private expected values and the complete oracle never
+enter the guest. The Node supervisor owns stdout and status, and strictly
+rejects promises, nonfinite values, undefined fields, sparse arrays, accessors,
+unsupported prototypes, and oversized JSON. Node `vm` is not used as a
+security boundary. The actual boundary is the fixed, unprivileged Docker
+process with no network, host mounts, Docker socket, credentials or writable
+root filesystem; the QuickJS compartment limits how candidate code can affect
+the supervisor. A malicious Docker daemon, image provisioner, or host owner can
+still forge observations.
+
+The private canonical verdict records per-case baseline/candidate status and
+value hashes, pass counts and a nonce. At least one baseline case must fail.
+Only its reference is added to the ledger; the caller gets no pass/fail status.
+The original-byte audit includes roles
+`oracle/engineering-v1/<assignmentId>/{derived-proposal,result-source,private-verdict}`.
+The ledger continues to reject measured-success settlement for this claim.
+This is synthetic bounded verification, not a real held-out cohort, signed
+provenance, authenticated worker delivery, or promotion authority.
+
+Provision the engineering image explicitly from the repository root. This
+build installs the pinned QuickJS packages from the existing guest-runtime
+lockfile; verification itself never installs, pulls, or uses a network:
+
+```sh
+docker --host unix:///var/run/docker.sock build --pull=false \
+  -f evaluation/sealed/oracle-runtime/Dockerfile.engineering \
+  -t graph-sealed-engineering:local .
+docker --host unix:///var/run/docker.sock image inspect \
+  --format '{{.Id}}' graph-sealed-engineering:local
+```
+
+Pass that immutable image ID as `imageId` to
+`runProtectedEngineeringOracle(request, { imageId, endpoint, signal })`.
+Pure tests run with
+`node --test evaluation/sealed/tests/engineering-oracle.test.mjs`. After
+provisioning, set `GRAPH_SEALED_ENGINEERING_NATIVE_TESTS=1`,
+`GRAPH_SEALED_ENGINEERING_IMAGE=sha256:<image-id>`, and
+`GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock` for the
+native guest and collector tests. These tests use a synthetic fake response;
+they do not call a model or qualify any task as unseen.
+
 Pure tests:
 
 ```sh

@@ -210,9 +210,17 @@ function originalReferences(inspection: CohortInspection) {
         `oracle/v1/${item.assignment.assignmentId}/derived-proposal`,
         item.oracleInvocation.proposalSha256,
       );
+    if (
+      item.oracleInvocation?.kind ===
+      "sealed-call-bound-engineering-invocation-claim"
+    ) {
+      const prefix = `oracle/engineering-v1/${item.assignment.assignmentId}`;
+      add(`${prefix}/derived-proposal`, item.oracleInvocation.proposalSha256);
+      add(`${prefix}/result-source`, item.oracleInvocation.resultSourceSha256);
+    }
     if (item.oracleVerdict)
       add(
-        `oracle/v1/${item.assignment.assignmentId}/private-verdict`,
+        `${item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
         item.oracleVerdict.verificationSha256,
       );
   }
@@ -276,7 +284,7 @@ function auditOriginalBytes(
       item.oracleVerdict &&
       item.oracleVerdict.verificationBytes !==
         bytesByRole.get(
-          `oracle/v1/${item.assignment.assignmentId}/private-verdict`,
+          `${item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
         )
     )
       throw new Error(
@@ -380,8 +388,9 @@ async function auditManifestOriginalBytes(
     if (
       item.oracleVerdict &&
       item.oracleVerdict.verificationBytes !==
-        refs.get(`oracle/v1/${item.assignment.assignmentId}/private-verdict`)
-          ?.bytes
+        refs.get(
+          `${item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
+        )?.bytes
     )
       throw new Error("Oracle verdict size differs from original bytes");
   }
@@ -436,6 +445,237 @@ function identityOnlyInventory(
   };
 }
 
+const engineeringPathSchema = z
+  .string()
+  .min(1)
+  .max(400)
+  .refine(
+    (value) =>
+      !/[\\:\x00-\x1f]/.test(value) &&
+      value
+        .split("/")
+        .every(
+          (part) =>
+            part.length > 0 &&
+            part !== "." &&
+            part !== ".." &&
+            !/[. ]$/.test(part) &&
+            !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
+        ),
+  );
+const engineeringBaselineSchema = z
+  .object({
+    kind: z.literal("sealed-engineering-baseline"),
+    path: engineeringPathSchema,
+    source: z
+      .string()
+      .refine(
+        (value) =>
+          value.trim().length > 0 &&
+          Buffer.from(value, "utf8").toString("utf8") === value &&
+          Buffer.byteLength(value) <= 100_000,
+      ),
+    version: z.literal("1.0.0"),
+  })
+  .strict();
+const engineeringCaseSchema = z
+  .object({
+    id,
+    input: z.unknown(),
+    expected: z.unknown(),
+  })
+  .strict();
+const engineeringOracleSchema = z
+  .object({
+    kind: z.literal("sealed-json-function-oracle"),
+    path: engineeringPathSchema,
+    cases: z.array(engineeringCaseSchema).min(2).max(12),
+    version: z.literal("1.0.0"),
+  })
+  .strict();
+const engineeringProposalSchema = z
+  .object({
+    summary: z.string().max(4000),
+    changes: z
+      .array(
+        z
+          .object({
+            path: engineeringPathSchema,
+            before: z.string().min(1),
+            after: z
+              .string()
+              .refine(
+                (value) =>
+                  Buffer.from(value, "utf8").toString("utf8") === value &&
+                  Buffer.byteLength(value) <= 100_000,
+              ),
+          })
+          .strict(),
+      )
+      .length(1),
+    requests: z.array(z.string()).length(0),
+  })
+  .strict();
+const engineeringCaseResultSchema = z
+  .object({
+    id: id.max(32),
+    baselineStatus: z.enum(["completed", "candidate-error"]),
+    baselineValueSha256: digestSchema.nullable(),
+    candidateStatus: z.enum(["completed", "candidate-error"]),
+    candidateValueSha256: digestSchema.nullable(),
+  })
+  .strict();
+const engineeringVerdictSchema = z
+  .object({
+    baselineFailed: z.number().int().min(1).max(12),
+    caseCount: z.number().int().min(2).max(12),
+    caseResults: z.array(engineeringCaseResultSchema).min(2).max(12),
+    claimSha256: digestSchema,
+    kind: z.literal("sealed-engineering-verification"),
+    nonce: z.string().regex(/^[a-f0-9]{32}$/),
+    oracleSha256: digestSchema,
+    passed: z.number().int().min(0).max(12),
+    resultSourceSha256: digestSchema,
+    status: z.enum(["pass", "fail"]),
+    version: z.literal("1.0.0"),
+  })
+  .strict();
+
+function parseCanonicalEngineering<T extends z.ZodTypeAny>(
+  bytes: Buffer,
+  schema: T,
+  limit: number,
+  label: string,
+): z.infer<T> {
+  if (bytes.length < 1 || bytes.length > limit)
+    throw new Error(`${label} exceeds its original-byte bound`);
+  const value = schema.parse(
+    decodeJson(new TextDecoder("utf8", { fatal: true }).decode(bytes)),
+  );
+  if (!bytes.equals(Buffer.from(canonicalJson(value), "utf8")))
+    throw new Error(`${label} is not canonical original JSON`);
+  return value;
+}
+
+function deriveEngineeringResult(
+  baseline: z.infer<typeof engineeringBaselineSchema>,
+  proposalBytes: Buffer,
+  allowedPaths: string[],
+) {
+  if (allowedPaths.length !== 1 || allowedPaths[0] !== baseline.path)
+    throw new Error("Engineering output scope differs from baseline");
+  const proposal = engineeringProposalSchema.parse(
+    decodeJson(new TextDecoder("utf8", { fatal: true }).decode(proposalBytes)),
+  );
+  const change = proposal.changes[0]!;
+  if (change.path !== baseline.path)
+    throw new Error("Engineering proposal path differs from baseline");
+  const first = baseline.source.indexOf(change.before);
+  if (first < 0 || baseline.source.indexOf(change.before, first + 1) >= 0)
+    throw new Error("Engineering replacement must match exactly once");
+  const source =
+    baseline.source.slice(0, first) +
+    change.after +
+    baseline.source.slice(first + change.before.length);
+  if (
+    source === baseline.source ||
+    source.trim().length === 0 ||
+    Buffer.from(source, "utf8").toString("utf8") !== source ||
+    Buffer.byteLength(source) > 100_000
+  )
+    throw new Error("Engineering result is unchanged or exceeds its bound");
+  const result = Buffer.from(
+    canonicalJson({
+      kind: "sealed-engineering-baseline",
+      path: baseline.path,
+      source,
+      version: "1.0.0",
+    }),
+    "utf8",
+  );
+  if (result.length > 200_000)
+    throw new Error("Engineering result exceeds its original-byte bound");
+  return result;
+}
+
+function checkEngineeringVerdict(
+  oracleBytes: Buffer,
+  verdictBytes: Buffer,
+  claim: Extract<
+    NonNullable<CohortInspection["assignments"][number]["oracleInvocation"]>,
+    { kind: "sealed-call-bound-engineering-invocation-claim" }
+  >,
+  verdictReference: NonNullable<
+    CohortInspection["assignments"][number]["oracleVerdict"]
+  >,
+  expectedPath: string,
+) {
+  const oracle = parseCanonicalEngineering(
+    oracleBytes,
+    engineeringOracleSchema,
+    100_000,
+    "Engineering private oracle",
+  );
+  const verdict = parseCanonicalEngineering(
+    verdictBytes,
+    engineeringVerdictSchema,
+    4096,
+    "Engineering private verdict",
+  );
+  if (
+    oracle.path !== expectedPath ||
+    new Set(oracle.cases.map((item) => item.id)).size !== oracle.cases.length ||
+    oracle.cases.some(
+      (item) =>
+        Buffer.byteLength(canonicalJson(item.input)) > 4096 ||
+        Buffer.byteLength(canonicalJson(item.expected)) > 4096,
+    ) ||
+    verdict.claimSha256 !== hashJson(claim) ||
+    verdict.oracleSha256 !== claim.oracleSha256 ||
+    verdict.resultSourceSha256 !== claim.resultSourceSha256 ||
+    verdictReference.claimSha256 !== hashJson(claim) ||
+    verdictReference.verificationSha256 !== sha256(verdictBytes) ||
+    verdictReference.verificationBytes !== verdictBytes.length ||
+    verdict.caseCount !== oracle.cases.length ||
+    verdict.caseResults.length !== oracle.cases.length
+  )
+    throw new Error("Engineering private verdict differs from frozen claim");
+  let baselineFailed = 0;
+  let passed = 0;
+  for (const [index, item] of verdict.caseResults.entries()) {
+    const expected = oracle.cases[index]!;
+    const expectedSha256 = sha256(
+      Buffer.from(canonicalJson(expected.expected)),
+    );
+    if (
+      item.id !== expected.id ||
+      (item.baselineStatus === "completed") !==
+        (item.baselineValueSha256 !== null) ||
+      (item.candidateStatus === "completed") !==
+        (item.candidateValueSha256 !== null)
+    )
+      throw new Error("Engineering case result differs from private oracle");
+    if (
+      item.baselineStatus !== "completed" ||
+      item.baselineValueSha256 !== expectedSha256
+    )
+      baselineFailed++;
+    if (
+      item.candidateStatus === "completed" &&
+      item.candidateValueSha256 === expectedSha256
+    )
+      passed++;
+  }
+  if (
+    baselineFailed < 1 ||
+    verdict.baselineFailed !== baselineFailed ||
+    verdict.passed !== passed ||
+    verdict.status !== (passed === oracle.cases.length ? "pass" : "fail")
+  )
+    throw new Error("Engineering verdict counts differ from private cases");
+  return verdict.status;
+}
+
 /** Re-derive, in the private collector, the bytes a call-bound oracle saw. */
 async function checkCallBoundOriginals(
   inspection: CohortInspection,
@@ -470,22 +710,32 @@ async function checkCallBoundOriginals(
   let checked = 0;
   for (const item of inspection.assignments) {
     const claim = item.oracleInvocation;
-    if (claim?.kind !== "sealed-call-bound-oracle-invocation-claim") continue;
+    if (
+      claim?.kind !== "sealed-call-bound-oracle-invocation-claim" &&
+      claim?.kind !== "sealed-call-bound-engineering-invocation-claim"
+    )
+      continue;
     const task = inspection.plan.tasks.find(
       (task) => task.taskId === item.assignment.taskId,
     )!;
     const call = item.calls.find(
       (call) => call.reservation.callId === claim.callId,
     )!;
-    const role = `oracle/v1/${item.assignment.assignmentId}`;
+    const engineering =
+      claim.kind === "sealed-call-bound-engineering-invocation-claim";
+    const role = `${engineering ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}`;
     let publicBytes: Buffer | undefined;
     let responseBytes: Buffer | undefined;
     let requestBytes: Buffer | undefined;
     let proposalBytes: Buffer | undefined;
+    let baselineBytes: Buffer | undefined;
+    let resultBytes: Buffer | undefined;
+    let derivedResult: Buffer | undefined;
     let oracleBytes: Buffer | undefined;
     let verdictBytes: Buffer | undefined;
     let parsedProposal: Buffer | undefined;
     let expectedRequest: Buffer | undefined;
+    let engineeringBaselinePath: string | undefined;
     try {
       publicBytes = await read(`task/${task.taskId}/public-packet`);
       packetModule.inspectPublicPacket(publicBytes);
@@ -537,7 +787,7 @@ async function checkCallBoundOriginals(
       if (
         !exactProposal.equals(proposalBytes) ||
         sha256(exactProposal) !== claim.proposalSha256 ||
-        (item.receipt?.proposalSha256 !== null &&
+        (item.receipt?.proposalSha256 != null &&
           item.receipt?.proposalSha256 !== claim.proposalSha256)
       )
         throw new Error(
@@ -545,74 +795,135 @@ async function checkCallBoundOriginals(
         );
       proposalBytes.fill(0);
       proposalBytes = undefined;
-      parsedProposal.fill(0);
-      parsedProposal = undefined;
-      if (item.oracleVerdict) {
-        oracleBytes = await read(`task/${task.taskId}/private-oracle`);
-        verdictBytes = await read(`${role}/private-verdict`);
-        let oracle: ReturnType<typeof decodeJson>;
-        let verdict: ReturnType<typeof decodeJson>;
-        try {
-          oracle = decodeJson(
-            new TextDecoder("utf8", { fatal: true }).decode(oracleBytes),
-          );
-          verdict = decodeJson(
-            new TextDecoder("utf8", { fatal: true }).decode(verdictBytes),
-          );
-        } catch {
-          throw new Error(
-            "Private digest-oracle verdict has invalid bounded bytes",
-          );
-        }
+      if (engineering) {
+        baselineBytes = await read(`task/${task.taskId}/baseline`);
+        const baseline = parseCanonicalEngineering(
+          baselineBytes,
+          engineeringBaselineSchema,
+          200_000,
+          "Engineering baseline",
+        );
+        engineeringBaselinePath = baseline.path;
         if (
-          !oracle ||
-          Array.isArray(oracle) ||
-          typeof oracle !== "object" ||
-          Object.keys(oracle).sort().join(",") !==
-            "expectedSha256,kind,version" ||
-          oracle.kind !== "sealed-digest-oracle" ||
-          oracle.version !== "1.0.0" ||
-          typeof oracle.expectedSha256 !== "string" ||
-          !digestSchema.safeParse(oracle.expectedSha256).success ||
-          !oracleBytes.equals(
-            Buffer.from(
-              JSON.stringify({
-                expectedSha256: oracle.expectedSha256,
-                kind: "sealed-digest-oracle",
-                version: "1.0.0",
-              }),
-            ),
-          ) ||
-          !verdict ||
-          Array.isArray(verdict) ||
-          typeof verdict !== "object" ||
-          Object.keys(verdict).sort().join(",") !==
-            "kind,nonce,oracleSha256,status,version" ||
-          verdict.version !== "1.0.0" ||
-          verdict.kind !== "sealed-digest-verification" ||
-          verdict.oracleSha256 !== task.oracleSha256 ||
-          verdict.oracleSha256 !== claim.oracleSha256 ||
-          typeof verdict.nonce !== "string" ||
-          !/^[a-f0-9]{32}$/.test(verdict.nonce) ||
-          verdict.status !==
-            (oracle.expectedSha256 === claim.proposalSha256
-              ? "pass"
-              : "fail") ||
-          !verdictBytes.equals(
-            Buffer.from(
-              `${JSON.stringify({
-                version: "1.0.0",
-                kind: "sealed-digest-verification",
-                oracleSha256: verdict.oracleSha256,
-                nonce: verdict.nonce,
-                status: verdict.status,
-              })}\n`,
-            ),
+          claim.baselineSha256 !== task.baselineSha256 ||
+          !packet.files.some(
+            (file: { path: string; kind: string; content: string }) =>
+              file.path === baseline.path &&
+              file.kind === "source" &&
+              file.content === baseline.source,
           )
         )
           throw new Error(
-            "Private digest-oracle verdict differs from original oracle/proposal",
+            "Engineering baseline differs from frozen public source",
           );
+        derivedResult = deriveEngineeringResult(
+          baseline,
+          exactProposal,
+          task.allowedOutputPaths,
+        );
+        resultBytes = await read(`${role}/result-source`);
+        if (
+          !derivedResult.equals(resultBytes) ||
+          sha256(derivedResult) !== claim.resultSourceSha256 ||
+          (item.receipt?.resultSourceSha256 != null &&
+            item.receipt.resultSourceSha256 !== claim.resultSourceSha256)
+        )
+          throw new Error(
+            "Engineering result source differs from proposal and baseline",
+          );
+      }
+      parsedProposal.fill(0);
+      parsedProposal = undefined;
+      if (engineering && !item.oracleVerdict)
+        throw new Error("Engineering private verdict is missing");
+      if (item.oracleVerdict) {
+        oracleBytes = await read(`task/${task.taskId}/private-oracle`);
+        verdictBytes = await read(`${role}/private-verdict`);
+        if (engineering) {
+          if (!engineeringBaselinePath)
+            throw new Error("Engineering baseline path is missing");
+          const status = checkEngineeringVerdict(
+            oracleBytes,
+            verdictBytes,
+            claim,
+            item.oracleVerdict,
+            engineeringBaselinePath,
+          );
+          if (
+            (item.receipt?.outcome.verificationSha256 != null &&
+              item.receipt.outcome.verificationSha256 !==
+                item.oracleVerdict.verificationSha256) ||
+            (item.receipt?.outcome.success != null &&
+              item.receipt.outcome.success !== (status === "pass"))
+          )
+            throw new Error(
+              "Engineering attempt outcome differs from private verdict",
+            );
+        } else {
+          let oracle: ReturnType<typeof decodeJson>;
+          let verdict: ReturnType<typeof decodeJson>;
+          try {
+            oracle = decodeJson(
+              new TextDecoder("utf8", { fatal: true }).decode(oracleBytes),
+            );
+            verdict = decodeJson(
+              new TextDecoder("utf8", { fatal: true }).decode(verdictBytes),
+            );
+          } catch {
+            throw new Error(
+              "Private digest-oracle verdict has invalid bounded bytes",
+            );
+          }
+          if (
+            !oracle ||
+            Array.isArray(oracle) ||
+            typeof oracle !== "object" ||
+            Object.keys(oracle).sort().join(",") !==
+              "expectedSha256,kind,version" ||
+            oracle.kind !== "sealed-digest-oracle" ||
+            oracle.version !== "1.0.0" ||
+            typeof oracle.expectedSha256 !== "string" ||
+            !digestSchema.safeParse(oracle.expectedSha256).success ||
+            !oracleBytes.equals(
+              Buffer.from(
+                JSON.stringify({
+                  expectedSha256: oracle.expectedSha256,
+                  kind: "sealed-digest-oracle",
+                  version: "1.0.0",
+                }),
+              ),
+            ) ||
+            !verdict ||
+            Array.isArray(verdict) ||
+            typeof verdict !== "object" ||
+            Object.keys(verdict).sort().join(",") !==
+              "kind,nonce,oracleSha256,status,version" ||
+            verdict.version !== "1.0.0" ||
+            verdict.kind !== "sealed-digest-verification" ||
+            verdict.oracleSha256 !== task.oracleSha256 ||
+            verdict.oracleSha256 !== claim.oracleSha256 ||
+            typeof verdict.nonce !== "string" ||
+            !/^[a-f0-9]{32}$/.test(verdict.nonce) ||
+            verdict.status !==
+              (oracle.expectedSha256 === claim.proposalSha256
+                ? "pass"
+                : "fail") ||
+            !verdictBytes.equals(
+              Buffer.from(
+                `${JSON.stringify({
+                  version: "1.0.0",
+                  kind: "sealed-digest-verification",
+                  oracleSha256: verdict.oracleSha256,
+                  nonce: verdict.nonce,
+                  status: verdict.status,
+                })}\n`,
+              ),
+            )
+          )
+            throw new Error(
+              "Private digest-oracle verdict differs from original oracle/proposal",
+            );
+        }
       }
       checked++;
     } finally {
@@ -622,6 +933,9 @@ async function checkCallBoundOriginals(
       requestBytes?.fill(0);
       responseBytes?.fill(0);
       proposalBytes?.fill(0);
+      baselineBytes?.fill(0);
+      resultBytes?.fill(0);
+      derivedResult?.fill(0);
       oracleBytes?.fill(0);
       verdictBytes?.fill(0);
     }
@@ -920,7 +1234,8 @@ async function inspectAggregateWithOriginalEvidence(
       "Configuration, model, runtime, and label-evidence digests are signed identities only; their raw bytes were not audited.",
       "Canonical JSON digests bind the ledger and evaluation values, not their original serialization bytes.",
       "Protected model/oracle execution, independent population selection, and provider billing remain unverified.",
-      "The private digest-verdict nonce has no independent persisted nonce witness in this aggregate; only its canonical shape is checked.",
+      "Engineering case-result hashes and counters are checked against private expected values, but the aggregate does not re-execute source or authenticate guest observations.",
+      "A private oracle verdict nonce has no independent persisted nonce witness in this aggregate; only its canonical shape is checked.",
     ],
   });
 }
