@@ -28,11 +28,13 @@ no PR reviews or merges until the implementation is ready.
 
 Item 13 now also has a [local paired context diagnostic](../evaluation/README.md#opt-in-local-multi-file-context-pair):
 the existing oMLX Qwen received all 19 synthetic source files in one arm and
-three graph-selected files in the other. Both edits passed the same offline
-check; oMLX reported 2,935 versus 602 input tokens. Fixed arm order and
-post-run runner formatting/source-hash drift limit this single observation.
-It is not held-out evidence, a general token-savings claim, or a measured
-paid-cost comparison.
+three graph-selected files in the other. Separate full-first and graph-first
+runs used the same exact request bytes and both edits passed the same offline
+check in each run; oMLX reported 2,935 versus 602 input tokens in both orders.
+The first report pins a pre-format runner source hash, and these sequential
+known-synthetic runs do not control model warmup, task selection or independent
+labels. They are not held-out evidence, a general token-savings claim, or a
+measured paid-cost comparison.
 
 ## Remaining implementation work
 

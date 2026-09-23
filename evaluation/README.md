@@ -212,6 +212,13 @@ GRAPH_LIVE_PAIRED_QWEN=1 GRAPH_PAIRED_NODE_IMAGE=sha256:<inspected-id> \
   node evaluation/live-paired-qwen-context.mjs
 ```
 
+The default arm order is full then graph. For a separate, explicit reverse-order
+local diagnostic, add `GRAPH_PAIRED_ARM_ORDER=graph-then-full` to that command.
+The report records its actual order and compares results by arm identity, not
+dispatch position. Both packets are still frozen before either model call; each
+run remains one attempt per arm with no automatic retry. A reverse-order run is
+another known-synthetic observation, not independent held-out evidence.
+
 Before inference, the script checks that the broken fixture fails and its
 known repair passes the same offline Docker check. It prepares and retains
 both distinct exact request bytes before dispatch, makes at most one local
@@ -223,14 +230,14 @@ selected paths, byte counts, provider-reported tokens when valid, fixture
 outcomes, and unknown billing/hardware costs. Do not export that private
 directory to cloud MCP clients.
 
-The fixture, objective and repair are known, model weights are not
-authenticated, one fixed full-then-graph order has warmup effects, and the
+The fixture, objective and repair are known; model weights are not
+authenticated; any single sequential pair can have warmup effects; and the
 synthetic checks are not adversarial. No independent task/label curator or
 external witness exists. This result cannot be treated as held-out quality,
 representative token savings, measured paid-API savings, or promotion
 authority. Do not rerun an ambiguous attempt merely to obtain a passing pair.
 
-The 2026-09-23 local run selected 19 files for the full arm and three
+The 2026-09-23 full-first local run selected 19 files for the full arm and three
 import-chain files (`offset.mjs`, `scale.mjs`, `solver.mjs`) for the graph arm.
 Its exact retained requests were 9,009 versus 2,560 bytes; oMLX reported
 2,935 versus 602 input tokens. Both response-derived edits passed the same
@@ -241,7 +248,13 @@ An earlier attempt stopped before any model dispatch when Git inventory found
 zero files beneath the parent checkout's ignored `.graph/local`; its untouched
 preflight-failure report is at `.graph/local/paired-qwen-context-pqK6CJ/report.json`.
 The fixture now initializes its own nested Git repository before indexing,
-without a remote or commit. These observations describe one local trial only.
+without a remote or commit. A separate graph-first run on the same date used
+the same retained request digests for each arm, reported the same 2,935 versus
+602 input tokens, and both response-derived edits passed the same offline
+check. Its private report is
+`.graph/local/paired-qwen-context-Fmq5LD/report.json` (SHA-256
+`a4fa8d582a728bec2d9e786681551b7378df403686afd55874d8127aa1615f54`).
+These two fixed-fixture sequential trials remain analysis only.
 The report's `implementationSha256` pins the runner and fixture bytes as they
 were during that trial; subsequent formatting changed runner whitespace, so
 the final source file does not have that exact implementation digest. The

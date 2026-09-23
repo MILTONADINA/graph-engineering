@@ -7,8 +7,10 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { ArtifactStore } from "./sealed/artifacts.mjs";
 import {
+  comparePairedArms,
   graphSelectedPaths,
   initializeFixtureRepository,
+  pairedArmOrder,
   preparePackets,
   runArm,
   verifyFixture,
@@ -16,6 +18,47 @@ import {
 import { pairedMultiFileTask as task } from "./paired-multifile-task.mjs";
 
 const runFile = promisify(execFile);
+
+test("explicit paired arm order preserves arm-identified comparisons", () => {
+  assert.deepEqual(pairedArmOrder(undefined), ["full", "graph"]);
+  assert.deepEqual(pairedArmOrder("full-then-graph"), ["full", "graph"]);
+  assert.deepEqual(pairedArmOrder("graph-then-full"), ["graph", "full"]);
+  assert.throws(() => pairedArmOrder("graph-first"), /GRAPH_PAIRED_ARM_ORDER/);
+
+  const full = {
+    arm: "full",
+    exactModelRequest: { bytes: 9009 },
+    exactModelResponse: { sha256: "full-response" },
+    reportedInputTokens: 2935,
+    status: "fixture-passed",
+  };
+  const graph = {
+    arm: "graph",
+    exactModelRequest: { bytes: 2560 },
+    exactModelResponse: { sha256: "graph-response" },
+    reportedInputTokens: 602,
+    status: "fixture-passed",
+  };
+  const expected = {
+    pairedArmsReceivedResponses: true,
+    exactRequestByteDifference: 6449,
+    reportedInputTokenDifference: 2333,
+    bothPassedSyntheticFixture: true,
+    measuredPaidApiSavingsUsd: null,
+  };
+  assert.deepEqual(comparePairedArms([full, graph]), expected);
+  assert.deepEqual(comparePairedArms([graph, full]), expected);
+  assert.equal(
+    comparePairedArms([{ ...graph, reportedInputTokens: null }, full])
+      .reportedInputTokenDifference,
+    null,
+  );
+  assert.throws(() => comparePairedArms([full]), /both completed arms/);
+  assert.throws(
+    () => comparePairedArms([full, full]),
+    /one full and one graph/,
+  );
+});
 
 test("graph-selected and full-file packets have distinct retained local requests without model delivery", async (t) => {
   const root = await mkdtemp(
