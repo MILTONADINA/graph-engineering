@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, chmod, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, chmod, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ArtifactStore } from "../artifacts.mjs";
 import { SealedStore } from "../store.mjs";
-import { hashJson } from "../schema.mjs";
+import { canonicalJson, hashJson } from "../schema.mjs";
 import {
   auditOriginalBytes,
   originalByteManifestSha256,
@@ -40,6 +40,7 @@ async function completeCollection(
     wrongDispatchBytes = false,
     wrongVerdictBytes = false,
     conflictingSecondDispatch = false,
+    repositorySnapshot = false,
   } = {},
 ) {
   const { store, artifacts, artifactsPath } = await stores(t);
@@ -52,7 +53,66 @@ async function completeCollection(
     return ref.sha256;
   };
   const task = plan.tasks[0];
-  task.baselineSha256 = await role("task/task-fixture/baseline");
+  let snapshotChunk = null;
+  if (repositorySnapshot) {
+    const putJson = (value) =>
+      artifacts.put(Buffer.from(canonicalJson(value), "utf8"));
+    const source = Buffer.from("private frozen repository source\n");
+    snapshotChunk = await artifacts.put(source);
+    const chunks = await putJson({
+      kind: "sealed-repository-chunk-page",
+      version: "1.0.0",
+      level: 0,
+      chunks: [snapshotChunk],
+    });
+    const tree = await putJson({
+      kind: "sealed-repository-entry-page",
+      version: "1.0.0",
+      level: 0,
+      entries: [
+        { path: ".git", type: "excluded", reason: "operator-scope" },
+        {
+          path: "README.md",
+          type: "file",
+          mode: 0o644,
+          bytes: source.length,
+          sha256: sha(source),
+          chunks,
+        },
+      ],
+    });
+    const root = await putJson({
+      kind: "sealed-repository-snapshot",
+      version: "1.0.0",
+      scope: {
+        kind: "sealed-repository-scope",
+        version: "1.0.0",
+        excludePrefixes: [".git"],
+        maxEntries: 10,
+        maxFiles: 5,
+        maxFileBytes: 1000,
+        maxTotalBytes: 1000,
+        maxDepth: 2,
+      },
+      source: {
+        headOid: "a".repeat(40),
+        stagedEntriesSha256: "b".repeat(64),
+      },
+      inventory: {
+        entryCount: 2,
+        fileCount: 1,
+        excludedCount: 1,
+        totalBytes: source.length,
+      },
+      tree,
+    });
+    task.baselineSha256 = root.sha256;
+    contents.set("task/task-fixture/baseline", root);
+    task.stateFormatVersion = "repo-snapshot-v1";
+    for (const arm of ["baseline", "candidate"])
+      plan.configurations[arm].categoryStateVersions[0].stateFormatVersion =
+        "repo-snapshot-v1";
+  } else task.baselineSha256 = await role("task/task-fixture/baseline");
   task.publicPacketSha256 = await role("task/task-fixture/public-packet");
   task.oracleSha256 = await role("task/task-fixture/private-oracle");
   task.referenceRepairSha256 = await role("task/task-fixture/reference-repair");
@@ -123,6 +183,8 @@ async function completeCollection(
       continue;
     }
     const receipt = settledAttempt(attempt, [settled]);
+    if (repositorySnapshot)
+      receipt.observations[0].stateFormatVersion = "repo-snapshot-v1";
     receipt.publicRequestSha256 = task.publicPacketSha256;
     receipt.proposalSha256 = await role(`attempt/${arm}-assignment/proposal`);
     receipt.resultSourceSha256 = await role(
@@ -153,6 +215,7 @@ async function completeCollection(
     artifacts,
     artifactsPath,
     contents,
+    snapshotChunk,
     manifest,
     expectedManifestSha256: originalByteManifestSha256(manifest),
   };
@@ -239,6 +302,27 @@ test("closed cohort audits exact original bytes without returning the private or
     ),
     false,
   );
+});
+
+test("repository snapshot audit verifies descendant pages and source chunks", async (t) => {
+  const prepared = await completeCollection(t, { repositorySnapshot: true });
+  const run = () =>
+    auditOriginalBytes({
+      ...prepared,
+      collectionId: prepared.manifest.collectionId,
+    });
+  const result = await run();
+  assert.equal(result.repositorySnapshotRoots, 1);
+  assert.equal(result.repositorySnapshotClosureBlobReads, 4);
+  assert.equal(result.promotionEligible, false);
+  assert.equal(
+    JSON.stringify(result).includes("private frozen repository source"),
+    false,
+  );
+  await unlink(
+    path.join(prepared.artifactsPath, `${prepared.snapshotChunk.sha256}.blob`),
+  );
+  await assert.rejects(run(), /ENOENT/);
 });
 
 test("audit rejects missing, extra, mislabeled and unpinned original bytes", async (t) => {

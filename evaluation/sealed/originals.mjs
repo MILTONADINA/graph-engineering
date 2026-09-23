@@ -2,7 +2,8 @@
 // proof of worker dispatch, oracle isolation, provider billing, or review.
 import { ArtifactStore, MAX_ARTIFACT_BYTES } from "./artifacts.mjs";
 import { SealedStore } from "./store.mjs";
-import { decodeJson, hashJson } from "./schema.mjs";
+import { canonicalJson, decodeJson, hashJson } from "./schema.mjs";
+import { inspectRepositorySnapshot } from "./repository-snapshot.mjs";
 
 const digest = /^[a-f0-9]{64}$/;
 const exactKeys = (value, names) =>
@@ -83,6 +84,20 @@ function requiredBytes(inspection) {
       "sealed-call-bound-module-graph-invocation-claim"
     ) {
       const role = `oracle/module-graph-v1/${item.assignment.assignmentId}`;
+      add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
+      add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
+      if (item.oracleVerdict)
+        add(
+          `${role}/private-verdict`,
+          item.oracleVerdict.verificationSha256,
+          item.oracleVerdict.verificationBytes,
+        );
+    }
+    if (
+      item.oracleInvocation?.kind ===
+      "sealed-call-bound-repository-invocation-claim"
+    ) {
+      const role = `oracle/repository-v1/${item.assignment.assignmentId}`;
       add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
       add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
       if (item.oracleVerdict)
@@ -186,6 +201,60 @@ export async function auditOriginalBytes({
   }
   // No bytes, especially private-oracle bytes, are returned to the caller.
   for (const ref of refs.values()) await artifacts.verify(ref);
+  // The manifest pins one baseline root per task. For repository snapshots the
+  // committed root is only the entrance to a chunked tree, so a root-only
+  // audit would miss lost or corrupted original source bytes below it.
+  const snapshotRoots = new Set();
+  let snapshotClosureBlobReads = 0;
+  for (const task of inspection.plan.tasks) {
+    if (task.stateFormatVersion !== "repo-snapshot-v1") continue;
+    const root = refs.get(task.baselineSha256);
+    if (!root) throw new Error("Repository snapshot baseline is not retained");
+    if (snapshotRoots.has(root.sha256)) continue;
+    const result = await inspectRepositorySnapshot({
+      artifacts,
+      rootReference: root,
+    });
+    snapshotRoots.add(root.sha256);
+    snapshotClosureBlobReads += result.uniqueBlobs;
+  }
+  let repositoryObservationBundles = 0;
+  for (const item of inspection.assignments) {
+    if (
+      item.oracleInvocation?.kind !==
+        "sealed-call-bound-repository-invocation-claim" ||
+      !item.oracleVerdict
+    )
+      continue;
+    const verdictRef = refs.get(item.oracleVerdict.verificationSha256);
+    if (!verdictRef)
+      throw new Error("Repository private verdict original is not retained");
+    const verdictBytes = await artifacts.get(verdictRef);
+    try {
+      const verdict = decodeJson(
+        new TextDecoder("utf8", { fatal: true }).decode(verdictBytes),
+      );
+      const child = verdict?.observationBundle;
+      if (
+        verdict.kind !== "sealed-repository-blackbox-verification" ||
+        verdict.version !== "1.0.0" ||
+        verdict.claimSha256 !== hashJson(item.oracleInvocation) ||
+        !Buffer.from(canonicalJson(verdict)).equals(verdictBytes) ||
+        !exactKeys(child, ["sha256", "bytes"]) ||
+        !digest.test(child.sha256) ||
+        !Number.isSafeInteger(child.bytes) ||
+        child.bytes < 1 ||
+        child.bytes > 200_000
+      )
+        throw new Error(
+          "Repository verdict lacks its committed observation bundle",
+        );
+      await artifacts.verify({ sha256: child.sha256, bytes: child.bytes });
+      repositoryObservationBundles++;
+    } finally {
+      verdictBytes.fill(0);
+    }
+  }
   return Object.freeze({
     version: "1.0.0",
     kind: "sealed-original-byte-audit",
@@ -196,6 +265,9 @@ export async function auditOriginalBytes({
     manifestSha256: expectedManifestSha256,
     committedRoles: required.size,
     uniqueBlobs: refs.size,
+    repositorySnapshotRoots: snapshotRoots.size,
+    repositorySnapshotClosureBlobReads: snapshotClosureBlobReads,
+    repositoryObservationBundles,
     promotionEligible: false,
   });
 }
