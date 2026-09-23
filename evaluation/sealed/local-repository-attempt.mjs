@@ -9,12 +9,16 @@ import { hashJson } from "./schema.mjs";
 import { SealedStore } from "./store.mjs";
 import { runProtectedRepositoryOracle } from "./oracle-runtime/repository-host.mjs";
 import {
+  applyRepositoryProposal,
   parseRepositoryOracle,
   projectRepositoryExecutionTree,
+  RepositoryProposalRejectedError,
+  repositorySha256,
 } from "./oracle-runtime/repository.mjs";
 import { localDockerEndpoint } from "./worker-runtime/host.mjs";
 import { runOneShotLocalModelWorker } from "./worker-runtime/local-worker.mjs";
 import { inspectPublicPacket } from "./worker-runtime/packet.mjs";
+import { parseRetainedLocalProposal } from "./worker-runtime/proposal.mjs";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 const SHA = /^[a-f0-9]{64}$/;
@@ -119,7 +123,7 @@ async function preflight({
     oracleRef.sha256 !== task.oracleSha256
   )
     throw new Error("Repository attempt differs from its frozen v1 task");
-  frozenProvider(inspection.plan, assignment, providerId);
+  const provider = frozenProvider(inspection.plan, assignment, providerId);
 
   // Check all frozen inputs before consuming the one allowed assignment. The
   // oracle remains local; only selected public source/docs goes to the model.
@@ -168,13 +172,87 @@ async function preflight({
       })
     )
       throw new Error("Repository execution source differs from public packet");
+    return {
+      task,
+      planSha256: inspection.planSha256,
+      packet,
+      requestedModel: provider.requestedModel,
+      sourcePaths: recipe.sourcePaths,
+      baselineFiles: tree.files.map((entry) => ({
+        path: entry.path,
+        source: selected.find((file) => file.path === entry.path).content,
+        mode: entry.mode,
+      })),
+    };
   } finally {
     publicBytes?.fill(0);
     oracleBytes?.fill(0);
     publicRetained.fill(0);
     oracleRetained?.fill(0);
   }
-  return { task, planSha256: inspection.planSha256 };
+}
+
+/** Recheck the original response and test only public patch semantics. */
+async function inspectCompletedProposal(
+  store,
+  artifacts,
+  collectionId,
+  reservation,
+  model,
+  frozen,
+) {
+  const item = store
+    .inspectCollection(collectionId)
+    .assignments.find(
+      (entry) => entry.reservation?.reservationId === reservation.reservationId,
+    );
+  const call = item?.calls.find(
+    (entry) => entry.reservation.callId === model.callId,
+  );
+  if (
+    item?.calls.length !== 1 ||
+    call?.receipt?.status !== "completed" ||
+    call.receipt.responseSha256 !== model.response.sha256 ||
+    call.receipt.reportedModel !== frozen.requestedModel ||
+    item.oracleInvocation ||
+    item.oracleVerdict
+  )
+    throw new Error("Completed model proposal differs from retained call");
+  let responseBytes;
+  let proposalBytes;
+  let parsed;
+  try {
+    responseBytes = await artifacts.get(model.response);
+    parsed = parseRetainedLocalProposal(
+      responseBytes,
+      frozen.task,
+      frozen.packet,
+      frozen.requestedModel,
+    );
+    proposalBytes = await artifacts.get(model.proposal);
+    if (
+      proposalBytes.length !== parsed.proposalBytes.length ||
+      !Buffer.from(proposalBytes).equals(parsed.proposalBytes) ||
+      repositorySha256(parsed.proposalBytes) !== model.proposal.sha256
+    )
+      throw new Error("Retained model proposal differs from original response");
+    try {
+      applyRepositoryProposal(
+        frozen.baselineFiles,
+        parsed.proposalBytes,
+        frozen.task.allowedOutputPaths,
+        frozen.sourcePaths,
+      );
+    } catch (cause) {
+      if (!(cause instanceof RepositoryProposalRejectedError)) throw cause;
+      return { executable: false, proposalSha256: model.proposal.sha256 };
+    }
+    return { executable: true, proposalSha256: model.proposal.sha256 };
+  } finally {
+    responseBytes?.fill(0);
+    proposalBytes?.fill(0);
+    parsed?.proposalBytes.fill(0);
+  }
 }
 
 function terminalReceipt(
@@ -183,6 +261,7 @@ function terminalReceipt(
   reservation,
   publicSha256,
   status,
+  publicProposalSha256 = null,
 ) {
   const inspection = store.inspectCollection(collectionId);
   const item = inspection.assignments.find(
@@ -196,12 +275,20 @@ function terminalReceipt(
     calls.length !== 1 ||
     !calls[0].receipt ||
     (status === "candidate-rejected" &&
+      publicProposalSha256 === null &&
       (!item.oracleInvocation ||
         !item.oracleVerdict ||
         item.oracleInvocation.kind !==
           "sealed-call-bound-repository-invocation-claim")) ||
+    (status === "candidate-rejected" &&
+      publicProposalSha256 !== null &&
+      (!SHA.test(publicProposalSha256) ||
+        item.oracleInvocation ||
+        item.oracleVerdict)) ||
     (status === "provider-error" &&
-      (item.oracleInvocation || item.oracleVerdict))
+      (publicProposalSha256 !== null ||
+        item.oracleInvocation ||
+        item.oracleVerdict))
   )
     throw new Error(
       "Repository attempt cannot settle an incomplete observation",
@@ -221,7 +308,7 @@ function terminalReceipt(
     status,
     finishedAt: new Date().toISOString(),
     publicRequestSha256: publicSha256,
-    proposalSha256: oracle?.proposalSha256 ?? null,
+    proposalSha256: oracle?.proposalSha256 ?? publicProposalSha256,
     resultSourceSha256: oracle?.resultSourceSha256 ?? null,
     observations: [],
     callReceiptSha256s: [hashJson(call)],
@@ -234,6 +321,11 @@ function terminalReceipt(
     usage: { ...call.usage, basis: "aggregate" },
     limitations: [
       "Local one-call repository observation only; no independently measured success, held-out provenance or promotion authority.",
+      ...(publicProposalSha256 === null
+        ? []
+        : [
+            "Public proposal rejected before private oracle; no private test ran.",
+          ]),
     ],
   };
 }
@@ -342,30 +434,45 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
     )
       throw new Error("Local model observation differs from public dispatch");
     let status;
+    let publicProposalSha256 = null;
     if (model.status === "completed") {
       if (!model.response || !model.proposal)
         throw new Error("Completed local model call lacks retained originals");
-      const oracle = await runProtectedRepositoryOracle(
-        {
-          store,
-          artifacts,
-          collectionId,
-          reservationId: reservation.reservationId,
-          expectedPlanSha256: frozen.planSha256,
-          baselineReference: baselineRef,
-          oracleReference: oracleRef,
-          callId: model.callId,
-          responseReference: model.response,
-        },
-        { imageId: repositoryImageId, endpoint: dockerEndpoint, signal },
+      const candidate = await inspectCompletedProposal(
+        store,
+        artifacts,
+        collectionId,
+        reservation,
+        model,
+        frozen,
       );
-      if (
-        !oracle.verificationRecorded ||
-        oracle.reservationId !== reservation.reservationId ||
-        oracle.callId !== model.callId ||
-        oracle.promotionEligible !== false
-      )
-        throw new Error("Repository oracle did not retain its private verdict");
+      if (candidate.executable) {
+        const oracle = await runProtectedRepositoryOracle(
+          {
+            store,
+            artifacts,
+            collectionId,
+            reservationId: reservation.reservationId,
+            expectedPlanSha256: frozen.planSha256,
+            baselineReference: baselineRef,
+            oracleReference: oracleRef,
+            callId: model.callId,
+            responseReference: model.response,
+          },
+          { imageId: repositoryImageId, endpoint: dockerEndpoint, signal },
+        );
+        if (
+          !oracle.verificationRecorded ||
+          oracle.reservationId !== reservation.reservationId ||
+          oracle.callId !== model.callId ||
+          oracle.promotionEligible !== false
+        )
+          throw new Error(
+            "Repository oracle did not retain its private verdict",
+          );
+      } else {
+        publicProposalSha256 = candidate.proposalSha256;
+      }
       status = "candidate-rejected";
     } else if (model.status === "provider-error") {
       status = "provider-error";
@@ -379,6 +486,7 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
         reservation,
         dispatch.publicPacketSha256,
         status,
+        publicProposalSha256,
       ),
     );
     return Object.freeze({

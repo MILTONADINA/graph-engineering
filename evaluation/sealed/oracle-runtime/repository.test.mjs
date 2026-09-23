@@ -12,6 +12,7 @@ import {
   parseRepositoryRecipe,
   parseRepositoryTree,
   projectRepositoryExecutionTree,
+  RepositoryProposalRejectedError,
   repositoryGuestRequest,
   repositoryRecipeBytes,
   repositorySha256,
@@ -191,6 +192,56 @@ test("response-derived repository edits replace one exact substring, including d
         ["solver.mjs"],
       ),
     /invalid source file/,
+  );
+});
+
+test("publicly invalid proposals are typed separately from frozen-source failures", () => {
+  const baseline = [{ path: "solver.mjs", source, mode: 0o644 }];
+  const invoke = (proposal, files = baseline) =>
+    applyRepositoryProposal(
+      files,
+      Buffer.from(JSON.stringify(proposal)),
+      ["solver.mjs"],
+      ["solver.mjs"],
+    );
+  for (const proposal of [
+    { summary: "Need context", changes: [], requests: ["other.mjs"] },
+    {
+      summary: "Request alongside edit",
+      changes: [
+        { path: "solver.mjs", before: "input.n+1", after: "input.n*2" },
+      ],
+      requests: ["other.mjs"],
+    },
+    {
+      summary: "No effective edit",
+      changes: [
+        { path: "solver.mjs", before: "input.n+1", after: "input.n+1" },
+      ],
+      requests: [],
+    },
+    {
+      summary: "Ambiguous edit",
+      changes: [{ path: "solver.mjs", before: "input", after: "value" }],
+      requests: [],
+    },
+  ])
+    assert.throws(() => invoke(proposal), RepositoryProposalRejectedError);
+  assert.throws(
+    () =>
+      invoke(
+        {
+          summary: "Valid edit",
+          changes: [
+            { path: "solver.mjs", before: "input.n+1", after: "input.n*2" },
+          ],
+          requests: [],
+        },
+        [{ path: "solver.mjs", source, mode: 0o600 }],
+      ),
+    (error) =>
+      error instanceof Error &&
+      !(error instanceof RepositoryProposalRejectedError),
   );
 });
 
