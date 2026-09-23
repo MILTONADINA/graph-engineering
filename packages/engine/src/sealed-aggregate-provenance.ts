@@ -3440,6 +3440,8 @@ async function inspectAggregateWithOriginalEvidence(
     projectId: signedPayload.projectId,
     collectionId: signedPayload.collectionId,
     planSha256: signedPayload.planSha256,
+    registrySha256: signedPayload.registrySha256,
+    assignmentInventorySha256: hashJson(inspection.plan.assignments),
     aggregatePayloadSha256: payloadSha256,
     originalByteManifestSha256: signedPayload.originalByteManifestSha256,
     originalArtifactCount: manifest.entries.length,

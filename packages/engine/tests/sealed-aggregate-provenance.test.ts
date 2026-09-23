@@ -25,6 +25,10 @@ it("checks every synthetic original byte and purpose-separated signature without
     nowMs,
   });
   expect(receipt).toMatchObject({
+    registrySha256: hashJson(input.cohort.inspection.registry),
+    assignmentInventorySha256: hashJson(
+      input.cohort.inspection.plan.assignments,
+    ),
     assignmentCount: 2,
     callCount: 2,
     verifiedRowReviewCount: 1,
