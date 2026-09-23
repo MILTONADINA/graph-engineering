@@ -1568,12 +1568,12 @@
     },
     {
       "id": "frontend.dashboards",
-      "name": "Dashboard Layout",
-      "version": "0.1.0",
+      "name": "Dashboard Composition",
+      "version": "1.0.0",
       "category": "frontend",
       "subcategory": "dashboards",
-      "status": "planned",
-      "description": "Planned. A dashboard shell (sidebar nav gated by useAuth's user.role, stat tiles, a page layout composing frontend.tables' DataTable + frontend.forms' useFormState for settings/profile forms) — the natural next composition once frontend.authentication + frontend.tables + frontend.forms exist individually. Not yet implemented: it's a composition of already-implemented pieces rather than new primitives, so it's lower priority than the pieces it would compose.",
+      "status": "implemented",
+      "description": "A reusable authenticated dashboard composition: display-only role-filtered navigation, caller-supplied stat tiles, an optional table built on frontend.tables, and an optional profile form built on frontend.forms. Applications supply their own reviewed table path, rows, statistics and profile-save callback. No stats or profile endpoint is assumed or created.",
       "tags": [
         "frontend",
         "dashboards",
@@ -1581,7 +1581,10 @@
         "role"
       ],
       "inputs": [],
-      "outputs": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
       "dependsOn": [
         {
           "id": "frontend.authentication",
@@ -1598,9 +1601,9 @@
       ],
       "environment": [],
       "testing": {
-        "strategy": "none",
-        "location": "",
-        "command": ""
+        "strategy": "unit",
+        "location": "tests/Dashboard.test.tsx",
+        "command": "npm test -- Dashboard"
       },
       "compatibleNodes": [
         "frontend.authentication",

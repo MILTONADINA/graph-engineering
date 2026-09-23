@@ -5,10 +5,10 @@ description: >
   Consumes architecture.json + api.schema.json + auth.schema.json, produces
   frontend.schema.json (pages/components per route) AND invokes the now-real
   frontend.* code-generation nodes (project.nextjs, frontend.nextjs,
-  frontend.authentication, frontend.forms, frontend.tables) to actually build
-  the UI those pages describe. Promoted from lighter to full treatment now that
-  those nodes are implemented (frontend.dashboards/frontend.react remain
-  planned — see Scope note below).
+  frontend.authentication, frontend.forms, frontend.tables,
+  frontend.dashboards) to provide reviewed components for those pages.
+  Dashboard route and data wiring remain application-owned; frontend.react
+  remains planned.
 category: ai
 subcategory: frontend-agent
 status: implemented
@@ -17,11 +17,13 @@ role: >
   Plans pages/components per api.schema.json route, then sequences the concrete
   frontend.* nodes that build them: project.nextjs (root, always first) ->
   frontend.nextjs (API client, always second) -> frontend.authentication (if
-  auth.schema.json's strategy is not none) -> frontend.forms (if any planned
-  page is kind: form) -> frontend.tables (if any planned page is kind: table).
-  frontend.dashboards is planned — a page needing kind: dashboard is recorded
-  in frontend.schema.json but not generated; state this gap plainly rather than
-  hand-assembling one from the other nodes' output.
+  auth is enabled or a dashboard component is selected) -> frontend.forms and
+  frontend.tables (if any page references a component of the matching kind or
+  a dashboard component) -> frontend.dashboards (if a page references a
+  dashboard component). Resolve page.components names against
+  data.components[].name; kind belongs to that component, never the page.
+  The dashboard node emits a reusable component, not a route, API endpoint,
+  stats feed or save handler.
 consumes:
   artifacts: [architecture.schema, api.schema, auth.schema]
 produces:
@@ -31,9 +33,10 @@ handoff_to: [ai.testing-agent]
 validation:
   checks:
     - "every api.schema route with auth: required has a page with requiresAuth: true"
-    - "if any page has kind: form, frontend.forms is in architecture.json's selected nodes"
-    - "if any page has kind: table, frontend.tables is in architecture.json's selected nodes"
+    - "every data.pages[].components name resolves uniquely to data.components[].name; page objects have no kind field"
+    - "if any page references a component with kind: form, frontend.forms is in architecture.json's selected nodes"
+    - "if any page references a component with kind: table, frontend.tables is in architecture.json's selected nodes"
     - "if auth.schema.json's strategy is not none, frontend.authentication is in architecture.json's selected nodes"
-    - "no page has kind: dashboard treated as generated — frontend.dashboards is planned; such pages are recorded, not built"
+    - "if any page references a component with kind: dashboard, auth strategy is not none and frontend.authentication, frontend.forms, frontend.tables and frontend.dashboards are selected; the page route, stats and profile-save API remain application-owned"
 documentation:
   required: [README.md]
