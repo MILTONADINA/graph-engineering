@@ -14,7 +14,7 @@ Task category, complexity, and risk are explicitly proposed classifications.
 | `retry-state-visibility`             | State consistency / localized               | `5703aba`       | [Pinned historical replay](../evaluation/retry-visibility-runtime/fixture-validation.json); no arbitrary-candidate isolation |
 | `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | [Isolated service/virtual-setup replay](../evaluation/infrastructure-runtime/fixture-validation.json); no held-out runs      |
 | `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier plus native Linux private-mount permission proof                                                 |
-| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing                                                 |
+| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native Windows launch passed; generated-app CI result pending                         |
 | `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance                                                |
 | `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | [Isolated full-module replay](../evaluation/template-invocation-runtime/fixture-validation.json); no paired model calls      |
 
@@ -157,9 +157,17 @@ native launch errors, the recorded helper against real `npm --version`, and
 Node/CLI paths and argv containing spaces or shell punctuation. It executes no
 generated candidate and does not supply native Windows generated-app build
 acceptance. It must run on Windows and is provisioned in that CI job; the Mac's
-default suite explicitly skips it. The original corpus remains immutable: its
-readiness fields describe the pinned intake snapshot, while this workflow and
-the current executable registry describe the subsequently added tooling.
+default suite explicitly skips it. The same required Windows platform job now
+also runs the current `create-graph-app/scripts/smoke-generated-apps.js` on
+native Windows. That separate check generates frontend, backend and full-stack
+projects, installs each project's dependencies, and runs its build and tests.
+It is a current-scaffolder integration check, not execution of an arbitrary
+candidate or a re-run of the exact historical scripts. Its native result is
+pending the first CI run with this new step.
+
+The original corpus remains immutable: its readiness fields describe the pinned
+intake snapshot, while this workflow and the current executable registry
+describe the subsequently added tooling.
 
 ## Verify isolated private-mount candidates
 
@@ -435,8 +443,8 @@ comparison. The earlier weak-verifier replay and the initially failed harness
 remain retained history, not substitute evidence. See
 [local validation](local-validation.md) for those exclusions.
 
-Before claiming completed calibration, implement and independently validate the
-remaining harnesses, collect varied real paired runs, review actual labels,
-assemble a genuinely unseen sealed held-out population, and satisfy the existing
-per-category calibration, risk, false-approval and cost gates. Nine retrospective
-cases from one repository cannot establish those claims.
+Before claiming completed calibration, collect varied real paired runs and
+review actual labels. Assemble a genuinely unseen sealed held-out population
+and satisfy the existing per-category calibration, risk, false-approval and cost
+gates. Nine retrospective cases from one repository cannot establish those
+claims.
