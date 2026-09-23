@@ -363,8 +363,10 @@ jobs:
             -t graph-sealed-repository-v2:ci .
           GRAPH_SEALED_REPOSITORY_V2_NATIVE_TESTS=1 \
           GRAPH_SEALED_REPOSITORY_V2_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-repository-v2:ci)" \
+          GRAPH_SEALED_PUBLIC_INTAKE_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-public-intake:ci)" \
           GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
             node --test --test-concurrency=1 \
               evaluation/sealed/oracle-runtime/repository-v2.test.mjs \
               evaluation/sealed/oracle-runtime/repository-host-v2.test.mjs \
-              evaluation/sealed/tests/repository-scope-v2.test.mjs
+              evaluation/sealed/tests/repository-scope-v2.test.mjs \
+              evaluation/sealed/tests/local-repository-v2-attempt.test.mjs
