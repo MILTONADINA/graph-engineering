@@ -63,6 +63,7 @@ export async function fixture(
   moduleGraphOptions?: ModuleGraphFixtureOptions,
   repositorySnapshotBaseline?: Buffer,
   repositoryClaimOptions?: RepositoryClaimOptions,
+  declaredSelection = false,
 ) {
   const stateFormatVersion = repositorySnapshotBaseline
     ? "repo-snapshot-v1"
@@ -504,7 +505,7 @@ export async function fixture(
     version: "1.0.0",
     kind: "sealed-exposure-registry",
     registryId: "aggregate-registry",
-    createdAt: day,
+    createdAt: declaredSelection ? "2025-12-31T00:00:00.000Z" : day,
     entries: [],
   };
   const candidate: CohortInspection["plan"]["configurations"]["candidate"] = {
@@ -587,11 +588,19 @@ export async function fixture(
     kind: "sealed-collection-plan",
     collectionId: "aggregate-collection",
     projectId: "aggregate-project",
-    createdAt: day,
+    createdAt: declaredSelection ? "2026-01-01T00:00:00.000Z" : day,
     notBefore: day,
     expiresAt: "2099-01-01T00:00:00.000Z",
     population: "Synthetic fixture only; no real held-out population.",
-    samplingRule: "Preassign one synthetic task to both arms in fixed order.",
+    samplingRule: declaredSelection
+      ? canonicalJson({
+          version: "2.0.0",
+          kind: "sealed-declared-inventory-hash-rank-selection",
+          seed: "0".repeat(64),
+          strata: [{ stratum: "low", taskCount: 1 }],
+          assignmentOrder: "ranked-task-pairs-with-hashed-arm-order",
+        })
+      : "Preassign one synthetic task to both arms in fixed order.",
     exposureRegistrySha256: hashJson(registry),
     trustPolicySha256: hashJson(rowTrust),
     calibrationDatasetSha256: hashJson(calibration),
@@ -1515,6 +1524,30 @@ export function moduleGraphFixture(options: ModuleGraphFixtureOptions = {}) {
     false,
     false,
     options,
+  );
+}
+
+/** Signed synthetic aggregate with a matching pre-run v2 selection window. */
+export function declaredSelectionAggregateFixture() {
+  return fixture(
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    undefined,
+    undefined,
+    undefined,
+    true,
   );
 }
 

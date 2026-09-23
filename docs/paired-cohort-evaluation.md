@@ -84,6 +84,20 @@ anchors it. Thus source completeness, seed chronology, actor independence,
 protected execution, anti-rollback and `promotionEligible` remain false. The
 v2 check is local conditional consistency, not a promotion grant.
 
+`inspectSealedEvidenceReadiness()` is a private, analysis-only join for the
+original declared-v2 population manifest and a closed, vault-backed aggregate.
+It reruns the signed selection, full-cohort preflight, held-out row-review and
+original-byte aggregate inspectors from their supplied originals; an optional
+current-witness callback brackets that aggregate audit. It rejects changed
+registration, plan, registry, assignments, task order, signer-key reuse across
+registries, target identity, signatures, or original-byte pins. A successful
+receipt lists remaining blockers and always has `promotionEligible: false`.
+Neither its input reader nor an optional witness callback is authenticated by
+this API. It does not audit source-population artifacts or configuration, model
+and label-evidence bytes, prove independently unseen tasks or actual paired
+provider billing, or approve current operator trust. Its counts and hashes are
+private collection metadata and must not be exported through MCP/cloud context.
+
 The output binds the whole measured candidate configuration; a joint experiment
 does not justify independently changing a model, context policy or category later.
 `metricsEligible` describes only the supplied analysis. Every result has
