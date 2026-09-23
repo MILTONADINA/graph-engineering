@@ -2,6 +2,10 @@
 // sockets, supplies calibration labels, or establishes runtime isolation.
 import { types } from "node:util";
 import {
+  mountCandidateCase,
+  validateMountCandidateFiles,
+} from "./candidate-mount.mjs";
+import {
   portableCandidateCase,
   validatePortableCandidateFiles,
 } from "./candidate-portable.mjs";
@@ -109,6 +113,8 @@ function assertTask(id) {
 
 /** Scope validation only: source syntax and behavior require the isolated runner. */
 export function validateCandidateFiles(id, files) {
+  if (id === "linux-private-verification-mount")
+    return validateMountCandidateFiles(files);
   if (id === "portable-npm-spawn") return validatePortableCandidateFiles(files);
   assertTask(id);
   const source = exactProperties(files, [sourcePath])[sourcePath];
@@ -252,6 +258,7 @@ function observation(input) {
  * witnesses do not establish that arbitrary candidates are universally correct.
  */
 export function candidateCase(id) {
+  if (id === "linux-private-verification-mount") return mountCandidateCase();
   if (id === "portable-npm-spawn") return portableCandidateCase();
   assertTask(id);
   const registered = freeze(scenarios());

@@ -310,6 +310,9 @@ export async function verifyCandidate({
     portableOracleSha256: hash(
       await readFile(new URL("candidate-portable.mjs", import.meta.url)),
     ),
+    mountOracleSha256: hash(
+      await readFile(new URL("candidate-mount.mjs", import.meta.url)),
+    ),
     imageId,
   };
   const startedAt = new Date().toISOString();

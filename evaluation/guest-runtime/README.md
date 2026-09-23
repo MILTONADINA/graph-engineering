@@ -3,7 +3,9 @@
 This fixture evaluates arbitrary source edits **inside a QuickJS WebAssembly
 guest**, without restricting edits to an AST repair region. It supports the
 reviewed `unmetered-decision-budget` TypeScript dependency/API slice and the
-`portable-npm-spawn` CommonJS callers/helper, not general Node applications.
+`portable-npm-spawn` CommonJS callers/helper, and the
+`linux-private-verification-mount` Docker TypeScript interface, not general Node
+applications.
 It never executes candidate JavaScript in Node, runs a model, opens a provider
 connection, launches a requested process, or supplies acceptance judgments.
 
@@ -34,7 +36,7 @@ GRAPH_ENGINE_GUEST_RUNTIME_TESTS=1 GRAPH_ENGINE_GUEST_HISTORY_TESTS=1 \
 ```
 
 The history tests verify source SHA256 identities and run both revisions
-against all registered external host witnesses (15 unmetered and 16 portable
+against all registered external host witnesses (15 unmetered, 16 portable and 10 mount
 scenarios per revision). They never fetch history.
 Default tests perform only the host-refusal check; Docker tests are explicitly
 skipped unless enabled. An enabled test fails if the image/history is missing.
@@ -117,6 +119,33 @@ SHA256 hashes of the WASM bytes, bundled Zod, complete executor and lockfile.
 The image SHA binds the remaining trusted provisioning environment. Candidate
 source, dependency bundle and compiler/runtime identities must accompany any
 later evidence receipt.
+
+### Private verification mount protocol
+
+`taskId: "linux-private-verification-mount"` accepts exactly
+`packages/engine/src/execution/docker.ts`. Its scenario contains `input` plus
+fixed simulated `runCodes`; see the host registry in `candidate-mount.mjs` for
+the exact platform/identity/files/checks contract. Neither expected outcomes nor
+host paths or environment are supplied to candidate code.
+
+Guest ESM capabilities simulate path operations, tracked allowed files, a private
+temporary copy, image inspection, Docker command results and cleanup. Actual
+filesystem-operation and command-argument traces live in the controller, outside
+guest memory. Returned verification results are additional consistency checks,
+never substitutes for those traces. Descriptor-based argument copies, unavailable
+Proxy constructors and sticky capability refusals protect the recorded values.
+The mount slice permits at most 512 capability operations for its bounded
+16-file scenario; the other slices retain their 128-operation ceiling.
+
+These checks reproduce invocation behavior only. The separate
+`GRAPH_ENGINE_NATIVE_MOUNT_TESTS=1 node --test evaluation/native-mount.test.mjs`
+must run on a non-root native Linux host with an unremapped local Docker daemon.
+It validates trusted historical guest traces, then projects only the observed
+numeric identity into fixed native probes. Capability-free root must encounter
+actual `EACCES` on the host-owned 0700/0600 mount, while the matching owner reads
+it without changing permissions or restoring capabilities. It never executes
+candidate argv or source on the host. macOS and Windows default tests explicitly
+skip this native Linux proof.
 
 ### Portable npm caller protocol
 

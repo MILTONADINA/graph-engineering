@@ -35,7 +35,7 @@ jobs:
       - run: npm run format:check
       - run: npm run check
       - name: Evaluation protocol and intake checks
-        run: node --test evaluation/candidate-cases.test.mjs evaluation/candidate-portable.test.mjs evaluation/candidate-build-order.test.mjs evaluation/verify-build-order.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs
+        run: node --test evaluation/candidate-cases.test.mjs evaluation/candidate-portable.test.mjs evaluation/candidate-mount.test.mjs evaluation/native-mount.test.mjs evaluation/candidate-build-order.test.mjs evaluation/verify-build-order.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs
       - run: npm ci --prefix graph-templates/tools/validate-graph
       - run: npm test --prefix graph-templates/tools/validate-graph
       - run: npm run pack:check -w create-graph-app
@@ -62,6 +62,11 @@ jobs:
           GRAPH_ENGINE_GUEST_RUNTIME_TESTS: "1"
           GRAPH_ENGINE_GUEST_HISTORY_TESTS: "1"
           GRAPH_ENGINE_CANDIDATE_DOCKER_TESTS: "1"
+      - name: Native Linux historical private-mount permissions
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: node --test evaluation/native-mount.test.mjs
+        env:
+          GRAPH_ENGINE_NATIVE_MOUNT_TESTS: "1"
       - name: Native Windows historical npm launch
         if: runner.os == 'Windows'
         run: node --test evaluation/native-portable.test.mjs

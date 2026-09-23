@@ -35,6 +35,8 @@ Item 13 still contains buildable work, not only requests for partner labels:
   verifiers, but no measured worker runs through those new verifiers.
   Clean-workspace dependency ordering now also has an inert candidate guard and
   real fresh offline compiler/test acceptance against the pinned historical tree.
+  Private-mount candidates now pass isolated historical witnesses; the new
+  native Linux permission check still needs its CI execution before sign-off.
   Complete the remaining adapters and candidate verification before treating
   their worker runs as evidence.
 - Implement separately governed sealed held-out collection/execution: frozen

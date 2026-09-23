@@ -10,6 +10,7 @@ const SOURCE_PATH = "packages/engine/src/decisions.ts";
 const PACK_PATH = "create-graph-app/scripts/check-pack-contents.js";
 const SMOKE_PATH = "create-graph-app/scripts/smoke-generated-apps.js";
 const HELPER_PATH = "create-graph-app/scripts/npm-command.js";
+const MOUNT_PATH = "packages/engine/src/execution/docker.ts";
 const CAPTURE_ERROR = "GRAPH_CANDIDATE_INVOCATION_CAPTURED";
 const LIMITS = Object.freeze({
   inputBytes: 256 * 1024,
@@ -124,6 +125,93 @@ function validateJson(value) {
 async function validateInput(value) {
   const { z } = await import("zod");
   const label = z.string().min(1).max(256);
+  if (value?.taskId === "linux-private-verification-mount") {
+    const text = z
+      .string()
+      .min(1)
+      .max(2048)
+      .refine(
+        (item) => item.isWellFormed() && !/[\u0000-\u001f\u007f]/.test(item),
+      );
+    const relative = text.refine(
+      (item) =>
+        !/[\\:]/.test(item) &&
+        item
+          .split("/")
+          .every(
+            (part) =>
+              part &&
+              part !== "." &&
+              part !== ".." &&
+              !/[. ]$/.test(part) &&
+              !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
+          ),
+    );
+    const parsed = z
+      .object({
+        version: z.literal("1.0.0"),
+        taskId: z.literal("linux-private-verification-mount"),
+        files: z.object({ [MOUNT_PATH]: z.string().min(1) }).strict(),
+        scenario: z
+          .object({
+            input: z
+              .object({
+                platform: z.enum(["linux", "darwin", "win32"]),
+                uid: z.number().int().min(0).max(2147483647).nullable(),
+                gid: z.number().int().min(0).max(2147483647).nullable(),
+                workspace: text,
+                files: z
+                  .array(
+                    z
+                      .object({
+                        path: relative,
+                        content: z
+                          .string()
+                          .max(4000)
+                          .refine((item) => item.isWellFormed()),
+                        allowed: z.boolean(),
+                      })
+                      .strict(),
+                  )
+                  .max(16),
+                checks: z
+                  .array(
+                    z
+                      .object({
+                        image: text,
+                        argv: z.array(text).min(1).max(16),
+                      })
+                      .strict(),
+                  )
+                  .min(1)
+                  .max(4),
+                timeoutSeconds: z.number().int().min(1).max(300),
+                snapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
+              })
+              .strict(),
+            runCodes: z.array(z.number().int().min(0).max(255)).min(1).max(4),
+          })
+          .strict(),
+      })
+      .strict()
+      .safeParse(value);
+    if (!parsed.success) throw new CandidateError();
+    const request = parsed.data,
+      input = request.scenario.input,
+      paths = input.platform === "win32" ? path.win32 : path.posix;
+    if (
+      !paths.isAbsolute(input.workspace) ||
+      paths.normalize(input.workspace) !== input.workspace ||
+      input.workspace === paths.parse(input.workspace).root ||
+      Buffer.byteLength(request.files[MOUNT_PATH]) > LIMITS.sourceBytes ||
+      !request.files[MOUNT_PATH].isWellFormed() ||
+      new Set(input.files.map((item) => item.path.toLowerCase())).size !==
+        input.files.length ||
+      request.scenario.runCodes.length !== input.checks.length
+    )
+      throw new CandidateError();
+    return request;
+  }
   if (value?.taskId === "portable-npm-spawn") {
     const text = z
       .string()
@@ -486,6 +574,82 @@ export function run(textInput) {
 }
 `;
 
+const MOUNT_MODULE = String.raw`
+const rawBridge=globalThis.__graphCapability;delete globalThis.__graphCapability;
+const parse=JSON.parse,stringify=JSON.stringify,create=Object.create,define=Object.defineProperty;
+const descriptors=Object.getOwnPropertyDescriptors,descriptor=Object.getOwnPropertyDescriptor,ownKeys=Reflect.ownKeys;
+const getPrototypeOf=Object.getPrototypeOf,objectPrototype=Object.prototype,setPrototypeOf=Object.setPrototypeOf,arrayIsArray=Array.isArray;
+define(globalThis,"Proxy",{get:()=>undefined,configurable:false});
+function bridge(operation,value){return parse(rawBridge(operation,stringify(value)));}
+function refuse(){return bridge("forbidden",null);}
+function record(){return create(null);}
+function text(value){if(typeof value!=="string"||value.length>8192)return refuse();return value;}
+function fields(value){
+ if(!value||typeof value!=="object"||arrayIsArray(value))return refuse();
+ const prototype=getPrototypeOf(value);if(prototype!==null&&prototype!==objectPrototype)return refuse();
+ const output=setPrototypeOf(descriptors(value),null),names=ownKeys(output);if(names.length>16)return refuse();
+ for(let index=0;index<names.length;index++){const key=names[index],field=output[key];if(typeof key!=="string"||key==="__proto__"||key==="constructor"||key==="prototype"||!field.enumerable||!descriptor(field,"value"))return refuse();}
+ return output;
+}
+function strings(value,maximum=64){
+ if(!arrayIsArray(value))return refuse();const source=setPrototypeOf(descriptors(value),null),length=source.length.value;
+ if(length>maximum||ownKeys(source).length!==length+1)return refuse();const result=setPrototypeOf([],null);
+ for(let index=0;index<length;index++){const item=source[index];if(!item||!item.enumerable||!descriptor(item,"value"))return refuse();result[index]=text(item.value);}
+ return result;
+}
+function options(value,allowed){
+ const source=fields(value),names=ownKeys(source),result=record();
+ for(let index=0;index<names.length;index++){
+  const key=names[index];let permitted=false;for(let n=0;n<allowed.length;n++)if(key===allowed[n])permitted=true;
+  if(!permitted)return refuse();const value=source[key].value;
+  if(key==="signal"){if(value!==undefined)return refuse();continue;}
+  if(typeof value!=="boolean"&&typeof value!=="number")return refuse();result[key]=value;
+ }
+ return result;
+}
+function list(){return setPrototypeOf([],null);}
+function fs(operation,args){const payload=record();payload.operation=operation;payload.args=args;return bridge("mount-fs",payload);}
+export async function mkdtemp(prefix){const args=list();args[0]=text(prefix);return fs("mkdtemp",args);}
+export async function mkdir(directory,input={}){const args=list();args[0]=text(directory);args[1]=options(input,["recursive","mode"]);return fs("mkdir",args);}
+export async function copyFile(source,target){const args=list();args[0]=text(source);args[1]=text(target);return fs("copyFile",args);}
+export async function rm(directory,input={}){const args=list();args[0]=text(directory);args[1]=options(input,["recursive","force","mode"]);return fs("rm",args);}
+export async function readFile(filename){const args=list();args[0]=text(filename);const content=fs("readFile",args);const result=record();result.toString=(encoding)=>encoding==="base64"?content:refuse();return result;}
+export function hash(value){return bridge("mount-hash",text(value));}
+async function invokeCommand(kind,executable,args,input={}){const payload=record();payload.kind=kind;payload.executable=text(executable);payload.args=strings(args);const parsed=options(input,["signal","timeoutMs"]);payload.timeoutMs=parsed.timeoutMs;return bridge("mount-command",payload);}
+export function command(executable,args,input){return invokeCommand("command",executable,args,input);}
+export function checked(executable,args,input){return invokeCommand("checked",executable,args,input);}
+export function gitFiles(root){return Promise.resolve(bridge("mount-git-files",text(root)));}
+export function isAllowedPath(relative){return bridge("mount-allowed",text(relative));}
+export async function safePath(root,relative){const payload=record();payload.root=text(root);payload.relative=text(relative);return bridge("mount-safe-path",payload);}
+export const path=record();
+for(const operation of ["join","dirname"]){path[operation]=(...args)=>{const payload=record();payload.operation=operation;payload.args=strings(args,16);return bridge("mount-path",payload);};}
+let initialized=false;
+export function initialize(inputText){
+ if(initialized)return refuse();initialized=true;const input=parse(inputText),process=record();process.platform=input.platform;
+ if(input.uid!==null)process.getuid=()=>input.uid;
+ if(input.gid!==null)process.getgid=()=>input.gid;
+ define(globalThis,"process",{get:()=>process,configurable:false});
+ define(Date,"now",{get:()=>()=>1767225600000,configurable:false});
+}
+export function invoke(verify,inputText){const input=parse(inputText);const policy=record();policy.timeoutSeconds=input.timeoutSeconds;return verify(input.workspace,input.checks,policy,input.snapshotHash);}
+export function observe(value){
+ if(!arrayIsArray(value))return refuse();const source=setPrototypeOf(descriptors(value),null),length=source.length.value;
+ if(length>4||ownKeys(source).length!==length+1)return refuse();const results=list();
+ for(let index=0;index<length;index++){
+  const entry=source[index];if(!entry||!descriptor(entry,"value"))return refuse();const original=fields(entry.value),result=record();
+  const names=ownKeys(original);if(names.length!==7)return refuse();
+  for(let n=0;n<names.length;n++){const key=names[n],item=original[key].value;
+   if(key==="argv")result.argv=strings(item,16);
+   else if(key==="code"){if(typeof item!=="number")return refuse();result.code=item;}
+   else if(key==="image"||key==="imageId"||key==="stdout"||key==="stderr"||key==="snapshotHash")result[key]=text(item);
+   else return refuse();
+  }
+  results[index]=result;
+ }
+ return stringify(results);
+}
+`;
+
 async function execute(request) {
   const started = performance.now();
   const deadline = started + LIMITS.executionMs;
@@ -499,7 +663,10 @@ async function execute(request) {
     import("@jitl/quickjs-wasmfile-release-sync"),
   ]);
   const portable = request.taskId === "portable-npm-spawn";
-  const source = portable ? "" : request.files[SOURCE_PATH];
+  const mount = request.taskId === "linux-private-verification-mount";
+  const source = portable
+    ? ""
+    : request.files[mount ? MOUNT_PATH : SOURCE_PATH];
   const syntax = ts.createSourceFile(
     "decisions.ts",
     source,
@@ -542,6 +709,11 @@ async function execute(request) {
   let traceBytes = 0;
   const requests = [];
   const calls = [];
+  const filesystem = [];
+  const copiedFiles = new Map();
+  let mountRunIndex = 0,
+    mountCreated = false,
+    mountRemoved = false;
   let exitCode = null;
   const handles = [];
   const variant = newVariant(release, {
@@ -612,13 +784,239 @@ async function execute(request) {
       context.newFunction("fixtureCapability", (...args) => {
         try {
           guard();
-          if (++capabilities > LIMITS.capabilities || args.length !== 2)
+          if (
+            ++capabilities > (mount ? 512 : LIMITS.capabilities) ||
+            args.length !== 2
+          )
             return refuse();
           const operation = string(args[0], 64);
           const payload = JSON.parse(string(args[1], LIMITS.bridgeBytes));
           validateJson(payload);
           let result;
-          if (portable) {
+          if (mount) {
+            const input = request.scenario.input,
+              paths = input.platform === "win32" ? path.win32 : path.posix;
+            const view = paths.join(
+              paths.dirname(input.workspace),
+              "verification-fixture",
+            );
+            const exact = (value, names) =>
+              value &&
+              typeof value === "object" &&
+              !Array.isArray(value) &&
+              Object.keys(value).sort().join(",") === names.sort().join(",");
+            const validText = (value, empty = false) =>
+              typeof value === "string" &&
+              value.isWellFormed() &&
+              (empty || value.length > 0) &&
+              Buffer.byteLength(value) <= 8192 &&
+              !/[\u0000-\u001f\u007f]/.test(value);
+            const stringList = (value, maximum = 64) =>
+              Array.isArray(value) &&
+              value.length <= maximum &&
+              value.every((item) => validText(item, true));
+            const sourceFile = (filename) =>
+              input.files.find(
+                (file) =>
+                  file.allowed &&
+                  paths.join(input.workspace, file.path) === filename,
+              );
+            const recordTrace = (list, value) => {
+              traceBytes += Buffer.byteLength(JSON.stringify(value));
+              if (traceBytes > LIMITS.traceBytes) throw new CandidateError();
+              list.push(value);
+            };
+            if (operation === "mount-hash") {
+              if (
+                typeof payload !== "string" ||
+                Buffer.byteLength(payload) > 16000
+              )
+                return refuse();
+              result = sha256(payload);
+            } else if (operation === "mount-path") {
+              if (
+                !exact(payload, ["operation", "args"]) ||
+                !["join", "dirname"].includes(payload.operation) ||
+                !stringList(payload.args, 16) ||
+                (payload.operation === "dirname" && payload.args.length !== 1)
+              )
+                return refuse();
+              result = paths[payload.operation](...payload.args);
+              if (!validText(result)) return refuse();
+            } else if (operation === "mount-git-files") {
+              if (payload !== input.workspace) return refuse();
+              result = input.files.map((file) => file.path);
+            } else if (operation === "mount-allowed") {
+              if (
+                !validText(payload) ||
+                !input.files.some((file) => file.path === payload)
+              )
+                return refuse();
+              result = input.files.find(
+                (file) => file.path === payload,
+              ).allowed;
+            } else if (operation === "mount-safe-path") {
+              if (
+                !exact(payload, ["root", "relative"]) ||
+                ![input.workspace, view].includes(payload.root) ||
+                !input.files.some(
+                  (file) => file.path === payload.relative && file.allowed,
+                )
+              )
+                return refuse();
+              result = paths.join(payload.root, payload.relative);
+              if (
+                payload.root === view &&
+                (!mountCreated || mountRemoved || !copiedFiles.has(result))
+              )
+                return refuse();
+            } else if (operation === "mount-fs") {
+              if (
+                !exact(payload, ["operation", "args"]) ||
+                !Array.isArray(payload.args) ||
+                payload.args.length > 2 ||
+                filesystem.length >= 128
+              )
+                return refuse();
+              const [first, second] = payload.args;
+              if (!validText(first)) return refuse();
+              if (payload.operation === "mkdtemp") {
+                if (
+                  payload.args.length !== 1 ||
+                  first !==
+                    paths.join(
+                      paths.dirname(input.workspace),
+                      "verification-",
+                    ) ||
+                  mountCreated
+                )
+                  return refuse();
+                mountCreated = true;
+                result = view;
+              } else {
+                if (!mountCreated || mountRemoved) return refuse();
+                if (payload.operation === "readFile") {
+                  if (payload.args.length !== 1) return refuse();
+                  const file = sourceFile(first),
+                    content = file?.content ?? copiedFiles.get(first);
+                  if (content === undefined) return refuse();
+                  result = Buffer.from(content, "utf8").toString("base64");
+                } else if (payload.operation === "mkdir") {
+                  if (
+                    payload.args.length !== 2 ||
+                    !second ||
+                    typeof second !== "object" ||
+                    Array.isArray(second) ||
+                    Object.keys(second).some(
+                      (key) => !["recursive", "mode"].includes(key),
+                    ) ||
+                    ("recursive" in second &&
+                      typeof second.recursive !== "boolean") ||
+                    ("mode" in second &&
+                      (!Number.isInteger(second.mode) ||
+                        second.mode < 0 ||
+                        second.mode > 4095))
+                  )
+                    return refuse();
+                  const relative = paths.relative(view, first);
+                  if (
+                    paths.isAbsolute(relative) ||
+                    relative === ".." ||
+                    relative.startsWith(`..${paths.sep}`)
+                  )
+                    return refuse();
+                  if (
+                    !input.files.some(
+                      (file) =>
+                        file.allowed &&
+                        (paths.dirname(paths.join(view, file.path)) === first ||
+                          paths
+                            .dirname(paths.join(view, file.path))
+                            .startsWith(first + paths.sep)),
+                    )
+                  )
+                    return refuse();
+                  result = null;
+                } else if (payload.operation === "copyFile") {
+                  if (payload.args.length !== 2 || !validText(second))
+                    return refuse();
+                  const file = sourceFile(first);
+                  if (!file || second !== paths.join(view, file.path))
+                    return refuse();
+                  copiedFiles.set(second, file.content);
+                  result = null;
+                } else if (payload.operation === "rm") {
+                  if (
+                    payload.args.length !== 2 ||
+                    first !== view ||
+                    !second ||
+                    typeof second !== "object" ||
+                    Array.isArray(second) ||
+                    Object.keys(second).some(
+                      (key) => !["recursive", "force", "mode"].includes(key),
+                    ) ||
+                    ("recursive" in second &&
+                      typeof second.recursive !== "boolean") ||
+                    ("force" in second && typeof second.force !== "boolean") ||
+                    ("mode" in second &&
+                      (!Number.isInteger(second.mode) ||
+                        second.mode < 0 ||
+                        second.mode > 4095))
+                  )
+                    return refuse();
+                  mountRemoved = true;
+                  result = null;
+                } else return refuse();
+              }
+              recordTrace(filesystem, {
+                operation: payload.operation,
+                args: payload.args,
+              });
+            } else if (operation === "mount-command") {
+              if (
+                !exact(payload, ["kind", "executable", "args", "timeoutMs"]) ||
+                !["command", "checked"].includes(payload.kind) ||
+                payload.executable !== "docker" ||
+                !stringList(payload.args) ||
+                !Number.isInteger(payload.timeoutMs) ||
+                payload.timeoutMs < 0 ||
+                payload.timeoutMs > 3600000 ||
+                calls.length >= 16
+              )
+                return refuse();
+              if (payload.kind === "checked") {
+                if (
+                  payload.args.length !== 5 ||
+                  payload.args.slice(0, 4).join("\0") !==
+                    ["image", "inspect", "--format", "{{.Id}}"].join("\0") ||
+                  !input.checks.some((check) => check.image === payload.args[4])
+                )
+                  return refuse();
+                result = `sha256:${"a".repeat(64)}`;
+              } else if (payload.args[0] === "run") {
+                if (mountRunIndex >= request.scenario.runCodes.length)
+                  return refuse();
+                result = {
+                  code: request.scenario.runCodes[mountRunIndex++],
+                  stdout: "",
+                  stderr: "",
+                };
+              } else if (
+                payload.args.length === 3 &&
+                payload.args[0] === "rm" &&
+                payload.args[1] === "-f" &&
+                /^graph-check-[a-f0-9]{20}$/.test(payload.args[2])
+              )
+                result = { code: 0, stdout: "", stderr: "" };
+              else return refuse();
+              recordTrace(calls, {
+                kind: payload.kind,
+                executable: payload.executable,
+                args: [...payload.args],
+                timeoutMs: payload.timeoutMs,
+              });
+            } else return refuse();
+          } else if (portable) {
             const input = request.scenario.input;
             const validText = (value, limit = 2048, empty = false) =>
               typeof value === "string" &&
@@ -818,22 +1216,40 @@ async function execute(request) {
     const modules = new Map(
       portable
         ? []
-        : [
-            ["zod", zodSource],
-            ["graph:fixture", FIXTURE_MODULE],
-            [
-              "./util.js",
-              'export { hash, id, now, readJson } from "graph:fixture";',
+        : mount
+          ? [
+              ["graph:fixture", MOUNT_MODULE],
+              [
+                "../util.js",
+                'export { command, checked, hash } from "graph:fixture";',
+              ],
+              [
+                "node:fs/promises",
+                'export { copyFile, mkdir, mkdtemp, readFile, rm } from "graph:fixture";',
+              ],
+              ["node:path", 'export { path as default } from "graph:fixture";'],
+              ["./workspace.js", 'export { gitFiles } from "graph:fixture";'],
+              [
+                "../policy.js",
+                'export { isAllowedPath, safePath } from "graph:fixture";',
+              ],
+            ]
+          : [
+              ["zod", zodSource],
+              ["graph:fixture", FIXTURE_MODULE],
+              [
+                "./util.js",
+                'export { hash, id, now, readJson } from "graph:fixture";',
+              ],
+              [
+                "./policy.js",
+                'export { assertEndpoint, containsSecret } from "graph:fixture";',
+              ],
+              [
+                "node:path",
+                'import { pathJoin } from "graph:fixture"; export default Object.freeze({ join: pathJoin });',
+              ],
             ],
-            [
-              "./policy.js",
-              'export { assertEndpoint, containsSecret } from "graph:fixture";',
-            ],
-            [
-              "node:path",
-              'import { pathJoin } from "graph:fixture"; export default Object.freeze({ join: pathJoin });',
-            ],
-          ],
     );
     runtime.setModuleLoader(
       (name) => {
@@ -853,7 +1269,7 @@ async function execute(request) {
     );
     const fixture = unwrap(
       context.evalCode(
-        portable ? PORTABLE_MODULE : FIXTURE_MODULE,
+        portable ? PORTABLE_MODULE : mount ? MOUNT_MODULE : FIXTURE_MODULE,
         "graph:fixture",
         { type: "module" },
       ),
@@ -900,6 +1316,61 @@ async function execute(request) {
         version: "1.0.0",
         status: "completed",
         observations: { calls, error, exitCode },
+      };
+    } else if (mount) {
+      const inputText = own(
+        context.newString(JSON.stringify(request.scenario.input)),
+      );
+      const initialize = own(context.getProp(fixture, "initialize"));
+      unwrap(context.callFunction(initialize, context.undefined, inputText));
+      const candidate = settle(
+        unwrap(
+          context.evalCode(compiled.outputText, "candidate:mount", {
+            type: "module",
+          }),
+        ),
+      );
+      const verify = own(context.getProp(candidate, "verifyInContainer"));
+      if (context.typeof(verify) !== "function") throw new CandidateError();
+      const invoke = own(context.getProp(fixture, "invoke"));
+      const records = settle(
+        unwrap(
+          context.callFunction(invoke, context.undefined, verify, inputText),
+        ),
+      );
+      const observationText = unwrap(
+        context.callFunction(observe, context.undefined, records),
+      );
+      drain();
+      const results = JSON.parse(string(observationText, LIMITS.bridgeBytes));
+      validateJson(results);
+      if (
+        !Array.isArray(results) ||
+        results.length > 4 ||
+        results.some(
+          (item) =>
+            !item ||
+            typeof item !== "object" ||
+            Object.keys(item).sort().join(",") !==
+              "argv,code,image,imageId,snapshotHash,stderr,stdout" ||
+            !Number.isInteger(item.code) ||
+            item.code < 0 ||
+            item.code > 255 ||
+            !Array.isArray(item.argv) ||
+            item.argv.length > 16 ||
+            item.argv.some(
+              (arg) => typeof arg !== "string" || arg.length > 2048,
+            ) ||
+            ["image", "imageId", "snapshotHash", "stdout", "stderr"].some(
+              (key) => typeof item[key] !== "string" || item[key].length > 8192,
+            ),
+        )
+      )
+        throw new CandidateError();
+      completed = {
+        version: "1.0.0",
+        status: "completed",
+        observations: { calls, filesystem, results },
       };
     } else {
       const candidate = settle(

@@ -4,6 +4,20 @@ These are development observations, not production calibration or a claimed
 percentage reduction in model cost. Private run databases retain detailed
 events and failures. No paid model calls were authorized or made.
 
+## Isolated private-mount candidate replay
+
+The expanded guest suite passed 24/24 tests without skips. The mount receipt
+records 20 completed historical executions across ten witnesses per revision:
+baseline invocation checks fail, repair checks pass, and source-copy/result
+consistency checks pass independently. The exact repair includes `HOME=/tmp`
+as well as host identity; an initial host regression incorrectly expected the
+old Windows fallback to match and was corrected after inspecting both Git and
+the recorded trace. The original evidence was not relabeled or overwritten.
+
+The separate native Linux permission test is configured in CI but was not run
+on this Mac. Simulated argv is not a native DAC proof. No paid providers, real
+models, independent labels or promotion activation ran during this work.
+
 ## Additional historical clean-build proof
 
 The clean-workspace dependency-order fixture passed all 13 guard/runtime tests,

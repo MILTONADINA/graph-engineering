@@ -359,3 +359,62 @@ test(
     );
   },
 );
+
+test(
+  "mount candidate verification preserves owner matching, fallback platforms and private source-copy traces",
+  { skip: !native, timeout: 120000 },
+  async () => {
+    const corpus = validateCorpus(
+      JSON.parse(
+        await readFile(
+          new URL("calibration-corpus.json", import.meta.url),
+          "utf8",
+        ),
+      ),
+    );
+    const packet = await exportTask(
+      corpus,
+      "linux-private-verification-mount",
+      {
+        repository: fileURLToPath(new URL("../", import.meta.url)),
+        audience: "review",
+      },
+    );
+    const imageId = await inspectGuestImage();
+    const sourcePath = "packages/engine/src/execution/docker.ts";
+    const verify = (source) =>
+      verifyCandidate({
+        taskId: "linux-private-verification-mount",
+        files: { [sourcePath]: source },
+        imageId,
+      });
+    const base = await verify(packet.files[sourcePath].base);
+    assert.equal(base.status, "failed", JSON.stringify(base));
+    assert.equal(base.allCompleted, true, JSON.stringify(base));
+    assert.equal(base.checks.length, 10);
+    assert.equal(
+      base.checks.find((check) => check.id === "linux-private-owner").passed,
+      false,
+    );
+    assert.deepEqual(
+      base.checks.find((check) => check.id === "windows-without-identity-apis")
+        .matched,
+      { invocation: false, filesystem: true, results: true },
+    );
+    // The exact repair also supplies HOME=/tmp, so even the baseline's
+    // identity-API fallback differs from the full repaired invocation contract.
+    const repair = await verify(packet.files[sourcePath].repair);
+    assert.equal(repair.status, "passed", JSON.stringify(repair));
+    assert.equal(repair.allCompleted, true);
+    assert.match(repair.mountOracleSha256, /^[a-f0-9]{64}$/);
+    assert.equal(repair.promotionEligible, false);
+    const forged = await verify(
+      "export async function verifyInContainer(){ return []; }",
+    );
+    assert.equal(forged.status, "failed");
+    assert.equal(
+      forged.checks.some((check) => check.passed),
+      false,
+    );
+  },
+);
