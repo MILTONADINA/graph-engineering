@@ -777,7 +777,10 @@ export class SealedStore {
     )
       throw new Error("Oracle invocation differs from the frozen attempt");
     if (
-      claim.kind === "sealed-call-bound-engineering-invocation-claim" &&
+      [
+        "sealed-call-bound-engineering-invocation-claim",
+        "sealed-call-bound-module-graph-invocation-claim",
+      ].includes(claim.kind) &&
       (claim.baselineSha256 !== task.baselineSha256 ||
         claim.resultSourceSha256 === task.baselineSha256 ||
         [task.oracleSha256, task.publicPacketSha256].includes(
@@ -787,7 +790,8 @@ export class SealedStore {
       throw new Error("Engineering result differs from frozen baseline scope");
     if (
       claim.kind === "sealed-call-bound-oracle-invocation-claim" ||
-      claim.kind === "sealed-call-bound-engineering-invocation-claim"
+      claim.kind === "sealed-call-bound-engineering-invocation-claim" ||
+      claim.kind === "sealed-call-bound-module-graph-invocation-claim"
     ) {
       const row = this.#db
         .prepare(
@@ -1062,6 +1066,125 @@ export class SealedStore {
       })
       .immediate();
   }
+  /** Separate v2 graph claim, sharing the same durable one-shot oracle slot. */
+  claimModuleGraphInvocation(reservationId, input) {
+    const data = decodeJson(input);
+    if (
+      !data ||
+      Array.isArray(data) ||
+      Object.keys(data).sort().join(",") !==
+        "baselineSha256,callId,expectedCallReceiptSha256,expectedPlanSha256,expectedResponseSha256,imageId,oracleSha256,proposalSha256,resultSourceSha256" ||
+      ![
+        data.baselineSha256,
+        data.expectedCallReceiptSha256,
+        data.expectedPlanSha256,
+        data.expectedResponseSha256,
+        data.oracleSha256,
+        data.proposalSha256,
+        data.resultSourceSha256,
+      ].every((value) => typeof value === "string" && sha256.test(value)) ||
+      typeof data.callId !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(data.callId) ||
+      typeof data.imageId !== "string" ||
+      !/^sha256:[a-f0-9]{64}$/.test(data.imageId)
+    )
+      throw new Error(
+        "Module graph claim needs frozen call and result identities",
+      );
+    return this.#db
+      .transaction(() => {
+        const attempt = this.#attempt(reservationId, { open: true });
+        if (attempt.planSha256 !== data.expectedPlanSha256)
+          throw new Error(
+            "Module graph claim plan differs from frozen collection",
+          );
+        const dispatchRow = this.#db
+          .prepare(
+            "SELECT claim_json FROM public_dispatches WHERE reservation_id=?",
+          )
+          .get(reservationId);
+        if (!dispatchRow)
+          throw new Error("Module graph claim requires prior public dispatch");
+        if (
+          this.#db
+            .prepare("SELECT 1 FROM oracle_invocations WHERE reservation_id=?")
+            .get(reservationId)
+        )
+          throw new Error("Oracle invocation already claimed; never retry");
+        const publicDispatch = publicDispatchClaim(dispatchRow.claim_json);
+        this.#assertPublicDispatch(
+          publicDispatch,
+          attempt.reservation,
+          attempt.plan,
+        );
+        const callRows = this.#db
+          .prepare(
+            "SELECT reservation_json,receipt_json FROM calls WHERE reservation_id=? ORDER BY ordinal",
+          )
+          .all(reservationId);
+        if (callRows.length !== 1 || !callRows[0].receipt_json)
+          throw new Error(
+            "Module graph claim requires exactly one settled model call",
+          );
+        const call = callReservationSchema.parse(
+          decodeJson(callRows[0].reservation_json),
+        );
+        const receipt = callReceiptSchema.parse(
+          decodeJson(callRows[0].receipt_json),
+        );
+        if (
+          call.callId !== data.callId ||
+          hashJson(receipt) !== data.expectedCallReceiptSha256 ||
+          receipt.responseSha256 !== data.expectedResponseSha256
+        )
+          throw new Error(
+            "Module graph claim differs from retained model response",
+          );
+        const task = attempt.plan.tasks.find(
+          (item) => item.taskId === attempt.reservation.taskId,
+        );
+        const claim = oracleInvocationClaimSchema.parse({
+          version: "1.0.0",
+          kind: "sealed-call-bound-module-graph-invocation-claim",
+          reservationId,
+          reservationSha256: hashJson(attempt.reservation),
+          collectionId: attempt.reservation.collectionId,
+          assignmentId: attempt.reservation.assignmentId,
+          taskId: task.taskId,
+          taskSha256: hashJson(task),
+          planSha256: attempt.planSha256,
+          publicDispatchSha256: hashJson(publicDispatch),
+          baselineSha256: data.baselineSha256,
+          oracleSha256: data.oracleSha256,
+          callId: call.callId,
+          callReservationSha256: hashJson(call),
+          callReceiptSha256: hashJson(receipt),
+          responseSha256: receipt.responseSha256,
+          proposalDerivation: "openai-chat-content-utf8-v1",
+          proposalSha256: data.proposalSha256,
+          resultSourceSha256: data.resultSourceSha256,
+          verifierKind: "sealed-js-module-graph-v1",
+          imageId: data.imageId,
+          claimedAt: now(),
+        });
+        this.#assertOracleInvocation(
+          claim,
+          attempt.reservation,
+          attempt.plan,
+          publicDispatch,
+        );
+        this.#db
+          .prepare("INSERT INTO oracle_invocations VALUES(?,?)")
+          .run(reservationId, canonicalJson(claim));
+        this.#event(
+          attempt.reservation.collectionId,
+          "call-bound-module-graph-invocation-claimed",
+          claim,
+        );
+        return snapshot(claim);
+      })
+      .immediate();
+  }
   /** Retain only a private artifact reference; the verdict never reaches the model. */
   retainOracleVerdict(reservationId, input) {
     const data = decodeJson(input);
@@ -1080,7 +1203,7 @@ export class SealedStore {
       !sha256.test(data.verificationReference.sha256) ||
       !Number.isSafeInteger(data.verificationReference.bytes) ||
       data.verificationReference.bytes < 1 ||
-      data.verificationReference.bytes > 4096
+      data.verificationReference.bytes > 8192
     )
       throw new Error(
         "Oracle verdict needs exact bounded private reference and claim",
@@ -1104,9 +1227,17 @@ export class SealedStore {
           decodeJson(row.claim_json),
         );
         if (
+          claim.kind !== "sealed-call-bound-module-graph-invocation-claim" &&
+          data.verificationReference.bytes > 4096
+        )
+          throw new Error(
+            "Existing oracle verdict remains bounded to 4096 bytes",
+          );
+        if (
           ![
             "sealed-call-bound-oracle-invocation-claim",
             "sealed-call-bound-engineering-invocation-claim",
+            "sealed-call-bound-module-graph-invocation-claim",
           ].includes(claim.kind) ||
           hashJson(claim) !== data.claimSha256
         )
@@ -1369,6 +1500,7 @@ export class SealedStore {
         [
           "sealed-call-bound-oracle-invocation-claim",
           "sealed-call-bound-engineering-invocation-claim",
+          "sealed-call-bound-module-graph-invocation-claim",
         ].includes(oracleClaim.kind) &&
         (receipt.status === "completed" || receipt.outcome.success !== null)
       )
@@ -1701,6 +1833,7 @@ export class SealedStore {
           ![
             "sealed-call-bound-oracle-invocation-claim",
             "sealed-call-bound-engineering-invocation-claim",
+            "sealed-call-bound-module-graph-invocation-claim",
           ].includes(oracleInvocation.kind) ||
           oracleVerdict.reservationId !== row.id ||
           oracleVerdict.claimSha256 !== hashJson(oracleInvocation) ||
@@ -1758,7 +1891,10 @@ export class SealedStore {
               : item.oracleInvocation.kind ===
                   "sealed-call-bound-engineering-invocation-claim"
                 ? "call-bound-engineering-invocation-claimed"
-                : "oracle-invocation-claimed",
+                : item.oracleInvocation.kind ===
+                    "sealed-call-bound-module-graph-invocation-claim"
+                  ? "call-bound-module-graph-invocation-claimed"
+                  : "oracle-invocation-claimed",
           payload: item.oracleInvocation,
         });
       if (item.oracleVerdict)
