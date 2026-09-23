@@ -92,8 +92,12 @@ configuration retrieved exportable source; normal project-wide approval is
 complete for that project server only. Cloud `context_get` defaults to lexical
 retrieval for bounded cold latency. Request `retrieval: "hybrid"` explicitly
 when the local embedding index is prepared and semantic recall is needed.
-Cursor's project configuration is present, but a live Cursor connection has
-not been verified. Cloud MCP retrieval is not fully offline and does not
+Cursor has activated Serena in this workspace under the registered project
+name `GRAPH ENGINEERING`. That validates Serena, not the separate
+`graph-engineering` project MCP server: Cursor currently discovers the latter
+but reports it disconnected. Enable only that server under Customize → MCPs
+and verify its read-only `template_list` tool; leave Serena and global servers
+unchanged. Cloud MCP retrieval is not fully offline and does not
 replace each client's own tool-permission controls.
 
 A fresh Git clone does not contain ignored provider/decision/MCP settings,
@@ -101,10 +105,13 @@ tokens, models, or databases. Recreate these explicitly; MCP configurations
 use machine-specific absolute paths. Never copy credentials into Git to make
 another machine work.
 
-No paid provider has been enabled or exercised. The external API ceiling is
-`$0` for **managed engine calls only**; provider and dollar-limit selection is
-deferred to the owner. Claude Code, Codex, and Cursor's own cloud inference
-after MCP retrieval is outside this ledger and cap; configure their separate
+No metered API provider has been enabled or exercised. A single bounded
+Claude Max subscription call passed the managed proposal adapter using a
+selected public source snippet; it did not apply a patch. Native subscription
+usage has no enforceable dollar cap, so this is not a paid-API spending-limit
+test. Provider and dollar-limit selection for metered API calls is deferred to
+the owner. Claude Code, Codex, and Cursor's own cloud inference after MCP
+retrieval is outside the engine ledger and cap; configure their separate
 provider/account budgets. Never paste
 keys into chat or commit them. Local `$0` accounting means no marginal external
 API charge, not zero hardware or electricity cost. Native client availability

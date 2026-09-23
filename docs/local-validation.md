@@ -2,7 +2,8 @@
 
 These are development observations, not production calibration or a claimed
 percentage reduction in model cost. Private run databases retain detailed
-events and failures. No paid model calls were authorized or made.
+events and failures. No metered API model calls were authorized or made; one
+bounded Claude Max subscription-backed proposal call is recorded below.
 
 ## Complete-cohort accounting and crash consistency
 
@@ -85,7 +86,65 @@ responses. Claude Code reported API-equivalent token cost in its JSON output;
 the session used the existing Max subscription with no API key override, and
 no separate API charge was intentionally enabled. The ordinary Claude Code
 project-MCP approval was subsequently completed for this server only; no other
-personal servers were approved. Cursor remains unverified.
+personal servers were approved. Cursor's Serena plugin is active in this
+workspace as `GRAPH ENGINEERING`, but its separate project `graph-engineering`
+MCP server was discovered in a disconnected state and has not passed a live
+Cursor tool call.
+
+A later one-call test of the managed Claude worker used the same existing Max
+subscription through a new fail-closed adapter path. The request contained
+only a selected, tracked public `policy.ts` snippet from the real
+cloud-export credential-scanner bug; it carried no API key or private memory,
+ran with restricted/safe mode and zero tools, and did not apply edits. Claude
+returned a schema-valid one-change proposal with no context requests. Native
+telemetry reported 4 input, 2,405 cached and 1,102 output tokens; the engine
+recorded dollar cost as unknown (`null`) because this subscription is not a
+metered API call. This proves live adapter inference on this host, not a full
+managed repair or a provider spending ceiling. The existing local Qwen setup
+was unchanged and no model was downloaded.
+
+The real privacy defect was also reproduced independently: a namespaced
+`SERVICE_API_KEY` assignment escaped the previous scanner and cloud worker
+filter. The branch fix now catches namespaced env, quoted JSON, backtick and
+camelCase credential assignments, and filters pre-index and historical MCP
+items. An initial full check found four authentication-template false
+positives; a focused correction excluded function calls and comparison
+expressions while retaining literal detection. The focused template/policy
+tests then passed, followed by one successful complete `npm run check`:
+516 engine tests passed, 47 explicitly skipped, plus 59 scaffolder and nine
+dashboard tests, typechecks and production builds. Automated success is not
+human acceptance. Credential screening is pattern-based, not proof that all
+possible secrets are absent; cloud export remains explicitly allowlisted.
+Codex's project MCP `context_get` also returned a live
+export-filtered packet after reindexing the changed source; an earlier call
+timed out during the changing/cold snapshot and is not hidden by the success.
+
+The same real privacy defect was then replayed in an isolated pre-fix Git
+worktree with a regression test that failed before repair. The existing oMLX
+Qwen and local Laya path produced plan/run `b14987ce`/`cb361fcf`; the worker
+requested nonexistent `packages/engine/src/policy.js`, so the engine stopped
+without patching or verifying. A focused retrieval diagnostic showed that a
+broader task query still omitted the explicitly named `policy.ts` under its
+11.2K context budget. The exact-indexed-path priority regression failed
+before the retrieval fix and passed afterward; a frozen-snapshot preflight
+then included eight source chunks, including the scanner, without relaxing
+exclusions or export policy. A second Qwen plan/run `7ef58fb3`/`d23a5a55`
+still did not produce a repair: repeated source requests ended on nonexistent
+root `tsconfig.json`. Its ledger records 17,629 input and 902 output local
+tokens, illustrating the no-progress/request-loop cost before a new two-turn
+stop guard was added for ordinary and DAG workers. A separately isolated one-turn Claude Max engine plan/run
+`03916d8f`/`3c882446` passed source/export preflight but the native process
+exited nonzero after roughly ten minutes; usage stayed unknown, and raw native
+stderr was intentionally withheld because it can contain credentials or
+context. No patch was applied by either managed run. These failures are
+retained as development evidence, not counted as automated real-task success.
+Focused regression tests now verify that identical source requests stop after
+two calls, nonexistent requests return relative-path errors, and filtered or
+over-budget requests do not trigger another worker call. Those tests do not
+substitute for a successful live end-to-end repair.
+An additional focused regression found that root-level `package.json` could
+also be omitted by the initial path matcher; it now follows the same bounded
+indexed-path priority as nested source files.
 
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
 pinned local Laya checkpoint, and a network-disabled `node:24-alpine` container.
@@ -247,7 +306,7 @@ workspaces.
 
 ## Full implemented-catalog runtime expansion
 
-All 42 implemented catalog entries now have registered, exact-manifest-checked
+All 43 implemented catalog entries now have registered, exact-manifest-checked
 renderers; 13 planned entries remain unavailable. The previous 21-renderer
 checkpoint above remains historical evidence rather than being relabeled.
 
