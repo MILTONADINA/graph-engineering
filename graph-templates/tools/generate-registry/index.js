@@ -81,7 +81,8 @@ function main() {
       environment: ((doc.environment || {}).variables) || [],
       testing: doc.testing || { strategy: 'none' },
       compatibleNodes: [...compatibleNodes],
-      path: path.relative(ROOT, path.dirname(file)),
+      // Registry paths are portable identifiers, not host OS paths.
+      path: path.relative(ROOT, path.dirname(file)).split(path.sep).join('/'),
     });
   }
 
