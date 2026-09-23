@@ -1,7 +1,14 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -18,6 +25,8 @@ import {
 
 const execute = promisify(execFile);
 const root = fileURLToPath(new URL("../../", import.meta.url));
+const pinnedNodeImage =
+  "node@sha256:40ad9f3064e67d6860b4bc3fe1880b2953934fd6320ada990e45fe0efa6badd7";
 async function git(args) {
   return (
     await execute("git", ["--no-replace-objects", ...args], {
@@ -102,10 +111,31 @@ export async function provisionRetryImage() {
         fileURLToPath(new URL(name, import.meta.url)),
         path.join(directory, "runtime", name),
       );
-    await copyFile(
-      fileURLToPath(new URL("Dockerfile", import.meta.url)),
-      path.join(directory, "Dockerfile"),
-    );
+    const dockerfile = fileURLToPath(new URL("Dockerfile", import.meta.url));
+    if (
+      !(await readFile(dockerfile, "utf8")).startsWith(
+        `FROM ${pinnedNodeImage}\n`,
+      )
+    )
+      throw new Error(
+        "Retry Dockerfile base differs from the pinned provisioning image",
+      );
+    await copyFile(dockerfile, path.join(directory, "Dockerfile"));
+    // A fresh CI runner has no cached base image. Resolve the pinned OCI index
+    // during provisioning, then prohibit any base-image refresh during build.
+    await new Promise((resolve, reject) => {
+      const child = spawn(
+        "docker",
+        ["--host", endpoint, "pull", pinnedNodeImage],
+        { stdio: "inherit" },
+      );
+      child.once("error", reject);
+      child.once("close", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`Retry base image pull failed (${code})`)),
+      );
+    });
     await new Promise((resolve, reject) => {
       const child = spawn(
         "docker",
