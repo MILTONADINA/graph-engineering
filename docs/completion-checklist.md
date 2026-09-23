@@ -83,7 +83,12 @@ Item 13 still contains buildable work, not only requests for partner labels:
   arbitrary secret-bearing repositories. A separate current-witness comparison
   rejects stale or changed checkpoints around aggregate inspection;
   it cannot authenticate a caller-provided reader. The vault, image, manifest
-  pin and trust remain operator-selected; no promotion authority is issued.
+  pin and trust remain operator-selected. A private analysis-only readiness
+  join now reruns the signed declared-v2 selection, row review, preflight,
+  original-byte aggregate and optional current-witness comparison from their
+  originals, rejecting cross-receipt identity mismatches and reporting the
+  unresolved independent evidence requirements. It cannot issue promotion
+  authority.
   Execution beyond a reviewed safe scope, authentic source/worker/oracle
   transport and an independently controlled append-only witness are still
   needed for real held-out claims. Existing known-history tasks cannot be
