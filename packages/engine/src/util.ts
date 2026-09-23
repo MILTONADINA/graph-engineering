@@ -51,9 +51,9 @@ export function command(
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    let stdout = "",
-      stderr = "",
-      bytes = 0,
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let bytes = 0,
       overflow = false,
       terminated = false;
     let escalation: ReturnType<typeof setTimeout> | undefined;
@@ -91,8 +91,8 @@ export function command(
         terminate();
         return;
       }
-      if (kind === "stdout") stdout += data.toString();
-      else stderr += data.toString();
+      if (kind === "stdout") stdoutChunks.push(data);
+      else stderrChunks.push(data);
     };
     child.stdout.on("data", (b: Buffer) => collect("stdout", b));
     child.stderr.on("data", (b: Buffer) => collect("stderr", b));
@@ -102,6 +102,8 @@ export function command(
     });
     child.on("close", (code, signal) => {
       clean();
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8");
       if (overflow) reject(new Error("Command exceeded output limit"));
       else if (signal || terminated || performance.now() >= expiresAt)
         reject(

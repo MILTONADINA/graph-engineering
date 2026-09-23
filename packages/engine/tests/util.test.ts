@@ -16,6 +16,19 @@ describe("bounded command transport", () => {
     ).resolves.toEqual({ code: 0, stdout: "ok", stderr: "" });
   });
 
+  it("preserves UTF-8 code points split across subprocess output chunks", async () => {
+    const script = [
+      "const first = Buffer.from([0xf0]);",
+      "const rest = Buffer.from([0x9f, 0x98, 0x80]);",
+      "process.stdout.write(first);",
+      "process.stderr.write(first);",
+      "setTimeout(() => { process.stdout.write(rest); process.stderr.write(rest); }, 100);",
+    ].join("\n");
+    await expect(
+      command(process.execPath, ["-e", script], { timeoutMs: 10000 }),
+    ).resolves.toEqual({ code: 0, stdout: "😀", stderr: "😀" });
+  });
+
   it("rejects a late successful exit even when its timeout callback cannot run", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     vi.spyOn(performance, "now")
