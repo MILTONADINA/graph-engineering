@@ -38,6 +38,17 @@ const privateNames =
 const hash = (bytes: Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
 
+function wellFormedText(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(++i);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return false;
+  }
+  return true;
+}
+
 function assertPublicPath(relative: string, policy: ProjectPolicy): void {
   const segments = relative.split("/");
   if (
@@ -128,10 +139,10 @@ export async function buildSealedPublicPacket(input: SealedPublicPacketInput) {
   const request = requestSchema.parse(data);
   if (
     !path.isAbsolute(root) ||
-    !request.objective.isWellFormed() ||
-    request.acceptance.some((item) => !item.isWellFormed()) ||
+    !wellFormedText(request.objective) ||
+    request.acceptance.some((item) => !wellFormedText(item)) ||
     request.selected.some(
-      (item) => !item.path.isWellFormed() || /[\x00-\x1f]/.test(item.path),
+      (item) => !wellFormedText(item.path) || /[\x00-\x1f]/.test(item.path),
     ) ||
     containsSecret(request.objective) ||
     request.acceptance.some(containsSecret)
