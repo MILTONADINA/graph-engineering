@@ -37,6 +37,12 @@ Item 13 still contains buildable work, not only requests for partner labels:
   paired-model evidence. The verifier-infrastructure replay includes real
   historical SQLite bookkeeping, but its setup filesystem/child processes are
   controlled virtual fixtures and its old exit-marker protocol is unauthenticated.
+  The exact-hash retry replay remains the historical-evidence entry point. An
+  additional opt-in arbitrary-source retry diagnostic runs the real historical
+  service in a separate unprivileged process with controller-owned SQLite and
+  worker/verifier observations. Its candidate-directed RPC can imitate the
+  public fixture trace, so it is **not** independent algorithm provenance or
+  held-out evidence; the receipt explicitly denies promotion authority.
   Unmetered-budget and portable npm-spawn also have guarded isolated candidate
   verifiers without measured worker runs. Clean-workspace dependency ordering
   has a fresh offline historical typecheck/test acceptance, and private-mount
