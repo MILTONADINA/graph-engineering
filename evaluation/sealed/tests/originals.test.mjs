@@ -126,6 +126,36 @@ test("audit rejects missing, extra, mislabeled and unpinned original bytes", asy
       expectedManifestSha256: pin,
     });
   await assert.rejects(run(prepared.manifest, "0".repeat(64)), /pinned digest/);
+  const duplicateKey = JSON.stringify(prepared.manifest).replace(
+    '{"version":"1.0.0"',
+    '{"version":"0.0.0","version":"1.0.0"',
+  );
+  await assert.rejects(
+    auditOriginalBytes({
+      ...prepared,
+      collectionId: prepared.manifest.collectionId,
+      manifest: duplicateKey,
+    }),
+    /Duplicate decoded sealed JSON key/,
+  );
+  let invoked = false;
+  const accessor = { ...prepared.manifest };
+  Object.defineProperty(accessor, "entries", {
+    enumerable: true,
+    get() {
+      invoked = true;
+      throw new Error("Unsafe getter invoked");
+    },
+  });
+  await assert.rejects(
+    auditOriginalBytes({
+      ...prepared,
+      collectionId: prepared.manifest.collectionId,
+      manifest: accessor,
+    }),
+    /accessors/,
+  );
+  assert.equal(invoked, false);
   const missing = structuredClone(prepared.manifest);
   missing.entries.pop();
   await assert.rejects(run(missing), /omits or adds/);
