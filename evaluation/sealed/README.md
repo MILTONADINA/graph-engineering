@@ -272,13 +272,22 @@ manifest and an `ArtifactStore`. It verifies every committed blob, passes
 bounded one-blob-at-a-time reads to the compiled engine's signed aggregate
 inspector, then rechecks the ledger snapshot and original bytes before
 returning. The inspector verifies purpose-separated row and aggregate
-signatures and, where present, re-derives call-bound proposals and canonical
-private digest verdicts. A cumulative collection of original blobs may exceed
-2 MB; each blob and the non-blob input remain independently bounded. Build the
+signatures and, where present, re-derives call-bound proposals, canonical
+private digest verdicts, and the bounded engineering result/private-case joins.
+A cumulative collection of original blobs may exceed 2 MB; each blob and the
+non-blob input remain independently bounded. Build the
 engine before using this local module. The existing sealed schema adapter also
 requires the project's installed `tsx` dependency and source tree at runtime.
 
-The receipt is **private collection metadata**: even counts, sizes and manifest
+`inspectSealedCurrentGovernance()` in the engine also compares that signed
+aggregate with two fresh, challenge-bound checkpoints from a caller-configured
+current-witness reader. It fails on changed ledger heads, registrations, trust
+digests or revisions; its receipt reports `witnessAuthenticationVerified: false`,
+`antiRollbackVerified: false` and `promotionEligible: false`. The project
+owners have not selected an independently controlled witness service, so this
+is an integration point, not externally anchored anti-rollback.
+
+The aggregate receipt is **private collection metadata**: even counts, sizes and manifest
 hashes should not be sent through the public source/docs MCP path. It returns
 no original bytes, private verdict, or promotion grant, and explicitly reports
 `artifactSourceAuthenticated: false` and `promotionEligible: false`. A pin
@@ -292,8 +301,8 @@ model-performance evidence.
 
 These APIs accept caller-supplied commitments and receipt claims. Hash matching
 does not establish authentic worker output, general private-test execution,
-provider billing, or independent review. The narrow digest guest cannot prove
-that an arbitrary engineering oracle stayed private. Those claims require a
+provider billing, or independent review. The bounded QuickJS guest cannot prove
+that an arbitrary repository oracle stayed private. Those claims require a
 separately governed collector/transport/oracle
 pipeline, original artifact bytes, signatures and current operator-approved
 trust. The original population, calibration closure and threshold must be
@@ -301,9 +310,10 @@ committed before held-out execution, not fitted after viewing outcomes.
 
 An operator can delete or roll back this local database. Preventing malicious
 rollback needs an independently controlled append-only witness or monotonic
-reservation service; neither is implemented. SQLite `FULL` protects the
-documented local crash-consistency boundary, not against hostile administrators,
-defective storage hardware, filesystem replacement races or copied ledgers.
+reservation service; the comparison API does not provide one. SQLite `FULL`
+protects the documented local crash-consistency boundary, not against hostile
+administrators, defective storage hardware, filesystem replacement races or
+copied ledgers.
 
 ## Verification
 
@@ -316,5 +326,6 @@ that exits after committing its reservation or one-time dispatch claim,
 recovery/closure completeness, version 2/3/4 migration and durable call-bound
 oracle claims,
 nullable observations/costs, repeated batched-call references, configuration and
-exposure guards, private-path checks and artifact/event tampering. No provider,
-model, signature, secret, or unseen real task is used.
+exposure guards, private-path checks and artifact/event tampering. Tests use
+synthetic signatures and model responses; no live provider, production signer,
+secret, or unseen real task is used.
