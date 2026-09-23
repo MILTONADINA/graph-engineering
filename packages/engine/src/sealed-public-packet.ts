@@ -128,11 +128,16 @@ export async function buildSealedPublicPacket(input: SealedPublicPacketInput) {
   const request = requestSchema.parse(data);
   if (
     !path.isAbsolute(root) ||
+    !request.objective.isWellFormed() ||
+    request.acceptance.some((item) => !item.isWellFormed()) ||
+    request.selected.some(
+      (item) => !item.path.isWellFormed() || /[\x00-\x1f]/.test(item.path),
+    ) ||
     containsSecret(request.objective) ||
     request.acceptance.some(containsSecret)
   )
     throw new Error(
-      "Public packet needs an absolute root and secret-free task",
+      "Public packet needs an absolute root and well-formed, secret-free task",
     );
   const canonicalRoot = await realpath(root);
   const names = request.selected.map((item) => item.path.toLowerCase());
