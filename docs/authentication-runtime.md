@@ -1,9 +1,9 @@
 # Audited authentication and authorization runtime
 
 The deterministic runtime supports `authentication.jwt`,
-`authentication.password`, `authorization.rbac`, and
-`authorization.tenant-isolation`. Planned OAuth, session, roles, and permissions
-aliases remain unavailable. These renderers create reviewed patch proposals;
+`authentication.password`, `authorization.rbac`,
+`authorization.tenant-isolation`, and `authorization.permissions`. Planned OAuth,
+session, and roles nodes remain unavailable. These renderers create reviewed patch proposals;
 they do not execute catalog prompts, run migrations, install packages, or send
 email. Existing different code, ambiguous scaffold markers, excluded paths, and
 unreviewed manifest operations fail closed.
@@ -132,6 +132,12 @@ URLs, query parameters, headers, and bodies containing authentication secrets.
   parameterized Drizzle tenant predicate. These helpers do not automatically
   retrofit every route, query, insert, or schema. The application must apply
   authorization consistently and implement tenant membership explicitly.
+- `requirePermission` checks a bounded, reviewed resource:action vocabulary
+  against an application-owned current user-global grant resolver. It denies
+  unknown names, unauthenticated callers, missing grants, and resolver failures;
+  it does not create grant storage, grant-management routes, or automatically
+  protect existing endpoints. Tenant isolation is separate. See the [permission
+  node contract](../graph-templates/authorization/permissions/README.md).
 - Delivery, production key management, account recovery operations, deployment
   proxy configuration, distributed abuse prevention, and migration rollout are
   outside the fixture's proof. No hosted email, Neon endpoint, or production
@@ -156,8 +162,9 @@ docker build -f packages/engine/tests/fixtures/auth-db-runtime/Dockerfile -t gra
 GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1 GRAPH_ENGINE_AUTH_POSTGRES_TESTS=1 npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts
 ```
 
-The backend fixture runs strict TypeScript checking and 34 generated/security
-tests, including real bcrypt/JWT/HTTP behavior and mocked database transport.
+The backend fixture runs strict TypeScript checking and 38 generated/security
+tests, including real bcrypt/JWT/HTTP behavior, the global permission gate, and
+mocked database transport.
 The separate PostgreSQL fixture runs strict TypeScript and 13 tests against a
 fresh local PostgreSQL instance: simultaneous refresh, reset, and verification
 requests; refresh replay revocation; expiration; forced password-update rollback;

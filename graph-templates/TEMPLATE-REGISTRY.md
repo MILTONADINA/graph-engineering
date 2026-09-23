@@ -6,7 +6,7 @@ The human-readable catalog of every graph node in this library. **This file is a
 node tools/generate-registry/index.js . > template-registry.json
 ```
 
-`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 43 implemented, 12 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
+`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 44 implemented, 11 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
 
 ## project
 
@@ -68,7 +68,7 @@ Entity CRUD generation itself lives at `backend.repository`, not a `database.rep
 |---|---|---|
 | I | `authorization.rbac` | `requireRole(...roles)` — enforces the `role` column the reference app defines but never checks. |
 | I | `authorization.tenant-isolation` | `requireTenant` + a `withTenantScope` Drizzle helper for multi-tenant apps. |
-| P | `authorization.permissions` | Granular `resource:action` permission matrix, extending/replacing the fixed-role model. |
+| I | `authorization.permissions` | Default-deny `resource:action` route gate with a bounded vocabulary; requires an application-owned, current user-global grant resolver. Tenant isolation, grant storage and endpoints remain separate. |
 | P | `authorization.roles` | Runtime-configurable custom roles, as opposed to `rbac`'s hardcoded enum. |
 
 ## api

@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-22T08:57:20.685Z",
+  "generatedAt": "2026-09-23T21:09:28.808Z",
   "templateCount": 55,
   "templates": [
     {
@@ -455,24 +455,37 @@
     },
     {
       "id": "authorization.permissions",
-      "name": "Permission Matrix",
-      "version": "0.1.0",
+      "name": "Granular Permission Gate",
+      "version": "1.0.0",
       "category": "authorization",
       "subcategory": "permissions",
-      "status": "planned",
-      "description": "A granular resource:action permission-matrix alternative/extension to authorization.rbac's fixed role list — e.g. `products:delete`, `orders:refund` as individually grantable permissions rather than baking everything into a small role enum. Not yet implemented in this library.",
+      "status": "implemented",
+      "description": "Generates a default-deny resource:action permission gate over a bounded, reviewed permission vocabulary. An application-owned hasPermission adapter resolves each authenticated user's current grants from durable trusted data. This node does not invent grant storage, grant-management endpoints, or route policy; the application must provide and review those separately.",
       "tags": [
         "authorization",
         "permissions",
+        "express",
+        "vitest",
         "auth",
-        "rbac",
-        "delete",
-        "permission",
-        "role"
+        "storage",
+        "permission"
       ],
-      "inputs": [],
-      "outputs": [],
+      "inputs": [
+        "permissions"
+      ],
+      "outputs": [
+        "files",
+        "exports"
+      ],
       "dependsOn": [
+        {
+          "id": "authentication.jwt",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        },
         {
           "id": "authorization.rbac",
           "relationship": "extends"
@@ -480,11 +493,16 @@
       ],
       "environment": [],
       "testing": {
-        "strategy": "none"
+        "strategy": "unit",
+        "location": "tests/permissionMiddleware.test.ts",
+        "command": "npm test -- permissionMiddleware"
       },
       "compatibleNodes": [
         "authentication.jwt",
-        "authorization.rbac"
+        "authorization.rbac",
+        "backend.error-handler",
+        "backend.express",
+        "api.crud"
       ],
       "path": "authorization/permissions"
     },

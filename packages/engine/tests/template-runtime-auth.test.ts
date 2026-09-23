@@ -102,7 +102,6 @@ describe("audited authentication and authorization runtimes", () => {
       "authentication.oauth",
       "authentication.session",
       "authorization.roles",
-      "authorization.permissions",
     ])
       expect(templateRuntimeCapability(name).executable).toBe(false);
     await expect(renderTemplateProposal(options(workspace))).rejects.toThrow();
@@ -146,6 +145,35 @@ describe("audited authentication and authorization runtimes", () => {
         "utf8",
       ),
     ).toContain("deliverAuthenticationToken");
+  });
+  it("composes granular permissions with the actual audited JWT identity export", async () => {
+    const workspace = await fixture();
+    await apply(workspace);
+    const tokens = await readFile(
+      path.join(workspace, "src/utils/tokens.ts"),
+      "utf8",
+    );
+    expect(tokens).toContain("export const isIdentityId =");
+    await writeFile(
+      path.join(workspace, "src/services/permissionAuthorizer.ts"),
+      "// Application-owned fixture; production must resolve current durable grants.\nexport async function hasPermission(_userId:string,_permission:string):Promise<boolean>{return false;}\n",
+    );
+    const generated = await apply(workspace, "authorization.permissions", {
+      permissions: ["orders:refund", "products:delete"],
+    });
+    expect(generated.manifest.outputs.exports).toEqual([
+      "PERMISSIONS",
+      "requirePermission",
+    ]);
+    expect(
+      (
+        await renderTemplateProposal(
+          options(workspace, "authorization.permissions", {
+            permissions: ["orders:refund", "products:delete"],
+          }),
+        )
+      ).proposal.changes,
+    ).toEqual([]);
   });
   it("rejects unsafe password policy, ambiguous scaffold changes, path exclusions and manifest mutation escalation", async () => {
     const workspace = await fixture();
@@ -260,12 +288,19 @@ describe("audited authentication and authorization runtimes", () => {
     );
   });
   it.runIf(process.env.GRAPH_ENGINE_BACKEND_DOCKER_TESTS === "1")(
-    "executes generated password, JWT, refresh, RBAC and tenant security checks offline",
+    "executes generated password, JWT, refresh, RBAC, tenant and permission security checks offline",
     async () => {
       const workspace = await fixture();
       await apply(workspace);
       await apply(workspace, "authorization.rbac");
       await apply(workspace, "authorization.tenant-isolation");
+      await writeFile(
+        path.join(workspace, "src/services/permissionAuthorizer.ts"),
+        "// Application-owned fixture; production must resolve current durable grants.\nexport async function hasPermission(_userId:string,_permission:string):Promise<boolean>{return false;}\n",
+      );
+      await apply(workspace, "authorization.permissions", {
+        permissions: ["orders:refund", "products:delete"],
+      });
       await writeFile(
         path.join(workspace, "tests/securityBoundaries.test.ts"),
         await readFile(
@@ -305,7 +340,7 @@ describe("audited authentication and authorization runtimes", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "")).toMatch(
-        /Tests\s+34 passed/,
+        /Tests\s+38 passed/,
       );
     },
     120000,

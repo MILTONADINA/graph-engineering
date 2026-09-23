@@ -29,7 +29,7 @@ review and cannot silently establish acceptance during resume.
 
 ## Fine-grained runtime availability
 
-All 43 implemented catalog graph nodes now have audited deterministic proposal renderers, subject to explicit prerequisites and project policy. The 12 planned nodes remain unavailable. A registry-wide test checks every implemented identity and exact manifest against its registered renderer; capability alone is not proof of deployment readiness.
+All 44 implemented catalog graph nodes now have audited deterministic proposal renderers, subject to explicit prerequisites and project policy. The 11 planned nodes remain unavailable. A registry-wide test checks every implemented identity and exact manifest against its registered renderer; capability alone is not proof of deployment readiness.
 
 | Template                                                                                                                     | Source and tests produced                                                         | Required project declarations                                                                            |
 | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -51,6 +51,7 @@ All 43 implemented catalog graph nodes now have audited deterministic proposal r
 | `devops.environments`                                                                                                        | Blank environment example and declaration-derived reference                       | Schema-valid architecture; explicit policy permitting `.env.example`                                     |
 | `authentication.jwt`, `authentication.password`                                                                              | Cookie authentication, action tokens, login/reset/refresh/logout tests            | Explicit secrets/delivery adapter, reviewed schema and identity contracts                                |
 | `authorization.rbac`, `authorization.tenant-isolation`                                                                       | Role/tenant helpers and tests                                                     | Trusted identity resolution and explicit application wiring                                              |
+| `authorization.permissions`                                                                                                  | Bounded resource:action gate and fail-closed tests                                | Authenticated identity and app-owned user-global grant resolver; explicit route wiring                   |
 | `database.neon-postgres.connection`, `database.migrations`, `database.seed`                                                  | PostgreSQL configuration and guarded lifecycle runners                            | Pinned pg/Drizzle/Kit, separate operation URLs, target and acknowledgements                              |
 | `devops.docker`, `devops.github-actions`                                                                                     | Nonroot image/compose and pinned-action workflows                                 | Matching package/lock metadata, explicit manual migration dispatch/environment                           |
 | `project.node-express`, `project.nextjs`                                                                                     | Source, package declarations, public ledger, build/test conventions               | Empty or exact existing outputs; root-ledger and public-example policy permissions                       |
@@ -81,7 +82,7 @@ No template prompt, hook, installer, `validation.command`, or `testing.command` 
 
 No implemented entry remains prompt-only. The independent coarse `create-graph-app` scaffolder remains a separate workflow. No node is executed by interpreting a prompt, running an arbitrary hook or installing packages automatically.
 
-The 12 planned entries remain unavailable because they have no implemented catalog contract: `api.filtering`, `api.pagination`, `api.search`, `api.sorting`, `api.webhooks`, `authentication.oauth`, `authentication.session`, `authorization.permissions`, `authorization.roles`, `devops.aws`, `devops.deployment`, `frontend.react`.
+The 11 planned entries remain unavailable because they have no implemented catalog contract: `api.filtering`, `api.pagination`, `api.search`, `api.sorting`, `api.webhooks`, `authentication.oauth`, `authentication.session`, `authorization.roles`, `devops.aws`, `devops.deployment`, `frontend.react`. The first three aliases (`api.filtering`, `api.pagination`, `api.sorting`) document capabilities already implemented by `api.crud` and `backend.pagination`; they are not independent missing implementations.
 
 The template runtime tests include an opt-in `GRAPH_ENGINE_DOCKER_TESTS=1` check that executes generated pagination and response-envelope code inside the offline verification container.
 
