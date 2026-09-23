@@ -3,8 +3,8 @@
 This is **validation, local bookkeeping and retained-byte verification**, not a
 sealed evaluation pipeline. A local model relay, narrow offline digest
 verifier, and bounded JavaScript engineering verifiers exist, but not a
-general protected repository-test pipeline. There
-is no signing, key creation, reviewer approval, promotion issuer, or
+general protected repository-test pipeline. Signature inspectors exist, but
+there is no signer/key provisioning, reviewer approval, promotion issuer, or
 user-configuration activation. Every summary and closure remains
 `promotionEligible: false`.
 
@@ -92,6 +92,28 @@ without changing their plans, reservations, receipts or event history. Version
 evidence. Call count and
 conservative reserved budget limits are independent of how many
 decision questions share a call. Plan/configuration hashes bind every attempt.
+
+### Population/split precommit inspection
+
+The engine's `inspectSealedPopulationSplitManifest()` validates a full frozen
+cohort ledger against separately supplied plan, exposure-registry, source
+inventory and signer-trust pins. It checks the selected task and assignment
+inventories, rejects duplicate source task/family/artifact identities and
+declared known exposures, and verifies original purpose-separated Ed25519
+selector/auditor signatures with claimed pre-run timestamps. The source
+inventory records digests and declared eligibility; it does not authenticate
+original source bytes, eligibility, completeness or actor identity. Signed
+timestamps can be backdated without an external append-only witness.
+
+Its receipt is private analysis-only metadata and always reports
+`precommitChronologyAuthenticated: false`,
+`populationIndependenceVerified: false`, `antiRollbackVerified: false` and
+`promotionEligible: false`. For later separately governed collection, its
+`projectId`, `collectionId`, `planSha256`, `registrySha256` and
+`assignmentInventorySha256` can be compared with the signed aggregate
+inspection receipt. Matching digests alone are not a promotion grant. The
+independent witness and approved reviewer/source keys are intentionally left
+as integration points for the project owners.
 
 ### Paid-call session cap
 
@@ -283,7 +305,11 @@ inspector, then rechecks the ledger snapshot and original bytes before
 returning. The inspector verifies purpose-separated row and aggregate
 signatures and, where present, re-derives call-bound proposals, canonical
 private digest verdicts, and bounded one-file and module-graph
-engineering result/private-case joins.
+engineering result/private-case joins. For the bounded selected-file repository
+v1 and declared-safe-tree repository v2 claims, it also rechecks the retained
+response-derived tree, guest observation bundle, private counters and claimed
+case results against their committed originals. These checks do not establish
+the provenance of Docker, source bytes or the guest observer.
 A cumulative collection of original blobs may exceed 2 MB; each blob and the
 non-blob input remain independently bounded. Build the
 engine before using this local module. The existing sealed schema adapter also

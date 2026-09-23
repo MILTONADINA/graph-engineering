@@ -75,7 +75,14 @@ Item 13 still contains buildable work, not only requests for partner labels:
   unsigned label importer, full-cohort preflight, current-identity comparison
   and purpose-separated row-signature verifier are analysis-only and cannot
   authorize routing; `evaluate --promote` rejects without writing evidence.
-  Original row and bounded aggregate signature inspection exist, but the
+  Original row and bounded aggregate signature inspection exist. A separate
+  signed population/split manifest inspector now binds a declared source
+  inventory, selected tasks and frozen assignments to purpose-separated
+  selector/auditor signatures and separately supplied pins. The aggregate
+  receipt exposes matching plan, registry and assignment-inventory digests for
+  a later governed join. Neither inspector authenticates source eligibility,
+  independent actor control or pre-run chronology; all authority flags stay
+  false. The
   legitimate authority issuer must still join authenticated cohort-scale
   provenance, complete outcomes, protected worker/oracle receipts, independent
   unseen-task review and operator-approved project/policy trust. Permanently
