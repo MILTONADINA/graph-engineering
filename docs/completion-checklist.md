@@ -88,7 +88,10 @@ Item 13 still contains buildable work, not only requests for partner labels:
   original-byte aggregate and optional current-witness comparison from their
   originals, rejecting cross-receipt identity mismatches and reporting the
   unresolved independent evidence requirements. It cannot issue promotion
-  authority.
+  authority. An optional private indexed-chunk audit now checks declared raw
+  SHA-256 preimages for source, exposure, configuration, local-model/runtime
+  and label-evidence commitments against a separate pinned manifest; it does
+  not authenticate their origin, retention, or use by a worker.
   Execution beyond a reviewed safe scope, authentic source/worker/oracle
   transport and an independently controlled append-only witness are still
   needed for real held-out claims. Existing known-history tasks cannot be
