@@ -593,3 +593,30 @@ path. The existing sealed schema adapter requires installed `tsx` and source
 files even though the new aggregate engine module is imported from built JS.
 No live Qwen, paid provider, independent unseen task or partner signature was
 used to make this synthetic check pass.
+
+## Declared-tree repository execution checkpoint — 2026-09-23 UTC
+
+The v1 selected-source repository path now has a native end-to-end test that
+closes an actual two-arm ledger, audits its original-byte manifest and snapshot
+descendants, and performs a signed vault aggregate join. The synthetic model
+response and private cases remain test fixtures. V2 adds an explicitly frozen
+safe execution tree with binary/empty runtime files, a separate read-only
+manifest, a fixed offline guest, an irrevocable call-bound claim, and an
+independent aggregate re-derivation from retained originals. Native guest and
+host fixtures exercise Node and Python commands, one-shot behavior, baseline
+build failure, private verdicts, and no paid call. The signed aggregate tests
+reject altered runtime scope, runtime/public-packet path overlap, response,
+result tree, observation bindings,
+verdict counters, and missing bundle bytes.
+
+The complete workspace check passed 446 engine tests with 47 explicit opt-in
+skips, 59 scaffolder tests, nine dashboard tests, all typechecks and builds.
+The broad sealed suite passed 141 tests with 12 native opt-in skips; the v1
+and v2 CI-equivalent native runs separately passed 11 and 19 tests,
+respectively, with no skips.
+These tests establish local bounded behavior, not authenticated checkout or
+Docker provenance. The runtime credential scanner is heuristic; operator
+review of included runtime digests remains necessary. Every v2 receipt keeps
+`artifactSourceAuthenticated`, `protectedExecutionVerified` and
+`promotionEligible` false. No unseen independent labels, live Qwen result,
+paid-provider outcomes, or partner-approved witness were supplied.
