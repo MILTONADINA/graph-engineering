@@ -39,6 +39,10 @@ jobs:
           # onnxruntime-node fetches a native archive in postinstall, outside npm's fetch retry.
           npm ci || { sleep 5; npm ci; }
       - run: npm run format:check
+      - name: Git branch and push safety
+        run: node --test scripts/git-safety.test.mjs
+      - name: Current synthetic fixture receipt
+        run: node --test evaluation/validate-fixtures.test.mjs
       - run: npm run check
       - name: Fork branch-protection policy
         run: node --test scripts/branch-protection.test.mjs
@@ -350,7 +354,8 @@ jobs:
             node --test --test-concurrency=1 \
               evaluation/sealed/oracle-runtime/repository.test.mjs \
               evaluation/sealed/oracle-runtime/repository-host.test.mjs \
-              evaluation/sealed/tests/repository-end-to-end.test.mjs
+              evaluation/sealed/tests/repository-end-to-end.test.mjs \
+              evaluation/sealed/tests/local-repository-attempt.test.mjs
       - name: Offline declared-tree repository black-box oracle
         run: |
           docker build --pull=false --network=none \
