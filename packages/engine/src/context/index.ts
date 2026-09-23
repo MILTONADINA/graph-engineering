@@ -877,6 +877,60 @@ export class ContextEngine {
           score: matches / Math.max(terms.length, 1) / 50,
         });
     }
+    // An exact repository path in the task is stronger evidence than fuzzy
+    // term overlap. Resolve only paths present in this frozen snapshot, and
+    // preserve all normal exclusions; this is a priority hint, not authority
+    // to read an arbitrary file or bypass the context budget.
+    const pathHints = [
+      ...new Set(
+        (
+          input.query.match(
+            /(?<![A-Za-z0-9_./-])(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+/g,
+          ) ?? []
+        )
+          .map((value) => value.replace(/[.,;:!?]+$/, ""))
+          .filter(
+            (value) =>
+              /\.[A-Za-z0-9]{1,8}$/.test(value) &&
+              isAllowedPath(value, this.policy) &&
+              !this.excluded(value),
+          ),
+      ),
+    ].slice(0, 8);
+    const rankingTerms = terms
+      .filter((term) => term.length >= 4)
+      .map((term) => term.toLowerCase());
+    for (const hintedPath of pathHints) {
+      const rows = await this.db.all<Payload>(
+        "SELECT payload FROM chunks WHERE snapshot_id=? AND path=? ORDER BY rowid LIMIT 64",
+        [snapshot.id, hintedPath],
+      );
+      const ranked = rows
+        .map((row) => {
+          const chunk = json<Chunk>(row);
+          const lower = chunk.text.toLowerCase();
+          const matches = rankingTerms.filter((term) => lower.includes(term));
+          return {
+            chunk,
+            score:
+              1 +
+              matches.length / 100 +
+              1 / (1 + chunk.source.startLine) / 1000,
+          };
+        })
+        .sort(
+          (a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id),
+        )
+        .slice(0, 12);
+      for (const { chunk, score } of ranked)
+        candidates.set(chunk.id, {
+          ...chunk,
+          kind: /\.(?:md|txt|rst|adoc)$/i.test(chunk.source.path)
+            ? "document"
+            : "code",
+          score,
+        });
+    }
     const topPaths = [
       ...new Set(
         [...candidates.values()]
