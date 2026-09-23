@@ -1,0 +1,14 @@
+{
+  "name": "graph-infrastructure-control-guest",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "quickjs-emscripten-core": "0.32.0",
+    "typescript": "5.9.3",
+    "esbuild": "0.28.2",
+    "better-sqlite3": "13.0.3",
+    "picomatch": "4.0.3"
+  }
+}
