@@ -3,8 +3,9 @@
 // ledger. Only a trusted caller may supply the source export policy and send.
 // Handles are deliberately not durable: restart requires re-retention from
 // currently exportable source. An interrupted artifact publication may leave
-// unreferenced bytes, never a usable handle. Dispatch is not one-time or atomic
-// with settlement, and no sandbox or promotion authority is supplied here.
+// unreferenced bytes, never a usable handle. A durable claim prevents a second
+// callback attempt; it cannot prove delivery or make delivery atomic with
+// settlement. No sandbox or promotion authority is supplied here.
 import { types } from "node:util";
 import { tsImport } from "tsx/esm/api";
 import { ArtifactStore } from "./artifacts.mjs";
@@ -167,7 +168,7 @@ export class SealedPublicPacketBridge {
     return reservation;
   }
 
-  /** Expose only detached committed bytes to a trusted callback, never a private artifact. */
+  /** Attempt a trusted callback at most once after a durable claim; delivery is not proven. */
   async dispatch(input) {
     const { handle, reservationId, send } = fields(
       input,
@@ -185,13 +186,22 @@ export class SealedPublicPacketBridge {
       throw new Error("Public packet dispatch needs a trusted callback");
     this.#activeAttempt(handle, reservationId);
     const bytes = await this.#artifacts.get(handle.artifact);
-    // Re-read ledger state after the awaited artifact read, immediately before
-    // invoking the callback. There is no atomic lease or one-time grant here.
+    // Re-read after the awaited artifact read, then commit an irreversible
+    // claim before invoking any callback. A crash can leave zero delivery.
+    this.#activeAttempt(handle, reservationId);
+    const claim = this.#store.claimPublicDispatch(
+      reservationId,
+      handle.artifact,
+    );
+    // Recovery can race after the claim. This check catches recovery that has
+    // already finished; a trusted supervisor must stop/isolate the transport
+    // before abandoning an in-flight attempt.
     this.#activeAttempt(handle, reservationId);
     const metadata = Object.freeze({
       collectionId: handle.collectionId,
       taskId: handle.taskId,
       reservationId,
+      claimSha256: hashJson(claim),
       publicPacketSha256: handle.artifact.sha256,
       bytes: handle.artifact.bytes,
     });

@@ -1,4 +1,4 @@
-// Durable collection bookkeeping only: no worker, signatures, oracle, or grant.
+// Durable collection bookkeeping only: no worker, signatures, oracle, or delivery proof.
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import {
@@ -19,6 +19,7 @@ import {
   validateCollectionPlan,
   spendingAuthorizationSchema,
   reservationSchema,
+  publicDispatchClaimSchema,
   callReservationSchema,
   callReceiptSchema,
   attemptReceiptSchema,
@@ -45,6 +46,8 @@ const LIMITATIONS = [
 ];
 const paidKinds = new Set(["openai", "anthropic", "jev"]);
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+const sha256 = /^[a-f0-9]{64}$/;
+const MAX_PUBLIC_PACKET_BYTES = 2_000_000;
 function providerSpendClass(provider) {
   const endpoint = new URL(provider.endpointOrigin);
   if (paidKinds.has(provider.kind)) return "paid";
@@ -102,6 +105,13 @@ function privateFile(filename, { optional = false } = {}) {
     );
   return true;
 }
+function publicDispatchClaim(input) {
+  try {
+    return publicDispatchClaimSchema.parse(decodeJson(input));
+  } catch {
+    throw new Error("Invalid public dispatch claim");
+  }
+}
 
 export class SealedStore {
   #db;
@@ -156,7 +166,7 @@ export class SealedStore {
       this.#db.pragma("synchronous = FULL");
       this.#db.pragma("max_page_count = 16384");
       const version = this.#db.pragma("user_version", { simple: true });
-      if (version !== 0 && version !== 1 && version !== 2)
+      if (version !== 0 && version !== 1 && version !== 2 && version !== 3)
         throw new Error("Unsupported sealed ledger version");
       this.#db
         .transaction(() => {
@@ -164,6 +174,7 @@ export class SealedStore {
           CREATE TABLE IF NOT EXISTS collections(id TEXT PRIMARY KEY,plan_json TEXT NOT NULL,registry_json TEXT NOT NULL,plan_hash TEXT NOT NULL,registry_hash TEXT NOT NULL,closure_json TEXT);
           CREATE TABLE IF NOT EXISTS assignments(collection_id TEXT NOT NULL REFERENCES collections(id),id TEXT NOT NULL,task_id TEXT NOT NULL,arm TEXT NOT NULL,ordinal INTEGER NOT NULL,json TEXT NOT NULL,PRIMARY KEY(collection_id,id),UNIQUE(collection_id,task_id,arm),UNIQUE(collection_id,ordinal));
           CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,collection_id TEXT NOT NULL,assignment_id TEXT NOT NULL,reservation_json TEXT NOT NULL,receipt_json TEXT,UNIQUE(collection_id,assignment_id),FOREIGN KEY(collection_id,assignment_id) REFERENCES assignments(collection_id,id));
+          CREATE TABLE IF NOT EXISTS public_dispatches(reservation_id TEXT PRIMARY KEY REFERENCES attempts(id),claim_json TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS exposures(domain TEXT NOT NULL,task_id TEXT NOT NULL,arm TEXT NOT NULL,reservation_id TEXT NOT NULL UNIQUE REFERENCES attempts(id),PRIMARY KEY(domain,task_id,arm));
           CREATE TABLE IF NOT EXISTS family_exposures(domain TEXT NOT NULL,family_id TEXT NOT NULL,collection_id TEXT NOT NULL REFERENCES collections(id),PRIMARY KEY(domain,family_id));
           CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY,reservation_id TEXT NOT NULL REFERENCES attempts(id),ordinal INTEGER NOT NULL,reservation_json TEXT NOT NULL,receipt_json TEXT,UNIQUE(reservation_id,ordinal));
@@ -174,6 +185,8 @@ export class SealedStore {
           CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'Immutable ledger event');END;
           CREATE TRIGGER IF NOT EXISTS collections_no_change BEFORE UPDATE OF plan_json,registry_json,plan_hash,registry_hash ON collections BEGIN SELECT RAISE(ABORT,'Immutable collection plan');END;
           CREATE TRIGGER IF NOT EXISTS attempts_no_change BEFORE UPDATE OF reservation_json ON attempts BEGIN SELECT RAISE(ABORT,'Immutable attempt reservation');END;
+          CREATE TRIGGER IF NOT EXISTS public_dispatches_no_update BEFORE UPDATE ON public_dispatches BEGIN SELECT RAISE(ABORT,'Immutable public dispatch claim');END;
+          CREATE TRIGGER IF NOT EXISTS public_dispatches_no_delete BEFORE DELETE ON public_dispatches BEGIN SELECT RAISE(ABORT,'Immutable public dispatch claim');END;
           CREATE TRIGGER IF NOT EXISTS calls_no_change BEFORE UPDATE OF reservation_json ON calls BEGIN SELECT RAISE(ABORT,'Immutable call reservation');END;
           CREATE TRIGGER IF NOT EXISTS spending_authorizations_no_update BEFORE UPDATE ON spending_authorizations BEGIN SELECT RAISE(ABORT,'Immutable spending authorization');END;
           CREATE TRIGGER IF NOT EXISTS spending_authorizations_no_delete BEFORE DELETE ON spending_authorizations BEGIN SELECT RAISE(ABORT,'Immutable spending authorization');END;
@@ -182,7 +195,7 @@ export class SealedStore {
           CREATE TRIGGER IF NOT EXISTS attempts_one_settlement BEFORE UPDATE OF receipt_json ON attempts WHEN OLD.receipt_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Attempt already terminal');END;
           CREATE TRIGGER IF NOT EXISTS calls_one_settlement BEFORE UPDATE OF receipt_json ON calls WHEN OLD.receipt_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Call already terminal');END;
           CREATE TRIGGER IF NOT EXISTS collections_one_closure BEFORE UPDATE OF closure_json ON collections WHEN OLD.closure_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Collection already closed');END;
-          PRAGMA user_version=2;
+          PRAGMA user_version=3;
         `);
         })
         .immediate();
@@ -632,6 +645,96 @@ export class SealedStore {
     const collection = this.#collection(row.collection_id, { open }),
       reservation = reservationSchema.parse(decodeJson(row.reservation_json));
     return { ...row, ...collection, reservation };
+  }
+  #assertPublicDispatch(claim, reservation, plan) {
+    const task = plan.tasks.find((item) => item.taskId === reservation.taskId);
+    const claimedAt = Date.parse(claim.claimedAt);
+    const reservedAt = Date.parse(reservation.reservedAt);
+    const maxDurationMs = plan.configurations[reservation.arm].maxDurationMs;
+    if (
+      !task ||
+      claim.reservationId !== reservation.reservationId ||
+      claim.reservationSha256 !== hashJson(reservation) ||
+      claim.collectionId !== reservation.collectionId ||
+      claim.assignmentId !== reservation.assignmentId ||
+      claim.taskId !== task.taskId ||
+      claim.taskSha256 !== hashJson(task) ||
+      claim.planSha256 !== reservation.planSha256 ||
+      claim.publicPacketSha256 !== task.publicPacketSha256 ||
+      claimedAt < reservedAt ||
+      claimedAt >= Date.parse(plan.expiresAt) ||
+      claimedAt - reservedAt >= maxDurationMs
+    )
+      throw new Error("Public dispatch claim differs from its frozen attempt");
+  }
+  /** A durable, at-most-once permission claim, not evidence of delivery. */
+  claimPublicDispatch(reservationId, packetReference) {
+    const reference = decodeJson(packetReference);
+    if (
+      !reference ||
+      Array.isArray(reference) ||
+      Object.keys(reference).sort().join(",") !== "bytes,sha256" ||
+      typeof reference.sha256 !== "string" ||
+      !sha256.test(reference.sha256) ||
+      !Number.isSafeInteger(reference.bytes) ||
+      reference.bytes < 1 ||
+      reference.bytes > MAX_PUBLIC_PACKET_BYTES
+    )
+      throw new Error("Public dispatch needs a bounded artifact reference");
+    return this.#db
+      .transaction(() => {
+        const attempt = this.#attempt(reservationId, { open: true });
+        const timestamp = now();
+        if (
+          Date.parse(timestamp) < Date.parse(attempt.reservation.reservedAt) ||
+          Date.parse(timestamp) >= Date.parse(attempt.plan.expiresAt) ||
+          Date.parse(timestamp) - Date.parse(attempt.reservation.reservedAt) >=
+            attempt.plan.configurations[attempt.reservation.arm].maxDurationMs
+        )
+          throw new Error("Public dispatch attempt deadline has expired");
+        if (
+          this.#db
+            .prepare("SELECT 1 FROM public_dispatches WHERE reservation_id=?")
+            .get(reservationId)
+        )
+          throw new Error("Public dispatch already claimed; never retry");
+        if (
+          this.#db
+            .prepare("SELECT 1 FROM calls WHERE reservation_id=? LIMIT 1")
+            .get(reservationId)
+        )
+          throw new Error("Public dispatch must precede every model call");
+        const task = attempt.plan.tasks.find(
+          (item) => item.taskId === attempt.reservation.taskId,
+        );
+        if (!task || task.publicPacketSha256 !== reference.sha256)
+          throw new Error("Public packet differs from frozen task");
+        const claim = publicDispatchClaim({
+          version: "1.0.0",
+          kind: "sealed-public-dispatch-claim",
+          reservationId,
+          reservationSha256: hashJson(attempt.reservation),
+          collectionId: attempt.reservation.collectionId,
+          assignmentId: attempt.reservation.assignmentId,
+          taskId: task.taskId,
+          taskSha256: hashJson(task),
+          planSha256: attempt.reservation.planSha256,
+          publicPacketSha256: reference.sha256,
+          publicPacketBytes: reference.bytes,
+          claimedAt: timestamp,
+        });
+        this.#assertPublicDispatch(claim, attempt.reservation, attempt.plan);
+        this.#db
+          .prepare("INSERT INTO public_dispatches VALUES(?,?)")
+          .run(reservationId, canonicalJson(claim));
+        this.#event(
+          attempt.reservation.collectionId,
+          "public-dispatch-claimed",
+          claim,
+        );
+        return snapshot(claim);
+      })
+      .immediate();
   }
   reserveCall(reservationId, input) {
     const data = decodeJson(input);
@@ -1113,6 +1216,25 @@ export class SealedStore {
           "SELECT * FROM attempts WHERE collection_id=? AND assignment_id=?",
         )
         .get(collectionId, assignment.assignmentId);
+      const reservation = row
+        ? reservationSchema.parse(decodeJson(row.reservation_json))
+        : null;
+      const dispatchRow = row
+        ? this.#db
+            .prepare(
+              "SELECT claim_json FROM public_dispatches WHERE reservation_id=?",
+            )
+            .get(row.id)
+        : null;
+      const publicDispatch = dispatchRow
+        ? publicDispatchClaim(dispatchRow.claim_json)
+        : null;
+      if (publicDispatch)
+        this.#assertPublicDispatch(
+          publicDispatch,
+          reservation,
+          collection.plan,
+        );
       const calls = row
         ? this.#db
             .prepare(
@@ -1122,9 +1244,8 @@ export class SealedStore {
         : [];
       return {
         assignment,
-        reservation: row
-          ? reservationSchema.parse(decodeJson(row.reservation_json))
-          : null,
+        reservation,
+        publicDispatch,
         receipt: row?.receipt_json
           ? attemptReceiptSchema.parse(decodeJson(row.receipt_json))
           : null,
@@ -1145,6 +1266,11 @@ export class SealedStore {
     for (const item of assignments) {
       if (item.reservation)
         artifacts.push({ type: "attempt-reserved", payload: item.reservation });
+      if (item.publicDispatch)
+        artifacts.push({
+          type: "public-dispatch-claimed",
+          payload: item.publicDispatch,
+        });
       for (const call of item.calls) {
         artifacts.push({ type: "call-reserved", payload: call.reservation });
         if (call.receipt)

@@ -651,6 +651,22 @@ export const reservationSchema = z
     reservedAt: timestamp,
   })
   .strict();
+export const publicDispatchClaimSchema = z
+  .object({
+    version,
+    kind: z.literal("sealed-public-dispatch-claim"),
+    reservationId: id,
+    reservationSha256: digestSchema,
+    collectionId: id,
+    assignmentId: id,
+    taskId: id,
+    taskSha256: digestSchema,
+    planSha256: digestSchema,
+    publicPacketSha256: digestSchema,
+    publicPacketBytes: z.number().int().min(1).max(LIMITS.bytes),
+    claimedAt: timestamp,
+  })
+  .strict();
 export const callReservationSchema = z
   .object({
     version,
@@ -738,6 +754,7 @@ export const eventSchema = z
     type: z.enum([
       "registered",
       "attempt-reserved",
+      "public-dispatch-claimed",
       "call-reserved",
       "call-settled",
       "attempt-settled",

@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import Database from "better-sqlite3";
+import { tsImport } from "tsx/esm/api";
 import { SealedStore } from "../store.mjs";
 import { hashJson } from "../schema.mjs";
 import {
@@ -15,6 +16,11 @@ import {
   settledCall,
   settledAttempt,
 } from "./helpers.mjs";
+
+const { validateFullCohortLedger } = await tsImport(
+  "../../../packages/engine/src/full-cohort-ledger.ts",
+  import.meta.url,
+);
 
 async function setup(t, edit = () => {}) {
   const directory = await mkdtemp(path.join(tmpdir(), "graph-sealed-fixture-"));
@@ -47,6 +53,28 @@ function child(directory, mode = "reserve") {
       [
         fileURLToPath(new URL("reserve-child.mjs", import.meta.url)),
         directory,
+        mode,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "",
+      stderr = "";
+    processChild.stdout.on("data", (chunk) => (stdout += chunk));
+    processChild.stderr.on("data", (chunk) => (stderr += chunk));
+    processChild.once("error", reject);
+    processChild.once("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+function dispatchChild(directory, reservationId, packet, mode = "claim") {
+  return new Promise((resolve, reject) => {
+    const processChild = spawn(
+      process.execPath,
+      [
+        fileURLToPath(new URL("dispatch-child.mjs", import.meta.url)),
+        directory,
+        reservationId,
+        packet.sha256,
+        String(packet.bytes),
         mode,
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
@@ -112,6 +140,261 @@ test("cross-process contenders cannot reserve one assignment twice", async (t) =
     snapshot.events.filter((item) => item.event.type === "attempt-reserved")
       .length,
     1,
+  );
+});
+test("public dispatch claim is frozen, single-use, and precedes model calls", async (t) => {
+  const value = await setup(t);
+  const { store, plan } = value;
+  const packet = { sha256: plan.tasks[0].publicPacketSha256, bytes: 42 };
+  assert.throws(
+    () => store.claimPublicDispatch("unknown-attempt", packet),
+    /Unknown attempt/,
+  );
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  assert.throws(
+    () =>
+      store.claimPublicDispatch(attempt.reservationId, {
+        ...packet,
+        sha256: digest("wrong-public-packet"),
+      }),
+    /differs from frozen task/,
+  );
+  const claim = store.claimPublicDispatch(attempt.reservationId, packet);
+  assert.ok(Object.isFrozen(claim));
+  assert.equal(claim.reservationSha256, hashJson(attempt));
+  assert.equal(claim.publicPacketSha256, packet.sha256);
+  assert.deepEqual(
+    store.inspectCollection(plan.collectionId).assignments[0].publicDispatch,
+    claim,
+  );
+  assert.throws(
+    () => store.claimPublicDispatch(attempt.reservationId, packet),
+    /already claimed/,
+  );
+  const call = store.reserveCall(attempt.reservationId, callInput());
+  store.completeCall(settledCall(call));
+  store.recoverCollection(plan.collectionId, { abandonOutstanding: true });
+  const closure = store.closeCollection(plan.collectionId);
+  assert.equal(closure.promotionEligible, false);
+  assert.deepEqual(
+    value.reopen().inspectCollection(plan.collectionId).assignments[0]
+      .publicDispatch,
+    claim,
+  );
+  assert.throws(
+    () => value.store.claimPublicDispatch(attempt.reservationId, packet),
+    /already terminal|closed/,
+  );
+});
+test("a call before public dispatch blocks a later claim", async (t) => {
+  const { store, plan } = await setup(t);
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  store.reserveCall(attempt.reservationId, callInput());
+  assert.throws(
+    () =>
+      store.claimPublicDispatch(attempt.reservationId, {
+        sha256: plan.tasks[0].publicPacketSha256,
+        bytes: 42,
+      }),
+    /must precede every model call/,
+  );
+});
+test("public dispatch refuses an expired attempt and malformed artifact reference", async (t) => {
+  const { store, plan } = await setup(t, ({ plan: draft }) => {
+    draft.configurations.baseline.maxDurationMs = 1;
+  });
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  const packet = { sha256: plan.tasks[0].publicPacketSha256, bytes: 42 };
+  for (const bad of [
+    { ...packet, bytes: 0 },
+    { ...packet, bytes: 2_000_001 },
+    { ...packet, unexpected: true },
+  ])
+    assert.throws(
+      () => store.claimPublicDispatch(attempt.reservationId, bad),
+      /bounded artifact reference/,
+    );
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.throws(
+    () => store.claimPublicDispatch(attempt.reservationId, packet),
+    /deadline has expired/,
+  );
+  assert.equal(
+    store.inspectCollection(plan.collectionId).assignments[0].publicDispatch,
+    null,
+  );
+});
+test("cross-process public dispatch claim has exactly one winner", async (t) => {
+  const { directory, store, plan } = await setup(t);
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  const packet = { sha256: plan.tasks[0].publicPacketSha256, bytes: 42 };
+  const results = await Promise.all([
+    dispatchChild(directory, attempt.reservationId, packet),
+    dispatchChild(directory, attempt.reservationId, packet),
+  ]);
+  assert.deepEqual(results.map((item) => item.code).sort(), [0, 1]);
+  assert.match(
+    results.find((item) => item.code === 1).stderr,
+    /already claimed/,
+  );
+  assert.equal(
+    store
+      .inspectCollection(plan.collectionId)
+      .events.filter((item) => item.event.type === "public-dispatch-claimed")
+      .length,
+    1,
+  );
+});
+test("public dispatch claims are immutable and covered by the event inventory", async (t) => {
+  const { directory, store, plan } = await setup(t);
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  store.claimPublicDispatch(attempt.reservationId, {
+    sha256: plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  const db = new Database(path.join(directory, "sealed.sqlite"));
+  try {
+    assert.throws(
+      () => db.prepare("UPDATE public_dispatches SET claim_json=?").run("{}"),
+      /Immutable public dispatch claim/,
+    );
+    assert.throws(
+      () => db.prepare("DELETE FROM public_dispatches").run(),
+      /Immutable public dispatch claim/,
+    );
+    // Simulate a privileged operator bypassing the trigger while leaving the
+    // independently verified event inventory intact.
+    db.exec("DROP TRIGGER public_dispatches_no_delete");
+    db.prepare("DELETE FROM public_dispatches").run();
+  } finally {
+    db.close();
+  }
+  assert.throws(
+    () => store.inspectCollection(plan.collectionId),
+    /artifact\/event inventory/,
+  );
+});
+test("real store inspection with a dispatch claim reconciles through full-cohort validation", async (t) => {
+  const { store, plan, registry } = await setup(t);
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  store.claimPublicDispatch(attempt.reservationId, {
+    sha256: plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  const inspection = store.inspectCollection(plan.collectionId);
+  const pins = {
+    planSha256: inspection.planSha256,
+    registrySha256: hashJson(registry),
+    baselineConfigurationSha256: hashJson(plan.configurations.baseline),
+    candidateConfigurationSha256: hashJson(plan.configurations.candidate),
+  };
+  const reconciled = validateFullCohortLedger(inspection, pins);
+  assert.equal(
+    reconciled.assignments[0].publicDispatch?.reservationId,
+    attempt.reservationId,
+  );
+  const omitted = structuredClone(inspection);
+  omitted.assignments[0].publicDispatch = null;
+  assert.throws(
+    () => validateFullCohortLedger(omitted, pins),
+    /missing or duplicate artifact|complete event\/artifact inventory/,
+  );
+  const wrongTask = structuredClone(inspection);
+  wrongTask.assignments[0].publicDispatch.taskSha256 = digest("wrong-task");
+  assert.throws(
+    () => validateFullCohortLedger(wrongTask, pins),
+    /public dispatch claim differs/,
+  );
+});
+test("crash after public dispatch claim never permits redispatch", async (t) => {
+  const value = await setup(t);
+  const attempt = value.store.reserveAttempt(
+    value.plan.collectionId,
+    "baseline-assignment",
+  );
+  const packet = { sha256: value.plan.tasks[0].publicPacketSha256, bytes: 42 };
+  const exited = await dispatchChild(
+    value.directory,
+    attempt.reservationId,
+    packet,
+    "crash",
+  );
+  assert.equal(exited.code, 23);
+  const claim = JSON.parse(exited.stdout);
+  const store = value.reopen();
+  assert.equal(
+    hashJson(
+      store.inspectCollection(value.plan.collectionId).assignments[0]
+        .publicDispatch,
+    ),
+    hashJson(claim),
+  );
+  assert.throws(
+    () => store.claimPublicDispatch(attempt.reservationId, packet),
+    /already claimed/,
+  );
+  assert.equal(
+    store.recoverCollection(value.plan.collectionId, {
+      abandonOutstanding: true,
+    })[0].status,
+    "collector-crashed",
+  );
+  assert.equal(
+    store.closeCollection(value.plan.collectionId).promotionEligible,
+    false,
+  );
+});
+test("version 2 ledgers migrate without changing reservations or events", async (t) => {
+  const value = await setup(t);
+  const attempt = value.store.reserveAttempt(
+    value.plan.collectionId,
+    "baseline-assignment",
+  );
+  const before = value.store.inspectCollection(value.plan.collectionId);
+  value.store.close();
+  const filename = path.join(value.directory, "sealed.sqlite");
+  const legacy = new Database(filename);
+  try {
+    legacy.exec("DROP TABLE public_dispatches; PRAGMA user_version=2;");
+  } finally {
+    legacy.close();
+  }
+  const store = value.reopen();
+  const migrated = store.inspectCollection(value.plan.collectionId);
+  assert.deepEqual(migrated.events, before.events);
+  assert.deepEqual(migrated.assignments[0].reservation, attempt);
+  const migratedDb = new Database(filename, { readonly: true });
+  try {
+    assert.equal(migratedDb.pragma("user_version", { simple: true }), 3);
+  } finally {
+    migratedDb.close();
+  }
+  const claim = store.claimPublicDispatch(attempt.reservationId, {
+    sha256: value.plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  assert.equal(
+    store.inspectCollection(value.plan.collectionId).assignments[0]
+      .publicDispatch.reservationId,
+    claim.reservationId,
   );
 });
 test("the frozen assignment order cannot be skipped or overlapped", async (t) => {

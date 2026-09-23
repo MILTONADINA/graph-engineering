@@ -13,6 +13,7 @@ import {
   exposureRegistrySchema,
   freezeJson,
   hashJson,
+  publicDispatchClaimSchema,
   reservationSchema,
   validateCollectionPlan,
 } from "./sealed-collection-schema.js";
@@ -28,6 +29,7 @@ export const cohortInspectionSchema = z
           .object({
             assignment: assignmentSchema,
             reservation: reservationSchema.nullable(),
+            publicDispatch: publicDispatchClaimSchema.nullable().optional(),
             receipt: attemptReceiptSchema.nullable(),
             calls: z
               .array(
@@ -133,12 +135,14 @@ export function validateFullCohortLedger(
     callIds = new Set<string>(),
     recordIds = new Set<string>();
   for (const item of inspection.assignments) {
-    const { assignment, reservation, receipt, calls } = item;
+    const { assignment, reservation, publicDispatch, receipt, calls } = item;
     const task = plan.tasks.find((task) => task.taskId === assignment.taskId)!;
     const config = plan.configurations[assignment.arm];
     if (!reservation) {
-      require(receipt === null &&
-        calls.length === 0, "unreserved assignment contains receipts or calls");
+      require(publicDispatch == null &&
+        receipt === null &&
+        calls.length ===
+          0, "unreserved assignment contains dispatch, receipts or calls");
       continue;
     }
     require(!reservationIds.has(
@@ -172,6 +176,32 @@ export function validateFullCohortLedger(
       reservation.reservedAt,
       registered,
     );
+    if (publicDispatch) {
+      require(same(publicDispatch, {
+        version: "1.0.0",
+        kind: "sealed-public-dispatch-claim",
+        reservationId: reservation.reservationId,
+        reservationSha256: hashJson(reservation),
+        collectionId: plan.collectionId,
+        assignmentId: assignment.assignmentId,
+        taskId: task.taskId,
+        taskSha256: hashJson(task),
+        planSha256,
+        publicPacketSha256: task.publicPacketSha256,
+        publicPacketBytes: publicDispatch.publicPacketBytes,
+        claimedAt: publicDispatch.claimedAt,
+      }), "public dispatch claim differs from its frozen attempt");
+      require(time(publicDispatch.claimedAt) >= time(reservation.reservedAt) &&
+        time(publicDispatch.claimedAt) < time(plan.expiresAt) &&
+        time(publicDispatch.claimedAt) - time(reservation.reservedAt) <
+          config.maxDurationMs, "public dispatch outside frozen attempt deadline");
+      add(
+        "public-dispatch-claimed",
+        publicDispatch,
+        publicDispatch.claimedAt,
+        attemptEvent,
+      );
+    }
     require(calls.length <=
       config.maxCallsPerAttempt, "frozen call limit exceeded");
     let reservedTotal = 0;
@@ -396,6 +426,21 @@ export function validateFullCohortLedger(
         time(
           item.reservation.reservedAt,
         ), "attempt reservation predates the previous frozen assignment settlement");
+    }
+    if (item.publicDispatch) {
+      const claimedPosition = positions.get(
+        `public-dispatch-claimed:${hashJson(item.publicDispatch)}`,
+      )!;
+      require(item.calls.every(
+        (call) =>
+          claimedPosition <
+          positions.get(`call-reserved:${hashJson(call.reservation)}`)!,
+      ), "public dispatch claim follows a model-call reservation");
+      require(!item.receipt ||
+        claimedPosition <
+          positions.get(
+            `attempt-settled:${hashJson(item.receipt)}`,
+          )!, "public dispatch claim follows attempt settlement");
     }
     for (const [callIndex, call] of item.calls.entries()) {
       const position = positions.get(

@@ -122,6 +122,13 @@ test("retains only the exact frozen public packet and exposes detached bytes on 
   assert.equal(sent, 1);
   assert.equal(Object.isFrozen(receipt), true);
   assert.equal(receipt.reservationId, reservation.reservationId);
+  assert.equal(
+    receipt.claimSha256,
+    hashJson(
+      store.inspectCollection(data.plan.collectionId).assignments[0]
+        .publicDispatch,
+    ),
+  );
   received.fill(0);
   assert.equal(
     Buffer.compare(
@@ -130,17 +137,20 @@ test("retains only the exact frozen public packet and exposes detached bytes on 
     ),
     0,
   );
-  // Neither dispatch nor callback success settles or promotes the attempt.
+  // A claim and callback success neither settle nor promote the attempt.
   const attempt = store.inspectCollection(data.plan.collectionId)
     .assignments[0];
   assert.equal(attempt.receipt, null);
   assert.deepEqual(attempt.calls, []);
-  await bridge.dispatch({
-    handle,
-    reservationId: reservation.reservationId,
-    send: async () => sent++,
-  });
-  assert.equal(sent, 2); // This bridge does not claim one-time delivery.
+  await assert.rejects(
+    bridge.dispatch({
+      handle,
+      reservationId: reservation.reservationId,
+      send: async () => sent++,
+    }),
+    /already claimed/,
+  );
+  assert.equal(sent, 1);
 });
 
 test("changed source, secret content, and private memory paths fail before artifact retention", async (t) => {
@@ -268,6 +278,18 @@ test("terminal attempts and callback failures never become successful ledger com
     store.inspectCollection(data.plan.collectionId).assignments[0].receipt,
     null,
   );
+  assert.ok(
+    store.inspectCollection(data.plan.collectionId).assignments[0]
+      .publicDispatch,
+  );
+  await assert.rejects(
+    bridge.dispatch({
+      handle,
+      reservationId: reservation.reservationId,
+      send: async () => {},
+    }),
+    /already claimed/,
+  );
   store.recoverCollection(data.plan.collectionId, { abandonOutstanding: true });
   let sent = false;
   await assert.rejects(
@@ -279,6 +301,44 @@ test("terminal attempts and callback failures never become successful ledger com
     /active task reservation/,
   );
   assert.equal(sent, false);
+});
+
+test("concurrent bridge dispatches invoke only one trusted callback", async (t) => {
+  const { store, bridge, data, packetInput } = await setup(t);
+  const handle = await bridge.retain({
+    collectionId: data.plan.collectionId,
+    taskId: packetInput.taskId,
+    packetInput,
+  });
+  const reservation = store.reserveAttempt(
+    data.plan.collectionId,
+    "baseline-assignment",
+  );
+  let calls = 0;
+  const send = async () => {
+    calls++;
+    await Promise.resolve();
+  };
+  const outcomes = await Promise.allSettled([
+    bridge.dispatch({ handle, reservationId: reservation.reservationId, send }),
+    bridge.dispatch({ handle, reservationId: reservation.reservationId, send }),
+  ]);
+  assert.deepEqual(outcomes.map((item) => item.status).sort(), [
+    "fulfilled",
+    "rejected",
+  ]);
+  assert.match(
+    outcomes.find((item) => item.status === "rejected").reason.message,
+    /already claimed/,
+  );
+  assert.equal(calls, 1);
+  assert.equal(
+    store
+      .inspectCollection(data.plan.collectionId)
+      .events.filter((item) => item.event.type === "public-dispatch-claimed")
+      .length,
+    1,
+  );
 });
 
 test("bridge input records refuse accessor and proxy substitution", async (t) => {
