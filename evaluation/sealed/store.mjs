@@ -781,6 +781,7 @@ export class SealedStore {
         "sealed-call-bound-engineering-invocation-claim",
         "sealed-call-bound-module-graph-invocation-claim",
         "sealed-call-bound-repository-invocation-claim",
+        "sealed-call-bound-repository-v2-invocation-claim",
       ].includes(claim.kind) &&
       (claim.baselineSha256 !== task.baselineSha256 ||
         claim.resultSourceSha256 === task.baselineSha256 ||
@@ -803,10 +804,35 @@ export class SealedStore {
         "Repository claim differs from frozen snapshot or recipe roles",
       );
     if (
+      claim.kind === "sealed-call-bound-repository-v2-invocation-claim" &&
+      (task.stateFormatVersion !== "repo-snapshot-v1" ||
+        task.executionScopeSha256 !== claim.scopeSha256 ||
+        claim.resultSourceSha256 === claim.proposalSha256 ||
+        [
+          task.baselineSha256,
+          task.publicPacketSha256,
+          task.oracleSha256,
+          claim.scopeSha256,
+          claim.resultSourceSha256,
+        ].includes(claim.recipeSha256) ||
+        [
+          task.baselineSha256,
+          task.publicPacketSha256,
+          task.oracleSha256,
+          claim.scopeSha256,
+          claim.recipeSha256,
+          claim.resultSourceSha256,
+        ].includes(claim.baselineTreeSha256))
+    )
+      throw new Error(
+        "Repository v2 claim differs from frozen snapshot, scope or recipe roles",
+      );
+    if (
       claim.kind === "sealed-call-bound-oracle-invocation-claim" ||
       claim.kind === "sealed-call-bound-engineering-invocation-claim" ||
       claim.kind === "sealed-call-bound-module-graph-invocation-claim" ||
-      claim.kind === "sealed-call-bound-repository-invocation-claim"
+      claim.kind === "sealed-call-bound-repository-invocation-claim" ||
+      claim.kind === "sealed-call-bound-repository-v2-invocation-claim"
     ) {
       const row = this.#db
         .prepare(
@@ -1202,14 +1228,24 @@ export class SealedStore {
   }
   /** One-shot bounded repository claim; a tree digest is not proof of correct derivation or guest execution. */
   claimRepositoryInvocation(reservationId, input) {
+    return this.#claimRepositoryInvocation(reservationId, input, false);
+  }
+  /** One-shot v2 whole-execution-tree claim; still no authenticated execution authority. */
+  claimRepositoryV2Invocation(reservationId, input) {
+    return this.#claimRepositoryInvocation(reservationId, input, true);
+  }
+  #claimRepositoryInvocation(reservationId, input, v2) {
     const data = decodeJson(input);
+    const expectedFields = v2
+      ? "baselineSha256,baselineTreeSha256,callId,expectedCallReceiptSha256,expectedPlanSha256,expectedResponseSha256,imageId,oracleSha256,proposalSha256,recipeSha256,resultSourceSha256,scopeSha256"
+      : "baselineSha256,callId,expectedCallReceiptSha256,expectedPlanSha256,expectedResponseSha256,imageId,oracleSha256,proposalSha256,recipeSha256,resultSourceSha256";
     if (
       !data ||
       Array.isArray(data) ||
-      Object.keys(data).sort().join(",") !==
-        "baselineSha256,callId,expectedCallReceiptSha256,expectedPlanSha256,expectedResponseSha256,imageId,oracleSha256,proposalSha256,recipeSha256,resultSourceSha256" ||
+      Object.keys(data).sort().join(",") !== expectedFields ||
       ![
         data.baselineSha256,
+        ...(v2 ? [data.baselineTreeSha256, data.scopeSha256] : []),
         data.expectedCallReceiptSha256,
         data.expectedPlanSha256,
         data.expectedResponseSha256,
@@ -1280,7 +1316,9 @@ export class SealedStore {
         );
         const claim = oracleInvocationClaimSchema.parse({
           version: "1.0.0",
-          kind: "sealed-call-bound-repository-invocation-claim",
+          kind: v2
+            ? "sealed-call-bound-repository-v2-invocation-claim"
+            : "sealed-call-bound-repository-invocation-claim",
           reservationId,
           reservationSha256: hashJson(attempt.reservation),
           collectionId: attempt.reservation.collectionId,
@@ -1290,6 +1328,12 @@ export class SealedStore {
           planSha256: attempt.planSha256,
           publicDispatchSha256: hashJson(publicDispatch),
           baselineSha256: data.baselineSha256,
+          ...(v2
+            ? {
+                scopeSha256: data.scopeSha256,
+                baselineTreeSha256: data.baselineTreeSha256,
+              }
+            : {}),
           oracleSha256: data.oracleSha256,
           recipeSha256: data.recipeSha256,
           callId: call.callId,
@@ -1299,8 +1343,12 @@ export class SealedStore {
           proposalDerivation: "openai-chat-content-utf8-v1",
           proposalSha256: data.proposalSha256,
           resultSourceSha256: data.resultSourceSha256,
-          resultSourceFormat: "sealed-repository-tree-v1",
-          verifierKind: "sealed-repository-blackbox-v1",
+          resultSourceFormat: v2
+            ? "sealed-repository-execution-tree-v2"
+            : "sealed-repository-tree-v1",
+          verifierKind: v2
+            ? "sealed-repository-blackbox-v2"
+            : "sealed-repository-blackbox-v1",
           imageId: data.imageId,
           claimedAt: now(),
         });
@@ -1315,7 +1363,9 @@ export class SealedStore {
           .run(reservationId, canonicalJson(claim));
         this.#event(
           attempt.reservation.collectionId,
-          "call-bound-repository-invocation-claimed",
+          v2
+            ? "call-bound-repository-v2-invocation-claimed"
+            : "call-bound-repository-invocation-claimed",
           claim,
         );
         return snapshot(claim);
@@ -1366,6 +1416,7 @@ export class SealedStore {
         if (
           claim.kind !== "sealed-call-bound-module-graph-invocation-claim" &&
           claim.kind !== "sealed-call-bound-repository-invocation-claim" &&
+          claim.kind !== "sealed-call-bound-repository-v2-invocation-claim" &&
           data.verificationReference.bytes > 4096
         )
           throw new Error(
@@ -1377,6 +1428,7 @@ export class SealedStore {
             "sealed-call-bound-engineering-invocation-claim",
             "sealed-call-bound-module-graph-invocation-claim",
             "sealed-call-bound-repository-invocation-claim",
+            "sealed-call-bound-repository-v2-invocation-claim",
           ].includes(claim.kind) ||
           hashJson(claim) !== data.claimSha256
         )
@@ -1641,6 +1693,7 @@ export class SealedStore {
           "sealed-call-bound-engineering-invocation-claim",
           "sealed-call-bound-module-graph-invocation-claim",
           "sealed-call-bound-repository-invocation-claim",
+          "sealed-call-bound-repository-v2-invocation-claim",
         ].includes(oracleClaim.kind) &&
         (receipt.status === "completed" || receipt.outcome.success !== null)
       )
@@ -1975,6 +2028,7 @@ export class SealedStore {
             "sealed-call-bound-engineering-invocation-claim",
             "sealed-call-bound-module-graph-invocation-claim",
             "sealed-call-bound-repository-invocation-claim",
+            "sealed-call-bound-repository-v2-invocation-claim",
           ].includes(oracleInvocation.kind) ||
           oracleVerdict.reservationId !== row.id ||
           oracleVerdict.claimSha256 !== hashJson(oracleInvocation) ||
@@ -2038,7 +2092,10 @@ export class SealedStore {
                   : item.oracleInvocation.kind ===
                       "sealed-call-bound-repository-invocation-claim"
                     ? "call-bound-repository-invocation-claimed"
-                    : "oracle-invocation-claimed",
+                    : item.oracleInvocation.kind ===
+                        "sealed-call-bound-repository-v2-invocation-claim"
+                      ? "call-bound-repository-v2-invocation-claimed"
+                      : "oracle-invocation-claimed",
           payload: item.oracleInvocation,
         });
       if (item.oracleVerdict)

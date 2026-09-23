@@ -20,7 +20,10 @@ const { validateFullCohortLedger } = await tsImport(
   import.meta.url,
 );
 
-async function setup(t, { stateFormatVersion = "repo-snapshot-v1" } = {}) {
+async function setup(
+  t,
+  { stateFormatVersion = "repo-snapshot-v1", executionScopeSha256 } = {},
+) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "graph-repo-claim-"));
   let store = new SealedStore({ directory });
   t.after(async () => {
@@ -31,6 +34,8 @@ async function setup(t, { stateFormatVersion = "repo-snapshot-v1" } = {}) {
     `repo-claim-${Date.now()}-${Math.random()}`,
   );
   plan.tasks[0].stateFormatVersion = stateFormatVersion;
+  if (executionScopeSha256)
+    plan.tasks[0].executionScopeSha256 = executionScopeSha256;
   for (const config of Object.values(plan.configurations))
     config.categoryStateVersions[0].stateFormatVersion = stateFormatVersion;
   store.registerPlan(plan, registry, {
@@ -312,5 +317,85 @@ test("repository claim refuses non-snapshot task and extra model calls", async (
         state.input,
       ),
     /exactly one settled model call/,
+  );
+});
+
+test("repository v2 claim binds a frozen execution scope and full-tree identities", async (t) => {
+  const scopeSha256 = digest("operator-declared-safe-execution-scope");
+  const state = await setup(t, { executionScopeSha256: scopeSha256 });
+  const { receipt } = settleOneCall(state);
+  const input = {
+    ...state.input,
+    scopeSha256,
+    baselineTreeSha256: digest("complete-baseline-execution-tree"),
+  };
+  assert.throws(
+    () =>
+      state.store.claimRepositoryV2Invocation(state.attempt.reservationId, {
+        ...input,
+        scopeSha256: digest("wrong-scope"),
+      }),
+    /frozen snapshot, scope or recipe roles/,
+  );
+  assert.throws(
+    () =>
+      state.store.claimRepositoryV2Invocation(state.attempt.reservationId, {
+        ...input,
+        baselineTreeSha256: state.plan.tasks[0].baselineSha256,
+      }),
+    /frozen snapshot, scope or recipe roles/,
+  );
+  const claim = state.store.claimRepositoryV2Invocation(
+    state.attempt.reservationId,
+    input,
+  );
+  assert.equal(claim.kind, "sealed-call-bound-repository-v2-invocation-claim");
+  assert.equal(claim.scopeSha256, scopeSha256);
+  assert.equal(claim.baselineTreeSha256, input.baselineTreeSha256);
+  assert.equal(claim.resultSourceFormat, "sealed-repository-execution-tree-v2");
+  assert.equal(claim.verifierKind, "sealed-repository-blackbox-v2");
+  assert.throws(
+    () =>
+      state.store.claimRepositoryInvocation(state.attempt.reservationId, {
+        ...state.input,
+      }),
+    /already claimed; never retry/,
+  );
+  const verdict = state.store.retainOracleVerdict(state.attempt.reservationId, {
+    claimSha256: hashJson(claim),
+    verificationReference: {
+      sha256: digest("private-v2-verdict"),
+      bytes: 7000,
+    },
+  });
+  const rejected = settledAttempt(state.attempt, [receipt], {
+    status: "candidate-rejected",
+    success: null,
+  });
+  rejected.proposalSha256 = claim.proposalSha256;
+  rejected.resultSourceSha256 = claim.resultSourceSha256;
+  rejected.outcome.verificationSha256 = verdict.verificationSha256;
+  rejected.observations = [];
+  state.store.completeAttempt(rejected);
+  const inspection = state.store.inspectCollection(state.plan.collectionId);
+  const pins = {
+    planSha256: inspection.planSha256,
+    registrySha256: hashJson(state.registry),
+    baselineConfigurationSha256: hashJson(state.plan.configurations.baseline),
+    candidateConfigurationSha256: hashJson(state.plan.configurations.candidate),
+  };
+  assert.equal(
+    hashJson(
+      validateFullCohortLedger(inspection, pins).assignments[0]
+        .oracleInvocation,
+    ),
+    hashJson(claim),
+  );
+  assert.equal(
+    inspection.events.filter(
+      ({ event }) =>
+        event.type === "call-bound-repository-v2-invocation-claimed",
+    ).length,
+    1,
   );
 });

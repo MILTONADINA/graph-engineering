@@ -32,6 +32,8 @@ function requiredBytes(inspection) {
   for (const task of inspection.plan.tasks) {
     const role = `task/${task.taskId}`;
     add(`${role}/baseline`, task.baselineSha256);
+    if (task.executionScopeSha256)
+      add(`${role}/execution-scope`, task.executionScopeSha256);
     add(
       `${role}/public-packet`,
       task.publicPacketSha256,
@@ -98,6 +100,20 @@ function requiredBytes(inspection) {
       "sealed-call-bound-repository-invocation-claim"
     ) {
       const role = `oracle/repository-v1/${item.assignment.assignmentId}`;
+      add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
+      add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
+      if (item.oracleVerdict)
+        add(
+          `${role}/private-verdict`,
+          item.oracleVerdict.verificationSha256,
+          item.oracleVerdict.verificationBytes,
+        );
+    }
+    if (
+      item.oracleInvocation?.kind ===
+      "sealed-call-bound-repository-v2-invocation-claim"
+    ) {
+      const role = `oracle/repository-v2/${item.assignment.assignmentId}`;
       add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
       add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
       if (item.oracleVerdict)
@@ -220,9 +236,13 @@ export async function auditOriginalBytes({
   }
   let repositoryObservationBundles = 0;
   for (const item of inspection.assignments) {
+    const v2 =
+      item.oracleInvocation?.kind ===
+      "sealed-call-bound-repository-v2-invocation-claim";
     if (
-      item.oracleInvocation?.kind !==
-        "sealed-call-bound-repository-invocation-claim" ||
+      (!v2 &&
+        item.oracleInvocation?.kind !==
+          "sealed-call-bound-repository-invocation-claim") ||
       !item.oracleVerdict
     )
       continue;
@@ -237,8 +257,12 @@ export async function auditOriginalBytes({
       const child = verdict?.observationBundle;
       if (
         verdict.kind !== "sealed-repository-blackbox-verification" ||
-        verdict.version !== "1.0.0" ||
+        verdict.version !== (v2 ? "2.0.0" : "1.0.0") ||
         verdict.claimSha256 !== hashJson(item.oracleInvocation) ||
+        (v2 &&
+          (verdict.scopeSha256 !== item.oracleInvocation.scopeSha256 ||
+            verdict.baselineTreeSha256 !==
+              item.oracleInvocation.baselineTreeSha256)) ||
         !Buffer.from(canonicalJson(verdict)).equals(verdictBytes) ||
         !exactKeys(child, ["sha256", "bytes"]) ||
         !digest.test(child.sha256) ||

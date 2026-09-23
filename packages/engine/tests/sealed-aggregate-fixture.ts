@@ -35,10 +35,14 @@ type ModuleGraphFixtureOptions = {
   omitVerdict?: boolean;
 };
 type RepositoryClaimOptions = {
+  v2?: boolean;
+  runtimePublicKind?: "source" | "documentation";
+  runtimePublicPath?: string;
   wrongResponse?: boolean;
   wrongResultTree?: boolean;
   wrongObservationBundle?: boolean;
   wrongCounters?: boolean;
+  wrongRuntimeScope?: boolean;
 };
 
 export async function fixture(
@@ -65,6 +69,7 @@ export async function fixture(
     : "worker-v1";
   const moduleGraphOracle = moduleGraphOptions !== undefined;
   const repositoryClaim = repositoryClaimOptions !== undefined;
+  const repositoryV2 = repositoryClaim && repositoryClaimOptions.v2 === true;
   if (repositoryClaim && !repositorySnapshotBaseline)
     throw new Error("Repository claim fixture needs a snapshot baseline");
   const callBound =
@@ -187,6 +192,20 @@ export async function fixture(
                 sha256: sha256(Buffer.from(source)),
                 content: source,
               },
+              ...(repositoryV2 && repositoryClaimOptions?.runtimePublicKind
+                ? [
+                    {
+                      path:
+                        repositoryClaimOptions.runtimePublicPath ??
+                        "runtime/data.bin",
+                      kind: repositoryClaimOptions.runtimePublicKind,
+                      content: "Published operator-declared runtime file",
+                      sha256: sha256(
+                        Buffer.from("Published operator-declared runtime file"),
+                      ),
+                    },
+                  ]
+                : []),
             ],
       }),
     ),
@@ -220,7 +239,42 @@ export async function fixture(
     { id: "first", input: { value: 1 }, expected: 2 },
     { id: "second", input: { value: 4 }, expected: 2 },
   ];
-  const repositoryRecipe = {
+  const runtimeBytes = Buffer.from([0, 255, 42]);
+  const repositoryV2Scope = repositoryV2
+    ? {
+        kind: "sealed-repository-execution-scope" as const,
+        version: "2.0.0" as const,
+        baselineSnapshot: {
+          sha256: baselineSha256,
+          bytes: repositorySnapshotBaseline!.length,
+        },
+        entries: [
+          { path: "runtime", type: "directory" as const, mode: 0o755 },
+          {
+            path: "runtime/data.bin",
+            type: "file" as const,
+            mode: 0o644,
+            bytes: runtimeBytes.length,
+            sha256: repositoryClaimOptions?.wrongRuntimeScope
+              ? sha256(Buffer.from("different runtime bytes"))
+              : sha256(runtimeBytes),
+            class: "operator-declared-runtime" as const,
+          },
+          {
+            path: "source.ts",
+            type: "file" as const,
+            mode: 0o644,
+            bytes: Buffer.byteLength(source),
+            sha256: sha256(Buffer.from(source)),
+            class: "public-editable" as const,
+          },
+        ],
+      }
+    : null;
+  const repositoryV2ScopeSha256 = repositoryV2Scope
+    ? retain(Buffer.from(canonicalJson(repositoryV2Scope)))
+    : null;
+  const repositoryRecipeV1 = {
     kind: "sealed-repository-blackbox-recipe" as const,
     version: "1.0.0" as const,
     imageId: `sha256:${hashJson({ fixture: "oracle-image" })}`,
@@ -232,11 +286,26 @@ export async function fixture(
     runTimeoutMs: 1000,
     sourcePaths: ["source.ts"],
   };
+  const repositoryRecipeV2 = {
+    kind: "sealed-repository-blackbox-recipe" as const,
+    version: "2.0.0" as const,
+    imageId: repositoryRecipeV1.imageId,
+    scopeSha256: repositoryV2ScopeSha256!,
+    buildArgv: [],
+    runArgv: ["node", "source.ts"],
+    cwd: ".",
+    env: {},
+    buildTimeoutMs: 1000,
+    runTimeoutMs: 1000,
+  };
+  const repositoryRecipe = repositoryV2
+    ? repositoryRecipeV2
+    : repositoryRecipeV1;
   const oracleBytes = repositoryClaim
     ? Buffer.from(
         canonicalJson({
           kind: "sealed-repository-blackbox-oracle",
-          version: "1.0.0",
+          version: repositoryV2 ? "2.0.0" : "1.0.0",
           recipe: repositoryRecipe,
           cases: repositoryCases,
         }),
@@ -295,16 +364,42 @@ export async function fixture(
   const repositoryTree = (sourceText: string) =>
     Buffer.from(
       canonicalJson({
-        kind: "sealed-repository-tree",
-        version: "1.0.0",
-        files: [
-          {
-            path: "source.ts",
-            bytes: Buffer.byteLength(sourceText),
-            mode: 0o644,
-            sha256: sha256(Buffer.from(sourceText)),
-          },
-        ],
+        ...(repositoryV2
+          ? {
+              kind: "sealed-repository-execution-tree",
+              version: "2.0.0",
+              entries: [
+                { path: "runtime", type: "directory", mode: 0o755 },
+                {
+                  path: "runtime/data.bin",
+                  type: "file",
+                  mode: 0o644,
+                  bytes: runtimeBytes.length,
+                  sha256: repositoryClaimOptions?.wrongRuntimeScope
+                    ? sha256(Buffer.from("different runtime bytes"))
+                    : sha256(runtimeBytes),
+                },
+                {
+                  path: "source.ts",
+                  type: "file",
+                  mode: 0o644,
+                  bytes: Buffer.byteLength(sourceText),
+                  sha256: sha256(Buffer.from(sourceText)),
+                },
+              ],
+            }
+          : {
+              kind: "sealed-repository-tree",
+              version: "1.0.0",
+              files: [
+                {
+                  path: "source.ts",
+                  bytes: Buffer.byteLength(sourceText),
+                  mode: 0o644,
+                  sha256: sha256(Buffer.from(sourceText)),
+                },
+              ],
+            }),
       }),
     );
   const repositoryBaselineTreeSha256 = repositoryClaim
@@ -478,6 +573,7 @@ export async function fixture(
     publicPacketSha256,
     oracleSha256,
     referenceRepairSha256: null,
+    ...(repositoryV2 ? { executionScopeSha256: repositoryV2ScopeSha256! } : {}),
     category: "worker",
     stateFormatVersion,
     risk: "low",
@@ -651,7 +747,9 @@ export async function fixture(
       ? {
           version: "1.0.0" as const,
           kind: repositoryClaim
-            ? ("sealed-call-bound-repository-invocation-claim" as const)
+            ? repositoryV2
+              ? ("sealed-call-bound-repository-v2-invocation-claim" as const)
+              : ("sealed-call-bound-repository-invocation-claim" as const)
             : moduleGraphOracle
               ? ("sealed-call-bound-module-graph-invocation-claim" as const)
               : engineeringOracle
@@ -669,12 +767,22 @@ export async function fixture(
           ...(repositoryClaim
             ? {
                 baselineSha256: task.baselineSha256,
+                ...(repositoryV2
+                  ? {
+                      baselineTreeSha256: repositoryBaselineTreeSha256!,
+                      scopeSha256: repositoryV2ScopeSha256!,
+                    }
+                  : {}),
                 recipeSha256: sha256(
                   Buffer.from(canonicalJson(repositoryRecipe)),
                 ),
                 resultSourceSha256: repositoryResultSha256!,
-                resultSourceFormat: "sealed-repository-tree-v1" as const,
-                verifierKind: "sealed-repository-blackbox-v1" as const,
+                resultSourceFormat: repositoryV2
+                  ? ("sealed-repository-execution-tree-v2" as const)
+                  : ("sealed-repository-tree-v1" as const),
+                verifierKind: repositoryV2
+                  ? ("sealed-repository-blackbox-v2" as const)
+                  : ("sealed-repository-blackbox-v1" as const),
               }
             : engineeringOracle || moduleGraphOracle
               ? {
@@ -728,7 +836,7 @@ export async function fixture(
       const inputSha256 = sha256(Buffer.from(canonicalJson(item.input)));
       const observation = (arm: "baseline" | "candidate") => ({
         kind: "sealed-repository-blackbox-observation" as const,
-        version: "1.0.0" as const,
+        version: (repositoryV2 ? "2.0.0" : "1.0.0") as "1.0.0" | "2.0.0",
         challenge: String(index + (arm === "baseline" ? 1 : 3)).repeat(32),
         arm,
         caseIndex: index,
@@ -755,7 +863,7 @@ export async function fixture(
         ? Buffer.from(
             canonicalJson({
               kind: "sealed-repository-observation-bundle",
-              version: "1.0.0",
+              version: repositoryV2 ? "2.0.0" : "1.0.0",
               claimSha256: hashJson(oracleInvocation),
               caseCount: repositoryCases.length,
               records: repositoryRecords,
@@ -787,10 +895,16 @@ export async function fixture(
         ? Buffer.from(
             canonicalJson({
               kind: "sealed-repository-blackbox-verification",
-              version: "1.0.0",
+              version: repositoryV2 ? "2.0.0" : "1.0.0",
               claimSha256: hashJson(oracleInvocation),
               oracleSha256: task.oracleSha256,
               baselineSha256: task.baselineSha256,
+              ...(repositoryV2
+                ? {
+                    scopeSha256: repositoryV2ScopeSha256,
+                    baselineTreeSha256: repositoryBaselineTreeSha256,
+                  }
+                : {}),
               recipeSha256: sha256(
                 Buffer.from(canonicalJson(repositoryRecipe)),
               ),
@@ -957,12 +1071,15 @@ export async function fixture(
           "sealed-call-bound-repository-invocation-claim"
           ? "call-bound-repository-invocation-claimed"
           : item.oracleInvocation.kind ===
-              "sealed-call-bound-engineering-invocation-claim"
-            ? "call-bound-engineering-invocation-claimed"
+              "sealed-call-bound-repository-v2-invocation-claim"
+            ? "call-bound-repository-v2-invocation-claimed"
             : item.oracleInvocation.kind ===
-                "sealed-call-bound-module-graph-invocation-claim"
-              ? "call-bound-module-graph-invocation-claimed"
-              : "call-bound-oracle-invocation-claimed",
+                "sealed-call-bound-engineering-invocation-claim"
+              ? "call-bound-engineering-invocation-claimed"
+              : item.oracleInvocation.kind ===
+                  "sealed-call-bound-module-graph-invocation-claim"
+                ? "call-bound-module-graph-invocation-claimed"
+                : "call-bound-oracle-invocation-claimed",
         item.oracleInvocation,
       );
     if (item.oracleVerdict)
@@ -1114,6 +1231,8 @@ export async function fixture(
     });
   };
   add(`task/${task.taskId}/baseline`, task.baselineSha256);
+  if (task.executionScopeSha256)
+    add(`task/${task.taskId}/execution-scope`, task.executionScopeSha256);
   add(`task/${task.taskId}/public-packet`, task.publicPacketSha256);
   add(`task/${task.taskId}/private-oracle`, task.oracleSha256);
   for (const item of inspection.assignments) {
@@ -1144,15 +1263,17 @@ export async function fixture(
       item.oracleInvocation?.kind ===
         "sealed-call-bound-module-graph-invocation-claim" ||
       item.oracleInvocation?.kind ===
-        "sealed-call-bound-repository-invocation-claim"
+        "sealed-call-bound-repository-invocation-claim" ||
+      item.oracleInvocation?.kind ===
+        "sealed-call-bound-repository-v2-invocation-claim"
     ) {
-      const role = `oracle/${item.oracleInvocation.kind === "sealed-call-bound-repository-invocation-claim" ? "repository-v1" : item.oracleInvocation.kind === "sealed-call-bound-module-graph-invocation-claim" ? "module-graph-v1" : "engineering-v1"}/${item.assignment.assignmentId}`;
+      const role = `oracle/${item.oracleInvocation.kind === "sealed-call-bound-repository-v2-invocation-claim" ? "repository-v2" : item.oracleInvocation.kind === "sealed-call-bound-repository-invocation-claim" ? "repository-v1" : item.oracleInvocation.kind === "sealed-call-bound-module-graph-invocation-claim" ? "module-graph-v1" : "engineering-v1"}/${item.assignment.assignmentId}`;
       add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
       add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
     }
     if (item.oracleVerdict)
       add(
-        `${item.oracleInvocation?.kind === "sealed-call-bound-repository-invocation-claim" ? "oracle/repository-v1" : item.oracleInvocation?.kind === "sealed-call-bound-module-graph-invocation-claim" ? "oracle/module-graph-v1" : item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
+        `${item.oracleInvocation?.kind === "sealed-call-bound-repository-v2-invocation-claim" ? "oracle/repository-v2" : item.oracleInvocation?.kind === "sealed-call-bound-repository-invocation-claim" ? "oracle/repository-v1" : item.oracleInvocation?.kind === "sealed-call-bound-module-graph-invocation-claim" ? "oracle/module-graph-v1" : item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
         item.oracleVerdict.verificationSha256,
       );
   }
@@ -1367,6 +1488,14 @@ export function repositoryClaimFixture(
     rootBytes,
     options,
   );
+}
+
+/** Synthetic signed V2 claim; its runtime bytes are explicit operator declarations. */
+export function repositoryV2ClaimFixture(
+  rootBytes: Buffer,
+  options: Omit<RepositoryClaimOptions, "v2"> = {},
+) {
+  return repositoryClaimFixture(rootBytes, { ...options, v2: true });
 }
 
 export function moduleGraphFixture(options: ModuleGraphFixtureOptions = {}) {

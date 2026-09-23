@@ -6,6 +6,10 @@ import path from "node:path";
 import { tsImport } from "tsx/esm/api";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { ArtifactStore } from "../artifacts.mjs";
+import {
+  repositoryV2ScopeBytes,
+  repositoryV2Sha256,
+} from "../oracle-runtime/repository-v2.mjs";
 import { SealedPublicPacketBridge } from "../public-packet.mjs";
 import { hashJson } from "../schema.mjs";
 import { SealedStore } from "../store.mjs";
@@ -24,6 +28,8 @@ async function setup(
     documentationPath = "docs/task.md",
     objective = "Update the exported source task",
     acceptance = ["Tests pass"],
+    v2 = false,
+    v2RuntimeOverlap = false,
   } = {},
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-public-bridge-"));
@@ -50,16 +56,58 @@ async function setup(
     baselineSha256: data.plan.tasks[0].baselineSha256,
     objective,
     acceptance,
-    selected: [
-      { path: "src/task.ts", kind: "source" },
-      { path: documentationPath, kind: "documentation" },
-    ],
+    selected:
+      v2 && !v2RuntimeOverlap
+        ? [{ path: "src/task.ts", kind: "source" }]
+        : [
+            { path: "src/task.ts", kind: "source" },
+            { path: documentationPath, kind: "documentation" },
+          ],
   };
   const prepared = await buildSealedPublicPacket(packetInput);
   data.plan.tasks[0].publicPacketSha256 = prepared.sha256;
   const artifacts = new ArtifactStore({ directory: artifactDirectory });
   const oracle = await artifacts.put(Buffer.from(oracleContent));
   data.plan.tasks[0].oracleSha256 = oracle.sha256;
+  let scopeRef;
+  if (v2) {
+    data.plan.tasks[0].stateFormatVersion = "repo-snapshot-v1";
+    data.plan.tasks[0].allowedOutputPaths = ["src/task.ts"];
+    for (const config of Object.values(data.plan.configurations))
+      config.categoryStateVersions[0].stateFormatVersion = "repo-snapshot-v1";
+    const runtimeContent = "# Public task\n";
+    scopeRef = await artifacts.put(
+      repositoryV2ScopeBytes({
+        kind: "sealed-repository-execution-scope",
+        version: "2.0.0",
+        baselineSnapshot: {
+          sha256: data.plan.tasks[0].baselineSha256,
+          bytes: 100,
+        },
+        entries: [
+          { path: "docs", type: "directory", mode: 0o755 },
+          {
+            path: documentationPath,
+            type: "file",
+            mode: 0o644,
+            bytes: Buffer.byteLength(runtimeContent),
+            sha256: repositoryV2Sha256(Buffer.from(runtimeContent)),
+            class: "operator-declared-runtime",
+          },
+          { path: "src", type: "directory", mode: 0o755 },
+          {
+            path: "src/task.ts",
+            type: "file",
+            mode: 0o644,
+            bytes: Buffer.byteLength(taskContent),
+            sha256: repositoryV2Sha256(Buffer.from(taskContent)),
+            class: "public-editable",
+          },
+        ],
+      }),
+    );
+    data.plan.tasks[0].executionScopeSha256 = scopeRef.sha256;
+  }
   const store = new SealedStore({ directory: ledgerDirectory });
   t.after(async () => {
     store.close();
@@ -78,6 +126,7 @@ async function setup(
     packetInput,
     prepared,
     oracle,
+    scopeRef,
   };
 }
 
@@ -156,6 +205,88 @@ test("retains only the exact frozen public packet and exposes detached bytes on 
     /already claimed/,
   );
   assert.equal(sent, 1);
+});
+
+test("V2 runtime-only paths cannot be exported before the dispatch callback", async (t) => {
+  const {
+    store,
+    bridge,
+    data,
+    packetInput,
+    oracle,
+    scopeRef,
+    artifactDirectory,
+  } = await setup(t, { v2: true, v2RuntimeOverlap: true });
+  const reservation = store.reserveAttempt(
+    data.plan.collectionId,
+    "baseline-assignment",
+  );
+  const before = await readdir(artifactDirectory);
+  let sent = false;
+  await assert.rejects(async () => {
+    const handle = await bridge.retain({
+      collectionId: data.plan.collectionId,
+      taskId: packetInput.taskId,
+      packetInput,
+      oracleReference: oracle,
+      executionScopeReference: scopeRef,
+    });
+    await bridge.dispatch({
+      handle,
+      reservationId: reservation.reservationId,
+      send: async () => {
+        sent = true;
+      },
+    });
+  }, /runtime-only file entered the public packet/);
+  assert.equal(sent, false);
+  assert.equal(
+    store.inspectCollection(data.plan.collectionId).assignments[0]
+      .publicDispatch,
+    null,
+  );
+  assert.deepEqual(await readdir(artifactDirectory), before);
+});
+
+test("V2 retention requires the pinned scope while non-V2 tasks reject one", async (t) => {
+  const v2 = await setup(t, { v2: true });
+  const input = {
+    collectionId: v2.data.plan.collectionId,
+    taskId: v2.packetInput.taskId,
+    packetInput: v2.packetInput,
+    oracleReference: v2.oracle,
+  };
+  await assert.rejects(
+    v2.bridge.retain(input),
+    /needs its frozen execution scope reference/,
+  );
+  await assert.rejects(
+    v2.bridge.retain({
+      ...input,
+      executionScopeReference: {
+        sha256: "f".repeat(64),
+        bytes: v2.scopeRef.bytes,
+      },
+    }),
+    /scope reference differs from frozen task/,
+  );
+  const handle = await v2.bridge.retain({
+    ...input,
+    executionScopeReference: v2.scopeRef,
+  });
+  assert.equal(handle.artifact.sha256, v2.prepared.sha256);
+
+  const v1 = await setup(t);
+  await assert.rejects(
+    v1.bridge.retain({
+      collectionId: v1.data.plan.collectionId,
+      taskId: v1.packetInput.taskId,
+      packetInput: v1.packetInput,
+      oracleReference: v1.oracle,
+      executionScopeReference: v2.scopeRef,
+    }),
+    /Non-V2 public task cannot accept an execution scope/,
+  );
 });
 
 test("changed source, secret content, and private memory paths fail before artifact retention", async (t) => {
