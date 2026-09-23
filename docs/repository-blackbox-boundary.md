@@ -1,10 +1,11 @@
 # Repository snapshot and bounded black-box boundary
 
 This is collector-private evaluation infrastructure, not an authority to label a
-task held-out, approve a change, or promote a routing policy. The frozen public
-packet remains the only source/docs export path for cloud coding clients;
-repository snapshots, private memory, secrets, cases, and verdicts must not be
-sent through MCP.
+task held-out, approve a change, or promote a routing policy. Within sealed
+evaluation, the frozen public packet is the only model-facing source/docs
+export; ordinary cloud coding clients may separately retrieve selected
+source/docs through the filtered MCP server. Repository snapshots, private
+memory, secrets, cases, and verdicts must not be sent through MCP.
 
 ## Frozen original repository bytes
 
@@ -32,7 +33,7 @@ cannot eliminate a hostile same-user ancestor-swap race; a genuinely protected
 source capture requires a separately trusted immutable checkout/container
 boundary. A vault hash establishes byte equality, not who supplied the bytes.
 
-## Bounded execution projection
+## Bounded execution projection (v1)
 
 The current black-box guest executes a _frozen selected projection_, not an
 arbitrary whole repository. The recipe declares 1–64 sorted regular-file
@@ -68,6 +69,35 @@ This is conditional byte-and-accounting consistency, not authentication that
 the source came from a protected checkout or that Docker actually ran the
 claimed image. No repository claim currently promotes a policy.
 
+## Declared safe execution tree (v2)
+
+V2 can run all files in a **frozen, operator-declared safe execution tree**,
+including unchanged binary and empty runtime files. It does not automatically
+mount the whole checkout. The scope is bound to the complete private snapshot
+and classifies each file as public-editable or operator-declared runtime.
+Editable source files must appear unchanged in the public packet; other
+selected public source/docs may appear as context. Runtime-class scope paths
+are rejected if they also appear in this sealed public packet. General MCP
+retrieval has a separate source/docs export policy, so scope classification
+alone does not prevent the same file from being retrieved there. The operator must
+review each runtime path/digest before freezing the scope, particularly
+binary assets. Conservative path and credential-pattern checks are defense in
+depth, not proof that a file is secret-free.
+
+The host re-materializes baseline and candidate trees solely from retained
+vault bytes, overlays exact response-derived public text edits, and mounts
+each complete tree plus a separate canonical manifest read-only. A fixed
+supervisor verifies all mounted entries and runs frozen build/run argv in a
+fresh offline container per arm/case. The private oracle retains expected
+values on the host. A separate signed aggregate reader traverses snapshot
+descendants and the guest-observation bundle, independently re-derives the
+candidate tree, and recomputes verdict counts. The v2 claim is one-shot and
+failure-only, with all source/execution/promotion authority flags false.
+Bounds are 4,096 files, 8,192 entries, 256 MB total, 32 MB per runtime file,
+and 64 editable files of at most 100 KB each. See the
+[v2 execution contract](repository-execution-v2-design.md) for exact limits
+and trust assumptions.
+
 ## Validation and remaining authority
 
 Run the focused storage and ledger tests with:
@@ -79,14 +109,16 @@ node --test evaluation/sealed/tests/repository-snapshot.test.mjs \
 npm run test -w @graph-engineering/engine -- tests/sealed-aggregate-provenance.test.ts
 ```
 
-The native guest and one-shot host tests additionally require a locally
-reviewed image digest and explicit Unix Docker endpoint; they are opt-in via
-`GRAPH_SEALED_REPOSITORY_NATIVE_TESTS=1` and run in the sealed-oracle CI job.
-They use a synthetic Node candidate only; the recipe itself is
-language-agnostic. They make no paid API call.
+The native guest and one-shot host tests additionally require locally
+reviewed image digests and an explicit Unix Docker endpoint. V1 uses
+`GRAPH_SEALED_REPOSITORY_NATIVE_TESTS=1`; v2 uses
+`GRAPH_SEALED_REPOSITORY_V2_NATIVE_TESTS=1`. Both run in the sealed-oracle CI
+job and make no paid API call. V2 fixtures exercise Node and Python commands,
+but do not demonstrate a real model run.
 
-Still required for a real held-out claim: full-repository protected execution
-beyond the bounded projection; authenticated source, worker, and oracle
+Still required for a real held-out claim: protected execution for any
+repository that cannot fit an operator-reviewed safe scope; authenticated
+source, worker, and oracle
 provenance; independently controlled append-only witness and reviewer keys;
 genuinely unseen tasks, approved labels, and paired measured costs/outcomes.
 The owner has deferred the external witness integration choice and paid

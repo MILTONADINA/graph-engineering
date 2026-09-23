@@ -417,7 +417,11 @@ or previously replayed tasks assigned to held-out families; the intake exporter
 and reviewer refuse to disclose or qualify even explicitly sealed held-out tasks.
 A separate, independently governed sealed collection/run workflow must freeze
 candidate configuration, prevent answer exposure and record one-time evaluation
-before real held-out claims are possible. That workflow is not implemented here.
+before real held-out claims are possible. Bounded sealed collection and private
+oracle components now exist (see the [repository black-box boundary](repository-blackbox-boundary.md)),
+but they have only synthetic tests and no independently governed unseen cohort,
+authenticated execution provenance or approved witness. They cannot establish
+real held-out claims yet.
 No split is inferred from model success, confidence, or desired results.
 
 The existing private guarded zero-budget receipt
