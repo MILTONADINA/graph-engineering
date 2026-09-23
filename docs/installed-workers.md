@@ -10,6 +10,8 @@ The adapter requires the inspected 2.1.278+ CLI family and its advertised contro
 
 Subscription preflight uses the exact sanitized environment that the worker will use. It requires a claude.ai Pro/Max login, the inspected CLI's explicit no-managed-policy diagnostics, no managed settings files, and on macOS no MDM enrollment or Claude managed preference domain. Unknown or changed diagnostics disable this mode. This is necessary because `--safe-mode` retains authentication but administrator-managed hooks may still run; `--restricted`, `--tools ""`, disabled MCP, and per-run settings do not override managed policy. API-key mode retains `--bare`. Sources: [CLI controls](https://code.claude.com/docs/en/cli-reference), [hook precedence](https://code.claude.com/docs/en/hooks#disable-or-remove-hooks), [environment controls](https://code.claude.com/docs/en/env-vars).
 
+Subscription proposal mode currently fails closed on Windows because this adapter cannot verify all managed-policy sources there. The Windows CI regression asserts that it does not launch a native worker in that state; API-key bare mode is separate.
+
 ## Codex App Server
 
 This adapter is a restricted-read worker, not a claim that the native runtime exposes zero tools. It checks the installed binary's generated protocol schema for restricted read roots before enabling execution. Ordinary read-only mode without restricted roots is rejected. Codex 0.156.0 inspected on this machine still lacks that schema capability and is therefore reported unavailable for managed proposals.
