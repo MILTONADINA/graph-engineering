@@ -168,8 +168,182 @@ type OriginalEvidence = {
   manifest: OriginalManifest;
   totalBytes: number;
   read: (role: string) => Promise<Buffer>;
+  readReference?: (reference: {
+    sha256: string;
+    bytes: number;
+  }) => Promise<Buffer>;
   limitations: string[];
+  repositorySnapshotCount?: number;
+  repositorySnapshotBytesVerified?: number;
+  repositorySnapshotBlobsVerified?: number;
 };
+
+const snapshotVersion = z.literal("1.0.0");
+const snapshotReferenceSchema = z
+  .object({
+    sha256: digestSchema,
+    bytes: z.number().int().min(0).max(2_000_000),
+  })
+  .strict();
+const snapshotScopeSchema = z
+  .object({
+    kind: z.literal("sealed-repository-scope"),
+    version: snapshotVersion,
+    excludePrefixes: z.array(z.string()).min(1).max(1000),
+    maxEntries: z.number().int().min(1).max(200_000),
+    maxFiles: z.number().int().min(1).max(100_000),
+    maxFileBytes: z.number().int().min(0).max(1_000_000_000_000),
+    maxTotalBytes: z.number().int().min(0).max(1_000_000_000_000),
+    maxDepth: z.number().int().min(1).max(128),
+  })
+  .strict();
+const snapshotRootSchema = z
+  .object({
+    kind: z.literal("sealed-repository-snapshot"),
+    version: snapshotVersion,
+    scope: snapshotScopeSchema,
+    source: z
+      .object({
+        headOid: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
+        stagedEntriesSha256: digestSchema,
+      })
+      .strict(),
+    inventory: z
+      .object({
+        entryCount: z.number().int().min(1).max(200_000),
+        fileCount: z.number().int().min(0).max(100_000),
+        excludedCount: z.number().int().min(0).max(200_000),
+        totalBytes: z.number().int().min(0).max(1_000_000_000_000),
+      })
+      .strict(),
+    tree: snapshotReferenceSchema,
+  })
+  .strict();
+const snapshotEntrySchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      path: z.string(),
+      type: z.literal("excluded"),
+      reason: z.literal("operator-scope"),
+    })
+    .strict(),
+  z
+    .object({
+      path: z.string(),
+      type: z.literal("directory"),
+      mode: z.number().int().min(0).max(0o777),
+    })
+    .strict(),
+  z
+    .object({
+      path: z.string(),
+      type: z.literal("file"),
+      mode: z.number().int().min(0).max(0o777),
+      bytes: z.number().int().min(0).max(1_000_000_000_000),
+      sha256: digestSchema,
+      chunks: snapshotReferenceSchema,
+    })
+    .strict(),
+]);
+const snapshotEntryLeafSchema = z
+  .object({
+    kind: z.literal("sealed-repository-entry-page"),
+    version: snapshotVersion,
+    level: z.literal(0),
+    entries: z.array(snapshotEntrySchema).min(1).max(128),
+  })
+  .strict();
+const snapshotEntryBranchSchema = z
+  .object({
+    kind: z.literal("sealed-repository-entry-page"),
+    version: snapshotVersion,
+    level: z.number().int().min(1).max(16),
+    children: z
+      .array(
+        z
+          .object({
+            firstPath: z.string(),
+            lastPath: z.string(),
+            ref: snapshotReferenceSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(128),
+  })
+  .strict();
+const snapshotChunkLeafSchema = z
+  .object({
+    kind: z.literal("sealed-repository-chunk-page"),
+    version: snapshotVersion,
+    level: z.literal(0),
+    chunks: z.array(snapshotReferenceSchema).max(128),
+  })
+  .strict();
+const snapshotChunkBranchSchema = z
+  .object({
+    kind: z.literal("sealed-repository-chunk-page"),
+    version: snapshotVersion,
+    level: z.number().int().min(1).max(16),
+    children: z
+      .array(z.object({ ref: snapshotReferenceSchema }).strict())
+      .min(1)
+      .max(128),
+  })
+  .strict();
+type SnapshotReference = z.infer<typeof snapshotReferenceSchema>;
+type SnapshotEntry = z.infer<typeof snapshotEntrySchema>;
+
+function repositoryPath(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 400 &&
+    Buffer.from(value, "utf8").toString("utf8") === value &&
+    !/[\\:\x00-\x1f\x7f]/.test(value) &&
+    value
+      .split("/")
+      .every(
+        (part) =>
+          part &&
+          part !== "." &&
+          part !== ".." &&
+          !/[. ]$/.test(part) &&
+          !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
+      )
+  );
+}
+
+const privateRepositoryName =
+  /^(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519)|[^/]*\.(?:pem|key|p12|pfx))$/i;
+function repositoryExecutionPath(value: string): boolean {
+  return (
+    repositoryPath(value) &&
+    !/[?#%]/.test(value) &&
+    !value
+      .split("/")
+      .some(
+        (part) =>
+          privateRepositoryName.test(part) ||
+          [
+            ".git",
+            ".ssh",
+            ".aws",
+            ".gnupg",
+            "private-memory",
+            "node_modules",
+          ].includes(part.toLowerCase()),
+      )
+  );
+}
+
+function repositoryScopeExcludes(
+  relative: string,
+  prefixes: string[],
+): boolean {
+  return prefixes.some(
+    (prefix) => relative === prefix || relative.startsWith(`${prefix}/`),
+  );
+}
 
 const sha256 = (bytes: Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
@@ -178,12 +352,15 @@ const at = (value: string) => Date.parse(value);
 function oracleRolePrefix(item: CohortInspection["assignments"][number]) {
   const namespace =
     item.oracleInvocation?.kind ===
-    "sealed-call-bound-module-graph-invocation-claim"
-      ? "oracle/module-graph-v1"
+    "sealed-call-bound-repository-invocation-claim"
+      ? "oracle/repository-v1"
       : item.oracleInvocation?.kind ===
-          "sealed-call-bound-engineering-invocation-claim"
-        ? "oracle/engineering-v1"
-        : "oracle/v1";
+          "sealed-call-bound-module-graph-invocation-claim"
+        ? "oracle/module-graph-v1"
+        : item.oracleInvocation?.kind ===
+            "sealed-call-bound-engineering-invocation-claim"
+          ? "oracle/engineering-v1"
+          : "oracle/v1";
   return `${namespace}/${item.assignment.assignmentId}`;
 }
 
@@ -226,7 +403,9 @@ function originalReferences(inspection: CohortInspection) {
       item.oracleInvocation?.kind ===
         "sealed-call-bound-engineering-invocation-claim" ||
       item.oracleInvocation?.kind ===
-        "sealed-call-bound-module-graph-invocation-claim"
+        "sealed-call-bound-module-graph-invocation-claim" ||
+      item.oracleInvocation?.kind ===
+        "sealed-call-bound-repository-invocation-claim"
     ) {
       const prefix = oracleRolePrefix(item);
       add(`${prefix}/derived-proposal`, item.oracleInvocation.proposalSha256);
@@ -352,6 +531,390 @@ async function readAndCheckOriginal(
   }
 }
 
+type SnapshotAuditState = {
+  distinct: Set<string>;
+  entryPages: Set<string>;
+  entryPageVisits: number;
+  chunkPageVisits: number;
+  entries: number;
+  entryLimit: number;
+  chunkRefs: number;
+  chunkRefLimit: number;
+};
+
+async function readSnapshotBlob(
+  reference: SnapshotReference,
+  reader: ArtifactReader,
+  state: SnapshotAuditState,
+): Promise<Buffer> {
+  state.distinct.add(reference.sha256);
+  if (state.distinct.size > 10_000)
+    throw new Error("Repository snapshot closure exceeds 10000 distinct blobs");
+  return readAndCheckOriginal(
+    { role: `snapshot/closure/${reference.sha256}`, ...reference },
+    reader,
+  );
+}
+
+async function readSnapshotJson(
+  reference: SnapshotReference,
+  reader: ArtifactReader,
+  state: SnapshotAuditState,
+): Promise<unknown> {
+  const bytes = await readSnapshotBlob(reference, reader, state);
+  try {
+    const value = decodeJson(
+      new TextDecoder("utf8", { fatal: true }).decode(bytes),
+    );
+    if (!bytes.equals(Buffer.from(canonicalJson(value))))
+      throw new Error("Repository snapshot page is not canonical JSON");
+    return value;
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+async function readSnapshotEntryTree(
+  reference: SnapshotReference,
+  reader: ArtifactReader,
+  state: SnapshotAuditState,
+  expectedLevel: number | null = null,
+  depth = 0,
+): Promise<SnapshotEntry[]> {
+  if (depth > 16 || ++state.entryPageVisits > 20_000)
+    throw new Error("Repository entry-page traversal exceeds expansion bound");
+  if (state.entryPages.has(reference.sha256))
+    throw new Error("Repository entry page is repeated or cyclic");
+  state.entryPages.add(reference.sha256);
+  const raw = await readSnapshotJson(reference, reader, state);
+  const level =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>).level
+      : null;
+  if (level === 0) {
+    const page = snapshotEntryLeafSchema.parse(raw);
+    if (expectedLevel !== null && expectedLevel !== 0)
+      throw new Error("Repository entry-page level differs from parent");
+    state.entries += page.entries.length;
+    if (state.entries > state.entryLimit)
+      throw new Error("Repository entries exceed frozen inventory bound");
+    return page.entries;
+  }
+  const page = snapshotEntryBranchSchema.parse(raw);
+  if (expectedLevel !== null && page.level !== expectedLevel)
+    throw new Error("Repository entry-page level differs from parent");
+  const entries: SnapshotEntry[] = [];
+  for (const child of page.children) {
+    if (!repositoryPath(child.firstPath) || !repositoryPath(child.lastPath))
+      throw new Error("Invalid repository entry child path range");
+    const group = await readSnapshotEntryTree(
+      child.ref,
+      reader,
+      state,
+      page.level - 1,
+      depth + 1,
+    );
+    if (
+      group[0]?.path !== child.firstPath ||
+      group.at(-1)?.path !== child.lastPath
+    )
+      throw new Error("Repository entry child range differs from content");
+    for (const entry of group) entries.push(entry);
+  }
+  return entries;
+}
+
+async function readSnapshotChunkTree(
+  reference: SnapshotReference,
+  reader: ArtifactReader,
+  state: SnapshotAuditState,
+  fileBudget: { refs: number; limit: number },
+  expectedLevel: number | null = null,
+  depth = 0,
+): Promise<SnapshotReference[]> {
+  if (depth > 16 || ++state.chunkPageVisits > 200_000)
+    throw new Error("Repository chunk-page traversal exceeds expansion bound");
+  const raw = await readSnapshotJson(reference, reader, state);
+  const level =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>).level
+      : null;
+  if (level === 0) {
+    const page = snapshotChunkLeafSchema.parse(raw);
+    if (expectedLevel !== null && expectedLevel !== 0)
+      throw new Error("Repository chunk-page level differs from parent");
+    fileBudget.refs += page.chunks.length;
+    state.chunkRefs += page.chunks.length;
+    if (
+      fileBudget.refs > fileBudget.limit ||
+      state.chunkRefs > state.chunkRefLimit
+    )
+      throw new Error("Repository chunk references exceed expansion bound");
+    return page.chunks;
+  }
+  const page = snapshotChunkBranchSchema.parse(raw);
+  if (expectedLevel !== null && page.level !== expectedLevel)
+    throw new Error("Repository chunk-page level differs from parent");
+  const result: SnapshotReference[] = [];
+  for (const child of page.children) {
+    const group = await readSnapshotChunkTree(
+      child.ref,
+      reader,
+      state,
+      fileBudget,
+      page.level - 1,
+      depth + 1,
+    );
+    for (const chunk of group) result.push(chunk);
+  }
+  return result;
+}
+
+/** Re-read a complete frozen repository closure; this is byte integrity only. */
+export async function inspectPrivateRepositorySnapshotClosure(
+  rootReference: SnapshotReference,
+  reader: ArtifactReader,
+) {
+  const reference = snapshotReferenceSchema.parse(decodeJson(rootReference));
+  if (typeof reader !== "function")
+    throw new Error("Repository snapshot needs a private artifact reader");
+  const state: SnapshotAuditState = {
+    distinct: new Set(),
+    entryPages: new Set(),
+    entryPageVisits: 0,
+    chunkPageVisits: 0,
+    entries: 0,
+    entryLimit: 0,
+    chunkRefs: 0,
+    chunkRefLimit: 0,
+  };
+  const root = snapshotRootSchema.parse(
+    await readSnapshotJson(reference, reader, state),
+  );
+  const scope = root.scope;
+  if (
+    !scope.excludePrefixes.includes(".git") ||
+    scope.maxFiles > scope.maxEntries ||
+    root.inventory.entryCount > scope.maxEntries ||
+    root.inventory.fileCount > scope.maxFiles ||
+    root.inventory.totalBytes > scope.maxTotalBytes
+  )
+    throw new Error("Repository snapshot scope differs from frozen inventory");
+  let previousPrefix = "";
+  for (const prefix of scope.excludePrefixes) {
+    if (
+      !repositoryPath(prefix) ||
+      prefix <= previousPrefix ||
+      scope.excludePrefixes.some(
+        (other) => other !== prefix && prefix.startsWith(`${other}/`),
+      )
+    )
+      throw new Error("Invalid repository scope exclusion prefixes");
+    previousPrefix = prefix;
+  }
+  state.entryLimit = root.inventory.entryCount;
+  state.chunkRefLimit = Math.min(
+    1_000_000,
+    Math.ceil(root.inventory.totalBytes / 1_048_576) + root.inventory.fileCount,
+  );
+  const entries = await readSnapshotEntryTree(root.tree, reader, state);
+  if (entries.length !== root.inventory.entryCount)
+    throw new Error("Repository snapshot entry inventory differs from root");
+  let previous = "",
+    fileCount = 0,
+    excludedCount = 0,
+    totalBytes = 0;
+  const folded = new Set<string>();
+  const directories = new Set<string>();
+  const exclusions = new Set<string>();
+  for (const entry of entries) {
+    if (
+      !repositoryPath(entry.path) ||
+      entry.path <= previous ||
+      folded.has(entry.path.normalize("NFC").toLowerCase())
+    )
+      throw new Error("Invalid, duplicate or unordered repository entry path");
+    previous = entry.path;
+    folded.add(entry.path.normalize("NFC").toLowerCase());
+    const parent = entry.path.includes("/")
+      ? entry.path.slice(0, entry.path.lastIndexOf("/"))
+      : null;
+    if (parent && !directories.has(parent))
+      throw new Error("Repository entry lacks a frozen parent directory");
+    if (entry.path.split("/").length > scope.maxDepth + 1)
+      throw new Error("Repository entry exceeds frozen depth bound");
+    if (entry.type === "excluded") {
+      if (!repositoryScopeExcludes(entry.path, scope.excludePrefixes))
+        throw new Error("Repository exclusion differs from frozen scope");
+      excludedCount++;
+      exclusions.add(entry.path);
+    } else if (entry.type === "directory") {
+      if (repositoryScopeExcludes(entry.path, scope.excludePrefixes))
+        throw new Error("Repository directory crosses frozen exclusion");
+      directories.add(entry.path);
+    } else {
+      if (
+        repositoryScopeExcludes(entry.path, scope.excludePrefixes) ||
+        entry.bytes > scope.maxFileBytes
+      )
+        throw new Error("Repository file crosses frozen scope");
+      fileCount++;
+      totalBytes += entry.bytes;
+      if (
+        !Number.isSafeInteger(totalBytes) ||
+        totalBytes > scope.maxTotalBytes ||
+        fileCount > scope.maxFiles
+      )
+        throw new Error("Repository snapshot exceeds frozen resource bounds");
+      const fileBudget = { refs: 0, limit: Math.ceil(entry.bytes / 1_048_576) };
+      const chunks = await readSnapshotChunkTree(
+        entry.chunks,
+        reader,
+        state,
+        fileBudget,
+      );
+      if (
+        chunks.length !== fileBudget.limit ||
+        chunks.some(
+          (chunk, index) =>
+            chunk.bytes !==
+            Math.min(1_048_576, entry.bytes - index * 1_048_576),
+        )
+      )
+        throw new Error("Repository chunk lengths differ from file size");
+      const content = createHash("sha256");
+      for (const chunk of chunks) {
+        const bytes = await readSnapshotBlob(chunk, reader, state);
+        try {
+          content.update(bytes);
+        } finally {
+          bytes.fill(0);
+        }
+      }
+      if (content.digest("hex") !== entry.sha256)
+        throw new Error("Repository file content digest differs from chunks");
+    }
+  }
+  if (
+    fileCount !== root.inventory.fileCount ||
+    excludedCount !== root.inventory.excludedCount ||
+    totalBytes !== root.inventory.totalBytes
+  )
+    throw new Error("Repository snapshot totals differ from root");
+  for (const prefix of scope.excludePrefixes)
+    if (
+      entries.some((entry) => entry.path === prefix) &&
+      !exclusions.has(prefix)
+    )
+      throw new Error("Existing repository exclusion was not recorded");
+  return freezeJson({
+    kind: "sealed-repository-snapshot-closure-audit" as const,
+    version: "1.0.0" as const,
+    rootSha256: reference.sha256,
+    entryCount: entries.length,
+    fileCount,
+    excludedCount,
+    totalBytes,
+    uniqueBlobs: state.distinct.size,
+    artifactSourceAuthenticated: false as const,
+    protectedExecutionVerified: false as const,
+    promotionEligible: false as const,
+  });
+}
+
+/** Private selected UTF-8 view, read again from committed snapshot children. */
+async function readRepositorySelectedSources(
+  rootReference: SnapshotReference,
+  sourcePaths: string[],
+  readReference: NonNullable<OriginalEvidence["readReference"]>,
+) {
+  if (
+    sourcePaths.length < 1 ||
+    sourcePaths.length > 64 ||
+    sourcePaths.some(
+      (name, index) =>
+        !repositoryExecutionPath(name) ||
+        (index > 0 && sourcePaths[index - 1]! >= name),
+    ) ||
+    new Set(sourcePaths.map((name) => name.toLowerCase())).size !==
+      sourcePaths.length
+  )
+    throw new Error("Repository recipe selected invalid source paths");
+  const reader: ArtifactReader = ({ sha256, bytes }) =>
+    readReference({ sha256, bytes });
+  const state: SnapshotAuditState = {
+    distinct: new Set(),
+    entryPages: new Set(),
+    entryPageVisits: 0,
+    chunkPageVisits: 0,
+    entries: 0,
+    entryLimit: 0,
+    chunkRefs: 0,
+    chunkRefLimit: 0,
+  };
+  const root = snapshotRootSchema.parse(
+    await readSnapshotJson(rootReference, reader, state),
+  );
+  state.entryLimit = root.inventory.entryCount;
+  state.chunkRefLimit = Math.min(
+    1_000_000,
+    Math.ceil(root.inventory.totalBytes / 1_048_576) + root.inventory.fileCount,
+  );
+  const entries = await readSnapshotEntryTree(root.tree, reader, state);
+  if (entries.length !== root.inventory.entryCount)
+    throw new Error("Repository selected source inventory changed");
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  const files: { path: string; source: string; mode: number }[] = [];
+  let totalBytes = 0;
+  for (const name of sourcePaths) {
+    const entry = byPath.get(name);
+    if (
+      entry?.type !== "file" ||
+      ![0o644, 0o755].includes(entry.mode) ||
+      entry.bytes < 1 ||
+      entry.bytes > 2_000_000
+    )
+      throw new Error("Repository selected source is absent or unsupported");
+    totalBytes += entry.bytes;
+    if (totalBytes > 16_000_000)
+      throw new Error("Repository selected source exceeds execution bound");
+    const fileBudget = { refs: 0, limit: Math.ceil(entry.bytes / 1_048_576) };
+    const chunks = await readSnapshotChunkTree(
+      entry.chunks,
+      reader,
+      state,
+      fileBudget,
+    );
+    if (
+      chunks.length !== fileBudget.limit ||
+      chunks.some(
+        (chunk, index) =>
+          chunk.bytes !== Math.min(1_048_576, entry.bytes - index * 1_048_576),
+      )
+    )
+      throw new Error("Repository selected source chunk lengths differ");
+    const parts: Buffer[] = [];
+    try {
+      for (const chunk of chunks)
+        parts.push(await readSnapshotBlob(chunk, reader, state));
+      const bytes = Buffer.concat(parts, entry.bytes);
+      try {
+        if (bytes.length !== entry.bytes || sha256(bytes) !== entry.sha256)
+          throw new Error("Repository selected source differs from snapshot");
+        const source = new TextDecoder("utf8", { fatal: true }).decode(bytes);
+        if (!source || source.includes("\0"))
+          throw new Error("Repository execution source is not text");
+        files.push({ path: name, source, mode: entry.mode });
+      } finally {
+        bytes.fill(0);
+      }
+    } finally {
+      for (const part of parts) part.fill(0);
+    }
+  }
+  return files;
+}
+
 /** Validate all roles while retaining at most one original blob at a time. */
 async function auditManifestOriginalBytes(
   inspection: CohortInspection,
@@ -387,6 +950,27 @@ async function auditManifestOriginalBytes(
     const bytes = await readAndCheckOriginal(entry, reader);
     bytes.fill(0);
   }
+  let repositorySnapshotCount = 0;
+  let repositorySnapshotBytesVerified = 0;
+  let repositorySnapshotBlobsVerified = 0;
+  for (const task of inspection.plan.tasks) {
+    if (task.stateFormatVersion !== "repo-snapshot-v1") continue;
+    const baseline = refs.get(`task/${task.taskId}/baseline`);
+    if (!baseline)
+      throw new Error("Repository snapshot baseline original is missing");
+    const receipt = await inspectPrivateRepositorySnapshotClosure(
+      { sha256: baseline.sha256, bytes: baseline.bytes },
+      reader,
+    );
+    repositorySnapshotCount++;
+    repositorySnapshotBytesVerified += receipt.totalBytes;
+    repositorySnapshotBlobsVerified += receipt.uniqueBlobs;
+    if (
+      !Number.isSafeInteger(repositorySnapshotBytesVerified) ||
+      !Number.isSafeInteger(repositorySnapshotBlobsVerified)
+    )
+      throw new Error("Repository snapshot audit counters exceed safe bounds");
+  }
   for (const item of inspection.assignments) {
     const task = inspection.plan.tasks.find(
       (task) => task.taskId === item.assignment.taskId,
@@ -407,11 +991,22 @@ async function auditManifestOriginalBytes(
   return {
     manifest,
     totalBytes,
+    repositorySnapshotCount,
+    repositorySnapshotBytesVerified,
+    repositorySnapshotBlobsVerified,
     read: async (role) => {
       const reference = refs.get(role);
       if (!reference) throw new Error("Uncommitted original artifact role");
       return readAndCheckOriginal(reference, reader);
     },
+    readReference: async (reference) =>
+      readAndCheckOriginal(
+        {
+          role: `committed-child/${reference.sha256}`,
+          ...snapshotReferenceSchema.parse(reference),
+        },
+        reader,
+      ),
     limitations: [
       "Vault readers and independently selected pins are local inputs; current trust approval and external anti-rollback are unverified.",
       "Vault-backed inspection bounds each original blob to 2 MB, not the number of cohort bytes or the collector ledger input.",
@@ -632,6 +1227,180 @@ const moduleGraphVerdictSchema = z
   })
   .strict();
 
+const repositoryImageSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const repositoryCaseIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,31}$/);
+const repositoryArgvPartSchema = z
+  .string()
+  .min(1)
+  .max(400)
+  .refine((value) => !/[\x00-\x1f\x7f]/.test(value));
+const repositoryShell =
+  /(?:^|\/)(?:sh|bash|dash|ash|zsh|fish|ksh|csh|tcsh|powershell|pwsh|cmd|cmd\.exe)$/i;
+const repositoryForbiddenEnv =
+  /(?:AUTH|TOKEN|KEY|SECRET|PASS|CREDENTIAL|PROXY|DOCKER|GIT|SSH|AWS|AZURE|GCLOUD|OPENAI|ANTHROPIC|LD_|DYLD_|NODE_OPTIONS|HOME|PATH|TMPDIR)/i;
+const repositoryRecipeSchema = z
+  .object({
+    kind: z.literal("sealed-repository-blackbox-recipe"),
+    version: z.literal("1.0.0"),
+    imageId: repositoryImageSchema,
+    buildArgv: z.array(repositoryArgvPartSchema).max(32),
+    runArgv: z.array(repositoryArgvPartSchema).min(1).max(32),
+    cwd: z.string(),
+    env: z.record(z.string(), z.string()),
+    buildTimeoutMs: z.number().int().min(100).max(120_000),
+    runTimeoutMs: z.number().int().min(100).max(120_000),
+    sourcePaths: z.array(z.string()).min(1).max(64),
+  })
+  .strict()
+  .superRefine((recipe, context) => {
+    if (
+      (recipe.buildArgv.length > 0 &&
+        repositoryShell.test(recipe.buildArgv[0]!)) ||
+      repositoryShell.test(recipe.runArgv[0]!) ||
+      !(recipe.cwd === "." || repositoryExecutionPath(recipe.cwd)) ||
+      (recipe.cwd !== "." &&
+        !recipe.sourcePaths.some((name) =>
+          name.startsWith(`${recipe.cwd}/`),
+        )) ||
+      recipe.sourcePaths.some(
+        (name, index) =>
+          !repositoryExecutionPath(name) ||
+          (index > 0 && recipe.sourcePaths[index - 1]! >= name),
+      ) ||
+      new Set(recipe.sourcePaths.map((name) => name.toLowerCase())).size !==
+        recipe.sourcePaths.length ||
+      Object.keys(recipe.env).length > 16 ||
+      Object.entries(recipe.env).some(
+        ([name, value]) =>
+          !/^[A-Z][A-Z0-9_]{0,39}$/.test(name) ||
+          repositoryForbiddenEnv.test(name) ||
+          value.length > 256 ||
+          /[\x00-\x1f\x7f]/.test(value),
+      )
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Invalid frozen repository black-box recipe",
+      });
+  });
+const repositoryOracleSchema = z
+  .object({
+    kind: z.literal("sealed-repository-blackbox-oracle"),
+    version: z.literal("1.0.0"),
+    recipe: repositoryRecipeSchema,
+    cases: z
+      .array(
+        z
+          .object({
+            id: repositoryCaseIdSchema,
+            input: z.unknown(),
+            expected: z.unknown(),
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(12),
+  })
+  .strict()
+  .superRefine((oracle, context) => {
+    if (
+      new Set(oracle.cases.map((item) => item.id)).size !==
+        oracle.cases.length ||
+      oracle.cases.some(
+        (item) =>
+          Buffer.byteLength(canonicalJson(item.input)) > 4096 ||
+          Buffer.byteLength(canonicalJson(item.expected)) > 4096,
+      )
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Invalid private repository case inventory",
+      });
+  });
+const repositoryObservationSchema = z
+  .object({
+    kind: z.literal("sealed-repository-blackbox-observation"),
+    version: z.literal("1.0.0"),
+    challenge: challengeSchema,
+    arm: z.enum(["baseline", "candidate"]),
+    caseIndex: z.number().int().min(0).max(11),
+    treeSha256: digestSchema,
+    recipeSha256: digestSchema,
+    inputSha256: digestSchema,
+    stage: z.enum(["build", "run"]),
+    status: z.enum(["build-error", "candidate-error", "completed"]),
+    value: z.unknown(),
+  })
+  .strict()
+  .superRefine((item, context) => {
+    if (!(
+      (item.stage === "build" &&
+        item.status === "build-error" &&
+        item.value === null) ||
+      (item.stage === "run" &&
+        item.status === "candidate-error" &&
+        item.value === null) ||
+      (item.stage === "run" &&
+        item.status === "completed" &&
+        Buffer.byteLength(canonicalJson(item.value)) <= 4096)
+    ))
+      context.addIssue({
+        code: "custom",
+        message: "Invalid repository guest observation stage or value",
+      });
+  });
+const repositoryObservationBundleSchema = z
+  .object({
+    kind: z.literal("sealed-repository-observation-bundle"),
+    version: z.literal("1.0.0"),
+    claimSha256: digestSchema,
+    caseCount: z.number().int().min(2).max(12),
+    records: z
+      .array(
+        z
+          .object({
+            id: repositoryCaseIdSchema,
+            baseline: repositoryObservationSchema,
+            candidate: repositoryObservationSchema,
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(12),
+  })
+  .strict();
+const repositoryCaseResultSchema = z
+  .object({
+    id: repositoryCaseIdSchema,
+    inputSha256: digestSchema,
+    baselineChallenge: challengeSchema,
+    candidateChallenge: challengeSchema,
+    baselineStatus: z.enum(["completed", "candidate-error", "build-error"]),
+    baselineValueSha256: digestSchema.nullable(),
+    candidateStatus: z.enum(["completed", "candidate-error", "build-error"]),
+    candidateValueSha256: digestSchema.nullable(),
+  })
+  .strict();
+const repositoryVerdictSchema = z
+  .object({
+    kind: z.literal("sealed-repository-blackbox-verification"),
+    version: z.literal("1.0.0"),
+    claimSha256: digestSchema,
+    oracleSha256: digestSchema,
+    baselineSha256: digestSchema,
+    recipeSha256: digestSchema,
+    resultSourceSha256: digestSchema,
+    observationBundle: snapshotReferenceSchema,
+    baselineFailed: z.number().int().min(1).max(12),
+    passed: z.number().int().min(0).max(12),
+    caseCount: z.number().int().min(2).max(12),
+    status: z.enum(["pass", "fail"]),
+    caseResults: z.array(repositoryCaseResultSchema).min(2).max(12),
+  })
+  .strict();
+
 function checkModuleGraphBaseline(
   baseline: z.infer<typeof moduleGraphBaselineSchema>,
 ) {
@@ -740,6 +1509,118 @@ function deriveModuleGraphResult(
   )
     throw new Error("Module graph result is unchanged or exceeds its bound");
   return result;
+}
+
+type RepositorySource = { path: string; source: string; mode: number };
+function repositoryTreeBytesFromSources(files: RepositorySource[]): Buffer {
+  let totalBytes = 0;
+  const tree = {
+    kind: "sealed-repository-tree" as const,
+    version: "1.0.0" as const,
+    files: files.map((file) => {
+      const bytes = Buffer.from(file.source, "utf8");
+      totalBytes += bytes.length;
+      if (
+        !repositoryExecutionPath(file.path) ||
+        ![0o644, 0o755].includes(file.mode) ||
+        bytes.length < 1 ||
+        bytes.length > 2_000_000
+      )
+        throw new Error("Repository execution source is not bounded text");
+      return {
+        path: file.path,
+        bytes: bytes.length,
+        mode: file.mode,
+        sha256: sha256(bytes),
+      };
+    }),
+  };
+  if (
+    tree.files.length < 1 ||
+    tree.files.length > 64 ||
+    totalBytes > 16_000_000
+  )
+    throw new Error("Repository execution tree exceeds its frozen bound");
+  const bytes = Buffer.from(canonicalJson(tree), "utf8");
+  if (bytes.length > 32_000)
+    throw new Error("Repository execution tree manifest exceeds its bound");
+  return bytes;
+}
+
+function deriveRepositoryResult(
+  baselineFiles: RepositorySource[],
+  proposalBytes: Buffer,
+  allowedPaths: string[],
+  sourcePaths: string[],
+): Buffer {
+  if (
+    baselineFiles.length !== sourcePaths.length ||
+    sourcePaths.some((name, index) => baselineFiles[index]?.path !== name) ||
+    allowedPaths.length < 1 ||
+    new Set(allowedPaths).size !== allowedPaths.length ||
+    allowedPaths.some((name) => !sourcePaths.includes(name)) ||
+    proposalBytes.length < 1 ||
+    proposalBytes.length > 500_000
+  )
+    throw new Error("Repository proposal differs from frozen output scope");
+  const proposal = z
+    .object({
+      summary: z.string().max(4000),
+      changes: z
+        .array(
+          z
+            .object({
+              path: z.string(),
+              before: z.string().min(1),
+              after: z.string(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(50),
+      requests: z.array(z.string()).length(0),
+    })
+    .strict()
+    .parse(
+      decodeJson(
+        new TextDecoder("utf8", { fatal: true }).decode(proposalBytes),
+      ),
+    );
+  const originals = new Map(baselineFiles.map((file) => [file.path, file]));
+  const changes = new Map<string, string>();
+  for (const change of proposal.changes) {
+    const original = originals.get(change.path)?.source;
+    if (
+      original === undefined ||
+      !allowedPaths.includes(change.path) ||
+      changes.has(change.path) ||
+      change.before.length > 100_000 ||
+      Buffer.byteLength(change.after) > 100_000 ||
+      change.after.includes("\0")
+    )
+      throw new Error("Repository proposal change is outside frozen sources");
+    const first = original.indexOf(change.before);
+    if (first < 0 || original.indexOf(change.before, first + 1) >= 0)
+      throw new Error("Repository proposal substring is absent or ambiguous");
+    const after =
+      original.slice(0, first) +
+      change.after +
+      original.slice(first + change.before.length);
+    if (
+      !after ||
+      after === original ||
+      after.includes("\0") ||
+      Buffer.byteLength(after) > 2_000_000
+    )
+      throw new Error("Repository proposal produced invalid candidate source");
+    changes.set(change.path, after);
+  }
+  return repositoryTreeBytesFromSources(
+    baselineFiles.map((file) => ({
+      ...file,
+      source: changes.get(file.path) ?? file.source,
+    })),
+  );
 }
 
 function parseCanonicalEngineering<T extends z.ZodTypeAny>(
@@ -961,10 +1842,123 @@ function checkModuleGraphVerdict(
   return verdict.status;
 }
 
+async function checkRepositoryVerdict(
+  oracle: z.infer<typeof repositoryOracleSchema>,
+  verdictBytes: Buffer,
+  claim: Extract<
+    CohortInspection["assignments"][number]["oracleInvocation"],
+    { kind: "sealed-call-bound-repository-invocation-claim" }
+  >,
+  verdictReference: NonNullable<
+    CohortInspection["assignments"][number]["oracleVerdict"]
+  >,
+  baselineTreeSha256: string,
+  readReference: NonNullable<OriginalEvidence["readReference"]>,
+) {
+  const verdict = parseCanonicalEngineering(
+    verdictBytes,
+    repositoryVerdictSchema,
+    8192,
+    "Repository private verdict",
+  );
+  if (
+    verdict.claimSha256 !== hashJson(claim) ||
+    verdict.oracleSha256 !== claim.oracleSha256 ||
+    verdict.baselineSha256 !== claim.baselineSha256 ||
+    verdict.recipeSha256 !== claim.recipeSha256 ||
+    verdict.resultSourceSha256 !== claim.resultSourceSha256 ||
+    verdictReference.claimSha256 !== hashJson(claim) ||
+    verdictReference.verificationSha256 !== sha256(verdictBytes) ||
+    verdictReference.verificationBytes !== verdictBytes.length ||
+    verdict.caseCount !== oracle.cases.length ||
+    verdict.caseResults.length !== oracle.cases.length ||
+    verdict.observationBundle.bytes < 1 ||
+    verdict.observationBundle.bytes > 200_000
+  )
+    throw new Error("Repository private verdict differs from frozen claim");
+  const bundleBytes = await readReference(verdict.observationBundle);
+  try {
+    const bundle = parseCanonicalEngineering(
+      bundleBytes,
+      repositoryObservationBundleSchema,
+      200_000,
+      "Repository guest observation bundle",
+    );
+    if (
+      bundle.claimSha256 !== hashJson(claim) ||
+      bundle.caseCount !== oracle.cases.length ||
+      bundle.records.length !== oracle.cases.length
+    )
+      throw new Error("Repository observation bundle differs from claim");
+    const challenges = new Set<string>();
+    let baselineFailed = 0;
+    let passed = 0;
+    for (const [index, record] of bundle.records.entries()) {
+      const item = oracle.cases[index]!;
+      const result = verdict.caseResults[index]!;
+      const inputSha256 = sha256(Buffer.from(canonicalJson(item.input)));
+      const expectedSha256 = sha256(Buffer.from(canonicalJson(item.expected)));
+      const before = record.baseline;
+      const after = record.candidate;
+      if (
+        record.id !== item.id ||
+        result.id !== item.id ||
+        result.inputSha256 !== inputSha256 ||
+        before.arm !== "baseline" ||
+        after.arm !== "candidate" ||
+        before.caseIndex !== index ||
+        after.caseIndex !== index ||
+        before.treeSha256 !== baselineTreeSha256 ||
+        after.treeSha256 !== claim.resultSourceSha256 ||
+        before.recipeSha256 !== claim.recipeSha256 ||
+        after.recipeSha256 !== claim.recipeSha256 ||
+        before.inputSha256 !== inputSha256 ||
+        after.inputSha256 !== inputSha256 ||
+        result.baselineChallenge !== before.challenge ||
+        result.candidateChallenge !== after.challenge ||
+        challenges.has(before.challenge) ||
+        challenges.has(after.challenge) ||
+        before.challenge === after.challenge
+      )
+        throw new Error("Repository guest observation case binding differs");
+      challenges.add(before.challenge);
+      challenges.add(after.challenge);
+      const baselineValueSha256 =
+        before.status === "completed"
+          ? sha256(Buffer.from(canonicalJson(before.value)))
+          : null;
+      const candidateValueSha256 =
+        after.status === "completed"
+          ? sha256(Buffer.from(canonicalJson(after.value)))
+          : null;
+      if (
+        result.baselineStatus !== before.status ||
+        result.baselineValueSha256 !== baselineValueSha256 ||
+        result.candidateStatus !== after.status ||
+        result.candidateValueSha256 !== candidateValueSha256
+      )
+        throw new Error("Repository verdict case differs from guest originals");
+      if (baselineValueSha256 !== expectedSha256) baselineFailed++;
+      if (candidateValueSha256 === expectedSha256) passed++;
+    }
+    if (
+      baselineFailed < 1 ||
+      verdict.baselineFailed !== baselineFailed ||
+      verdict.passed !== passed ||
+      verdict.status !== (passed === oracle.cases.length ? "pass" : "fail")
+    )
+      throw new Error("Repository verdict counters differ from private cases");
+    return verdict.status;
+  } finally {
+    bundleBytes.fill(0);
+  }
+}
+
 /** Re-derive, in the private collector, the bytes a call-bound oracle saw. */
 async function checkCallBoundOriginals(
   inspection: CohortInspection,
   read: OriginalEvidence["read"],
+  readReference?: OriginalEvidence["readReference"],
 ) {
   const [packetModule, proposalModule, requestModule] = await Promise.all([
     import(
@@ -992,9 +1986,189 @@ async function checkCallBoundOriginals(
     typeof requestModule.buildLocalModelRequest !== "function"
   )
     throw new Error("Private collector proposal parser is unavailable");
+  const checkRepositoryItem = async (
+    item: CohortInspection["assignments"][number],
+    claim: Extract<
+      CohortInspection["assignments"][number]["oracleInvocation"],
+      { kind: "sealed-call-bound-repository-invocation-claim" }
+    >,
+  ) => {
+    if (!readReference || !item.oracleVerdict)
+      throw new Error(
+        "Repository claim needs vault originals and a private verdict",
+      );
+    const task = inspection.plan.tasks.find(
+      (task) => task.taskId === item.assignment.taskId,
+    )!;
+    const call = item.calls.find(
+      (call) => call.reservation.callId === claim.callId,
+    )!;
+    const role = oracleRolePrefix(item);
+    let publicBytes: Buffer | undefined;
+    let requestBytes: Buffer | undefined;
+    let expectedRequest: Buffer | undefined;
+    let responseBytes: Buffer | undefined;
+    let proposalBytes: Buffer | undefined;
+    let exactProposal: Buffer | undefined;
+    let baselineBytes: Buffer | undefined;
+    let oracleBytes: Buffer | undefined;
+    let resultBytes: Buffer | undefined;
+    let derivedResult: Buffer | undefined;
+    let verdictBytes: Buffer | undefined;
+    try {
+      publicBytes = await read(`task/${task.taskId}/public-packet`);
+      packetModule.inspectPublicPacket(publicBytes);
+      const packet = JSON.parse(publicBytes.toString("utf8"));
+      if (
+        packet.taskId !== task.taskId ||
+        packet.repositoryId !== task.repositoryId ||
+        packet.baselineSha256 !== task.baselineSha256 ||
+        claim.baselineSha256 !== task.baselineSha256
+      )
+        throw new Error("Repository public packet differs from frozen task");
+      const provider = inspection.plan.configurations[
+        item.assignment.arm
+      ].providers.find(
+        (provider) => provider.providerId === call.reservation.providerId,
+      )!;
+      expectedRequest = requestModule.buildLocalModelRequest(
+        publicBytes,
+        call.reservation.requestedModel,
+        provider.maxOutputTokens,
+      );
+      requestBytes = await read(`call/${call.reservation.callId}/request`);
+      if (
+        !Buffer.isBuffer(expectedRequest) ||
+        !expectedRequest.equals(requestBytes)
+      )
+        throw new Error("Repository call request differs from public packet");
+      responseBytes = await read(`call/${call.reservation.callId}/response`);
+      const parsed = proposalModule.parseRetainedLocalProposal(
+        responseBytes,
+        task,
+        packet,
+        call.reservation.requestedModel,
+      );
+      exactProposal = parsed.proposalBytes;
+      if (!Buffer.isBuffer(exactProposal))
+        throw new Error("Repository model response lacks proposal bytes");
+      proposalBytes = await read(`${role}/derived-proposal`);
+      if (
+        !exactProposal.equals(proposalBytes) ||
+        sha256(exactProposal) !== claim.proposalSha256 ||
+        (item.receipt?.proposalSha256 != null &&
+          item.receipt.proposalSha256 !== claim.proposalSha256)
+      )
+        throw new Error("Repository proposal differs from model response");
+      baselineBytes = await read(`task/${task.taskId}/baseline`);
+      oracleBytes = await read(`task/${task.taskId}/private-oracle`);
+      const oracle = parseCanonicalEngineering(
+        oracleBytes,
+        repositoryOracleSchema,
+        100_000,
+        "Private repository oracle",
+      );
+      const recipeBytes = Buffer.from(canonicalJson(oracle.recipe), "utf8");
+      try {
+        if (
+          recipeBytes.length > 16_384 ||
+          sha256(recipeBytes) !== claim.recipeSha256 ||
+          oracle.recipe.imageId !== claim.imageId ||
+          claim.oracleSha256 !== task.oracleSha256
+        )
+          throw new Error(
+            "Repository recipe differs from frozen private oracle",
+          );
+      } finally {
+        recipeBytes.fill(0);
+      }
+      const sourceFiles = await readRepositorySelectedSources(
+        { sha256: task.baselineSha256, bytes: baselineBytes.length },
+        oracle.recipe.sourcePaths,
+        readReference,
+      );
+      const baselineTreeBytes = repositoryTreeBytesFromSources(sourceFiles);
+      const baselineTreeSha256 = sha256(baselineTreeBytes);
+      baselineTreeBytes.fill(0);
+      const publicSource = new Map(
+        packet.files
+          .filter((file: { kind: string }) => file.kind === "source")
+          .map((file: { path: string; content: string; sha256: string }) => [
+            file.path,
+            file,
+          ]),
+      );
+      for (const source of sourceFiles) {
+        const published = publicSource.get(source.path) as
+          { content: string; sha256: string } | undefined;
+        if (
+          !published ||
+          published.content !== source.source ||
+          published.sha256 !== sha256(Buffer.from(source.source, "utf8"))
+        )
+          throw new Error(
+            "Repository selected source was not published unchanged",
+          );
+      }
+      derivedResult = deriveRepositoryResult(
+        sourceFiles,
+        exactProposal,
+        task.allowedOutputPaths,
+        oracle.recipe.sourcePaths,
+      );
+      resultBytes = await read(`${role}/result-source`);
+      if (
+        !derivedResult.equals(resultBytes) ||
+        sha256(derivedResult) !== claim.resultSourceSha256 ||
+        (item.receipt?.resultSourceSha256 != null &&
+          item.receipt.resultSourceSha256 !== claim.resultSourceSha256)
+      )
+        throw new Error(
+          "Repository candidate tree differs from original proposal",
+        );
+      verdictBytes = await read(`${role}/private-verdict`);
+      await checkRepositoryVerdict(
+        oracle,
+        verdictBytes,
+        claim,
+        item.oracleVerdict,
+        baselineTreeSha256,
+        readReference,
+      );
+      if (
+        (item.receipt?.outcome.verificationSha256 != null &&
+          item.receipt.outcome.verificationSha256 !==
+            item.oracleVerdict.verificationSha256) ||
+        item.receipt?.outcome.success === true
+      )
+        throw new Error(
+          "Repository attempt outcome differs from private verdict",
+        );
+    } finally {
+      for (const bytes of [
+        publicBytes,
+        requestBytes,
+        expectedRequest,
+        responseBytes,
+        proposalBytes,
+        exactProposal,
+        baselineBytes,
+        oracleBytes,
+        resultBytes,
+        derivedResult,
+        verdictBytes,
+      ])
+        bytes?.fill(0);
+    }
+  };
   let checked = 0;
   for (const item of inspection.assignments) {
     const claim = item.oracleInvocation;
+    if (claim?.kind === "sealed-call-bound-repository-invocation-claim") {
+      await checkRepositoryItem(item, claim);
+      checked++;
+      continue;
+    }
     if (
       claim?.kind !== "sealed-call-bound-oracle-invocation-claim" &&
       claim?.kind !== "sealed-call-bound-engineering-invocation-claim" &&
@@ -1367,9 +2541,17 @@ async function inspectAggregateWithOriginalEvidence(
     manifest,
     totalBytes,
     read,
+    readReference,
     limitations: sourceLimitations,
+    repositorySnapshotCount = 0,
+    repositorySnapshotBytesVerified = 0,
+    repositorySnapshotBlobsVerified = 0,
   } = await evidence(inspection);
-  const callBoundJoinsChecked = await checkCallBoundOriginals(inspection, read);
+  const callBoundJoinsChecked = await checkCallBoundOriginals(
+    inspection,
+    read,
+    readReference,
+  );
   const rowTrust = reviewTrustSchema.parse(value.rowTrust);
   const rowBundles = z
     .array(
@@ -1546,6 +2728,9 @@ async function inspectAggregateWithOriginalEvidence(
     originalByteManifestSha256: signedPayload.originalByteManifestSha256,
     originalArtifactCount: manifest.entries.length,
     originalArtifactBytes: totalBytes,
+    repositorySnapshotCount,
+    repositorySnapshotBytesVerified,
+    repositorySnapshotBlobsVerified,
     callBoundProposalJoinsChecked: callBoundJoinsChecked,
     rowSignatureInventorySha256: rowReceipt.reviewInventorySha256,
     verifiedRowReviewCount: rowReceipt.verifiedReviewCount,
@@ -1586,6 +2771,27 @@ export async function inspectPrivateSealedAggregateProvenance(
   options: { nowMs?: number } = {},
 ) {
   const value = inputSchema.parse(decodeJson(input));
+  const taskFormats = z
+    .object({
+      plan: z
+        .object({
+          tasks: z.array(
+            z.object({ stateFormatVersion: z.string() }).passthrough(),
+          ),
+        })
+        .passthrough(),
+    })
+    .passthrough()
+    .safeParse(value.cohort.inspection);
+  if (
+    taskFormats.success &&
+    taskFormats.data.plan.tasks.some(
+      (task) => task.stateFormatVersion === "repo-snapshot-v1",
+    )
+  )
+    throw new Error(
+      "Repository snapshots require the vault-backed full-closure reader",
+    );
   return inspectAggregateWithOriginalEvidence(
     value,
     async (inspection) => {
