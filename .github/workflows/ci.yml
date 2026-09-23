@@ -50,6 +50,8 @@ jobs:
         run: node graph-templates/tools/validate-templates/index.js .
       - name: Evaluation protocol and intake checks
         run: node --test evaluation/candidate-cases.test.mjs evaluation/candidate-portable.test.mjs evaluation/candidate-mount.test.mjs evaluation/native-mount.test.mjs evaluation/candidate-build-order.test.mjs evaluation/verify-build-order.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs evaluation/historical-receipt-pins.test.mjs evaluation/candidate-template-invocations.test.mjs evaluation/verify-template-invocations.test.mjs evaluation/candidate-retry-visibility.test.mjs evaluation/verify-retry-visibility.test.mjs evaluation/candidate-cloud-graph.test.mjs evaluation/candidate-verifier-infrastructure.test.mjs evaluation/candidate-verifier-setup.test.mjs evaluation/verify-verifier-infrastructure.test.mjs
+      - name: Paired local context packet checks (no model call)
+        run: node --test evaluation/live-paired-qwen-context.test.mjs
       - run: npm ci --prefix graph-templates/tools/validate-graph
       - name: Sealed collection bookkeeping
         run: node --test evaluation/sealed/tests/*.test.mjs
