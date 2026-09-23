@@ -47,6 +47,7 @@ test('accepts the generated registry regardless of its timestamp or caller root'
   const { parent, root, registryFile } = fixture();
   try {
     const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+    assert.equal(registry.templates[0].path, 'api/demo');
     registry.generatedAt = '2000-01-01T00:00:00.000Z';
     fs.writeFileSync(registryFile, JSON.stringify(registry));
     for (const argument of [root, parent]) {
