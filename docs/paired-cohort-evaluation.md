@@ -88,15 +88,40 @@ v2 check is local conditional consistency, not a promotion grant.
 original declared-v2 population manifest and a closed, vault-backed aggregate.
 It reruns the signed selection, full-cohort preflight, held-out row-review and
 original-byte aggregate inspectors from their supplied originals; an optional
-current-witness callback brackets that aggregate audit. It rejects changed
+current-witness callback brackets the aggregate and any optional identity-byte
+audit. It rejects changed
 registration, plan, registry, assignments, task order, signer-key reuse across
 registries, target identity, signatures, or original-byte pins. A successful
 receipt lists remaining blockers and always has `promotionEligible: false`.
 Neither its input reader nor an optional witness callback is authenticated by
-this API. It does not audit source-population artifacts or configuration, model
-and label-evidence bytes, prove independently unseen tasks or actual paired
+this API. Without the optional byte audit it does not check source-population
+artifacts or configuration, model and label-evidence bytes. It cannot prove
+independently unseen tasks or actual paired
 provider billing, or approve current operator trust. Its counts and hashes are
 private collection metadata and must not be exported through MCP/cloud context.
+
+An optional `identityBytes` input to that readiness check audits the remaining
+declared raw SHA-256 blob commitments through a separate pinned
+`sealed-identity-byte-manifest`. It derives the exact expected roles from the
+signed source inventory and closed aggregate: source artifacts, exposure
+registry evidence/artifacts, both configurations, provider sampling/pricing,
+local weight/tokenizer/runtime blobs, attempt runtimes, and label evidence.
+The caller supplies a private `readChunk({role,sha256,bytes,index,offset,length})`
+that returns a fresh ordinary byte array for each exact sequential 1 MiB chunk;
+the verifier hashes every role's entire blob and wipes valid transferred chunks.
+A zero-byte blob has the known empty SHA-256 and requires no read, so its
+storage location is not checked. The manifest is limited to 10,000 roles,
+64 GiB per blob, and 256 GiB of role bytes per audit; unsupported or missing
+roles fail rather than being silently counted. Callers must bound the reader's
+latency and allocation separately. `identityBytesCompared: true` means only
+that every declared raw digest matched the supplied bytes _now_.
+Provider snapshot IDs have no local raw weight commitment, and a sharded or
+directory model needs a separately specified canonical blob/tree preimage and
+child-closure audit.
+The reader, retention, original source, worker-loaded model and provider
+billing remain unauthenticated; promotion remains disabled. The older aggregate
+receipt's `identityOnlyBytesAudited: false` is unchanged because this is a
+separate analysis receipt.
 
 The output binds the whole measured candidate configuration; a joint experiment
 does not justify independently changing a model, context policy or category later.

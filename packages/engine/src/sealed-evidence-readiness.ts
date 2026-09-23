@@ -14,6 +14,10 @@ import {
 } from "./promotion-authority.js";
 import { inspectPrivateSealedAggregateFromManifest } from "./sealed-aggregate-provenance.js";
 import {
+  inspectPrivateSealedIdentityOriginalBytes,
+  type IdentityChunkReader,
+} from "./sealed-identity-byte-audit.js";
+import {
   decodeJson,
   digestSchema,
   freezeJson,
@@ -44,6 +48,11 @@ export interface SealedEvidenceReadinessInput {
   witness?: {
     witnessId: string;
     readCurrent: CurrentSealedWitnessReader;
+  };
+  identityBytes?: {
+    manifest: unknown;
+    manifestSha256: unknown;
+    readChunk: IdentityChunkReader;
   };
   /** Testable signature cutoff, not an independently attested clock. */
   nowMs?: number;
@@ -185,7 +194,7 @@ export async function inspectSealedEvidenceReadiness(
   const fields = ownData(
     input,
     ["population", "aggregate"],
-    ["witness", "nowMs"],
+    ["witness", "identityBytes", "nowMs"],
   );
   const populationFields = ownData(fields.population, [
     "input",
@@ -276,6 +285,19 @@ export async function inspectSealedEvidenceReadiness(
   const auditedAggregates: Awaited<
     ReturnType<typeof inspectPrivateSealedAggregateFromManifest>
   >[] = [];
+  const identityFields =
+    fields.identityBytes === undefined
+      ? undefined
+      : ownData(fields.identityBytes, [
+          "manifest",
+          "manifestSha256",
+          "readChunk",
+        ]);
+  if (identityFields && typeof identityFields.readChunk !== "function")
+    throw new Error("Sealed readiness identity-byte reader is invalid");
+  const auditedIdentities: Awaited<
+    ReturnType<typeof inspectPrivateSealedIdentityOriginalBytes>
+  >[] = [];
   const audit = async () => {
     const receipt = await inspectPrivateSealedAggregateFromManifest(
       aggregate,
@@ -285,6 +307,20 @@ export async function inspectSealedEvidenceReadiness(
       { nowMs },
     );
     auditedAggregates.push(receipt);
+    if (identityFields)
+      auditedIdentities.push(
+        await inspectPrivateSealedIdentityOriginalBytes(
+          {
+            inspection: cohort.inspection,
+            labels: cohort.labels,
+            sourceInventory: population.sourceInventory,
+            aggregatePayload: aggregate.bundle.payload,
+          },
+          identityFields.manifest,
+          identityFields.manifestSha256,
+          identityFields.readChunk as IdentityChunkReader,
+        ),
+      );
     return receipt;
   };
   let governance:
@@ -312,6 +348,10 @@ export async function inspectSealedEvidenceReadiness(
   if (auditedAggregates.length !== 1)
     throw new Error(
       "Sealed readiness aggregate audit did not complete exactly once",
+    );
+  if (auditedIdentities.length !== (identityFields ? 1 : 0))
+    throw new Error(
+      "Sealed readiness identity-byte audit did not complete exactly once",
     );
   const originalAggregate = auditedAggregates[0]!;
   const payload = z
@@ -403,10 +443,41 @@ export async function inspectSealedEvidenceReadiness(
     );
   }
 
+  const identityBytes = auditedIdentities[0];
+  if (identityBytes) {
+    same(
+      "identity-byte project",
+      identityBytes.projectId,
+      originalAggregate.projectId,
+    );
+    same(
+      "identity-byte collection",
+      identityBytes.collectionId,
+      originalAggregate.collectionId,
+    );
+    same(
+      "identity-byte plan",
+      identityBytes.planSha256,
+      originalAggregate.planSha256,
+    );
+    same(
+      "identity-byte source inventory",
+      identityBytes.sourceInventorySha256,
+      selection.sourceInventorySha256,
+    );
+    same(
+      "identity-byte aggregate payload",
+      identityBytes.aggregatePayloadSha256,
+      originalAggregate.aggregatePayloadSha256,
+    );
+  }
+
   const blockers = [
     "Source inventory completeness, eligibility and unseen status are not independently authenticated",
     "Selection seed and pre-run chronology have no independent append-only witness",
-    "Source artifacts and configuration/model/label-evidence identity-only bytes are not audited",
+    identityBytes
+      ? "Matching raw digest bytes do not authenticate source artifact meaning, model loading, or provider snapshot identity"
+      : "Source artifacts and configuration/model/label-evidence identity-only bytes are not audited",
     "Original-byte reader, worker/oracle execution and provider billing are not authenticated",
     "Signer actor identities, current trust and operator approval are not independently governed",
     "Independent unseen reviews and paired measured model outcomes are not established by this join",
@@ -434,6 +505,10 @@ export async function inspectSealedEvidenceReadiness(
     assignmentCount: originalAggregate.assignmentCount,
     joinedIdentitiesVerified: true as const,
     witnessCompared: governance !== undefined,
+    witnessAuthenticationVerified: false as const,
+    identityBytesCompared: identityBytes !== undefined,
+    identityByteManifestSha256: identityBytes?.manifestSha256 ?? null,
+    identityReaderAuthenticated: false as const,
     accountingMetricsSatisfied: preflight.accountingMetricsSatisfied,
     blockers,
     promotionEligible: false as const,

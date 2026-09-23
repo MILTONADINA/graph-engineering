@@ -1,6 +1,8 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { expect, it, vi } from "vitest";
 import type { CohortInspection } from "../src/full-cohort-ledger.js";
+import { identityOnlyInventory } from "../src/sealed-aggregate-provenance.js";
+import { inspectPrivateSealedIdentityOriginalBytes } from "../src/sealed-identity-byte-audit.js";
 import { authorizesPromotion } from "../src/promotion-authority.js";
 import { inspectSealedEvidenceReadiness } from "../src/sealed-evidence-readiness.js";
 import { inspectSealedDeclaredInventorySelection } from "../src/sealed-population-manifest.js";
@@ -14,6 +16,8 @@ const sourceDeclaredAt = "2025-12-31T00:00:00.000Z";
 const selectedAt = "2026-01-01T01:00:00.000Z";
 const auditedAt = "2026-01-01T02:00:00.000Z";
 const sha256 = (value: string) =>
+  createHash("sha256").update(value).digest("hex");
+const sha256Bytes = (value: Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 
 async function scenario() {
@@ -55,6 +59,17 @@ async function scenario() {
       producerIds: ["synthetic-source-producer"],
     })),
   };
+  const identityBlobs = new Map(
+    [...template.retainedBlobs].map(([digest, base64]) => [
+      digest,
+      Buffer.from(base64, "base64"),
+    ]),
+  );
+  for (const entry of sourceInventory.entries)
+    identityBlobs.set(
+      entry.sourceArtifactSha256,
+      Buffer.from(`synthetic-source:${entry.stableTaskId}`),
+    );
   const selector = generateKeyPairSync("ed25519");
   const auditor = generateKeyPairSync("ed25519");
   const trust = {
@@ -128,6 +143,14 @@ async function scenario() {
     expectedSourceInventorySha256: hashJson(sourceInventory),
     expectedTrustSha256: hashJson(trust),
   };
+  const replaceSourceBytes = (bytes: Buffer) => {
+    const entry = sourceInventory.entries[0]!;
+    entry.sourceArtifactSha256 = sha256Bytes(bytes);
+    identityBlobs.set(entry.sourceArtifactSha256, bytes);
+    payload.sourceInventorySha256 = hashJson(sourceInventory);
+    pins.expectedSourceInventorySha256 = payload.sourceInventorySha256;
+    populationInput.bundle.attestations = [attest(0), attest(1)];
+  };
   const manifest = {
     version: "1.0.0",
     kind: "sealed-original-byte-manifest",
@@ -194,7 +217,108 @@ async function scenario() {
       },
     };
   };
-  return { request, checkpoint };
+  return { request, checkpoint, identityBlobs, replaceSourceBytes };
+}
+
+type IdentityChunkQuery = {
+  role: string;
+  sha256: string;
+  bytes: number;
+  index: number;
+  offset: number;
+  length: number;
+};
+
+/** The fixture keeps identity-only bytes detached from the original-byte bundle. */
+function identityBytesFor(value: Awaited<ReturnType<typeof scenario>>) {
+  const { request, identityBlobs } = value;
+  const inspection = request.aggregate.input.cohort.inspection;
+  const records: { role: string; sha256: string }[] = [];
+  const add = (role: string, digest: string | null) => {
+    if (digest !== null) records.push({ role, sha256: digest });
+  };
+  for (const entry of request.population.input.sourceInventory.entries)
+    add(`source/${entry.stableTaskId}/artifact`, entry.sourceArtifactSha256);
+  inspection.registry.entries.forEach((entry, index) => {
+    add(`exposure/${index}/evidence`, entry.evidenceSha256);
+    entry.artifactSha256s.forEach((digest, artifactIndex) =>
+      add(`exposure/${index}/artifact/${artifactIndex}`, digest),
+    );
+  });
+  for (const arm of ["baseline", "candidate"] as const) {
+    const config = inspection.plan.configurations[arm];
+    add(`configuration/${arm}/implementation`, config.implementationSha256);
+    add(`configuration/${arm}/policy`, config.policySha256);
+    add(`configuration/${arm}/prompt`, config.promptSha256);
+    add(
+      `configuration/${arm}/context-implementation`,
+      config.contextImplementationSha256,
+    );
+    for (const provider of config.providers) {
+      const prefix = `provider/${arm}/${provider.providerId}`;
+      add(`${prefix}/sampling`, provider.samplingSha256);
+      add(`${prefix}/pricing`, provider.pricingSha256);
+      if (provider.modelIdentity.kind === "local-weights") {
+        add(`${prefix}/weights`, provider.modelIdentity.weightsSha256);
+        add(`${prefix}/tokenizer`, provider.modelIdentity.tokenizerSha256);
+        add(`${prefix}/runtime`, provider.modelIdentity.runtimeSha256);
+      }
+    }
+  }
+  for (const item of inspection.assignments)
+    add(
+      `attempt/${item.assignment.assignmentId}/runtime`,
+      item.receipt?.outcome.runtimeSha256 ?? null,
+    );
+  [...request.aggregate.input.cohort.labels]
+    .sort((left, right) =>
+      left.recordId < right.recordId
+        ? -1
+        : left.recordId > right.recordId
+          ? 1
+          : 0,
+    )
+    .forEach((label, index) =>
+      label.evidenceSha256s.forEach((digest, evidenceIndex) =>
+        add(`label/${index}/evidence/${evidenceIndex}`, digest),
+      ),
+    );
+  const manifest = {
+    version: "1.0.0" as const,
+    kind: "sealed-identity-byte-manifest" as const,
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    planSha256: inspection.planSha256,
+    sourceInventorySha256:
+      request.population.pins.expectedSourceInventorySha256,
+    identityOnlyInventorySha256:
+      request.aggregate.input.bundle.payload.identityOnlyInventorySha256,
+    entries: records
+      .map(({ role, sha256: digest }) => {
+        const bytes = identityBlobs.get(digest);
+        if (!bytes)
+          throw new Error(`Synthetic identity bytes missing: ${role}`);
+        return {
+          role,
+          sha256: digest,
+          bytes: bytes.length,
+          encoding: "raw-sha256" as const,
+        };
+      })
+      .sort((left, right) =>
+        left.role < right.role ? -1 : left.role > right.role ? 1 : 0,
+      ),
+  };
+  const byRole = new Map(manifest.entries.map((entry) => [entry.role, entry]));
+  const readChunk = vi.fn(async (query: IdentityChunkQuery) => {
+    const entry = byRole.get(query.role);
+    if (!entry) throw new Error(`Unknown identity role: ${query.role}`);
+    const bytes = identityBlobs.get(entry.sha256)!;
+    return new Uint8Array(
+      bytes.subarray(query.offset, query.offset + query.length),
+    );
+  });
+  return { manifest, manifestSha256: hashJson(manifest), readChunk };
 }
 
 it("joins matching signed declared selection and original-byte aggregate without granting authority", async () => {
@@ -415,6 +539,46 @@ it("compares two fresh caller-supplied checkpoints but still withholds authority
   );
 });
 
+it("brackets detached identity-byte reads with both witness checkpoints", async () => {
+  const value = await scenario();
+  const identityBytes = identityBytesFor(value);
+  const readChunk = identityBytes.readChunk;
+  const order: ("checkpoint" | "identity-byte")[] = [];
+  identityBytes.readChunk = vi.fn(async (query: IdentityChunkQuery) => {
+    order.push("identity-byte");
+    return readChunk(query);
+  });
+  const readCurrent = vi.fn(
+    async (query: Parameters<typeof value.checkpoint>[0]) => {
+      order.push("checkpoint");
+      return value.checkpoint(query);
+    },
+  );
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...value.request,
+    identityBytes,
+    witness: { witnessId: "test-witness", readCurrent },
+  });
+  expect(readCurrent).toHaveBeenCalledTimes(2);
+  expect(identityBytes.readChunk).toHaveBeenCalled();
+  expect(order[0]).toBe("checkpoint");
+  expect(order.at(-1)).toBe("checkpoint");
+  expect(order.filter((step) => step === "checkpoint")).toHaveLength(2);
+  expect(order.slice(1, -1).every((step) => step === "identity-byte")).toBe(
+    true,
+  );
+  expect(receipt).toMatchObject({
+    witnessCompared: true,
+    identityBytesCompared: true,
+    promotionEligible: false,
+  });
+  expect(receipt.blockers).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/witness callback authenticity/),
+    ]),
+  );
+});
+
 it("rejects offline, stale, forked and changing witness checkpoints", async () => {
   const offline = await scenario();
   await expect(
@@ -467,4 +631,470 @@ it("rejects offline, stale, forked and changing witness checkpoints", async () =
     }),
   ).rejects.toThrow(/changed during aggregate inspection/);
   expect(reads).toBe(2);
+});
+
+it("compares every detached identity-only byte role but never grants promotion", async () => {
+  const value = await scenario();
+  const identityBytes = identityBytesFor(value);
+  const digests = identityBytes.manifest.entries.map((entry) => entry.sha256);
+  expect(new Set(digests).size).toBeLessThan(digests.length);
+  expect(identityBytes.manifest.entries.map((entry) => entry.role)).toEqual(
+    expect.arrayContaining([
+      "source/stable-task/artifact",
+      "configuration/baseline/implementation",
+      "configuration/candidate/context-implementation",
+      "provider/baseline/laya-worker/weights",
+      "provider/candidate/laya-worker/tokenizer",
+      "attempt/baseline/runtime",
+      "attempt/candidate/runtime",
+      "label/0/evidence/0",
+    ]),
+  );
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...value.request,
+    identityBytes,
+  });
+  expect(receipt).toMatchObject({
+    identityBytesCompared: true,
+    joinedIdentitiesVerified: true,
+    promotionEligible: false,
+    authorityStatus: "sealed-evidence-readiness-only",
+  });
+  expect(identityBytes.readChunk).toHaveBeenCalled();
+  expect(receipt.blockers).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/operator|authentic|independent/i),
+    ]),
+  );
+  expect(
+    authorizesPromotion(receipt, {} as never, {
+      projectId: receipt.projectId,
+      policyVersion: value.request.aggregate.input.bundle.payload.policySha256,
+    }),
+  ).toBe(false);
+});
+
+it("includes exposure evidence/artifacts and a non-null pricing blob in the raw-byte inventory", async () => {
+  const value = await scenario();
+  const inspection = value.request.aggregate.input.cohort.inspection;
+  const evidence = Buffer.from("synthetic exposure evidence");
+  const artifact = Buffer.from("synthetic exposure artifact");
+  const pricing = Buffer.from("synthetic provider pricing");
+  for (const bytes of [evidence, artifact, pricing])
+    value.identityBlobs.set(sha256Bytes(bytes), bytes);
+  inspection.registry.entries.push({
+    stableTaskId: "exposed-task",
+    stableFamilyId: "exposed-family",
+    exposureDomain: "fixture-domain",
+    exposure: "known-history",
+    evidenceSha256: sha256Bytes(evidence),
+    artifactSha256s: [sha256Bytes(artifact)],
+  });
+  for (const arm of ["baseline", "candidate"] as const)
+    inspection.plan.configurations[arm].providers[0]!.pricingSha256 =
+      sha256Bytes(pricing);
+  const payload = value.request.aggregate.input.bundle.payload;
+  payload.registrySha256 = hashJson(inspection.registry);
+  payload.identityOnlyInventorySha256 = hashJson(
+    identityOnlyInventory(
+      inspection,
+      value.request.aggregate.input.cohort.labels,
+    ),
+  );
+  const identityBytes = identityBytesFor(value);
+  expect(identityBytes.manifest.entries.map((entry) => entry.role)).toEqual(
+    expect.arrayContaining([
+      "exposure/0/evidence",
+      "exposure/0/artifact/0",
+      "provider/baseline/laya-worker/pricing",
+      "provider/candidate/laya-worker/pricing",
+    ]),
+  );
+  const originalInput = {
+    inspection,
+    labels: value.request.aggregate.input.cohort.labels,
+    sourceInventory: value.request.population.input.sourceInventory,
+    aggregatePayload: payload,
+  };
+  const receipt = await inspectPrivateSealedIdentityOriginalBytes(
+    originalInput,
+    identityBytes.manifest,
+    identityBytes.manifestSha256,
+    identityBytes.readChunk,
+  );
+  expect(receipt).toMatchObject({
+    rawBlobBytesCompared: true,
+    sourceProvenanceAuthenticated: false,
+    promotionEligible: false,
+  });
+  await expect(
+    inspectPrivateSealedIdentityOriginalBytes(
+      {
+        ...originalInput,
+        aggregatePayload: {
+          ...payload,
+          sourceInventorySha256: "f".repeat(64),
+        },
+      },
+      identityBytes.manifest,
+      identityBytes.manifestSha256,
+      identityBytes.readChunk,
+    ),
+  ).rejects.toThrow();
+
+  identityBytes.manifest.entries = identityBytes.manifest.entries.filter(
+    (entry) => entry.role !== "exposure/0/artifact/0",
+  );
+  identityBytes.manifestSha256 = hashJson(identityBytes.manifest);
+  identityBytes.readChunk.mockClear();
+  await expect(
+    inspectPrivateSealedIdentityOriginalBytes(
+      originalInput,
+      identityBytes.manifest,
+      identityBytes.manifestSha256,
+      identityBytes.readChunk,
+    ),
+  ).rejects.toThrow(/inventory is incomplete/);
+  expect(identityBytes.readChunk).not.toHaveBeenCalled();
+});
+
+it("rejects missing, extra, reordered and altered identity-byte manifest entries", async () => {
+  for (const [label, change] of [
+    [
+      "missing",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries.shift();
+      },
+    ],
+    [
+      "extra",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries.push({ ...entries[0]!, role: "unclaimed/extra" });
+        entries.sort((left, right) =>
+          left.role < right.role ? -1 : left.role > right.role ? 1 : 0,
+        );
+      },
+    ],
+    [
+      "reordered",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries.reverse();
+      },
+    ],
+    [
+      "duplicate role",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries.splice(1, 0, { ...entries[0]! });
+      },
+    ],
+    [
+      "altered digest",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries[0]!.sha256 = "f".repeat(64);
+      },
+    ],
+    [
+      "altered length",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries[0]!.bytes++;
+      },
+    ],
+    [
+      "unsupported encoding",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries[0]!.encoding = "base64";
+      },
+    ],
+    [
+      "overlong declaration",
+      (
+        entries: {
+          role: string;
+          sha256: string;
+          bytes: number;
+          encoding: string;
+        }[],
+      ) => {
+        entries[0]!.bytes = 70 * 1024 ** 3;
+      },
+    ],
+  ] as const) {
+    const value = await scenario();
+    const identityBytes = identityBytesFor(value);
+    change(identityBytes.manifest.entries);
+    identityBytes.manifestSha256 = hashJson(identityBytes.manifest);
+    await expect(
+      inspectSealedEvidenceReadiness({ ...value.request, identityBytes }),
+      label,
+    ).rejects.toThrow();
+    if (label !== "altered length")
+      expect(identityBytes.readChunk, label).not.toHaveBeenCalled();
+  }
+});
+
+it("rejects conflicting duplicate-digest lengths and aggregate bounds before any byte read", async () => {
+  const conflicting = await scenario();
+  const duplicate = identityBytesFor(conflicting);
+  const first = duplicate.manifest.entries.find((entry) =>
+    duplicate.manifest.entries.some(
+      (other) => other !== entry && other.sha256 === entry.sha256,
+    ),
+  )!;
+  const second = duplicate.manifest.entries.find(
+    (entry) => entry !== first && entry.sha256 === first.sha256,
+  )!;
+  second.bytes++;
+  duplicate.manifestSha256 = hashJson(duplicate.manifest);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...conflicting.request,
+      identityBytes: duplicate,
+    }),
+  ).rejects.toThrow(/conflicting lengths/);
+  expect(duplicate.readChunk).not.toHaveBeenCalled();
+
+  const oversized = await scenario();
+  const bounded = identityBytesFor(oversized);
+  const selected = new Set(
+    [...new Set(bounded.manifest.entries.map((entry) => entry.sha256))].slice(
+      0,
+      5,
+    ),
+  );
+  expect(selected.size).toBe(5);
+  for (const entry of bounded.manifest.entries)
+    if (selected.has(entry.sha256)) entry.bytes = 64 * 1024 ** 3;
+  bounded.manifestSha256 = hashJson(bounded.manifest);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...oversized.request,
+      identityBytes: bounded,
+    }),
+  ).rejects.toThrow(/total bound/);
+  expect(bounded.readChunk).not.toHaveBeenCalled();
+});
+
+it("rejects altered identity pins and malformed identity-byte input", async () => {
+  const badPin = await scenario();
+  const identityBytes = identityBytesFor(badPin);
+  identityBytes.manifestSha256 = "a".repeat(64);
+  await expect(
+    inspectSealedEvidenceReadiness({ ...badPin.request, identityBytes }),
+  ).rejects.toThrow();
+  expect(identityBytes.readChunk).not.toHaveBeenCalled();
+
+  const badProject = await scenario();
+  const wrongIdentity = identityBytesFor(badProject);
+  wrongIdentity.manifest.projectId = "foreign-project";
+  wrongIdentity.manifestSha256 = hashJson(wrongIdentity.manifest);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...badProject.request,
+      identityBytes: wrongIdentity,
+    }),
+  ).rejects.toThrow();
+  expect(wrongIdentity.readChunk).not.toHaveBeenCalled();
+
+  const extra = await scenario();
+  const extraInput = {
+    ...identityBytesFor(extra),
+    privateMemory: "never accepted",
+  };
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...extra.request,
+      identityBytes: extraInput,
+    } as never),
+  ).rejects.toThrow(/fields differ|identity/i);
+});
+
+it("rejects tampered, short, overlong, shared and proxied identity chunks", async () => {
+  for (const [label, corrupt] of [
+    [
+      "tampered",
+      (bytes: Uint8Array) => {
+        const altered = new Uint8Array(bytes);
+        altered[0] ^= 1;
+        return altered;
+      },
+    ],
+    ["short", (bytes: Uint8Array) => bytes.subarray(0, bytes.length - 1)],
+    ["overlong", (bytes: Uint8Array) => new Uint8Array([...bytes, 0])],
+    [
+      "shared",
+      (bytes: Uint8Array) => {
+        const shared = new Uint8Array(new SharedArrayBuffer(bytes.length));
+        shared.set(bytes);
+        return shared;
+      },
+    ],
+    ["proxied", (bytes: Uint8Array) => new Proxy(bytes, {})],
+  ] as const) {
+    const value = await scenario();
+    const identityBytes = identityBytesFor(value);
+    const originalRead = identityBytes.readChunk;
+    let first = true;
+    identityBytes.readChunk = vi.fn(async (query: IdentityChunkQuery) => {
+      const bytes = await originalRead(query);
+      if (!first) return bytes;
+      first = false;
+      return corrupt(bytes);
+    });
+    await expect(
+      inspectSealedEvidenceReadiness({ ...value.request, identityBytes }),
+      label,
+    ).rejects.toThrow();
+  }
+});
+
+it("wipes each callback-owned chunk on success and after a partial stream failure", async () => {
+  const successful = await scenario();
+  const identityBytes = identityBytesFor(successful);
+  const ordinaryRead = identityBytes.readChunk;
+  const supplied: Uint8Array[] = [];
+  identityBytes.readChunk = vi.fn(async (query: IdentityChunkQuery) => {
+    const chunk = await ordinaryRead(query);
+    supplied.push(chunk);
+    return chunk;
+  });
+  await inspectSealedEvidenceReadiness({
+    ...successful.request,
+    identityBytes,
+  });
+  expect(supplied.length).toBeGreaterThan(0);
+  expect(supplied.every((chunk) => chunk.every((byte) => byte === 0))).toBe(
+    true,
+  );
+
+  const interrupted = await scenario();
+  interrupted.replaceSourceBytes(Buffer.alloc(1_048_577, 0x5a));
+  const streamed = identityBytesFor(interrupted);
+  const read = streamed.readChunk;
+  let firstSourceChunk: Uint8Array | undefined;
+  streamed.readChunk = vi.fn(async (query: IdentityChunkQuery) => {
+    if (query.role === "source/stable-task/artifact" && query.index === 1)
+      throw new Error("synthetic byte store disconnected");
+    const chunk = await read(query);
+    if (query.role === "source/stable-task/artifact") firstSourceChunk = chunk;
+    return chunk;
+  });
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...interrupted.request,
+      identityBytes: streamed,
+    }),
+  ).rejects.toThrow(/byte store disconnected/);
+  expect(firstSourceChunk).toBeDefined();
+  expect(firstSourceChunk!.every((byte) => byte === 0)).toBe(true);
+  expect(
+    streamed.readChunk.mock.calls
+      .map(([query]) => query)
+      .filter((query) => query.role === "source/stable-task/artifact")
+      .map((query) => query.index),
+  ).toEqual([0, 1]);
+});
+
+it("streams a source artifact across exact 1 MiB boundaries", async () => {
+  const value = await scenario();
+  value.replaceSourceBytes(Buffer.alloc(1_048_577, 0x5a));
+  const identityBytes = identityBytesFor(value);
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...value.request,
+    identityBytes,
+  });
+  expect(receipt.identityBytesCompared).toBe(true);
+  expect(
+    identityBytes.readChunk.mock.calls
+      .map(([query]) => query)
+      .filter((query) => query.role === "source/stable-task/artifact"),
+  ).toEqual([
+    {
+      role: "source/stable-task/artifact",
+      sha256: sha256Bytes(Buffer.alloc(1_048_577, 0x5a)),
+      bytes: 1_048_577,
+      index: 0,
+      offset: 0,
+      length: 1_048_576,
+    },
+    {
+      role: "source/stable-task/artifact",
+      sha256: sha256Bytes(Buffer.alloc(1_048_577, 0x5a)),
+      bytes: 1_048_577,
+      index: 1,
+      offset: 1_048_576,
+      length: 1,
+    },
+  ]);
+});
+
+it("verifies zero-byte identities without invoking the chunk reader", async () => {
+  const value = await scenario();
+  value.replaceSourceBytes(Buffer.alloc(0));
+  const identityBytes = identityBytesFor(value);
+  const source = identityBytes.manifest.entries.find(
+    (entry) => entry.role === "source/stable-task/artifact",
+  )!;
+  expect(source).toMatchObject({
+    sha256: sha256Bytes(Buffer.alloc(0)),
+    bytes: 0,
+  });
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...value.request,
+    identityBytes,
+  });
+  expect(receipt.identityBytesCompared).toBe(true);
+  expect(
+    identityBytes.readChunk.mock.calls.some(
+      ([query]) => query.role === "source/stable-task/artifact",
+    ),
+  ).toBe(false);
 });
