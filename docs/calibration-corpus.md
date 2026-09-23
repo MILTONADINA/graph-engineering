@@ -14,7 +14,7 @@ Task category, complexity, and risk are explicitly proposed classifications.
 | `retry-state-visibility`             | State consistency / localized               | `5703aba`       | [Pinned historical replay](../evaluation/retry-visibility-runtime/fixture-validation.json) plus opt-in arbitrary-source diagnostic; candidate-directed RPC is not independent algorithm provenance |
 | `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | [Isolated service/virtual-setup replay](../evaluation/infrastructure-runtime/fixture-validation.json); no held-out runs                                                                            |
 | `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier plus native Linux private-mount permission proof                                                                                                                       |
-| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native Windows launch passed; generated-app CI result pending                                                                                               |
+| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native Windows launch and current generated-app smoke passed; no arbitrary candidate run                                                                    |
 | `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance                                                                                                                      |
 | `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | [Isolated full-module replay](../evaluation/template-invocation-runtime/fixture-validation.json); no paired model calls                                                                            |
 
@@ -173,9 +173,14 @@ projects, installs each project's dependencies, and runs its build and tests.
 It is a current-scaffolder integration check, not execution of an arbitrary
 candidate or a re-run of the exact historical scripts. Its first native CI
 attempt installed and built the frontend, but Vitest could not reload a test
-through the hosted runner's `RUNNER~1` temporary-path alias. The step now sets
-`TEMP`/`TMP`/`TMPDIR` to the runner's canonical temp directory; a green native
-result remains pending.
+through the hosted runner's `RUNNER~1` temporary-path alias. Setting
+`TEMP`/`TMP`/`TMPDIR` to the runner's canonical temp directory then made the
+native Windows platform job pass in fork
+[run 35844198661](https://github.com/MILTONADINA/graph-engineering/actions/runs/35844198661).
+The run as a whole failed separately when Ubuntu's root `npm ci` timed out
+fetching an ONNX Runtime archive before its generated-app test; a bounded
+install retry was added for that job. The Windows smoke does not turn the
+historical arbitrary-candidate or model-evidence gates green.
 
 The original corpus remains immutable: its readiness fields describe the pinned
 intake snapshot, while this workflow and the current executable registry
