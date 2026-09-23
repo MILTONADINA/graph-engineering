@@ -235,7 +235,9 @@ export function validateFullCohortLedger(
       };
       let parent = publicDispatchEvent;
       if (
-        oracleInvocation.kind === "sealed-call-bound-oracle-invocation-claim"
+        oracleInvocation.kind === "sealed-call-bound-oracle-invocation-claim" ||
+        oracleInvocation.kind ===
+          "sealed-call-bound-engineering-invocation-claim"
       ) {
         require(calls.length ===
           1, "call-bound oracle requires exactly one original model call");
@@ -270,13 +272,23 @@ export function validateFullCohortLedger(
       require(same(oracleInvocation, {
         ...common,
         ...(oracleInvocation.kind ===
-        "sealed-call-bound-oracle-invocation-claim"
+          "sealed-call-bound-oracle-invocation-claim" ||
+        oracleInvocation.kind ===
+          "sealed-call-bound-engineering-invocation-claim"
           ? {
               callId: oracleInvocation.callId,
               callReservationSha256: oracleInvocation.callReservationSha256,
               callReceiptSha256: oracleInvocation.callReceiptSha256,
               responseSha256: oracleInvocation.responseSha256,
               proposalDerivation: "openai-chat-content-utf8-v1",
+            }
+          : {}),
+        ...(oracleInvocation.kind ===
+        "sealed-call-bound-engineering-invocation-claim"
+          ? {
+              baselineSha256: task.baselineSha256,
+              resultSourceSha256: oracleInvocation.resultSourceSha256,
+              verifierKind: "sealed-json-function-v1",
             }
           : {}),
         proposalSha256: oracleInvocation.proposalSha256,
@@ -290,6 +302,17 @@ export function validateFullCohortLedger(
       ].includes(
         oracleInvocation.proposalSha256,
       ), "oracle role used as proposal");
+      if (
+        oracleInvocation.kind ===
+        "sealed-call-bound-engineering-invocation-claim"
+      )
+        require(![
+          task.baselineSha256,
+          task.oracleSha256,
+          task.publicPacketSha256,
+        ].includes(
+          oracleInvocation.resultSourceSha256,
+        ), "engineering result reuses a frozen input role");
       require(time(oracleInvocation.claimedAt) >=
         time(publicDispatch!.claimedAt) &&
         time(oracleInvocation.claimedAt) < time(plan.expiresAt) &&
@@ -298,15 +321,20 @@ export function validateFullCohortLedger(
       oracleEvent = add(
         oracleInvocation.kind === "sealed-call-bound-oracle-invocation-claim"
           ? "call-bound-oracle-invocation-claimed"
-          : "oracle-invocation-claimed",
+          : oracleInvocation.kind ===
+              "sealed-call-bound-engineering-invocation-claim"
+            ? "call-bound-engineering-invocation-claimed"
+            : "oracle-invocation-claimed",
         oracleInvocation,
         oracleInvocation.claimedAt,
         parent,
       );
     }
     if (oracleVerdict) {
-      require(oracleInvocation?.kind ===
-        "sealed-call-bound-oracle-invocation-claim" &&
+      require((oracleInvocation?.kind ===
+        "sealed-call-bound-oracle-invocation-claim" ||
+        oracleInvocation?.kind ===
+          "sealed-call-bound-engineering-invocation-claim") &&
         oracleVerdict.reservationId === reservation.reservationId &&
         oracleVerdict.claimSha256 === hashJson(oracleInvocation) &&
         time(oracleVerdict.recordedAt) >=
@@ -371,10 +399,14 @@ export function validateFullCohortLedger(
       add("call-settled", c, c.finishedAt, callEvent);
     }
     if (!receipt) continue;
-    if (oracleInvocation?.kind === "sealed-call-bound-oracle-invocation-claim")
+    if (
+      oracleInvocation?.kind === "sealed-call-bound-oracle-invocation-claim" ||
+      oracleInvocation?.kind ===
+        "sealed-call-bound-engineering-invocation-claim"
+    )
       require(receipt.status !== "completed" &&
         receipt.outcome.success ===
-          null, "call-bound digest oracle cannot authorize measured attempt success");
+          null, "call-bound oracle cannot authorize measured attempt success");
     require(receipt.reservationId === reservation.reservationId &&
       receipt.reservationSha256 ===
         hashJson(reservation), "attempt receipt identity mismatch");
@@ -410,6 +442,17 @@ export function validateFullCohortLedger(
         (receipt.status !== "completed" ||
           receipt.proposalSha256 ===
             oracleInvocation.proposalSha256), "attempt settlement conflicts with oracle invocation");
+    if (
+      oracleInvocation?.kind ===
+      "sealed-call-bound-engineering-invocation-claim"
+    )
+      require((receipt.proposalSha256 === null ||
+        receipt.proposalSha256 === oracleInvocation.proposalSha256) &&
+        (receipt.resultSourceSha256 === null ||
+          receipt.resultSourceSha256 === oracleInvocation.resultSourceSha256) &&
+        (receipt.outcome.verificationSha256 === null ||
+          receipt.outcome.verificationSha256 ===
+            oracleVerdict?.verificationSha256), "engineering attempt settlement differs from private claim/verdict");
     if (oracleVerdict)
       require(time(oracleVerdict.recordedAt) <=
         time(
@@ -576,27 +619,31 @@ export function validateFullCohortLedger(
     }
     if (
       item.oracleInvocation?.kind ===
-      "sealed-call-bound-oracle-invocation-claim"
+        "sealed-call-bound-oracle-invocation-claim" ||
+      item.oracleInvocation?.kind ===
+        "sealed-call-bound-engineering-invocation-claim"
     ) {
       const boundClaim = item.oracleInvocation;
       const bound = item.calls.find(
         (call) => call.reservation.callId === boundClaim.callId,
       )!;
+      const eventType =
+        boundClaim.kind === "sealed-call-bound-engineering-invocation-claim"
+          ? "call-bound-engineering-invocation-claimed"
+          : "call-bound-oracle-invocation-claimed";
       require(positions.get(`call-settled:${hashJson(bound.receipt)}`)! <
         positions.get(
-          `call-bound-oracle-invocation-claimed:${hashJson(boundClaim)}`,
+          `${eventType}:${hashJson(boundClaim)}`,
         )!, "call-bound oracle claim event precedes its settled model call");
       require(item.calls.every(
         (call) =>
           positions.get(`call-reserved:${hashJson(call.reservation)}`)! <
-          positions.get(
-            `call-bound-oracle-invocation-claimed:${hashJson(boundClaim)}`,
-          )!,
+          positions.get(`${eventType}:${hashJson(boundClaim)}`)!,
       ), "model call was reserved after call-bound oracle claim");
     }
     if (item.oracleInvocation && item.receipt)
       require(positions.get(
-        `${item.oracleInvocation.kind === "sealed-call-bound-oracle-invocation-claim" ? "call-bound-oracle-invocation-claimed" : "oracle-invocation-claimed"}:${hashJson(item.oracleInvocation)}`,
+        `${item.oracleInvocation.kind === "sealed-call-bound-oracle-invocation-claim" ? "call-bound-oracle-invocation-claimed" : item.oracleInvocation.kind === "sealed-call-bound-engineering-invocation-claim" ? "call-bound-engineering-invocation-claimed" : "oracle-invocation-claimed"}:${hashJson(item.oracleInvocation)}`,
       )! <
         positions.get(
           `attempt-settled:${hashJson(item.receipt)}`,

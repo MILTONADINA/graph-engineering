@@ -21,6 +21,10 @@ const DOCKER_ENV = Object.freeze({
   DOCKER_CONFIG: "/nonexistent",
 });
 
+export function oracleDockerEnvironment() {
+  return { ...DOCKER_ENV };
+}
+
 function fields(input, names, label) {
   if (
     !input ||
@@ -66,12 +70,21 @@ export function oracleDockerEndpoint(endpoint) {
   return endpoint;
 }
 
-export function oracleDockerCommand(imageId, name, endpoint) {
+export function oracleDockerCommand(
+  imageId,
+  name,
+  endpoint,
+  executor = "/opt/sealed-oracle/executor.mjs",
+) {
   if (
     typeof imageId !== "string" ||
     !IMAGE.test(imageId) ||
     typeof name !== "string" ||
-    !NAME.test(name)
+    !NAME.test(name) ||
+    ![
+      "/opt/sealed-oracle/executor.mjs",
+      "/opt/sealed-oracle/engineering-executor.mjs",
+    ].includes(executor)
   )
     throw new Error("Exact provisioned oracle image and owned name required");
   return [
@@ -99,16 +112,19 @@ export function oracleDockerCommand(imageId, name, endpoint) {
     "-i",
     imageId,
     "--max-old-space-size=96",
-    "/opt/sealed-oracle/executor.mjs",
+    executor,
   ];
 }
 
-function dockerCommand(argv, { input, timeoutMs, outputBytes, signal } = {}) {
+export function oracleProcessCommand(
+  argv,
+  { input, timeoutMs, outputBytes, signal } = {},
+) {
   signal?.throwIfAborted();
   return new Promise((resolve) => {
     const started = performance.now();
     const child = spawn(argv[0], argv.slice(1), {
-      env: { ...DOCKER_ENV },
+      env: oracleDockerEnvironment(),
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
       windowsHide: true,
@@ -164,7 +180,7 @@ function dockerCommand(argv, { input, timeoutMs, outputBytes, signal } = {}) {
   });
 }
 
-function activeAttempt(
+export function activeAttempt(
   store,
   collectionId,
   reservationId,
@@ -472,14 +488,14 @@ export async function runProtectedOracle(input, runtime) {
     let result;
     let cleanup;
     try {
-      result = await dockerCommand(argv, {
+      result = await oracleProcessCommand(argv, {
         input: frame,
         timeoutMs: 15_000,
         outputBytes: 4096,
         signal,
       });
     } finally {
-      cleanup = await dockerCommand(
+      cleanup = await oracleProcessCommand(
         ["docker", "--host", dockerEndpoint, "rm", "-f", name],
         { timeoutMs: 5000, outputBytes: 4096 },
       ).catch(() => null);

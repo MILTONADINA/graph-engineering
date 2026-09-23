@@ -64,6 +64,20 @@ function requiredBytes(inspection) {
           item.oracleVerdict.verificationBytes,
         );
     }
+    if (
+      item.oracleInvocation?.kind ===
+      "sealed-call-bound-engineering-invocation-claim"
+    ) {
+      const role = `oracle/engineering-v1/${item.assignment.assignmentId}`;
+      add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
+      add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
+      if (item.oracleVerdict)
+        add(
+          `${role}/private-verdict`,
+          item.oracleVerdict.verificationSha256,
+          item.oracleVerdict.verificationBytes,
+        );
+    }
     if (item.receipt) {
       const role = `attempt/${item.assignment.assignmentId}`;
       add(`${role}/proposal`, item.receipt.proposalSha256);
