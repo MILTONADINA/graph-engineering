@@ -24,7 +24,14 @@ const imageId = `sha256:${"a".repeat(64)}`;
 
 async function setup(t, endpointOrigin = "http://127.0.0.1:1234") {
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-local-worker-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  let store;
+  t.after(async () => {
+    try {
+      store?.close();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   const source = path.join(root, "source");
   await mkdir(path.join(source, "src"), { recursive: true });
   await mkdir(path.join(source, ".graph", "local"), { recursive: true });
@@ -62,8 +69,7 @@ async function setup(t, endpointOrigin = "http://127.0.0.1:1234") {
     config.providers[0].endpointOrigin = endpointOrigin;
     config.providers[0].maxOutputTokens = 256;
   }
-  const store = new SealedStore({ directory: ledgerDirectory });
-  t.after(() => store.close());
+  store = new SealedStore({ directory: ledgerDirectory });
   store.registerPlan(data.plan, data.registry, {
     expectedRegistrySha256: hashJson(data.registry),
   });
