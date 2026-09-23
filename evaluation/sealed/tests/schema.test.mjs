@@ -57,6 +57,25 @@ test("object entry points refuse getters/proxies and sparse data without coercio
   assert.throws(() => cloneJson(new Date()));
   assert.equal(hashJson({ b: 2, a: 1 }), hashJson({ a: 1, b: 2 }));
 });
+test("object byte limits are charged during traversal, before later fields or whole-value serialization", () => {
+  const shared = "x".repeat(600000);
+  // The invalid tail proves that oversized prior content is stopped during the
+  // copy, not after serializing a potentially enormous expanded object.
+  assert.throws(
+    () => cloneJson([shared, shared, shared, shared, undefined]),
+    /byte bounds/,
+  );
+  assert.throws(
+    () => cloneJson(["\u0000".repeat(340000), undefined]),
+    /byte bounds/,
+  );
+  assert.throws(
+    () => cloneJson({ ["k".repeat(2000001)]: true }),
+    /byte bounds/,
+  );
+  assert.equal(cloneJson("x".repeat(1999998)).length, 1999998);
+  assert.throws(() => cloneJson("x".repeat(1999999)), /byte bounds/);
+});
 test("plans bind a separately pinned registry, both arms and category state versions", () => {
   const { plan, registry } = fixture();
   const valid = validateCollectionPlan(plan, registry, {

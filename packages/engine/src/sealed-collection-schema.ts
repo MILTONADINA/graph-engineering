@@ -82,13 +82,35 @@ export function parseBoundedJson(text: string): JsonValue {
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export function cloneJson(input: unknown): JsonValue {
-  let nodes = 0;
+  let nodes = 0,
+    bytes = 0;
+  const charge = (amount: number) => {
+    bytes += amount;
+    if (bytes > LIMITS.bytes)
+      throw new Error("Sealed data exceeds byte bounds");
+  };
+  const stringBytes = (value: string) => {
+    if (Buffer.byteLength(value) > LIMITS.bytes)
+      throw new Error("Sealed data exceeds byte bounds");
+    return Buffer.byteLength(JSON.stringify(value));
+  };
   const copy = (value: unknown, depth: number): JsonValue => {
     if (++nodes > LIMITS.nodes || depth > LIMITS.depth)
       throw new Error("Sealed data exceeds structural bounds");
-    if (value === null || typeof value === "boolean") return value;
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && wellFormed(value)) return value;
+    if (
+      value === null ||
+      typeof value === "boolean" ||
+      (typeof value === "number" && Number.isFinite(value))
+    ) {
+      charge(JSON.stringify(value).length);
+      return value;
+    }
+    if (typeof value === "string") {
+      charge(stringBytes(value));
+      if (!wellFormed(value))
+        throw new Error("Sealed data must be plain finite JSON");
+      return value;
+    }
     if (!value || typeof value !== "object" || types.isProxy(value))
       throw new Error("Sealed data must be plain finite JSON");
     const array = Array.isArray(value),
@@ -99,11 +121,16 @@ export function cloneJson(input: unknown): JsonValue {
         : prototype !== Object.prototype && prototype !== null
     )
       throw new Error("Sealed data must have plain JSON prototypes");
+    if (Reflect.ownKeys(value).length > LIMITS.nodes)
+      throw new Error("Sealed data exceeds structural bounds");
     const fields = Object.getOwnPropertyDescriptors(value);
     const result: { [key: string]: JsonValue } = Object.create(null);
+    charge(2); // enclosing object/array punctuation
+    let first = true;
     for (const key of Reflect.ownKeys(fields)) {
       if (array && key === "length") continue;
       const field = Object.getOwnPropertyDescriptor(value, key)!;
+      if (typeof key === "string" && !array) charge(stringBytes(key) + 1);
       if (
         typeof key !== "string" ||
         !wellFormed(key) ||
@@ -120,6 +147,8 @@ export function cloneJson(input: unknown): JsonValue {
           Number(key) >= (value as unknown[]).length)
       )
         throw new Error("Sealed arrays must be dense JSON");
+      if (!first) charge(1);
+      first = false;
       result[key] = copy(field.value, depth + 1);
     }
     if (array && Object.keys(fields).length !== (value as unknown[]).length + 1)

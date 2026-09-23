@@ -6,9 +6,10 @@ events and failures. No paid model calls were authorized or made.
 
 ## Complete-cohort accounting and crash consistency
 
-The durable collection schema/store passed 21 tests, including competing Node
+The durable collection schema/store passed 22 tests, including competing Node
 processes, process death immediately after reservation, frozen assignment order,
-spend-overrun recovery, complete closure inventories and private-state checks.
+spend-overrun recovery, complete closure inventories, early object byte limits
+and private-state checks.
 The independent full-cohort evaluator passed 36 focused tests and typechecking,
 including actual store inspection compatibility, unknown-cost/crash/null-confidence
 accounting, original-call deduplication and adversarial event/provenance edits.
