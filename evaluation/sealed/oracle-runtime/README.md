@@ -170,6 +170,42 @@ provisioning, set `GRAPH_SEALED_ENGINEERING_NATIVE_TESTS=1`,
 native guest and collector tests. These tests use a synthetic fake response;
 they do not call a model or qualify any task as unseen.
 
+## Bounded JavaScript module-graph verifier
+
+`runProtectedModuleGraphOracle()` is a separately versioned extension, not a
+general repository test runner. Its frozen baseline contains 2–7 ordered
+`.js` source files and one fixed entry module exporting synchronous `solve(input)`.
+The public packet must contain every source file unchanged plus an exact
+`module-graph.manifest.json` documentation file listing the entry and paths.
+The task's allowed output paths must equal the source paths. The private oracle
+contains 2–12 JSON input/expected cases, never the public packet or guest frame.
+
+The collector re-reads the exact settled local-model response and public
+packet, derives a strict proposal, and accepts only complete-file replacements
+of frozen source files. It retains the resulting graph, commits a durable
+`sealed-call-bound-module-graph-invocation-claim` in the same one-shot oracle
+slot, then runs each baseline and candidate case in a fresh offline Docker
+guest. QuickJS resolves only declared relative `.js` imports within the frozen
+graph; package, built-in, absolute, URL, traversal, unlisted, dynamic and
+private-observer imports are refused. Each observation is bound to a distinct
+challenge, case index, arm, source hash and input hash. The host retains a
+private per-case verdict but returns no pass/fail status to the worker.
+
+The original-byte roles are
+`oracle/module-graph-v1/<assignmentId>/{derived-proposal,result-source,private-verdict}`.
+The aggregate re-derives the source and verdict joins, while the ledger still
+forbids measured-success settlement for this unsigned local claim. Challenge
+echoes do not authenticate a Docker daemon or an external worker. This verifier
+does not run arbitrary packages, repository test commands, other languages, or
+independently unseen tasks, and cannot authorize promotion.
+
+The engineering image above contains both fixed guest executors. Pure tests
+run with `node --test evaluation/sealed/tests/module-graph-oracle.test.mjs`.
+For native offline tests, set `GRAPH_SEALED_MODULE_GRAPH_NATIVE_TESTS=1`,
+`GRAPH_SEALED_MODULE_GRAPH_IMAGE=sha256:<resolved-image-id>`, and
+`GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock`. The native
+suite uses synthetic cases and a fake local response, not paid inference.
+
 Pure tests:
 
 ```sh

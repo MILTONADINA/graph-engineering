@@ -1,8 +1,9 @@
 # Sealed-collection governance foundation
 
 This is **validation, local bookkeeping and retained-byte verification**, not a
-sealed evaluation pipeline. A local model relay and narrow offline digest
-verifier exist, but not a general protected engineering-test pipeline. There
+sealed evaluation pipeline. A local model relay, narrow offline digest
+verifier, and bounded JavaScript engineering verifiers exist, but not a
+general protected repository-test pipeline. There
 is no signing, key creation, reviewer approval, promotion issuer, or
 user-configuration activation. Every summary and closure remains
 `promotionEligible: false`.
@@ -82,8 +83,9 @@ any reservation. Constraints prevent repeated collection/task/arm reservations,
 repeated domain/stable-task/arm exposure and duplicate global call IDs. Additional
 checks refuse previously exposed stable tasks/families across renamed collections
 or domains. The two legitimate arms within one collection remain permitted.
-The version 5 ledger adds a settled-call-bound oracle claim and a private
-verdict-reference event to the earlier one-time public dispatch and legacy
+The version 5 ledger adds settled-call-bound digest, one-file engineering and
+bounded module-graph oracle claims with private verdict-reference events to
+the earlier one-time public dispatch and legacy
 oracle bookkeeping. Existing version 2, 3 and 4 databases migrate in place
 without changing their plans, reservations, receipts or event history. Version
 4 unbound oracle claims remain readable but are not upgraded to call-bound
@@ -273,7 +275,8 @@ bounded one-blob-at-a-time reads to the compiled engine's signed aggregate
 inspector, then rechecks the ledger snapshot and original bytes before
 returning. The inspector verifies purpose-separated row and aggregate
 signatures and, where present, re-derives call-bound proposals, canonical
-private digest verdicts, and the bounded engineering result/private-case joins.
+private digest verdicts, and bounded one-file and module-graph
+engineering result/private-case joins.
 A cumulative collection of original blobs may exceed 2 MB; each blob and the
 non-blob input remain independently bounded. Build the
 engine before using this local module. The existing sealed schema adapter also
