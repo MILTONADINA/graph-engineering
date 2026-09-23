@@ -737,3 +737,24 @@ This is a transport and oracle-integration smoke using a previously known
 synthetic task. It is not unseen held-out evaluation, comparative model
 accuracy, authenticated model provenance, a paid-provider measurement, or
 independent review. No new Qwen model was installed or downloaded.
+
+## Dashboard catalog and signed-witness adapter — 2026-09-23 UTC
+
+`frontend.dashboards` is the 43rd implemented catalog node. It emits only a
+reusable component and generated test; route wiring, statistics, table path,
+profile-save callback and backend authorization remain application-owned. Its
+first offline generated-app attempts exposed import-path and role-type errors,
+which were corrected before the final run. The final container run passed
+strict TypeScript, 35 generated/security tests, a production Next build and
+the local Chromium fixture. The focused renderer and registry checks passed.
+An independent review also caught frontend-agent guidance that looked for
+`kind` on pages instead of their referenced component definitions. The guidance
+and a schema-valid dashboard example were corrected, with a focused regression
+test. This is generated-fixture evidence, not deployment approval.
+
+The optional signed-current-witness reader now checks a fresh challenge and
+strict checkpoint signature against a caller-supplied pinned Ed25519 public
+key. Four focused tests, including replay/tamper cases and the existing
+governance comparison, passed; engine typecheck passed. Test keys and callbacks
+do not establish independent key control, append-only history, anti-rollback,
+held-out labels or promotion authority. The comparison stays analysis-only.
