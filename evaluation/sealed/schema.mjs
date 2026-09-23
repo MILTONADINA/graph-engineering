@@ -19,6 +19,7 @@ export const {
   assignmentSchema,
   collectionPlanSchema,
   validateCollectionPlan,
+  spendingAuthorizationSchema,
   usageSchema,
   observationSchema,
   reservationSchema,

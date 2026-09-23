@@ -17,6 +17,7 @@ import {
   hashJson,
   freezeJson,
   validateCollectionPlan,
+  spendingAuthorizationSchema,
   reservationSchema,
   callReservationSchema,
   callReceiptSchema,
@@ -39,8 +40,48 @@ const snapshot = (value) => freezeJson(decodeJson(canonicalJson(value)));
 const same = (a, b) => canonicalJson(a) === canonicalJson(b);
 const LIMITATIONS = [
   "Unsigned local bookkeeping; no protected collection, independent review or promotion authority.",
+  "Spending approval evidence is an externally selected digest, not a verified human signature; provider bills can exceed reserved estimates.",
   "A malicious storage operator can roll back this database; a separately governed anti-rollback witness is not implemented.",
 ];
+const paidKinds = new Set(["openai", "anthropic", "jev"]);
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+function providerSpendClass(provider) {
+  const endpoint = new URL(provider.endpointOrigin);
+  if (paidKinds.has(provider.kind)) return "paid";
+  if (
+    ["local", "laya"].includes(provider.kind) &&
+    ["http:", "https:"].includes(endpoint.protocol) &&
+    loopbackHosts.has(endpoint.hostname)
+  )
+    return "local";
+  throw new Error(
+    "A local/Laya provider outside loopback cannot reserve a sealed call",
+  );
+}
+function microUsd(value) {
+  const scaled = Math.round(value * 1_000_000);
+  if (
+    !Number.isFinite(value) ||
+    value < 0 ||
+    !Number.isSafeInteger(scaled) ||
+    value !== scaled / 1_000_000
+  )
+    throw new Error(
+      "Spending amounts require at most six decimal places and safe bounds",
+    );
+  return BigInt(scaled);
+}
+function paidScope(provider) {
+  return {
+    providerId: provider.providerId,
+    kind: provider.kind,
+    endpointOrigin: provider.endpointOrigin,
+    requestedModel: provider.requestedModel,
+    modelIdentitySha256: hashJson(provider.modelIdentity),
+    pricingSha256: provider.pricingSha256,
+    providerSha256: hashJson(provider),
+  };
+}
 function privateFile(filename, { optional = false } = {}) {
   let info;
   try {
@@ -115,7 +156,7 @@ export class SealedStore {
       this.#db.pragma("synchronous = FULL");
       this.#db.pragma("max_page_count = 16384");
       const version = this.#db.pragma("user_version", { simple: true });
-      if (version !== 0 && version !== 1)
+      if (version !== 0 && version !== 1 && version !== 2)
         throw new Error("Unsupported sealed ledger version");
       this.#db
         .transaction(() => {
@@ -126,16 +167,22 @@ export class SealedStore {
           CREATE TABLE IF NOT EXISTS exposures(domain TEXT NOT NULL,task_id TEXT NOT NULL,arm TEXT NOT NULL,reservation_id TEXT NOT NULL UNIQUE REFERENCES attempts(id),PRIMARY KEY(domain,task_id,arm));
           CREATE TABLE IF NOT EXISTS family_exposures(domain TEXT NOT NULL,family_id TEXT NOT NULL,collection_id TEXT NOT NULL REFERENCES collections(id),PRIMARY KEY(domain,family_id));
           CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY,reservation_id TEXT NOT NULL REFERENCES attempts(id),ordinal INTEGER NOT NULL,reservation_json TEXT NOT NULL,receipt_json TEXT,UNIQUE(reservation_id,ordinal));
+          CREATE TABLE IF NOT EXISTS spending_authorizations(id TEXT PRIMARY KEY,session_id TEXT NOT NULL UNIQUE,project_id TEXT NOT NULL,authorization_json TEXT NOT NULL,authorization_hash TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS authorization_collections(collection_id TEXT PRIMARY KEY REFERENCES collections(id),authorization_id TEXT NOT NULL REFERENCES spending_authorizations(id));
           CREATE TABLE IF NOT EXISTS events(collection_id TEXT NOT NULL REFERENCES collections(id),sequence INTEGER NOT NULL,json TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(collection_id,sequence));
           CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'Immutable ledger event');END;
           CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'Immutable ledger event');END;
           CREATE TRIGGER IF NOT EXISTS collections_no_change BEFORE UPDATE OF plan_json,registry_json,plan_hash,registry_hash ON collections BEGIN SELECT RAISE(ABORT,'Immutable collection plan');END;
           CREATE TRIGGER IF NOT EXISTS attempts_no_change BEFORE UPDATE OF reservation_json ON attempts BEGIN SELECT RAISE(ABORT,'Immutable attempt reservation');END;
           CREATE TRIGGER IF NOT EXISTS calls_no_change BEFORE UPDATE OF reservation_json ON calls BEGIN SELECT RAISE(ABORT,'Immutable call reservation');END;
+          CREATE TRIGGER IF NOT EXISTS spending_authorizations_no_update BEFORE UPDATE ON spending_authorizations BEGIN SELECT RAISE(ABORT,'Immutable spending authorization');END;
+          CREATE TRIGGER IF NOT EXISTS spending_authorizations_no_delete BEFORE DELETE ON spending_authorizations BEGIN SELECT RAISE(ABORT,'Immutable spending authorization');END;
+          CREATE TRIGGER IF NOT EXISTS authorization_collections_no_update BEFORE UPDATE ON authorization_collections BEGIN SELECT RAISE(ABORT,'Immutable authorization binding');END;
+          CREATE TRIGGER IF NOT EXISTS authorization_collections_no_delete BEFORE DELETE ON authorization_collections BEGIN SELECT RAISE(ABORT,'Immutable authorization binding');END;
           CREATE TRIGGER IF NOT EXISTS attempts_one_settlement BEFORE UPDATE OF receipt_json ON attempts WHEN OLD.receipt_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Attempt already terminal');END;
           CREATE TRIGGER IF NOT EXISTS calls_one_settlement BEFORE UPDATE OF receipt_json ON calls WHEN OLD.receipt_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Call already terminal');END;
           CREATE TRIGGER IF NOT EXISTS collections_one_closure BEFORE UPDATE OF closure_json ON collections WHEN OLD.closure_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Collection already closed');END;
-          PRAGMA user_version=1;
+          PRAGMA user_version=2;
         `);
         })
         .immediate();
@@ -242,6 +289,237 @@ export class SealedStore {
         });
       })
       .immediate();
+  }
+  #authorizationForCollection(collectionId) {
+    const row = this.#db
+      .prepare(
+        "SELECT s.* FROM spending_authorizations s JOIN authorization_collections ac ON ac.authorization_id=s.id WHERE ac.collection_id=?",
+      )
+      .get(collectionId);
+    if (!row) return null;
+    const authorization = spendingAuthorizationSchema.parse(
+      decodeJson(row.authorization_json),
+    );
+    if (
+      authorization.authorizationId !== row.id ||
+      authorization.sessionId !== row.session_id ||
+      authorization.projectId !== row.project_id ||
+      hashJson(authorization) !== row.authorization_hash
+    )
+      throw new Error("Spending authorization identity mismatch");
+    const collection = this.#collection(collectionId);
+    if (
+      collection.plan.projectId !== authorization.projectId ||
+      !authorization.collections.some(
+        (item) =>
+          item.collectionId === collectionId &&
+          item.planSha256 === collection.planSha256,
+      )
+    )
+      throw new Error("Spending authorization plan binding mismatch");
+    return { authorization, sha256: row.authorization_hash };
+  }
+  #sessionState(authorization) {
+    const rows = this.#db
+      .prepare(
+        "SELECT c.reservation_json,c.receipt_json FROM calls c JOIN attempts a ON a.id=c.reservation_id JOIN authorization_collections ac ON ac.collection_id=a.collection_id WHERE ac.authorization_id=?",
+      )
+      .all(authorization.authorizationId);
+    let reservedMicros = 0n,
+      knownCostUsd = 0,
+      ambiguousCalls = 0,
+      unsettledCalls = 0,
+      knownOverrun = false;
+    for (const row of rows) {
+      const reservation = callReservationSchema.parse(
+        decodeJson(row.reservation_json),
+      );
+      if (!reservation.authorizationId) continue;
+      if (
+        reservation.authorizationId !== authorization.authorizationId ||
+        reservation.authorizationSha256 !== hashJson(authorization) ||
+        reservation.sessionId !== authorization.sessionId ||
+        reservation.reservedCostUsd === null
+      )
+        throw new Error("Paid call authorization binding mismatch");
+      reservedMicros += microUsd(reservation.reservedCostUsd);
+      if (!row.receipt_json) {
+        unsettledCalls++;
+        continue;
+      }
+      const receipt = callReceiptSchema.parse(decodeJson(row.receipt_json));
+      if (
+        receipt.reservationSha256 !== hashJson(reservation) ||
+        receipt.callId !== reservation.callId
+      )
+        throw new Error("Paid call receipt identity mismatch");
+      if (receipt.usage.costUsd !== null) knownCostUsd += receipt.usage.costUsd;
+      if (receipt.status === "ambiguous" || receipt.usage.costUsd === null)
+        ambiguousCalls++;
+      if (
+        [
+          receipt.usage.costUsd,
+          receipt.usage.reportedCostUsd,
+          receipt.usage.chargedCostUsd,
+        ].some(
+          (amount) => amount !== null && amount > reservation.reservedCostUsd,
+        )
+      )
+        knownOverrun = true;
+    }
+    return {
+      reservedMicros,
+      knownCostUsd,
+      ambiguousCalls,
+      unsettledCalls,
+      knownOverrun,
+    };
+  }
+  registerSpendingAuthorization(
+    input,
+    { expectedAuthorizationSha256, expectedApprovalEvidenceSha256 } = {},
+  ) {
+    const authorization = spendingAuthorizationSchema.parse(decodeJson(input));
+    const authorizationSha256 = hashJson(authorization);
+    if (
+      authorizationSha256 !== expectedAuthorizationSha256 ||
+      authorization.approvalEvidenceSha256 !== expectedApprovalEvidenceSha256
+    )
+      throw new Error(
+        "Spending authorization and external approval digests must be separately selected",
+      );
+    if (Date.now() >= Date.parse(authorization.expiresAt))
+      throw new Error("Spending authorization has expired");
+    microUsd(authorization.totalCapUsd);
+    return this.#db
+      .transaction(() => {
+        const required = new Map();
+        for (const binding of authorization.collections) {
+          const collection = this.#collection(binding.collectionId, {
+            open: true,
+          });
+          if (
+            collection.plan.projectId !== authorization.projectId ||
+            collection.planSha256 !== binding.planSha256
+          )
+            throw new Error(
+              "Authorization project or plan differs from collection",
+            );
+          if (
+            this.#db
+              .prepare("SELECT 1 FROM attempts WHERE collection_id=? LIMIT 1")
+              .get(binding.collectionId)
+          )
+            throw new Error(
+              "Spending must be authorized before collection attempts",
+            );
+          if (
+            this.#db
+              .prepare(
+                "SELECT 1 FROM authorization_collections WHERE collection_id=?",
+              )
+              .get(binding.collectionId)
+          )
+            throw new Error("Collection already has a spending authorization");
+          for (const config of Object.values(collection.plan.configurations)) {
+            const paidProviders = config.providers.filter(
+              (provider) => providerSpendClass(provider) === "paid",
+            );
+            if (paidProviders.length && config.maxCostUsdPerAttempt === null)
+              throw new Error(
+                "Paid collection requires a frozen per-attempt cost cap",
+              );
+            for (const provider of paidProviders) {
+              if (
+                provider.pricingSha256 === null ||
+                provider.modelIdentity.kind !== "provider-snapshot"
+              )
+                throw new Error(
+                  "Paid provider requires frozen pricing and a versioned model identity",
+                );
+              required.set(hashJson(provider), paidScope(provider));
+            }
+          }
+        }
+        if (
+          !required.size ||
+          !same(
+            [...required.values()].sort((a, b) =>
+              a.providerSha256.localeCompare(b.providerSha256),
+            ),
+            [...authorization.providers].sort((a, b) =>
+              a.providerSha256.localeCompare(b.providerSha256),
+            ),
+          )
+        )
+          throw new Error(
+            "Authorization provider, model, origin or pricing scope differs from frozen plans",
+          );
+        this.#db
+          .prepare("INSERT INTO spending_authorizations VALUES(?,?,?,?,?)")
+          .run(
+            authorization.authorizationId,
+            authorization.sessionId,
+            authorization.projectId,
+            canonicalJson(authorization),
+            authorizationSha256,
+          );
+        const insert = this.#db.prepare(
+          "INSERT INTO authorization_collections VALUES(?,?)",
+        );
+        for (const binding of authorization.collections) {
+          insert.run(binding.collectionId, authorization.authorizationId);
+        }
+        return snapshot({
+          authorization,
+          sha256: authorizationSha256,
+          reservedCostUsd: 0,
+          remainingCapUsd: authorization.totalCapUsd,
+          promotionEligible: false,
+        });
+      })
+      .immediate();
+  }
+  inspectSpendingAuthorization(authorizationId) {
+    return this.#db
+      .transaction(() => {
+        const row = this.#db
+          .prepare("SELECT * FROM spending_authorizations WHERE id=?")
+          .get(authorizationId);
+        if (!row) throw new Error("Unknown spending authorization");
+        const authorization = spendingAuthorizationSchema.parse(
+          decodeJson(row.authorization_json),
+        );
+        if (
+          row.authorization_hash !== hashJson(authorization) ||
+          row.session_id !== authorization.sessionId ||
+          row.project_id !== authorization.projectId
+        )
+          throw new Error("Spending authorization identity mismatch");
+        for (const binding of authorization.collections)
+          if (
+            this.#authorizationForCollection(binding.collectionId)?.sha256 !==
+            row.authorization_hash
+          )
+            throw new Error(
+              "Spending authorization collection inventory mismatch",
+            );
+        const state = this.#sessionState(authorization);
+        return snapshot({
+          authorization,
+          sha256: row.authorization_hash,
+          reservedCostUsd: Number(state.reservedMicros) / 1_000_000,
+          remainingCapUsd:
+            Number(microUsd(authorization.totalCapUsd) - state.reservedMicros) /
+            1_000_000,
+          knownCostUsd: state.knownCostUsd,
+          ambiguousCalls: state.ambiguousCalls,
+          unsettledCalls: state.unsettledCalls,
+          knownOverrun: state.knownOverrun,
+          promotionEligible: false,
+        });
+      })
+      .deferred();
   }
   reserveAttempt(collectionId, assignmentId) {
     return this.#db
@@ -391,36 +669,99 @@ export class SealedStore {
           );
           if (
             reserved.reservedCostUsd !== null &&
-            receipt.usage.costUsd !== null &&
-            receipt.usage.costUsd > reserved.reservedCostUsd
+            [
+              receipt.usage.costUsd,
+              receipt.usage.reportedCostUsd,
+              receipt.usage.chargedCostUsd,
+            ].some(
+              (amount) => amount !== null && amount > reserved.reservedCostUsd,
+            )
           )
             throw new Error(
               "Known spend overrun prohibits further call reservations",
             );
         }
+        // Caller may supply only call identity and frozen request/budget fields.
+        if (
+          !data ||
+          Array.isArray(data) ||
+          Object.keys(data).sort().join(",") !==
+            "callId,providerId,requestSha256,requestedModel,reservedCostUsd"
+        )
+          throw new Error("Unexpected call reservation fields");
+        const provider = config.providers.find(
+          (item) =>
+            item.providerId === data.providerId &&
+            item.requestedModel === data.requestedModel,
+        );
+        if (calls.length >= config.maxCallsPerAttempt || !provider)
+          throw new Error("Call exceeds frozen configuration");
+        const spendClass = providerSpendClass(provider);
+        let authorizationFields = {};
+        if (spendClass === "paid") {
+          const registered = this.#authorizationForCollection(
+            attempt.reservation.collectionId,
+          );
+          if (!registered)
+            throw new Error(
+              "Paid provider dispatch requires a registered spending authorization",
+            );
+          const { authorization, sha256 } = registered;
+          const timestamp = Date.now();
+          if (
+            timestamp < Date.parse(authorization.notBefore) ||
+            timestamp >= Date.parse(authorization.expiresAt)
+          )
+            throw new Error(
+              "Spending authorization is outside its approved time window",
+            );
+          if (
+            provider.pricingSha256 === null ||
+            provider.modelIdentity.kind !== "provider-snapshot" ||
+            !authorization.providers.some((item) =>
+              same(item, paidScope(provider)),
+            )
+          )
+            throw new Error(
+              "Paid provider model, origin or pricing drifted from authorization",
+            );
+          if (
+            data.reservedCostUsd === null ||
+            data.reservedCostUsd === undefined
+          )
+            throw new Error(
+              "Paid provider requires a finite positive cost reservation",
+            );
+          const newMicros = microUsd(data.reservedCostUsd);
+          if (newMicros <= 0n)
+            throw new Error(
+              "Paid provider requires a positive cost reservation",
+            );
+          const session = this.#sessionState(authorization);
+          if (session.knownOverrun || session.ambiguousCalls)
+            throw new Error(
+              "Spending session has an overrun or ambiguous bill; further dispatch is stopped",
+            );
+          if (
+            session.reservedMicros + newMicros >
+            microUsd(authorization.totalCapUsd)
+          )
+            throw new Error("Call exceeds the total authorized session cap");
+          authorizationFields = {
+            authorizationId: authorization.authorizationId,
+            authorizationSha256: sha256,
+            sessionId: authorization.sessionId,
+          };
+        }
         const call = callReservationSchema.parse({
           ...data,
+          ...authorizationFields,
           version: "1.0.0",
           kind: "sealed-call-reservation",
           reservationId,
           ordinal: calls.length,
           reservedAt: now(),
         });
-        // Caller may supply only call identity and frozen request/budget fields.
-        if (
-          Object.keys(data).sort().join(",") !==
-          "callId,providerId,requestSha256,requestedModel,reservedCostUsd"
-        )
-          throw new Error("Unexpected call reservation fields");
-        if (
-          calls.length >= config.maxCallsPerAttempt ||
-          !config.providers.some(
-            (provider) =>
-              provider.providerId === call.providerId &&
-              provider.requestedModel === call.requestedModel,
-          )
-        )
-          throw new Error("Call exceeds frozen configuration");
         if (
           config.maxCostUsdPerAttempt !== null &&
           (call.reservedCostUsd === null ||
@@ -465,6 +806,14 @@ export class SealedStore {
     const provider = attempt.plan.configurations[
       attempt.reservation.arm
     ].providers.find((item) => item.providerId === reservation.providerId);
+    if (
+      providerSpendClass(provider) === "paid" &&
+      receipt.status === "completed" &&
+      receipt.reportedModel !== reservation.requestedModel
+    )
+      throw new Error(
+        "Paid response model differs from the authorized snapshot",
+      );
     if (receipt.usage.basis === "local-no-api-charge") {
       const endpoint = new URL(provider.endpointOrigin);
       if (
@@ -596,8 +945,11 @@ export class SealedStore {
         const reserved = decodeJson(row.reservation_json).reservedCostUsd;
         return (
           reserved !== null &&
-          callReceipts[index].usage.costUsd !== null &&
-          callReceipts[index].usage.costUsd > reserved
+          [
+            callReceipts[index].usage.costUsd,
+            callReceipts[index].usage.reportedCostUsd,
+            callReceipts[index].usage.chargedCostUsd,
+          ].some((amount) => amount !== null && amount > reserved)
         );
       }) &&
       !receipt.outcome.policyViolation
@@ -685,8 +1037,15 @@ export class SealedStore {
               const reserved = decodeJson(
                 call.reservation_json,
               ).reservedCostUsd;
-              const cost = decodeJson(call.receipt_json).usage.costUsd;
-              return reserved !== null && cost !== null && cost > reserved;
+              const usage = decodeJson(call.receipt_json).usage;
+              return (
+                reserved !== null &&
+                [
+                  usage.costUsd,
+                  usage.reportedCostUsd,
+                  usage.chargedCostUsd,
+                ].some((amount) => amount !== null && amount > reserved)
+              );
             });
           const usage = unknownUsage();
           for (const field of [
