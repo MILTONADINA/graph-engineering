@@ -210,8 +210,28 @@ it("cloud MCP omits private diagnostics and credential-bearing symbols and graph
     // Historical index records can predate strengthened ingestion filters.
     // Verify the cloud boundary scans raw text itself, including double quotes
     // that would become escaped (and miss assignment patterns) in JSON text.
+    const getContext = engine.context.getContext.bind(engine.context);
     const searchSymbols = engine.context.searchSymbols.bind(engine.context);
     const neighbors = engine.context.neighbors.bind(engine.context);
+    vi.spyOn(engine.context, "getContext").mockImplementation(
+      async (...args) => {
+        const packet = await getContext(...args);
+        packet.items.push({
+          id: "legacy-json-credential",
+          kind: "code",
+          text: '{"SERVICE_API_KEY":"MCP_ASSIGNMENT_CANARY_123456789012"}',
+          score: 1,
+          source: {
+            path: "public/legacy.ts",
+            startLine: 1,
+            endLine: 1,
+            contentHash: "legacy",
+            snapshotId: snapshot.id,
+          },
+        });
+        return packet;
+      },
+    );
     vi.spyOn(engine.context, "searchSymbols").mockImplementation(
       async (...args) =>
         (await searchSymbols(...args)).map((symbol) =>
@@ -263,12 +283,14 @@ it("cloud MCP omits private diagnostics and credential-bearing symbols and graph
         expect(JSON.stringify(packet)).toContain("public/safe.ts");
         if (kind === "local") {
           expect(JSON.stringify(packet)).toContain("MCP_PRIVATE_PATH_CANARY");
+          expect(JSON.stringify(packet)).toContain("MCP_ASSIGNMENT_CANARY");
           expect(JSON.stringify(symbols)).toContain("MCP_SYMBOL_CANARY");
           expect(JSON.stringify(edges)).toContain("MCP_EDGE_CANARY");
         } else {
           expect(JSON.stringify(packet)).not.toContain(
             "MCP_PRIVATE_PATH_CANARY",
           );
+          expect(JSON.stringify(packet)).not.toContain("MCP_ASSIGNMENT_CANARY");
           expect(JSON.stringify(symbols)).not.toContain("MCP_SYMBOL_CANARY");
           expect(JSON.stringify(edges)).not.toContain("MCP_EDGE_CANARY");
           expect(JSON.stringify(packet)).toContain(

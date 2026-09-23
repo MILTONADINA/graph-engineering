@@ -50,6 +50,36 @@ describe("project boundaries", () => {
       false,
     );
   });
+  it("rejects namespaced credential assignments before source can be exported", () => {
+    const value = "abcdefghijklmnopqrstuvwxyz0123456789";
+    for (const assignment of [
+      `SERVICE_API_KEY=${value}`,
+      `DATABASE_PASSWORD='${value}'`,
+      `AUTH_SESSION_SECRET: ${value}`,
+      `SERVICE_ACCESS_TOKEN=${value}`,
+      `SERVICE_SECRET_KEY=${value}`,
+      `SERVICE_TOKEN_VALUE=${value}`,
+      `PRIVATE_KEY=${value}`,
+      `{"SERVICE_API_KEY":"${value}"}`,
+      `SERVICE_API_KEY=\`${value}\``,
+      `const serviceApiKey = "${value}";`,
+      `const serviceSecretKey = "${value}";`,
+      `const serviceTokenValue = "${value}";`,
+    ]) {
+      expect(containsSecret(assignment), assignment).toBe(true);
+      expect(redact(assignment), assignment).not.toContain(value);
+    }
+    expect(containsSecret("SERVICE_API_KEY=process.env.SERVICE_API_KEY")).toBe(
+      false,
+    );
+    expect(containsSecret("DATABASE_PASSWORD=<placeholder>")).toBe(false);
+    expect(
+      containsSecret("const accessToken = generateAccessToken(user.id);"),
+    ).toBe(false);
+    expect(
+      containsSecret("const token=authorization===undefined?cookie:header;"),
+    ).toBe(false);
+  });
   it("requires explicit opt-in for only the public root template ledger", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "graph-public-ledger-"));
     directories.push(root);
@@ -247,6 +277,19 @@ describe("project boundaries", () => {
           text: "private discussion",
           score: 1,
           memoryId: "m",
+        },
+        {
+          id: "4",
+          kind: "code",
+          text: '{"SERVICE_API_KEY":"abcdefghijklmnopqrstuvwxyz0123456789"}',
+          score: 1,
+          source: {
+            path: "src/config.ts",
+            startLine: 1,
+            endLine: 1,
+            contentHash: "x",
+            snapshotId: "snap",
+          },
         },
       ],
       estimatedTokens: 100,
