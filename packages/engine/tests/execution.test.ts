@@ -62,6 +62,79 @@ async function fixture() {
   return { root, config, data };
 }
 describe("managed execution", () => {
+  it("stops repeated source requests when the worker receives no new evidence", async () => {
+    const { root } = await fixture();
+    let calls = 0;
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async () => {
+        calls++;
+        return {
+          model: "fixture",
+          proposal: {
+            summary: "Request the same full source again",
+            requests: ["math.cjs"],
+            changes: [],
+          },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+      verify: async () => {
+        throw new Error("Repeated requests must stop before verification");
+      },
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix the addition bug in math.cjs",
+      acceptance: ["The addition test passes"],
+    });
+    const run = await engine.start(plan.id);
+    const result = await engine.wait(run.id);
+    expect(result.status).toBe("failed");
+    expect(calls).toBe(2);
+    expect(result.error).toMatch(/repeated.*source request/i);
+  });
+
+  it("reports a missing source request without exposing the private workspace path", async () => {
+    const { root } = await fixture();
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async () => ({
+        model: "fixture",
+        proposal: {
+          summary: "Ask for a nonexistent file",
+          requests: ["missing.ts"],
+          changes: [],
+        },
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedTokens: 0,
+          costUsd: 0,
+          estimated: false,
+        },
+      }),
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["The addition test passes"],
+    });
+    const run = await engine.start(plan.id);
+    const result = await engine.wait(run.id);
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain(
+      "Requested source is unavailable: missing.ts",
+    );
+    expect(result.error).not.toContain(result.workspace);
+  });
+
   it("never accepts a patch whose new source is Git-ignored and absent from the verifier view", async () => {
     const { root } = await fixture();
     await writeFile(path.join(root, ".gitignore"), "hidden.ts\n");
