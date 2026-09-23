@@ -34,6 +34,12 @@ type ModuleGraphFixtureOptions = {
   reverseCases?: boolean;
   omitVerdict?: boolean;
 };
+type RepositoryClaimOptions = {
+  wrongResponse?: boolean;
+  wrongResultTree?: boolean;
+  wrongObservationBundle?: boolean;
+  wrongCounters?: boolean;
+};
 
 export async function fixture(
   callBoundOracle = false,
@@ -51,9 +57,21 @@ export async function fixture(
   wrongEngineeringStatus = false,
   wrongEngineeringVerdictClaim = false,
   moduleGraphOptions?: ModuleGraphFixtureOptions,
+  repositorySnapshotBaseline?: Buffer,
+  repositoryClaimOptions?: RepositoryClaimOptions,
 ) {
+  const stateFormatVersion = repositorySnapshotBaseline
+    ? "repo-snapshot-v1"
+    : "worker-v1";
   const moduleGraphOracle = moduleGraphOptions !== undefined;
-  const callBound = callBoundOracle || engineeringOracle || moduleGraphOracle;
+  const repositoryClaim = repositoryClaimOptions !== undefined;
+  if (repositoryClaim && !repositorySnapshotBaseline)
+    throw new Error("Repository claim fixture needs a snapshot baseline");
+  const callBound =
+    callBoundOracle ||
+    engineeringOracle ||
+    moduleGraphOracle ||
+    repositoryClaim;
   const originals = new Map<string, string>();
   const retain = (bytes: Buffer) => {
     const digest = sha256(bytes);
@@ -100,29 +118,31 @@ export async function fixture(
           : graphChangedSource
         : file.source,
   }));
-  const baselineSha256 = moduleGraphOracle
-    ? retain(
-        Buffer.from(
-          canonicalJson({
-            kind: "sealed-js-module-graph-baseline",
-            version: "1.0.0",
-            entry: "src/task.js",
-            files: graphFiles,
-          }),
-        ),
-      )
-    : engineeringOracle
+  const baselineSha256 = repositorySnapshotBaseline
+    ? retain(repositorySnapshotBaseline)
+    : moduleGraphOracle
       ? retain(
           Buffer.from(
             canonicalJson({
-              kind: "sealed-engineering-baseline",
-              path: "source.ts",
-              source,
+              kind: "sealed-js-module-graph-baseline",
               version: "1.0.0",
+              entry: "src/task.js",
+              files: graphFiles,
             }),
           ),
         )
-      : original("baseline");
+      : engineeringOracle
+        ? retain(
+            Buffer.from(
+              canonicalJson({
+                kind: "sealed-engineering-baseline",
+                path: "source.ts",
+                source,
+                version: "1.0.0",
+              }),
+            ),
+          )
+        : original("baseline");
   const publicPacketSha256 = retain(
     Buffer.from(
       canonicalJson({
@@ -196,30 +216,55 @@ export async function fixture(
     { id: "first", input: { value: 1 }, expected: 3 },
     { id: "second", input: { value: 4 }, expected: 6 },
   ];
-  const oracleBytes = moduleGraphOracle
+  const repositoryCases = [
+    { id: "first", input: { value: 1 }, expected: 2 },
+    { id: "second", input: { value: 4 }, expected: 2 },
+  ];
+  const repositoryRecipe = {
+    kind: "sealed-repository-blackbox-recipe" as const,
+    version: "1.0.0" as const,
+    imageId: `sha256:${hashJson({ fixture: "oracle-image" })}`,
+    buildArgv: [],
+    runArgv: ["node", "source.ts"],
+    cwd: ".",
+    env: {},
+    buildTimeoutMs: 1000,
+    runTimeoutMs: 1000,
+    sourcePaths: ["source.ts"],
+  };
+  const oracleBytes = repositoryClaim
     ? Buffer.from(
         canonicalJson({
-          kind: "sealed-js-module-graph-oracle",
+          kind: "sealed-repository-blackbox-oracle",
           version: "1.0.0",
-          cases: engineeringCases,
+          recipe: repositoryRecipe,
+          cases: repositoryCases,
         }),
       )
-    : engineeringOracle
+    : moduleGraphOracle
       ? Buffer.from(
           canonicalJson({
-            kind: "sealed-json-function-oracle",
-            path: "source.ts",
-            cases: engineeringCases,
+            kind: "sealed-js-module-graph-oracle",
             version: "1.0.0",
+            cases: engineeringCases,
           }),
         )
-      : Buffer.from(
-          JSON.stringify({
-            expectedSha256: proposalSha256,
-            kind: "sealed-digest-oracle",
-            version: "1.0.0",
-          }),
-        );
+      : engineeringOracle
+        ? Buffer.from(
+            canonicalJson({
+              kind: "sealed-json-function-oracle",
+              path: "source.ts",
+              cases: engineeringCases,
+              version: "1.0.0",
+            }),
+          )
+        : Buffer.from(
+            JSON.stringify({
+              expectedSha256: proposalSha256,
+              kind: "sealed-digest-oracle",
+              version: "1.0.0",
+            }),
+          );
   const oracleSha256 = retain(oracleBytes);
   const engineeringResultSha256 = engineeringOracle
     ? retain(
@@ -244,6 +289,33 @@ export async function fixture(
             entry: "src/task.js",
             files: graphResultFiles,
           }),
+        ),
+      )
+    : null;
+  const repositoryTree = (sourceText: string) =>
+    Buffer.from(
+      canonicalJson({
+        kind: "sealed-repository-tree",
+        version: "1.0.0",
+        files: [
+          {
+            path: "source.ts",
+            bytes: Buffer.byteLength(sourceText),
+            mode: 0o644,
+            sha256: sha256(Buffer.from(sourceText)),
+          },
+        ],
+      }),
+    );
+  const repositoryBaselineTreeSha256 = repositoryClaim
+    ? sha256(repositoryTree(source))
+    : null;
+  const repositoryResultSha256 = repositoryClaim
+    ? retain(
+        repositoryTree(
+          repositoryClaimOptions?.wrongResultTree
+            ? "const value = 3;"
+            : changedSource,
         ),
       )
     : null;
@@ -348,9 +420,7 @@ export async function fixture(
     policySha256: original("policy"),
     promptSha256: original("prompt"),
     contextImplementationSha256: original("context-implementation"),
-    categoryStateVersions: [
-      { category: "worker", stateFormatVersion: "worker-v1" },
-    ],
+    categoryStateVersions: [{ category: "worker", stateFormatVersion }],
     providers: [
       {
         providerId: "laya-worker",
@@ -409,7 +479,7 @@ export async function fixture(
     oracleSha256,
     referenceRepairSha256: null,
     category: "worker",
-    stateFormatVersion: "worker-v1",
+    stateFormatVersion,
     risk: "low",
     allowedOutputPaths: moduleGraphOracle
       ? graphFiles.map((file) => file.path)
@@ -526,9 +596,11 @@ export async function fixture(
                   choices: [
                     {
                       message: {
-                        content: mismatchedResponse
-                          ? alternateProposalText
-                          : proposalText,
+                        content:
+                          mismatchedResponse ||
+                          repositoryClaimOptions?.wrongResponse
+                            ? alternateProposalText
+                            : proposalText,
                       },
                     },
                   ],
@@ -547,7 +619,7 @@ export async function fixture(
       category: "worker",
       providerId: callReservation.providerId,
       model: "weights-v1",
-      stateFormatVersion: "worker-v1",
+      stateFormatVersion,
       stateHash: hashJson({ fixture: "state" }),
       candidates: ["safe", "unsafe"],
       selected: "safe",
@@ -578,11 +650,13 @@ export async function fixture(
     const oracleInvocation = isOracle
       ? {
           version: "1.0.0" as const,
-          kind: moduleGraphOracle
-            ? ("sealed-call-bound-module-graph-invocation-claim" as const)
-            : engineeringOracle
-              ? ("sealed-call-bound-engineering-invocation-claim" as const)
-              : ("sealed-call-bound-oracle-invocation-claim" as const),
+          kind: repositoryClaim
+            ? ("sealed-call-bound-repository-invocation-claim" as const)
+            : moduleGraphOracle
+              ? ("sealed-call-bound-module-graph-invocation-claim" as const)
+              : engineeringOracle
+                ? ("sealed-call-bound-engineering-invocation-claim" as const)
+                : ("sealed-call-bound-oracle-invocation-claim" as const),
           reservationId: reservation.reservationId,
           reservationSha256: hashJson(reservation),
           collectionId: plan.collectionId,
@@ -592,17 +666,27 @@ export async function fixture(
           planSha256,
           publicDispatchSha256: hashJson(publicDispatch),
           oracleSha256: task.oracleSha256,
-          ...(engineeringOracle || moduleGraphOracle
+          ...(repositoryClaim
             ? {
                 baselineSha256: task.baselineSha256,
-                resultSourceSha256: moduleGraphOracle
-                  ? moduleGraphResultSha256!
-                  : engineeringResultSha256!,
-                verifierKind: moduleGraphOracle
-                  ? ("sealed-js-module-graph-v1" as const)
-                  : ("sealed-json-function-v1" as const),
+                recipeSha256: sha256(
+                  Buffer.from(canonicalJson(repositoryRecipe)),
+                ),
+                resultSourceSha256: repositoryResultSha256!,
+                resultSourceFormat: "sealed-repository-tree-v1" as const,
+                verifierKind: "sealed-repository-blackbox-v1" as const,
               }
-            : {}),
+            : engineeringOracle || moduleGraphOracle
+              ? {
+                  baselineSha256: task.baselineSha256,
+                  resultSourceSha256: moduleGraphOracle
+                    ? moduleGraphResultSha256!
+                    : engineeringResultSha256!,
+                  verifierKind: moduleGraphOracle
+                    ? ("sealed-js-module-graph-v1" as const)
+                    : ("sealed-json-function-v1" as const),
+                }
+              : {}),
           callId: callReservation.callId,
           callReservationSha256: hashJson(callReservation),
           callReceiptSha256: hashJson(callReceipt),
@@ -640,63 +724,143 @@ export async function fixture(
       candidateValueSha256: sha256(Buffer.from(canonicalJson(item.expected))),
     }));
     if (moduleGraphOptions?.reverseCases) moduleGraphCaseResults.reverse();
+    const repositoryRecords = repositoryCases.map((item, index) => {
+      const inputSha256 = sha256(Buffer.from(canonicalJson(item.input)));
+      const observation = (arm: "baseline" | "candidate") => ({
+        kind: "sealed-repository-blackbox-observation" as const,
+        version: "1.0.0" as const,
+        challenge: String(index + (arm === "baseline" ? 1 : 3)).repeat(32),
+        arm,
+        caseIndex: index,
+        treeSha256:
+          arm === "baseline"
+            ? repositoryBaselineTreeSha256!
+            : repositoryClaimOptions?.wrongObservationBundle
+              ? "f".repeat(64)
+              : repositoryResultSha256!,
+        recipeSha256: sha256(Buffer.from(canonicalJson(repositoryRecipe))),
+        inputSha256,
+        stage: "run" as const,
+        status: "completed" as const,
+        value: arm === "baseline" ? 1 : 2,
+      });
+      return {
+        id: item.id,
+        baseline: observation("baseline"),
+        candidate: observation("candidate"),
+      };
+    });
+    const repositoryObservationBundle =
+      repositoryClaim && isOracle
+        ? Buffer.from(
+            canonicalJson({
+              kind: "sealed-repository-observation-bundle",
+              version: "1.0.0",
+              claimSha256: hashJson(oracleInvocation),
+              caseCount: repositoryCases.length,
+              records: repositoryRecords,
+            }),
+          )
+        : null;
+    const repositoryObservationBundleRef = repositoryObservationBundle
+      ? {
+          sha256: retain(repositoryObservationBundle),
+          bytes: repositoryObservationBundle.length,
+        }
+      : null;
+    const repositoryCaseResults = repositoryRecords.map((record) => ({
+      id: record.id,
+      inputSha256: record.baseline.inputSha256,
+      baselineChallenge: record.baseline.challenge,
+      candidateChallenge: record.candidate.challenge,
+      baselineStatus: record.baseline.status,
+      baselineValueSha256: sha256(
+        Buffer.from(canonicalJson(record.baseline.value)),
+      ),
+      candidateStatus: record.candidate.status,
+      candidateValueSha256: sha256(
+        Buffer.from(canonicalJson(record.candidate.value)),
+      ),
+    }));
     const selectedVerdictBytes =
-      isOracle && moduleGraphOracle
-        ? malformedVerdict
-          ? Buffer.from("not a module graph verdict")
-          : Buffer.from(
-              canonicalJson({
-                kind: "sealed-js-module-graph-verification",
-                version: "1.0.0",
-                claimSha256: moduleGraphOptions?.wrongVerdictClaim
-                  ? hashJson({ forged: "module-graph-claim" })
-                  : hashJson(oracleInvocation),
-                oracleSha256: task.oracleSha256,
-                baselineSha256: task.baselineSha256,
-                resultSourceSha256: moduleGraphOptions?.wrongVerdictResult
-                  ? task.baselineSha256
-                  : moduleGraphResultSha256,
-                baselineFailed: engineeringCases.length,
-                passed: moduleGraphOptions?.wrongCounts
-                  ? engineeringCases.length - 1
-                  : engineeringCases.length,
-                caseCount: moduleGraphOptions?.wrongCaseCount
-                  ? engineeringCases.length + 1
-                  : engineeringCases.length,
-                status:
-                  moduleGraphOptions?.wrongCounts ||
-                  moduleGraphOptions?.wrongStatus
-                    ? "fail"
-                    : "pass",
-                caseResults: moduleGraphCaseResults,
-              }),
-            )
-        : isOracle && engineeringOracle
+      isOracle && repositoryClaim
+        ? Buffer.from(
+            canonicalJson({
+              kind: "sealed-repository-blackbox-verification",
+              version: "1.0.0",
+              claimSha256: hashJson(oracleInvocation),
+              oracleSha256: task.oracleSha256,
+              baselineSha256: task.baselineSha256,
+              recipeSha256: sha256(
+                Buffer.from(canonicalJson(repositoryRecipe)),
+              ),
+              resultSourceSha256: repositoryResultSha256,
+              observationBundle: repositoryObservationBundleRef,
+              baselineFailed: repositoryCases.length,
+              passed: repositoryClaimOptions?.wrongCounters
+                ? repositoryCases.length - 1
+                : repositoryCases.length,
+              caseCount: repositoryCases.length,
+              status: "pass",
+              caseResults: repositoryCaseResults,
+            }),
+          )
+        : isOracle && moduleGraphOracle
           ? malformedVerdict
-            ? Buffer.from("not an engineering verdict")
+            ? Buffer.from("not a module graph verdict")
             : Buffer.from(
                 canonicalJson({
-                  baselineFailed: engineeringCases.length,
-                  caseCount: engineeringCases.length,
-                  caseResults: engineeringCaseResults,
-                  claimSha256: wrongEngineeringVerdictClaim
-                    ? hashJson({ forged: "engineering-claim" })
+                  kind: "sealed-js-module-graph-verification",
+                  version: "1.0.0",
+                  claimSha256: moduleGraphOptions?.wrongVerdictClaim
+                    ? hashJson({ forged: "module-graph-claim" })
                     : hashJson(oracleInvocation),
-                  kind: "sealed-engineering-verification",
-                  nonce: "ab".repeat(16),
                   oracleSha256: task.oracleSha256,
-                  passed: wrongEngineeringCounts
+                  baselineSha256: task.baselineSha256,
+                  resultSourceSha256: moduleGraphOptions?.wrongVerdictResult
+                    ? task.baselineSha256
+                    : moduleGraphResultSha256,
+                  baselineFailed: engineeringCases.length,
+                  passed: moduleGraphOptions?.wrongCounts
                     ? engineeringCases.length - 1
                     : engineeringCases.length,
-                  resultSourceSha256: engineeringResultSha256,
+                  caseCount: moduleGraphOptions?.wrongCaseCount
+                    ? engineeringCases.length + 1
+                    : engineeringCases.length,
                   status:
-                    wrongEngineeringCounts || wrongEngineeringStatus
+                    moduleGraphOptions?.wrongCounts ||
+                    moduleGraphOptions?.wrongStatus
                       ? "fail"
                       : "pass",
-                  version: "1.0.0",
+                  caseResults: moduleGraphCaseResults,
                 }),
               )
-          : verdictBytes;
+          : isOracle && engineeringOracle
+            ? malformedVerdict
+              ? Buffer.from("not an engineering verdict")
+              : Buffer.from(
+                  canonicalJson({
+                    baselineFailed: engineeringCases.length,
+                    caseCount: engineeringCases.length,
+                    caseResults: engineeringCaseResults,
+                    claimSha256: wrongEngineeringVerdictClaim
+                      ? hashJson({ forged: "engineering-claim" })
+                      : hashJson(oracleInvocation),
+                    kind: "sealed-engineering-verification",
+                    nonce: "ab".repeat(16),
+                    oracleSha256: task.oracleSha256,
+                    passed: wrongEngineeringCounts
+                      ? engineeringCases.length - 1
+                      : engineeringCases.length,
+                    resultSourceSha256: engineeringResultSha256,
+                    status:
+                      wrongEngineeringCounts || wrongEngineeringStatus
+                        ? "fail"
+                        : "pass",
+                    version: "1.0.0",
+                  }),
+                )
+            : verdictBytes;
     const selectedVerdictSha256 = isOracle
       ? retain(selectedVerdictBytes)
       : verdictSha256;
@@ -728,10 +892,12 @@ export async function fixture(
         oracleInvocation?.proposalSha256 ??
         original(`proposal-${assignment.assignmentId}`),
       resultSourceSha256:
-        isOracle && (engineeringOracle || moduleGraphOracle)
-          ? moduleGraphOracle
-            ? moduleGraphResultSha256!
-            : engineeringResultSha256!
+        isOracle && (engineeringOracle || moduleGraphOracle || repositoryClaim)
+          ? repositoryClaim
+            ? repositoryResultSha256!
+            : moduleGraphOracle
+              ? moduleGraphResultSha256!
+              : engineeringResultSha256!
           : original(`result-${assignment.assignmentId}`),
       observations: assignment.arm === "candidate" ? [observation] : [],
       callReceiptSha256s: [hashJson(callReceipt)],
@@ -740,7 +906,8 @@ export async function fixture(
         policyViolation: false,
         verificationSha256: isOracle
           ? (engineeringOracle && !omitEngineeringVerdict) ||
-            (moduleGraphOracle && !moduleGraphOptions?.omitVerdict)
+            (moduleGraphOracle && !moduleGraphOptions?.omitVerdict) ||
+            repositoryClaim
             ? selectedVerdictSha256
             : null
           : original(`verification-${assignment.assignmentId}`),
@@ -787,12 +954,15 @@ export async function fixture(
     if (item.oracleInvocation)
       append(
         item.oracleInvocation.kind ===
-          "sealed-call-bound-engineering-invocation-claim"
-          ? "call-bound-engineering-invocation-claimed"
+          "sealed-call-bound-repository-invocation-claim"
+          ? "call-bound-repository-invocation-claimed"
           : item.oracleInvocation.kind ===
-              "sealed-call-bound-module-graph-invocation-claim"
-            ? "call-bound-module-graph-invocation-claimed"
-            : "call-bound-oracle-invocation-claimed",
+              "sealed-call-bound-engineering-invocation-claim"
+            ? "call-bound-engineering-invocation-claimed"
+            : item.oracleInvocation.kind ===
+                "sealed-call-bound-module-graph-invocation-claim"
+              ? "call-bound-module-graph-invocation-claimed"
+              : "call-bound-oracle-invocation-claimed",
         item.oracleInvocation,
       );
     if (item.oracleVerdict)
@@ -863,7 +1033,7 @@ export async function fixture(
     trustPolicySha256: plan.trustPolicySha256,
     evaluationArtifactSha256: hashJson(cohort.evaluation),
     category: "worker",
-    stateFormatVersion: "worker-v1",
+    stateFormatVersion,
     providerId: "laya-worker",
     providerKind: "laya" as const,
     requestedModel: "weights-v1",
@@ -972,15 +1142,17 @@ export async function fixture(
       item.oracleInvocation?.kind ===
         "sealed-call-bound-engineering-invocation-claim" ||
       item.oracleInvocation?.kind ===
-        "sealed-call-bound-module-graph-invocation-claim"
+        "sealed-call-bound-module-graph-invocation-claim" ||
+      item.oracleInvocation?.kind ===
+        "sealed-call-bound-repository-invocation-claim"
     ) {
-      const role = `oracle/${item.oracleInvocation.kind === "sealed-call-bound-module-graph-invocation-claim" ? "module-graph-v1" : "engineering-v1"}/${item.assignment.assignmentId}`;
+      const role = `oracle/${item.oracleInvocation.kind === "sealed-call-bound-repository-invocation-claim" ? "repository-v1" : item.oracleInvocation.kind === "sealed-call-bound-module-graph-invocation-claim" ? "module-graph-v1" : "engineering-v1"}/${item.assignment.assignmentId}`;
       add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
       add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
     }
     if (item.oracleVerdict)
       add(
-        `${item.oracleInvocation?.kind === "sealed-call-bound-module-graph-invocation-claim" ? "oracle/module-graph-v1" : item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
+        `${item.oracleInvocation?.kind === "sealed-call-bound-repository-invocation-claim" ? "oracle/repository-v1" : item.oracleInvocation?.kind === "sealed-call-bound-module-graph-invocation-claim" ? "oracle/module-graph-v1" : item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
         item.oracleVerdict.verificationSha256,
       );
   }
@@ -1114,6 +1286,7 @@ export async function fixture(
   };
   return {
     input,
+    retainedBlobs: new Map(originals),
     keys: { rowLabeler, rowReviewer, collector, aggregateReviewer },
     signed,
   };
@@ -1145,6 +1318,54 @@ export function engineeringFixture(
     options.reverseCases ?? false,
     options.wrongStatus ?? false,
     options.wrongVerdictClaim ?? false,
+  );
+}
+
+/** Synthetic signed cohort with an opt-in frozen repository baseline root. */
+export function repositorySnapshotFixture(rootBytes: Buffer) {
+  return fixture(
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    undefined,
+    rootBytes,
+  );
+}
+
+/** Synthetic signed repository claim with retained private observation bytes. */
+export function repositoryClaimFixture(
+  rootBytes: Buffer,
+  options: RepositoryClaimOptions = {},
+) {
+  return fixture(
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    undefined,
+    rootBytes,
+    options,
   );
 }
 

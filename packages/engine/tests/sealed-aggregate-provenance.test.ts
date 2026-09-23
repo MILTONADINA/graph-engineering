@@ -1,10 +1,12 @@
+import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import {
+  inspectPrivateRepositorySnapshotClosure,
   inspectPrivateSealedAggregateFromManifest,
   inspectPrivateSealedAggregateProvenance,
 } from "../src/sealed-aggregate-provenance.js";
 import { validateFullCohortLedger } from "../src/full-cohort-ledger.js";
-import { hashJson } from "../src/sealed-collection-schema.js";
+import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
 import {
   aggregateReviewerAt,
   collectorAt,
@@ -12,6 +14,8 @@ import {
   fixture,
   moduleGraphFixture,
   nowMs,
+  repositoryClaimFixture,
+  repositorySnapshotFixture,
 } from "./sealed-aggregate-fixture.js";
 
 it("checks every synthetic original byte and purpose-separated signature without authority", async () => {
@@ -488,6 +492,252 @@ function manifestSource(input: Awaited<ReturnType<typeof fixture>>["input"]) {
   };
   return { detached, manifest, originals, reader, supplied };
 }
+
+function repositorySnapshotSource(
+  repeatEntryPage = false,
+  sourceText = "const value = 1;\n",
+) {
+  const blobs = new Map<string, Buffer>();
+  const retain = (bytes: Buffer) => {
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    blobs.set(sha256, Buffer.from(bytes));
+    return { sha256, bytes: bytes.length };
+  };
+  const retainJson = (value: unknown) =>
+    retain(Buffer.from(canonicalJson(value)));
+  const source = Buffer.from(sourceText);
+  const chunk = retain(source);
+  const chunks = retainJson({
+    kind: "sealed-repository-chunk-page",
+    version: "1.0.0",
+    level: 0,
+    chunks: [chunk],
+  });
+  const entries = retainJson({
+    kind: "sealed-repository-entry-page",
+    version: "1.0.0",
+    level: 0,
+    entries: [
+      { path: ".git", type: "excluded", reason: "operator-scope" },
+      {
+        path: "source.ts",
+        type: "file",
+        mode: 0o644,
+        bytes: source.length,
+        sha256: chunk.sha256,
+        chunks,
+      },
+    ],
+  });
+  const tree = repeatEntryPage
+    ? retainJson({
+        kind: "sealed-repository-entry-page",
+        version: "1.0.0",
+        level: 1,
+        children: Array.from({ length: 128 }, () => ({
+          firstPath: ".git",
+          lastPath: "source.ts",
+          ref: entries,
+        })),
+      })
+    : entries;
+  const rootReference = retainJson({
+    kind: "sealed-repository-snapshot",
+    version: "1.0.0",
+    scope: {
+      kind: "sealed-repository-scope",
+      version: "1.0.0",
+      excludePrefixes: [".git"],
+      maxEntries: 10,
+      maxFiles: 5,
+      maxFileBytes: 1000,
+      maxTotalBytes: 1000,
+      maxDepth: 3,
+    },
+    source: {
+      headOid: "a".repeat(40),
+      stagedEntriesSha256: "b".repeat(64),
+    },
+    inventory: {
+      entryCount: 2,
+      fileCount: 1,
+      excludedCount: 1,
+      totalBytes: source.length,
+    },
+    tree,
+  });
+  return { blobs, chunk, chunks, rootReference };
+}
+
+it("audits a signed repository root through every descendant while keeping original roles root-only", async () => {
+  const snapshot = repositorySnapshotSource();
+  const { input } = await repositorySnapshotFixture(
+    snapshot.blobs.get(snapshot.rootReference.sha256)!,
+  );
+  const source = manifestSource(input);
+  const reader = async (reference: {
+    role: string;
+    sha256: string;
+    bytes: number;
+  }) => {
+    const blob =
+      snapshot.blobs.get(reference.sha256) ??
+      (source.originals.has(reference.role)
+        ? Buffer.from(source.originals.get(reference.role)!, "base64")
+        : undefined);
+    if (!blob) throw new Error("Missing synthetic snapshot blob");
+    return new Uint8Array(blob);
+  };
+  const receipt = await inspectPrivateSealedAggregateFromManifest(
+    source.detached,
+    source.manifest,
+    hashJson(source.manifest),
+    reader,
+    { nowMs },
+  );
+  expect(
+    source.manifest.entries.filter(
+      (entry) => entry.role === "task/held-task/baseline",
+    ),
+  ).toHaveLength(1);
+  expect(
+    source.manifest.entries.some((entry) => entry.role.startsWith("snapshot/")),
+  ).toBe(false);
+  expect(receipt.repositorySnapshotCount).toBe(1);
+  expect(receipt.repositorySnapshotBytesVerified).toBe(
+    Buffer.byteLength("const value = 1;\n"),
+  );
+  expect(receipt.repositorySnapshotBlobsVerified).toBe(4);
+  expect(receipt.artifactSourceAuthenticated).toBe(false);
+  expect(receipt.protectedExecutionVerified).toBe(false);
+  expect(receipt.promotionEligible).toBe(false);
+  await expect(
+    inspectPrivateSealedAggregateProvenance(input, { nowMs }),
+  ).rejects.toThrow(/vault-backed full-closure reader/);
+});
+
+async function inspectRepositoryClaimFixture(
+  options: {
+    wrongResponse?: boolean;
+    wrongResultTree?: boolean;
+    wrongObservationBundle?: boolean;
+    wrongCounters?: boolean;
+    missingObservationBundle?: boolean;
+  } = {},
+) {
+  const snapshot = repositorySnapshotSource(false, "const value = 1;");
+  const fixture = await repositoryClaimFixture(
+    snapshot.blobs.get(snapshot.rootReference.sha256)!,
+    options,
+  );
+  const source = manifestSource(fixture.input);
+  const verdictBase64 = source.originals.get(
+    "oracle/repository-v1/candidate/private-verdict",
+  );
+  if (!verdictBase64)
+    throw new Error("Synthetic repository verdict role is missing");
+  const observationSha256 = JSON.parse(
+    Buffer.from(verdictBase64, "base64").toString("utf8"),
+  ).observationBundle.sha256 as string;
+  return inspectPrivateSealedAggregateFromManifest(
+    source.detached,
+    source.manifest,
+    hashJson(source.manifest),
+    async (reference) => {
+      if (
+        options.missingObservationBundle &&
+        reference.sha256 === observationSha256
+      )
+        throw new Error("Missing synthetic observation bundle");
+      const blob =
+        snapshot.blobs.get(reference.sha256) ??
+        (fixture.retainedBlobs.has(reference.sha256)
+          ? Buffer.from(fixture.retainedBlobs.get(reference.sha256)!, "base64")
+          : undefined);
+      if (!blob) throw new Error("Missing synthetic repository claim blob");
+      return new Uint8Array(blob);
+    },
+    { nowMs },
+  );
+}
+
+it("joins a signed repository claim to the retained response, candidate tree, observation bundle and private cases", async () => {
+  const receipt = await inspectRepositoryClaimFixture();
+  expect(receipt.callBoundProposalJoinsChecked).toBe(1);
+  expect(receipt.repositorySnapshotCount).toBe(1);
+  expect(receipt.repositorySnapshotBytesVerified).toBe(
+    Buffer.byteLength("const value = 1;"),
+  );
+  expect(receipt.protectedExecutionVerified).toBe(false);
+  expect(receipt.artifactSourceAuthenticated).toBe(false);
+  expect(receipt.promotionEligible).toBe(false);
+});
+
+it("rejects repository response, candidate tree, observation and verdict counter tampering despite signed fixture joins", async () => {
+  await expect(
+    inspectRepositoryClaimFixture({ wrongResponse: true }),
+  ).rejects.toThrow(/Repository proposal differs from model response/);
+  await expect(
+    inspectRepositoryClaimFixture({ wrongResultTree: true }),
+  ).rejects.toThrow(/Repository candidate tree differs from original proposal/);
+  await expect(
+    inspectRepositoryClaimFixture({ wrongObservationBundle: true }),
+  ).rejects.toThrow(/Repository guest observation case binding differs/);
+  await expect(
+    inspectRepositoryClaimFixture({ wrongCounters: true }),
+  ).rejects.toThrow(/Repository verdict counters differ from private cases/);
+  await expect(
+    inspectRepositoryClaimFixture({ missingObservationBundle: true }),
+  ).rejects.toThrow(/Missing synthetic observation bundle/);
+});
+
+it("rejects missing and corrupt repository descendants under a signed root", async () => {
+  const snapshot = repositorySnapshotSource();
+  const { input } = await repositorySnapshotFixture(
+    snapshot.blobs.get(snapshot.rootReference.sha256)!,
+  );
+  const source = manifestSource(input);
+  const inspect = (blobs: Map<string, Buffer>) =>
+    inspectPrivateSealedAggregateFromManifest(
+      source.detached,
+      source.manifest,
+      hashJson(source.manifest),
+      async (reference) => {
+        const blob =
+          blobs.get(reference.sha256) ??
+          (source.originals.has(reference.role)
+            ? Buffer.from(source.originals.get(reference.role)!, "base64")
+            : undefined);
+        if (!blob) throw new Error("Missing synthetic snapshot blob");
+        return new Uint8Array(blob);
+      },
+      { nowMs },
+    );
+  const missing = new Map(snapshot.blobs);
+  missing.delete(snapshot.chunk.sha256);
+  await expect(inspect(missing)).rejects.toThrow(
+    /Missing synthetic snapshot blob/,
+  );
+  const corrupted = new Map(snapshot.blobs);
+  corrupted.set(snapshot.chunk.sha256, Buffer.from("forged"));
+  await expect(inspect(corrupted)).rejects.toThrow(
+    /pinned byte bounds|differs from commitment/,
+  );
+});
+
+it("bounds hostile repeated repository pages before aggregate expansion", async () => {
+  const snapshot = repositorySnapshotSource(true);
+  await expect(
+    inspectPrivateRepositorySnapshotClosure(
+      snapshot.rootReference,
+      async (reference) => {
+        const blob = snapshot.blobs.get(reference.sha256);
+        if (!blob) throw new Error("Missing synthetic snapshot blob");
+        return new Uint8Array(blob);
+      },
+    ),
+  ).rejects.toThrow(/repeated or cyclic|inventory bound/);
+});
 
 it("keeps the inline original-byte cap while vault-reading a larger module-graph cohort", async () => {
   const { input } = await moduleGraphFixture({ largeArtifacts: true });
