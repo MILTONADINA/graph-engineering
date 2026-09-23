@@ -68,7 +68,9 @@ Item 13 still contains buildable work, not only requests for partner labels:
   public source. General MCP source export is a separate policy.
   Native offline Docker and signed tamper tests
   exercise the complete-tree claim, guest observations, and independent
-  aggregate re-derivation. Neither version authenticates Docker/source
+  aggregate re-derivation. A synthetic fake-loopback run now joins the actual
+  one-call public relay to the v1 repository oracle, original-byte audit and
+  aggregate inspector; it is not a live model measurement. Neither version authenticates Docker/source
   provenance or safely mounts arbitrary secret-bearing repositories.
   A separate current-witness
   comparison rejects stale or changed checkpoints around aggregate inspection;
