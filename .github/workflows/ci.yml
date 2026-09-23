@@ -314,6 +314,7 @@ jobs:
             node --test --test-concurrency=1 evaluation/sealed/tests/module-graph-oracle.test.mjs
       - name: Offline bounded repository black-box oracle
         run: |
+          npm run build -w @graph-engineering/engine
           docker build --pull=false --network=none \
             -f evaluation/sealed/oracle-runtime/Dockerfile.repository \
             -t graph-sealed-repository:ci .
@@ -322,4 +323,17 @@ jobs:
           GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
             node --test --test-concurrency=1 \
               evaluation/sealed/oracle-runtime/repository.test.mjs \
-              evaluation/sealed/oracle-runtime/repository-host.test.mjs
+              evaluation/sealed/oracle-runtime/repository-host.test.mjs \
+              evaluation/sealed/tests/repository-end-to-end.test.mjs
+      - name: Offline declared-tree repository black-box oracle
+        run: |
+          docker build --pull=false --network=none \
+            -f evaluation/sealed/oracle-runtime/Dockerfile.repository-v2 \
+            -t graph-sealed-repository-v2:ci .
+          GRAPH_SEALED_REPOSITORY_V2_NATIVE_TESTS=1 \
+          GRAPH_SEALED_REPOSITORY_V2_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-repository-v2:ci)" \
+          GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
+            node --test --test-concurrency=1 \
+              evaluation/sealed/oracle-runtime/repository-v2.test.mjs \
+              evaluation/sealed/oracle-runtime/repository-host-v2.test.mjs \
+              evaluation/sealed/tests/repository-scope-v2.test.mjs

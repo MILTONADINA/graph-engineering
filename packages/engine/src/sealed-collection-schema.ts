@@ -293,6 +293,7 @@ export const taskCommitmentSchema = z
     repositoryId: id,
     exposure: z.literal("sealed-unseen"),
     baselineSha256: digestSchema,
+    executionScopeSha256: digestSchema.optional(),
     publicPacketSha256: digestSchema,
     oracleSha256: digestSchema,
     referenceRepairSha256: digestSchema.nullable(),
@@ -401,6 +402,7 @@ export function validateCollectionPlan(
       hashJson({
         repositoryId: task.repositoryId,
         baselineSha256: task.baselineSha256,
+        executionScopeSha256: task.executionScopeSha256 ?? null,
         publicPacketSha256: task.publicPacketSha256,
         oracleSha256: task.oracleSha256,
         referenceRepairSha256: task.referenceRepairSha256,
@@ -434,7 +436,15 @@ export function validateCollectionPlan(
   for (const task of plan.tasks) {
     if (
       task.oracleSha256 === task.publicPacketSha256 ||
-      task.referenceRepairSha256 === task.publicPacketSha256
+      task.referenceRepairSha256 === task.publicPacketSha256 ||
+      (task.executionScopeSha256 !== undefined &&
+        (task.stateFormatVersion !== "repo-snapshot-v1" ||
+          [
+            task.baselineSha256,
+            task.publicPacketSha256,
+            task.oracleSha256,
+            task.referenceRepairSha256,
+          ].includes(task.executionScopeSha256)))
     )
       throw new Error(
         "Private oracle or reference repair cannot equal the public worker packet",
@@ -451,6 +461,7 @@ export function validateCollectionPlan(
           item.artifactSha256s.some((digest) =>
             [
               task.baselineSha256,
+              task.executionScopeSha256,
               task.publicPacketSha256,
               task.oracleSha256,
               task.referenceRepairSha256,
@@ -788,12 +799,43 @@ export const callBoundRepositoryInvocationClaimSchema = z
     claimedAt: timestamp,
   })
   .strict();
+export const callBoundRepositoryV2InvocationClaimSchema = z
+  .object({
+    version,
+    kind: z.literal("sealed-call-bound-repository-v2-invocation-claim"),
+    reservationId: id,
+    reservationSha256: digestSchema,
+    collectionId: id,
+    assignmentId: id,
+    taskId: id,
+    taskSha256: digestSchema,
+    planSha256: digestSchema,
+    publicDispatchSha256: digestSchema,
+    baselineSha256: digestSchema,
+    scopeSha256: digestSchema,
+    baselineTreeSha256: digestSchema,
+    oracleSha256: digestSchema,
+    recipeSha256: digestSchema,
+    callId: id,
+    callReservationSha256: digestSchema,
+    callReceiptSha256: digestSchema,
+    responseSha256: digestSchema,
+    proposalDerivation: z.literal("openai-chat-content-utf8-v1"),
+    proposalSha256: digestSchema,
+    resultSourceSha256: digestSchema,
+    resultSourceFormat: z.literal("sealed-repository-execution-tree-v2"),
+    verifierKind: z.literal("sealed-repository-blackbox-v2"),
+    imageId: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    claimedAt: timestamp,
+  })
+  .strict();
 export const oracleInvocationClaimSchema = z.discriminatedUnion("kind", [
   legacyOracleInvocationClaimSchema,
   callBoundOracleInvocationClaimSchema,
   callBoundEngineeringInvocationClaimSchema,
   callBoundModuleGraphInvocationClaimSchema,
   callBoundRepositoryInvocationClaimSchema,
+  callBoundRepositoryV2InvocationClaimSchema,
 ]);
 export const oracleVerdictRecordSchema = z
   .object({
@@ -899,6 +941,7 @@ export const eventSchema = z
       "call-bound-engineering-invocation-claimed",
       "call-bound-module-graph-invocation-claimed",
       "call-bound-repository-invocation-claimed",
+      "call-bound-repository-v2-invocation-claimed",
       "oracle-verdict-retained",
       "call-reserved",
       "call-settled",

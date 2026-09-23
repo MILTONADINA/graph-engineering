@@ -9,6 +9,7 @@
 import { types } from "node:util";
 import { tsImport } from "tsx/esm/api";
 import { ArtifactStore } from "./artifacts.mjs";
+import { parseRepositoryV2Scope } from "./oracle-runtime/repository-v2.mjs";
 import { cloneJson, hashJson } from "./schema.mjs";
 import { SealedStore } from "./store.mjs";
 
@@ -124,11 +125,21 @@ export class SealedPublicPacketBridge {
 
   /** Retain only fresh, explicitly exported source/docs matching the plan. */
   async retain(input) {
-    const { collectionId, taskId, packetInput, oracleReference } = fields(
-      input,
-      ["collectionId", "taskId", "packetInput", "oracleReference"],
-      "Public packet retention",
-    );
+    const names = ["collectionId", "taskId", "packetInput", "oracleReference"];
+    if (
+      input &&
+      typeof input === "object" &&
+      !types.isProxy(input) &&
+      Object.hasOwn(input, "executionScopeReference")
+    )
+      names.push("executionScopeReference");
+    const {
+      collectionId,
+      taskId,
+      packetInput,
+      oracleReference,
+      executionScopeReference,
+    } = fields(input, names, "Public packet retention");
     identifier(collectionId, "collection ID");
     identifier(taskId, "task ID");
     const request = cloneJson(
@@ -154,6 +165,55 @@ export class SealedPublicPacketBridge {
     // Reject all uncommitted candidate packets before reading private bytes:
     // otherwise the error becomes a chosen-string oracle for their contents.
     assertPublicPacketCommitment(prepared, before.task);
+    if (before.task.executionScopeSha256) {
+      if (executionScopeReference === undefined)
+        throw new Error(
+          "V2 public task needs its frozen execution scope reference",
+        );
+      const scopeRef = fields(
+        executionScopeReference,
+        ["sha256", "bytes"],
+        "V2 execution scope reference",
+      );
+      if (
+        typeof scopeRef.sha256 !== "string" ||
+        !SHA.test(scopeRef.sha256) ||
+        scopeRef.sha256 !== before.task.executionScopeSha256 ||
+        !Number.isSafeInteger(scopeRef.bytes) ||
+        scopeRef.bytes < 1 ||
+        scopeRef.bytes > 2_000_000
+      )
+        throw new Error(
+          "V2 execution scope reference differs from frozen task",
+        );
+      const returnedScopeBytes = await this.#artifacts.get(scopeRef);
+      const scopeBytes = Buffer.from(returnedScopeBytes);
+      try {
+        const scope = parseRepositoryV2Scope(scopeBytes);
+        if (scope.baselineSnapshot.sha256 !== before.task.baselineSha256)
+          throw new Error("V2 execution scope differs from frozen baseline");
+        const runtimePaths = new Set(
+          scope.entries
+            .filter(
+              (entry) =>
+                entry.type === "file" &&
+                entry.class === "operator-declared-runtime",
+            )
+            .map((entry) => entry.path.toLowerCase()),
+        );
+        if (
+          prepared.packet.files.some((file) =>
+            runtimePaths.has(file.path.toLowerCase()),
+          )
+        )
+          throw new Error("V2 runtime-only file entered the public packet");
+      } finally {
+        scopeBytes.fill(0);
+        returnedScopeBytes.fill(0);
+      }
+    } else if (executionScopeReference !== undefined) {
+      throw new Error("Non-V2 public task cannot accept an execution scope");
+    }
     const oracle = fields(
       oracleReference,
       ["sha256", "bytes"],

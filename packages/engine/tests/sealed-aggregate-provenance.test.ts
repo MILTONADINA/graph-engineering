@@ -16,6 +16,7 @@ import {
   nowMs,
   repositoryClaimFixture,
   repositorySnapshotFixture,
+  repositoryV2ClaimFixture,
 } from "./sealed-aggregate-fixture.js";
 
 it("checks every synthetic original byte and purpose-separated signature without authority", async () => {
@@ -496,6 +497,7 @@ function manifestSource(input: Awaited<ReturnType<typeof fixture>>["input"]) {
 function repositorySnapshotSource(
   repeatEntryPage = false,
   sourceText = "const value = 1;\n",
+  includeRuntime = false,
 ) {
   const blobs = new Map<string, Buffer>();
   const retain = (bytes: Buffer) => {
@@ -507,18 +509,41 @@ function repositorySnapshotSource(
     retain(Buffer.from(canonicalJson(value)));
   const source = Buffer.from(sourceText);
   const chunk = retain(source);
+  const runtimeBytes = Buffer.from([0, 255, 42]);
+  const runtimeChunk = includeRuntime ? retain(runtimeBytes) : null;
   const chunks = retainJson({
     kind: "sealed-repository-chunk-page",
     version: "1.0.0",
     level: 0,
     chunks: [chunk],
   });
+  const runtimeChunks = runtimeChunk
+    ? retainJson({
+        kind: "sealed-repository-chunk-page",
+        version: "1.0.0",
+        level: 0,
+        chunks: [runtimeChunk],
+      })
+    : null;
   const entries = retainJson({
     kind: "sealed-repository-entry-page",
     version: "1.0.0",
     level: 0,
     entries: [
       { path: ".git", type: "excluded", reason: "operator-scope" },
+      ...(runtimeChunk && runtimeChunks
+        ? [
+            { path: "runtime", type: "directory", mode: 0o755 },
+            {
+              path: "runtime/data.bin",
+              type: "file",
+              mode: 0o644,
+              bytes: runtimeBytes.length,
+              sha256: runtimeChunk.sha256,
+              chunks: runtimeChunks,
+            },
+          ]
+        : []),
       {
         path: "source.ts",
         type: "file",
@@ -559,10 +584,10 @@ function repositorySnapshotSource(
       stagedEntriesSha256: "b".repeat(64),
     },
     inventory: {
-      entryCount: 2,
-      fileCount: 1,
+      entryCount: includeRuntime ? 4 : 2,
+      fileCount: includeRuntime ? 2 : 1,
       excludedCount: 1,
-      totalBytes: source.length,
+      totalBytes: source.length + (includeRuntime ? runtimeBytes.length : 0),
     },
     tree,
   });
@@ -618,6 +643,8 @@ it("audits a signed repository root through every descendant while keeping origi
 
 async function inspectRepositoryClaimFixture(
   options: {
+    runtimePublicKind?: "source" | "documentation";
+    runtimePublicPath?: string;
     wrongResponse?: boolean;
     wrongResultTree?: boolean;
     wrongObservationBundle?: boolean;
@@ -689,6 +716,103 @@ it("rejects repository response, candidate tree, observation and verdict counter
   await expect(
     inspectRepositoryClaimFixture({ missingObservationBundle: true }),
   ).rejects.toThrow(/Missing synthetic observation bundle/);
+});
+
+async function inspectRepositoryV2ClaimFixture(
+  options: {
+    wrongResponse?: boolean;
+    wrongResultTree?: boolean;
+    wrongObservationBundle?: boolean;
+    wrongCounters?: boolean;
+    wrongRuntimeScope?: boolean;
+    missingObservationBundle?: boolean;
+  } = {},
+) {
+  const snapshot = repositorySnapshotSource(false, "const value = 1;", true);
+  const fixture = await repositoryV2ClaimFixture(
+    snapshot.blobs.get(snapshot.rootReference.sha256)!,
+    options,
+  );
+  const source = manifestSource(fixture.input);
+  const verdictBase64 = source.originals.get(
+    "oracle/repository-v2/candidate/private-verdict",
+  );
+  if (!verdictBase64)
+    throw new Error("Synthetic repository V2 verdict role is missing");
+  const observationSha256 = JSON.parse(
+    Buffer.from(verdictBase64, "base64").toString("utf8"),
+  ).observationBundle.sha256 as string;
+  return inspectPrivateSealedAggregateFromManifest(
+    source.detached,
+    source.manifest,
+    hashJson(source.manifest),
+    async (reference) => {
+      if (
+        options.missingObservationBundle &&
+        reference.sha256 === observationSha256
+      )
+        throw new Error("Missing synthetic V2 observation bundle");
+      const blob =
+        snapshot.blobs.get(reference.sha256) ??
+        (fixture.retainedBlobs.has(reference.sha256)
+          ? Buffer.from(fixture.retainedBlobs.get(reference.sha256)!, "base64")
+          : undefined);
+      if (!blob) throw new Error("Missing synthetic repository V2 claim blob");
+      return new Uint8Array(blob);
+    },
+    { nowMs },
+  );
+}
+
+it("joins a signed repository V2 claim to full snapshot runtime bytes and private observations without authority", async () => {
+  const receipt = await inspectRepositoryV2ClaimFixture();
+  expect(receipt.callBoundProposalJoinsChecked).toBe(1);
+  expect(receipt.repositorySnapshotCount).toBe(1);
+  expect(receipt.repositorySnapshotBytesVerified).toBe(
+    Buffer.byteLength("const value = 1;") + 3,
+  );
+  expect(receipt.protectedExecutionVerified).toBe(false);
+  expect(receipt.artifactSourceAuthenticated).toBe(false);
+  expect(receipt.promotionEligible).toBe(false);
+});
+
+it("rejects V2 signed joins with altered scope, response, tree, observations or verdict counters", async () => {
+  await expect(
+    inspectRepositoryV2ClaimFixture({ wrongRuntimeScope: true }),
+  ).rejects.toThrow(/V2.*snapshot|V2.*scope/i);
+  await expect(
+    inspectRepositoryV2ClaimFixture({ wrongResponse: true }),
+  ).rejects.toThrow(/V2 proposal differs from model response/);
+  await expect(
+    inspectRepositoryV2ClaimFixture({ wrongResultTree: true }),
+  ).rejects.toThrow(/V2 candidate tree differs from original proposal/);
+  await expect(
+    inspectRepositoryV2ClaimFixture({ wrongObservationBundle: true }),
+  ).rejects.toThrow(/V2 guest observation case binding differs/);
+  await expect(
+    inspectRepositoryV2ClaimFixture({ wrongCounters: true }),
+  ).rejects.toThrow(/V2 verdict counters differ from private cases/);
+  await expect(
+    inspectRepositoryV2ClaimFixture({ missingObservationBundle: true }),
+  ).rejects.toThrow(/Missing synthetic V2 observation bundle/);
+});
+
+it.each(["source", "documentation"] as const)(
+  "rejects a signed V2 public packet that publishes an operator-declared runtime path as %s",
+  async (runtimePublicKind) => {
+    await expect(
+      inspectRepositoryV2ClaimFixture({ runtimePublicKind }),
+    ).rejects.toThrow(/Repository V2 runtime file appeared in public packet/);
+  },
+);
+
+it("rejects a signed V2 public packet with a casefold alias of an operator-declared runtime path", async () => {
+  await expect(
+    inspectRepositoryV2ClaimFixture({
+      runtimePublicKind: "documentation",
+      runtimePublicPath: "runtime/DATA.bin",
+    }),
+  ).rejects.toThrow(/Repository V2 runtime file appeared in public packet/);
 });
 
 it("rejects missing and corrupt repository descendants under a signed root", async () => {
