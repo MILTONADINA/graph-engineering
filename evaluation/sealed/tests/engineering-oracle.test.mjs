@@ -236,29 +236,43 @@ test("guest input carries source and one case input, never private expected valu
     version: "1.0.0",
   });
   assert.throws(() => engineeringGuestRequest(source, { n: 3 }, "bad"));
-  const command = oracleDockerCommand(
-    imageId,
-    `graph-sealed-oracle-${randomUUID()}`,
-    endpoint,
-    "/opt/sealed-oracle/engineering-executor.mjs",
-  );
-  for (const required of [
-    "--network=none",
-    "--read-only",
-    "--pull=never",
-    "--cap-drop=ALL",
-    "--log-driver=none",
-    "--user",
-  ])
-    assert.ok(command.includes(required), required);
-  for (const forbidden of [
-    "--mount",
-    "-v",
-    "--privileged",
-    "--env-file",
-    "--publish",
-  ])
-    assert.equal(command.includes(forbidden), false);
+  const ownedName = `graph-sealed-oracle-${randomUUID()}`;
+  if (process.platform === "win32") {
+    assert.throws(
+      () =>
+        oracleDockerCommand(
+          imageId,
+          ownedName,
+          endpoint,
+          "/opt/sealed-oracle/engineering-executor.mjs",
+        ),
+      /Unix Docker socket/,
+    );
+  } else {
+    const command = oracleDockerCommand(
+      imageId,
+      ownedName,
+      endpoint,
+      "/opt/sealed-oracle/engineering-executor.mjs",
+    );
+    for (const required of [
+      "--network=none",
+      "--read-only",
+      "--pull=never",
+      "--cap-drop=ALL",
+      "--log-driver=none",
+      "--user",
+    ])
+      assert.ok(command.includes(required), required);
+    for (const forbidden of [
+      "--mount",
+      "-v",
+      "--privileged",
+      "--env-file",
+      "--publish",
+    ])
+      assert.equal(command.includes(forbidden), false);
+  }
   assert.deepEqual(Object.keys(oracleDockerEnvironment()).sort(), [
     "DOCKER_CONFIG",
     "HOME",
@@ -327,40 +341,46 @@ async function nativeObservation(
   return parseEngineeringObservation(result.stdout.subarray(0, -1), nonce);
 }
 
-test("engineering claim binds settled response, survives reopen, and consumes digest slot", async (t) => {
-  const state = await setup(t);
-  const forged = await state.artifacts.put(Buffer.from("different-response"));
-  await assert.rejects(
-    runProtectedEngineeringOracle(
-      { ...state.request, responseReference: forged },
-      { imageId, endpoint },
-    ),
-    /completed local model response/,
-  );
-  assert.equal(
-    state.store.inspectCollection(state.plan.collectionId).assignments[0]
-      .oracleInvocation,
-    null,
-  );
+function engineeringClaimInput(state) {
   const derived = Buffer.from(proposal);
   const changed = applyEngineeringProposal(
     parseEngineeringBaseline(engineeringBaselineBytes(pathName, source)),
     derived,
     [pathName],
   );
+  return {
+    expectedPlanSha256: state.request.expectedPlanSha256,
+    baselineSha256: state.baseline.sha256,
+    oracleSha256: state.oracle.sha256,
+    proposalSha256: engineeringSha256(derived),
+    resultSourceSha256: engineeringSha256(changed.resultBytes),
+    callId: state.call.callId,
+    expectedCallReceiptSha256: hashJson(state.receipt),
+    expectedResponseSha256: state.request.responseReference.sha256,
+    imageId,
+  };
+}
+
+test("engineering claim binds settled response, survives reopen, and consumes digest slot", async (t) => {
+  const state = await setup(t);
+  if (process.platform !== "win32") {
+    const forged = await state.artifacts.put(Buffer.from("different-response"));
+    await assert.rejects(
+      runProtectedEngineeringOracle(
+        { ...state.request, responseReference: forged },
+        { imageId, endpoint },
+      ),
+      /completed local model response/,
+    );
+  }
+  assert.equal(
+    state.store.inspectCollection(state.plan.collectionId).assignments[0]
+      .oracleInvocation,
+    null,
+  );
   const claim = state.store.claimEngineeringInvocation(
     state.attempt.reservationId,
-    {
-      expectedPlanSha256: state.request.expectedPlanSha256,
-      baselineSha256: state.baseline.sha256,
-      oracleSha256: state.oracle.sha256,
-      proposalSha256: engineeringSha256(derived),
-      resultSourceSha256: engineeringSha256(changed.resultBytes),
-      callId: state.call.callId,
-      expectedCallReceiptSha256: hashJson(state.receipt),
-      expectedResponseSha256: state.request.responseReference.sha256,
-      imageId,
-    },
+    engineeringClaimInput(state),
   );
   assert.equal(claim.kind, "sealed-call-bound-engineering-invocation-claim");
   state.reopen();
@@ -377,10 +397,19 @@ test("engineering claim binds settled response, survives reopen, and consumes di
       }),
     /already claimed/,
   );
-  await assert.rejects(
-    runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
+  assert.throws(
+    () =>
+      state.request.store.claimEngineeringInvocation(
+        state.attempt.reservationId,
+        engineeringClaimInput(state),
+      ),
     /already claimed/,
   );
+  if (process.platform !== "win32")
+    await assert.rejects(
+      runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
+      /already claimed/,
+    );
   const inspection = state.request.store.inspectCollection(
     state.plan.collectionId,
   );
@@ -433,54 +462,77 @@ test("digest claim consumes engineering slot", async (t) => {
     imageId,
   });
   state.reopen();
-  await assert.rejects(
-    runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
+  assert.throws(
+    () =>
+      state.request.store.claimEngineeringInvocation(
+        state.attempt.reservationId,
+        engineeringClaimInput(state),
+      ),
     /already claimed/,
   );
+  if (process.platform !== "win32")
+    await assert.rejects(
+      runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
+      /already claimed/,
+    );
 });
 
-test("engineering verifier requires baseline file to be public source", async (t) => {
-  const state = await setup(t, { fileKind: "documentation" });
-  await assert.rejects(
-    runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
-    /public source differs/,
-  );
-  assert.equal(
-    state.store.inspectCollection(state.plan.collectionId).assignments[0]
-      .oracleInvocation,
-    null,
-  );
-});
+test(
+  "engineering verifier requires baseline file to be public source",
+  {
+    skip: process.platform === "win32",
+  },
+  async (t) => {
+    const state = await setup(t, { fileKind: "documentation" });
+    await assert.rejects(
+      runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
+      /public source differs/,
+    );
+    assert.equal(
+      state.store.inspectCollection(state.plan.collectionId).assignments[0]
+        .oracleInvocation,
+      null,
+    );
+  },
+);
 
-test("aborted guest still consumes the engineering claim across restart", async (t) => {
-  const state = await setup(t);
-  const controller = new AbortController();
-  controller.abort();
-  await assert.rejects(
-    runProtectedEngineeringOracle(state.request, {
-      imageId,
-      endpoint,
-      signal: controller.signal,
-    }),
-  );
-  const before = state.store.inspectCollection(state.plan.collectionId)
-    .assignments[0];
-  assert.equal(
-    before.oracleInvocation.kind,
-    "sealed-call-bound-engineering-invocation-claim",
-  );
-  assert.equal(before.oracleVerdict, null);
-  state.reopen();
-  await assert.rejects(
-    runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
-    /already claimed/,
-  );
-});
+test(
+  "aborted guest still consumes the engineering claim across restart",
+  {
+    skip: process.platform === "win32",
+  },
+  async (t) => {
+    const state = await setup(t);
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(
+      runProtectedEngineeringOracle(state.request, {
+        imageId,
+        endpoint,
+        signal: controller.signal,
+      }),
+    );
+    const before = state.store.inspectCollection(state.plan.collectionId)
+      .assignments[0];
+    assert.equal(
+      before.oracleInvocation.kind,
+      "sealed-call-bound-engineering-invocation-claim",
+    );
+    assert.equal(before.oracleVerdict, null);
+    state.reopen();
+    await assert.rejects(
+      runProtectedEngineeringOracle(state.request, { imageId, endpoint }),
+      /already claimed/,
+    );
+  },
+);
 
 test(
   "native offline guest verifies response-derived repair and keeps verdict private",
   {
-    skip: process.env.GRAPH_SEALED_ENGINEERING_NATIVE_TESTS !== "1",
+    skip:
+      process.platform === "win32" ||
+      process.env.GRAPH_SEALED_ENGINEERING_NATIVE_TESTS !== "1",
     timeout: 120_000,
   },
   async (t) => {
@@ -534,7 +586,9 @@ test(
 test(
   "native QuickJS guest rejects async, nonfinite, omitted and escape outputs",
   {
-    skip: process.env.GRAPH_SEALED_ENGINEERING_NATIVE_TESTS !== "1",
+    skip:
+      process.platform === "win32" ||
+      process.env.GRAPH_SEALED_ENGINEERING_NATIVE_TESTS !== "1",
     timeout: 120_000,
   },
   async () => {
