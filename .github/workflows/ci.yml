@@ -212,7 +212,11 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - name: Install workspace dependencies with one bounded retry
+        run: |
+          # Root npm ci includes onnxruntime-node, whose native archive fetch
+          # runs in postinstall and is outside npm's ordinary fetch retry.
+          npm ci || { sleep 5; npm ci; }
       - run: npm run build -w create-graph-app
       - run: node create-graph-app/scripts/smoke-generated-apps.js
 
@@ -239,7 +243,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - name: Install historical replay dependencies with one bounded retry
+        run: |
+          # The root postinstall native archive fetch is outside npm's retry.
+          npm ci || { sleep 5; npm ci; }
       - name: Historical distinct-template invocation replay
         run: |
           node evaluation/template-invocation-runtime/provision.mjs
