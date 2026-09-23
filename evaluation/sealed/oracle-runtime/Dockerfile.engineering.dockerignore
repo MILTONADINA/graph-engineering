@@ -6,3 +6,4 @@
 !evaluation/sealed/
 !evaluation/sealed/oracle-runtime/
 !evaluation/sealed/oracle-runtime/engineering-executor.mjs
+!evaluation/sealed/oracle-runtime/module-graph-executor.mjs
