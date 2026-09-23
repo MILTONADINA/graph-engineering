@@ -17,7 +17,10 @@ npm run graph:local -- providers
 npm run graph:local -- capabilities
 ```
 
-The development Mac has an existing Qwen server at `127.0.0.1:1234/v1`, with
+The development Mac serves its existing Qwen model through oMLX. If the server
+is stopped, `omlx start` starts the installed model runtime without a download.
+Check `http://127.0.0.1:1234/v1/models` before a run. The endpoint is
+`127.0.0.1:1234/v1`, with
 provider ID `qwen`, model alias `qwen-local`, and reported loaded model
 `Qwen3.8-27B-8bit`. The configured provider disables thinking for bounded JSON
 patch proposals. This is a local-server option, not a portable cloud effort
@@ -84,7 +87,11 @@ branch. Publication is disabled in this checkout.
 The shared policy permits selected source/docs exports but excludes private
 memory, credential patterns, private runtime data, and non-allowlisted paths.
 Client-local MCP files are ignored by Git. Codex recognizes the configured
-stdio server; Claude still requires its ordinary project-server approval.
+stdio server. A constrained Claude Code call using the explicit project MCP
+configuration retrieved exportable source; normal project-wide approval is
+still a separate client action. Cloud `context_get` defaults to lexical
+retrieval for bounded cold latency. Request `retrieval: "hybrid"` explicitly
+when the local embedding index is prepared and semantic recall is needed.
 Cursor's project configuration is present, but a live Cursor connection has
 not been verified. Cloud MCP retrieval is not fully offline and does not
 replace each client's own tool-permission controls.
