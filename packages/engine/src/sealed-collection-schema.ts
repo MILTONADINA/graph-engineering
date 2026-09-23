@@ -499,6 +499,70 @@ export function validateCollectionPlan(
   });
 }
 
+// A spending authorization is an unsigned local commitment. The separately
+// selected digest is checked by the ledger at registration; the schema alone
+// does not establish that a human approved the spend.
+export const spendingAuthorizationSchema = z
+  .object({
+    version,
+    kind: z.literal("sealed-spending-authorization"),
+    authorizationId: id,
+    sessionId: id,
+    projectId: id,
+    createdAt: timestamp,
+    notBefore: timestamp,
+    expiresAt: timestamp,
+    approvalEvidenceSha256: digestSchema,
+    totalCapUsd: amount.positive().max(1_000_000_000),
+    collections: z
+      .array(z.object({ collectionId: id, planSha256: digestSchema }).strict())
+      .min(1)
+      .max(1000),
+    providers: z
+      .array(
+        z
+          .object({
+            providerId: id,
+            kind: z.enum(["openai", "anthropic", "jev"]),
+            endpointOrigin: z.string().url().max(2048),
+            requestedModel: label,
+            modelIdentitySha256: digestSchema,
+            pricingSha256: digestSchema,
+            providerSha256: digestSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      Date.parse(value.createdAt) > Date.parse(value.notBefore) ||
+      Date.parse(value.notBefore) >= Date.parse(value.expiresAt)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Invalid authorization time window",
+      });
+    if (
+      new Set(value.collections.map((item) => item.collectionId)).size !==
+      value.collections.length
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Duplicate authorized collection",
+      });
+    if (
+      new Set(value.providers.map((item) => item.providerSha256)).size !==
+      value.providers.length
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Duplicate authorized provider",
+      });
+  });
+
 export const usageSchema = z
   .object({
     inputTokens: count.nullable(),
@@ -592,8 +656,26 @@ export const callReservationSchema = z
     requestSha256: digestSchema,
     reservedCostUsd: amount.nullable(),
     reservedAt: timestamp,
+    authorizationId: id.optional(),
+    authorizationSha256: digestSchema.optional(),
+    sessionId: id.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const references = [
+      value.authorizationId,
+      value.authorizationSha256,
+      value.sessionId,
+    ];
+    if (
+      references.some((item) => item !== undefined) &&
+      references.some((item) => item === undefined)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Incomplete spending authorization binding",
+      });
+  });
 export const callReceiptSchema = z
   .object({
     version,

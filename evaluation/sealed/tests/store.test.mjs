@@ -190,10 +190,10 @@ test("a remote provider cannot turn its declared local kind into zero API-charge
     "collection-fixture",
     "baseline-assignment",
   );
-  const call = store.reserveCall(reservation.reservationId, callInput());
-  const receipt = settledCall(call, { cost: 0 });
-  receipt.usage.basis = "local-no-api-charge";
-  assert.throws(() => store.completeCall(receipt), /loopback provider/);
+  assert.throws(
+    () => store.reserveCall(reservation.reservationId, callInput()),
+    /outside loopback/,
+  );
 });
 test("an observation cannot predate its own call even after the attempt began", async (t) => {
   const { store } = await setup(t);
