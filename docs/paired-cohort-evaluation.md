@@ -129,6 +129,22 @@ billing remain unauthenticated; promotion remains disabled. The older aggregate
 receipt's `identityOnlyBytesAudited: false` is unchanged because this is a
 separate analysis receipt.
 
+For private Unix files larger than the 2 MB artifact-vault limit, the internal
+`packages/engine/dist/sealed-identity-file-reader.js` module (after the engine
+build) exports `withPrivateSealedIdentityFileReader()`. It accepts an exact, sorted mapping from
+each pinned manifest role to an absolute local file and supplies the chunk
+callback within one scoped audit, including a readiness audit's `identityBytes`
+reader. It is not a package-root, CLI or MCP/cloud API. The callback must await
+every read. The adapter opens at most one owner/mode-restricted
+regular file at a time, refuses leaf symlinks, checks descriptor/path identity
+and declared size while reading, and closes handles even after failure. Use it only
+inside the private collector, never the MCP/cloud export path. Its checks do
+not inspect [macOS ACLs or disabled volume-ownership enforcement](https://developer.apple.com/library/archive/documentation/Security/Conceptual/AuthenticationAndAuthorizationGuide/Permissions/Permissions.html) and do not
+establish parent-directory trust, file origin, model loading, or the
+canonical child closure of sharded/directory weights. Windows ACLs are not
+verified by this adapter, so it fails closed on Windows; a separately trusted
+reader is still needed there.
+
 The output binds the whole measured candidate configuration; a joint experiment
 does not justify independently changing a model, context policy or category later.
 `metricsEligible` describes only the supplied analysis. Every result has

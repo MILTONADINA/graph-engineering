@@ -24,7 +24,7 @@ const MAX_TOTAL_BYTES = 256 * 1024 ** 3;
 const MAX_CHUNKS = MAX_TOTAL_BYTES / CHUNK_BYTES;
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
 const role = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,400}$/);
-const manifestSchema = z
+export const sealedIdentityByteManifestSchema = z
   .object({
     version: z.literal("1.0.0"),
     kind: z.literal("sealed-identity-byte-manifest"),
@@ -170,7 +170,9 @@ export async function inspectPrivateSealedIdentityOriginalBytes(
   const payload = sealedAggregatePayloadSchema.parse(
     originals.aggregatePayload,
   );
-  const manifest = manifestSchema.parse(decodeJson(manifestInput));
+  const manifest = sealedIdentityByteManifestSchema.parse(
+    decodeJson(manifestInput),
+  );
   const pin = digestSchema.parse(expectedManifestSha256);
   const sourceInventorySha256 = hashJson(source);
   const identityOnlyInventorySha256 = hashJson(
