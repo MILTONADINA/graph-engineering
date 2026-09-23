@@ -162,6 +162,22 @@ either run. The branch's separately reviewed fix remained green under the full
 local check and the fork's nine-job CI run
 [`35915333328`](https://github.com/MILTONADINA/graph-engineering/actions/runs/35915333328).
 
+An independent non-synthetic replay targeted the security-review routing gap in
+`service.ts`. In detached pre-fix worktree `fce69f6`, the focused regression
+observed `normal` for an objective naming `SERVICE_API_KEY`, `serviceApiKey`,
+and `generateAccessToken(user.id)`; the same test failed for that assertion in
+the pinned network-disabled verification image after its local dependency
+build. Plan `71702578-8fc7-46bd-9a51-0f0bf97cd04a` delivered the routing
+source and unchanged regression test to existing oMLX Qwen. Run
+`047a7f5d-dd82-4c20-b4ab-2a74d8a45b23` changed only `service.ts` and
+passed that focused Docker check in one bounded attempt, reporting 3,739 local
+input and 209 output tokens with `$0` marginal metered API spend. Publication
+was `none` (`commit: null`, `pullRequest: null`). The candidate merely added an
+OR-pattern for those literal example names; it was not applied to the feature
+branch or human accepted. This is evidence that the managed run and verifier
+can complete a bounded real task, not a production-quality generalized repair,
+a full-suite result, or completion of item 6.
+
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
 pinned local Laya checkpoint, and a network-disabled `node:24-alpine` container.
 Run `2167781e-9fc0-4ede-b1cf-a067f2cb610e` succeeded between
@@ -322,9 +338,11 @@ workspaces.
 
 ## Full implemented-catalog runtime expansion
 
-All 43 implemented catalog entries now have registered, exact-manifest-checked
-renderers; 13 planned entries remain unavailable. The previous 21-renderer
-checkpoint above remains historical evidence rather than being relabeled.
+At this earlier expansion checkpoint, 42 implemented catalog entries had
+registered, exact-manifest-checked renderers; 13 planned entries remained
+unavailable. The previous 21-renderer checkpoint above remains historical
+evidence rather than being relabeled. Later sections record the 43rd and 44th
+nodes separately.
 
 The following additional checks ran locally without paid inference, host database
 access, provider credentials, or network access during generated-code execution:
@@ -833,3 +851,20 @@ key. Four focused tests, including replay/tamper cases and the existing
 governance comparison, passed; engine typecheck passed. Test keys and callbacks
 do not establish independent key control, append-only history, anti-rollback,
 held-out labels or promotion authority. The comparison stays analysis-only.
+
+## Granular permission gate — 2026-09-23 UTC
+
+`authorization.permissions` is the 44th implemented catalog node. The engine
+generates a bounded `resource:action` vocabulary and a default-deny middleware,
+but requires an application-owned per-user grant resolver; it does not invent
+grant persistence, grant-management endpoints, or route policy. A focused
+red-to-green renderer regression passed. The pinned, already-local backend
+verification image ran strict TypeScript and all four emitted permission tests
+with networking disabled. An actual authentication.password/JWT composition
+then passed strict TypeScript and 38 generated/security tests in the same
+offline image. The registry validator checked all 55 catalog
+identities with no errors or warnings; engine typecheck passed. This proves the
+generated gate's bounded behavior, not application grant semantics or deployment
+readiness. It checks only user-global grants; tenant isolation is separate.
+Eleven planned entries remain, including three documented aliases
+whose filtering, pagination and sorting capabilities already live elsewhere.
