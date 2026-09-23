@@ -180,6 +180,73 @@ numeric ranges or nonnumeric values are rejected.
 
 ## Artifacts and labels
 
+### Opt-in local multi-file context pair
+
+`live-paired-qwen-context.mjs` is a separate **known-synthetic analysis** run,
+not an extension of the immutable 60-task corpus or the sealed collection
+protocol. Its fixed 19-file JavaScript fixture contains a three-file import
+chain with one broken function and 16 unrelated source files. Both arms use
+the user's already-running oMLX `qwen-local` model, the same objective, output
+limit and exact-substring edit rule. The full arm receives every fixture source
+file; the graph arm receives whole files whose paths were selected from an
+actual `ContextEngine.getContext({ retrieval: "graph" })` result. A sparse
+query is deterministically extracted from the _public_ objective's code
+identifiers. This measures a **file-selection intervention**, not the
+production graph `ContextPacket` format. The graph selection must contain the
+edit target and remain a strict multi-file subset or the run stops before a
+model call.
+
+Run the focused no-model packet test first:
+
+```sh
+node --test evaluation/live-paired-qwen-context.test.mjs
+```
+
+Then explicitly inspect the already installed `node:24-slim` image ID, and
+provide that exact `sha256:` ID to the opt-in command. No image or model is
+downloaded; Docker verification uses `--pull=never`.
+
+```sh
+docker image inspect --format '{{.Id}}' node:24-slim
+GRAPH_LIVE_PAIRED_QWEN=1 GRAPH_PAIRED_NODE_IMAGE=sha256:<inspected-id> \
+  node evaluation/live-paired-qwen-context.mjs
+```
+
+Before inference, the script checks that the broken fixture fails and its
+known repair passes the same offline Docker check. It prepares and retains
+both distinct exact request bytes before dispatch, makes at most one local
+model POST per arm, retains bounded original response bytes, and runs the
+separate check against each response-derived edit. An ambiguous transport is
+never retried and stops the pair. Its private report and content-addressed
+originals remain under ignored `.graph/local/paired-qwen-context-*` and record
+selected paths, byte counts, provider-reported tokens when valid, fixture
+outcomes, and unknown billing/hardware costs. Do not export that private
+directory to cloud MCP clients.
+
+The fixture, objective and repair are known, model weights are not
+authenticated, one fixed full-then-graph order has warmup effects, and the
+synthetic checks are not adversarial. No independent task/label curator or
+external witness exists. This result cannot be treated as held-out quality,
+representative token savings, measured paid-API savings, or promotion
+authority. Do not rerun an ambiguous attempt merely to obtain a passing pair.
+
+The 2026-09-23 local run selected 19 files for the full arm and three
+import-chain files (`offset.mjs`, `scale.mjs`, `solver.mjs`) for the graph arm.
+Its exact retained requests were 9,009 versus 2,560 bytes; oMLX reported
+2,935 versus 602 input tokens. Both response-derived edits passed the same
+offline fixture check. The private report is
+`.graph/local/paired-qwen-context-MXOhty/report.json` (SHA-256
+`4736f4601be213095cc5772f084ce3c798d078c27e130ce3e72522e67637610b`).
+An earlier attempt stopped before any model dispatch when Git inventory found
+zero files beneath the parent checkout's ignored `.graph/local`; its untouched
+preflight-failure report is at `.graph/local/paired-qwen-context-pqK6CJ/report.json`.
+The fixture now initializes its own nested Git repository before indexing,
+without a remote or commit. These observations describe one local trial only.
+The report's `implementationSha256` pins the runner and fixture bytes as they
+were during that trial; subsequent formatting changed runner whitespace, so
+the final source file does not have that exact implementation digest. The
+retained request and response digests themselves were not changed.
+
 `artifact.schema.json` describes the recorded results. Each variant stores
 elapsed time, adapter exit status, observed usage/decisions, and independent
 verification results. The runner alternates baseline/candidate order by task
