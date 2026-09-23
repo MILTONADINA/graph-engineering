@@ -49,6 +49,79 @@ afterEach(async () => {
 });
 
 describe("local context indexing", () => {
+  it("prioritizes an explicitly named indexed source path within a small context budget", async () => {
+    const files: Record<string, string> = {
+      "packages/engine/src/policy.ts":
+        "export function containsSecret(value: string) { return value.length > 0; }\n" +
+        "// unrelated implementation detail\n".repeat(25),
+    };
+    for (let index = 0; index < 40; index++)
+      files[`docs/noise-${index}.md`] =
+        "The containsSecret function in packages/engine/src/policy.ts is mentioned here. Fix the real cloud export privacy bug. The existing TypeScript source scanner misses literal env style credential assignments and should preserve placeholders. ".repeat(
+          2,
+        );
+    const { engine } = await fixture(files);
+    const snapshot = await engine.index({ semantic: false });
+    const query =
+      "Fix containsSecret in the existing TypeScript source file packages/engine/src/policy.ts. The current scanner misses literal env style credential assignments. Preserve placeholder exclusions and ordinary function calls.";
+    const packet = await engine.getContext({
+      query,
+      snapshotId: snapshot.id,
+      budgetTokens: 1500,
+      retrieval: "lexical",
+    });
+    expect(
+      packet.items.some(
+        (item) => item.source?.path === "packages/engine/src/policy.ts",
+      ),
+    ).toBe(true);
+
+    engine.updatePolicy({
+      ...structuredClone(DEFAULT_POLICY),
+      excludedPaths: [
+        ...DEFAULT_POLICY.excludedPaths,
+        "packages/engine/src/policy.ts",
+      ],
+    });
+    const excluded = await engine.getContext({
+      query,
+      snapshotId: snapshot.id,
+      budgetTokens: 1500,
+      retrieval: "lexical",
+    });
+    expect(
+      excluded.items.some(
+        (item) => item.source?.path === "packages/engine/src/policy.ts",
+      ),
+    ).toBe(false);
+  });
+
+  it("prioritizes an explicitly named root manifest under the same bounded retrieval rules", async () => {
+    const files: Record<string, string> = {
+      "package.json": JSON.stringify({
+        name: "fixture",
+        private: true,
+        description: "unrelated ".repeat(40),
+      }),
+    };
+    for (let index = 0; index < 120; index++)
+      files[`docs/noise-${index}.md`] =
+        "Fix deployment compatibility in package.json root manifest. This deployment compatibility note mentions the package.json root manifest repeatedly. ".repeat(
+          3,
+        ) + ` Note ${index}.`;
+    const { engine } = await fixture(files);
+    const snapshot = await engine.index({ semantic: false });
+    const packet = await engine.getContext({
+      query: "Fix deployment compatibility in package.json root manifest",
+      snapshotId: snapshot.id,
+      budgetTokens: 1000,
+      retrieval: "lexical",
+    });
+    expect(
+      packet.items.some((item) => item.source?.path === "package.json"),
+    ).toBe(true);
+  });
+
   it("excludes directory descendants in Git inventory and historical retrieval after policy changes", async () => {
     const { engine } = await fixture({
       "src/PrIvAtE/nested.ts": "export function privateDirectoryCanary() {}",
@@ -106,6 +179,8 @@ describe("local context indexing", () => {
         'export const sessionKey = "' + "ASIA" + "C".repeat(16) + '";',
       "github.ts":
         'export const access = "' + "github_pat_" + "d".repeat(40) + '";',
+      "config.json": '{"SERVICE_API_KEY":"' + "e".repeat(24) + '"}',
+      "settings.ts": 'export const serviceApiKey = "' + "g".repeat(24) + '";',
       "public.ts": "export function visible() {}",
     });
     const snapshot = await engine.index();
@@ -118,7 +193,7 @@ describe("local context indexing", () => {
       snapshot.coverage.errors.filter((error) =>
         error.includes("credential pattern"),
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
     await expect(
       engine.createMemory({
         kind: "observation",

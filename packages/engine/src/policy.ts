@@ -132,24 +132,47 @@ export async function safePath(
   }
   return target;
 }
+// Keep key recognition and value redaction on the same assignment grammar.
+// Quoted object keys, env names and camelCase source identifiers are common
+// ways for a credential to appear in otherwise exportable source files.
+const assignedCredential =
+  /(?<![A-Za-z0-9_$])(["'`]?)([A-Za-z_][A-Za-z0-9_-]{0,127})\1\s*[:=]\s*(["'`]?)(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)([A-Za-z0-9+/_-]{16,}={0,2})(?![A-Za-z0-9_$.(?=])/gi;
+const credentialName = (name: string): boolean =>
+  /(?:^|[_-])(?:password|api[_-]?key|secret|access[_-]?(?:token|key)|token|private[_-]?key)(?:[_-](?:key|value))?$/i.test(
+    name,
+  ) ||
+  /(?:Password|ApiKey|Secret|AccessToken|AccessKey|Token|PrivateKey)(?:Key|Value)?$/.test(
+    name,
+  );
+function hasAssignedCredential(text: string): boolean {
+  for (const match of text.matchAll(assignedCredential))
+    if (credentialName(match[2]!)) return true;
+  return false;
+}
+
 export function containsSecret(text: string): boolean {
   const knownKey =
     /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b/i;
-  const assignedCredential =
-    /\b(?:password|api[_-]?key|secret|access[_-]?token)\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_=-]{16,}/i;
   const namedToken =
     /\b[A-Z][A-Z0-9_]*_TOKEN\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_-]{16,}={0,2}/;
   const bearerHeader =
     /\bauthorization\s*:\s*bearer\s+(?!<|example|placeholder|your[-_]|test[-_])[A-Za-z0-9._~+/-]{16,}={0,2}(?=\s|$|["'])/i;
   return (
     knownKey.test(text) ||
-    assignedCredential.test(text) ||
+    hasAssignedCredential(text) ||
     namedToken.test(text) ||
     bearerHeader.test(text)
   );
 }
 export function redact(text: string): string {
   return text
+    .replace(
+      assignedCredential,
+      (match, _quote, name: string, _valueQuote, value: string) =>
+        credentialName(name)
+          ? `${match.slice(0, -value.length)}[REDACTED]`
+          : match,
+    )
     .replace(
       /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,
       "[REDACTED PRIVATE KEY]",
