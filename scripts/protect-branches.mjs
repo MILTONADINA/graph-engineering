@@ -1,41 +1,28 @@
 import { execFileSync } from "node:child_process";
+import {
+  assertProtectionMatches,
+  assertSafeToReplace,
+  plannedProtectionFor,
+  protectionFor,
+  repository,
+  requiredChecks,
+} from "./branch-protection-policy.mjs";
 
-const apply = process.argv.includes("--apply");
-const repository = "MILTONADINA/graph-engineering";
-const checks = [
-  "platform (ubuntu-24.04)",
-  "platform (ubuntu-24.04-arm)",
-  "platform (macos-15)",
-  "platform (windows-2025)",
-  "generated-apps",
-  "sidecar",
-];
-const protection = {
-  required_status_checks: {
-    strict: true,
-    contexts: checks,
-  },
-  enforce_admins: true,
-  required_pull_request_reviews: {
-    dismiss_stale_reviews: true,
-    require_code_owner_reviews: false,
-    required_approving_review_count: 1,
-    require_last_push_approval: true,
-  },
-  restrictions: null,
-  required_linear_history: true,
-  allow_force_pushes: false,
-  allow_deletions: false,
-  required_conversation_resolution: true,
-  block_creations: false,
-  lock_branch: false,
-  allow_fork_syncing: false,
-};
+const args = process.argv.slice(2);
+if (args.length > 1 || (args.length === 1 && args[0] !== "--apply"))
+  throw new Error("Usage: node scripts/protect-branches.mjs [--apply]");
+const apply = args[0] === "--apply";
+const branches = Object.keys(requiredChecks);
 
 if (!apply) {
   console.log(
     JSON.stringify(
-      { repository, branches: ["main", "dev"], protection },
+      {
+        repository,
+        protections: Object.fromEntries(
+          branches.map((branch) => [branch, protectionFor(branch)]),
+        ),
+      },
       null,
       2,
     ),
@@ -56,7 +43,39 @@ if (!apply) {
   ).trim();
   if (permission !== "ADMIN")
     throw new Error("Fork administration permission is required");
-  for (const branch of ["main", "dev"]) {
+  // Preflight both branches before any PUT so a newly added live check cannot
+  // be silently removed, or leave one branch updated while the other fails.
+  const priorProtection = new Map();
+  const pendingUpdates = [];
+  for (const branch of branches) {
+    const current = JSON.parse(
+      execFileSync(
+        "gh",
+        ["api", `repos/${repository}/branches/${branch}/protection`],
+        { encoding: "utf8" },
+      ),
+    );
+    assertSafeToReplace(branch, current);
+    priorProtection.set(branch, current);
+    try {
+      assertProtectionMatches(branch, current, current);
+    } catch {
+      pendingUpdates.push(branch);
+    }
+  }
+  // Validate every write plan before the first PUT. Exact live rules are a
+  // no-op, which also avoids GitHub reinterpreting unbound app_id:null checks.
+  const plannedUpdates = new Map(
+    pendingUpdates.map((branch) => [
+      branch,
+      plannedProtectionFor(branch, priorProtection.get(branch)),
+    ]),
+  );
+  for (const branch of branches) {
+    if (!plannedUpdates.has(branch)) {
+      console.log(`${repository}:${branch}: already protected; no update sent`);
+      continue;
+    }
     // This intentionally cannot target the parent repository.
     execFileSync(
       "gh",
@@ -69,7 +88,7 @@ if (!apply) {
         "-",
       ],
       {
-        input: JSON.stringify(protection),
+        input: JSON.stringify(plannedUpdates.get(branch)),
         stdio: ["pipe", "ignore", "inherit"],
       },
     );
@@ -80,13 +99,7 @@ if (!apply) {
         { encoding: "utf8" },
       ),
     );
-    if (
-      !confirmed.enforce_admins.enabled ||
-      confirmed.required_pull_request_reviews
-        .required_approving_review_count !== 1 ||
-      confirmed.required_status_checks.contexts.length !== checks.length
-    )
-      throw new Error(`Protection verification failed for ${branch}`);
+    assertProtectionMatches(branch, confirmed, priorProtection.get(branch));
     console.log(
       `${repository}:${branch}: checks, partner review, admin enforcement, no force push/deletion verified`,
     );

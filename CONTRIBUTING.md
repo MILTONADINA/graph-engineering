@@ -1,6 +1,6 @@
 # Working together
 
-`dev` is the integration branch. Work on focused feature branches and open pull requests against `dev`; never push directly to `main` or `master`.
+`dev` is the integration branch. Work on focused feature branches and open pull requests against `dev`; never push directly to `main`, `master`, or `dev`.
 
 The current implementation stack is hosted on `MILTONADINA/graph-engineering`.
 Push feature work to the `fork` remote. Reviews, merges into `dev`, and any
@@ -34,7 +34,7 @@ Before a pull request, run `npm run check` and the checks relevant to the change
 
 Root workspaces include the scaffolding CLI, shared contracts, engine, and dashboard. Graph metadata validators retain standalone package locks; run `npm ci --prefix graph-templates/tools/validate-graph` followed by `npm test --prefix graph-templates/tools/validate-graph`.
 
-The pre-push hook is a local safeguard, not a replacement for GitHub branch protections. Repository administrators should require passing checks and partner review on `dev` and protect `main` from direct pushes.
+The pre-push hook rejects direct pushes to `main`, `master`, and `dev`; it is a local safeguard, not a replacement for GitHub branch protections. The fork's protection setup uses seven required checks on `main` and nine on `dev`. It preflights both live rules, sends no update when they already match, and preserves existing app-bound status checks in any required update. It stops if an update would discard a required check or stronger restriction, or would need to reinterpret an unbound (`app_id: null`) check; review that case manually. Repository administrators should keep passing checks and partner review on `dev` and protect `main` from direct pushes.
 
 The repository CODEOWNERS file names both partners. Do not approve your own work through another account or present automated review as partner approval. Keep a PR in draft while required checks or implementation work remain; request partner review when it is ready. Branch protection changes require the repository owner's administration access.
 
