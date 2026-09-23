@@ -115,6 +115,13 @@ inspection receipt. Matching digests alone are not a promotion grant. The
 independent witness and approved reviewer/source keys are intentionally left
 as integration points for the project owners.
 
+The opt-in `inspectSealedDeclaredInventorySelection()` also recomputes the
+canonical v2 hash-rank selection and assignment rule from a separately pinned
+**declared** source inventory. It excludes related families when any member is
+known-exposed. This checks reproducibility of the declared split, not source
+completeness or eligibility, seed chronology, anti-rollback or promotion; all
+authority flags remain false. See the [paired-cohort evaluation contract](../../docs/paired-cohort-evaluation.md).
+
 ### Paid-call session cap
 
 Before any paid attempt, a trusted operator can register one immutable
@@ -277,6 +284,58 @@ only the bridge-retained packet to a fixed, offline Docker guest and returns a
 content-hash acknowledgment. A separate one-call local model relay can submit
 the same committed bytes to a loopback endpoint. Neither unsigned observation
 settles the engineering attempt or proves delivery of a proposal.
+
+For a **reviewed v1 selected-source repository task only**,
+`runOneShotLocalRepositoryAttempt()` in `local-repository-attempt.mjs` joins
+those existing boundaries without accepting a repository path or host mount:
+
+```js
+const handle = await bridge.retain({
+  collectionId,
+  taskId,
+  packetInput, // reviewed public source/docs selection and export policy
+  oracleReference,
+});
+const observation = await runOneShotLocalRepositoryAttempt(
+  {
+    store,
+    artifacts,
+    bridge,
+    handle,
+    collectionId,
+    assignmentId, // the next frozen assignment in the plan
+    baselineReference, // retained exact repository snapshot root
+    oracleReference,
+    providerId, // frozen local-weights loopback provider only
+  },
+  {
+    intakeImageId,
+    repositoryImageId, // must match the retained private recipe
+    endpoint: "unix:///var/run/docker.sock",
+  },
+);
+```
+
+The caller must first register a frozen plan, retain the bounded snapshot and
+private oracle, provision the pinned images, and review the snapshot scope and
+selected source for secrets. The runner rechecks the retained handle, public
+packet, snapshot projection, private recipe/image and frozen provider before
+consuming the assignment. It makes at most one model POST, retains original
+request/response bytes, runs the private repository oracle only for a bounded
+completed proposal, and settles the attempt with `success: null`. A malformed
+model response settles `provider-error`; an oracle observation settles
+`candidate-rejected` without disclosing its private verdict. No typed decision
+observation or independent label is invented. Duplicate invocation cannot
+reissue the consumed assignment. The returned summary is analysis-only and
+always has `promotionEligible: false`.
+
+If dispatch, model transport or oracle execution throws after reservation,
+the runner leaves that reservation open and returns its ID in the error. A
+trusted supervisor must confirm transport has stopped, then use the store's
+explicit recovery path; it must not retry the model request or infer success.
+This API neither authenticates the source/Docker/provider provenance nor
+accepts arbitrary secret-bearing repository mounts. Its native fake-loopback
+test is not a live Qwen measurement or held-out engineering evidence.
 
 The [private digest-oracle boundary](oracle-runtime/README.md) re-reads the
 frozen public packet and one settled local model response, verifies the exact
