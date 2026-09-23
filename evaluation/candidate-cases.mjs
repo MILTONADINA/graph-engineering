@@ -2,6 +2,10 @@
 // sockets, supplies calibration labels, or establishes runtime isolation.
 import { types } from "node:util";
 import {
+  cloudGraphCandidateCase,
+  validateCloudGraphCandidateFiles,
+} from "./candidate-cloud-graph.mjs";
+import {
   mountCandidateCase,
   validateMountCandidateFiles,
 } from "./candidate-mount.mjs";
@@ -113,6 +117,8 @@ function assertTask(id) {
 
 /** Scope validation only: source syntax and behavior require the isolated runner. */
 export function validateCandidateFiles(id, files) {
+  if (id === "cloud-graph-export")
+    return validateCloudGraphCandidateFiles(files);
   if (id === "linux-private-verification-mount")
     return validateMountCandidateFiles(files);
   if (id === "portable-npm-spawn") return validatePortableCandidateFiles(files);
@@ -258,6 +264,7 @@ function observation(input) {
  * witnesses do not establish that arbitrary candidates are universally correct.
  */
 export function candidateCase(id) {
+  if (id === "cloud-graph-export") return cloudGraphCandidateCase();
   if (id === "linux-private-verification-mount") return mountCandidateCase();
   if (id === "portable-npm-spawn") return portableCandidateCase();
   assertTask(id);

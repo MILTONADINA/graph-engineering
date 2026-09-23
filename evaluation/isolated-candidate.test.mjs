@@ -165,6 +165,67 @@ test("candidate inputs and image/deadline scope fail before any container operat
 
 const native = process.env.GRAPH_ENGINE_CANDIDATE_DOCKER_TESTS === "1";
 test(
+  "cloud host verifier binds both whole modules and completes privacy, local-control and large-response witnesses",
+  { skip: !native, timeout: 120000 },
+  async () => {
+    const corpus = validateCorpus(
+      JSON.parse(
+        await readFile(
+          new URL("calibration-corpus.json", import.meta.url),
+          "utf8",
+        ),
+      ),
+      {
+        expectedSha256:
+          "443b490cd991b9afaa77a66ccb8eea7466d438e50b20f80170dd3a4cd237f049",
+      },
+    );
+    const packet = await exportTask(corpus, "cloud-graph-export", {
+      repository: fileURLToPath(new URL("../", import.meta.url)),
+      audience: "review",
+    });
+    const imageId = await inspectGuestImage();
+    for (const variant of ["base", "repair"]) {
+      const files = Object.fromEntries(
+        [
+          "packages/engine/src/context/index.ts",
+          "packages/engine/src/mcp.ts",
+        ].map((name) => [name, packet.files[name][variant]]),
+      );
+      const result = await verifyCandidate({
+        taskId: "cloud-graph-export",
+        files,
+        imageId,
+      });
+      assert.equal(result.allCompleted, true, JSON.stringify(result));
+      assert.equal(result.checks.length, 19);
+      assert.equal(result.status, variant === "repair" ? "passed" : "failed");
+      assert.equal(
+        result.checks.find((item) => item.id === "mcp-local-preserves-private")
+          .passed,
+        true,
+      );
+      assert.equal(
+        result.checks.find((item) => item.id === "mcp-cloud-hidden-bridge")
+          .passed,
+        variant === "repair",
+      );
+      assert.equal(
+        result.checks.find((item) => item.id === "context-cloud-result-cap")
+          .passed,
+        true,
+      );
+      assert.equal(Object.keys(result.sourceHashes).length, 2);
+      assert.match(result.cloudGraphOracleSha256, /^[a-f0-9]{64}$/);
+      assert.match(result.runtime.cloudGraphSha256, /^[a-f0-9]{64}$/);
+      assert.match(result.runtime.picomatchBundleSha256, /^[a-f0-9]{64}$/);
+      assert.equal(result.modelCalls, 0);
+      assert.equal(result.actualNetworkCalls, 0);
+      assert.equal(result.promotionEligible, false);
+    }
+  },
+);
+test(
   "real isolated guest distinguishes broken history from repaired history using only outside acceptance checks",
   { skip: !native, timeout: 180000 },
   async () => {

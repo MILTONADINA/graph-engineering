@@ -3,3 +3,4 @@
 !package-lock.json
 !build-zod.mjs
 !executor.mjs
+!cloud-graph.mjs

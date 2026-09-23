@@ -225,8 +225,11 @@ test(
         "typescript",
         "zod",
         "esbuild",
+        "picomatch",
         "wasmSha256",
         "zodBundleSha256",
+        "picomatchBundleSha256",
+        "cloudGraphSha256",
         "executorSha256",
         "packageLockSha256",
       ].sort(),
@@ -235,9 +238,12 @@ test(
     assert.equal(result.parsed.typescript, "5.9.3");
     assert.equal(result.parsed.zod, "3.25.76");
     assert.equal(result.parsed.esbuild, "0.28.2");
+    assert.equal(result.parsed.picomatch, "4.0.7");
     for (const key of [
       "wasmSha256",
       "zodBundleSha256",
+      "picomatchBundleSha256",
+      "cloudGraphSha256",
       "executorSha256",
       "packageLockSha256",
     ])

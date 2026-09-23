@@ -6,6 +6,7 @@
   "dependencies": {
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "esbuild": "0.28.2",
+    "picomatch": "4.0.7",
     "quickjs-emscripten-core": "0.32.0",
     "typescript": "5.9.3",
     "zod": "3.25.76"
