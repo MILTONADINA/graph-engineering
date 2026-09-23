@@ -170,6 +170,32 @@ either run. The branch's separately reviewed fix remained green under the full
 local check and the fork's nine-job CI run
 [`35915333328`](https://github.com/MILTONADINA/graph-engineering/actions/runs/35915333328).
 
+Two further one-attempt local Qwen replays used a fresh detached pre-fix
+worktree and an offline verifier image refreshed only with the current
+verification script; no model or package was downloaded. The unchanged
+regression first failed against the pre-fix source as expected. Plan/run
+`450fee5e`/`da6d5d06` used a 16,000-byte provider packet limit, but the
+serialized prompt consumed almost all of it: transport fitting omitted every
+requested source item, and the worker stopped without a patch or verification.
+Plan/run `bfdd5778`/`207e82f6` raised only that limit to 32,000 bytes; the
+preflight then included the complete scanner source and regression. Qwen
+patched only `policy.ts`, but hardcoded the example identifier and failed the
+focused offline regression's quoted-JSON assertion. The runs reported 14,767
+local input and 815 output tokens combined, with no metered API charge. Neither
+patch was applied to this branch, published, or counted as an autonomous
+repair; the changed packet limit and resulting source binding explain the
+second check rather than a repeat of an already-passed test.
+
+A single smaller Claude Max subscription diagnostic then used the same
+unchanged pre-fix regression and scanner-bearing source excerpts. Its
+restricted, zero-tool proposal-only request was 6,312/10,000 bytes, contained
+only those two public-source excerpts, and passed native-login preflight with
+no API key or private memory. The native Claude CLI exited with code 1 after
+about two seconds, before the 180-second deadline; the adapter withheld raw
+stderr because it may contain context or credentials. It returned no proposal
+or usage, made no patch, and was not retried. This short-packet result does not
+explain the earlier longer native failure or justify a full managed run.
+
 An independent non-synthetic replay targeted the security-review routing gap in
 `service.ts`. In detached pre-fix worktree `fce69f6`, the focused regression
 observed `normal` for an objective naming `SERVICE_API_KEY`, `serviceApiKey`,
