@@ -239,7 +239,9 @@ export function validateFullCohortLedger(
         oracleInvocation.kind ===
           "sealed-call-bound-engineering-invocation-claim" ||
         oracleInvocation.kind ===
-          "sealed-call-bound-module-graph-invocation-claim"
+          "sealed-call-bound-module-graph-invocation-claim" ||
+        oracleInvocation.kind ===
+          "sealed-call-bound-repository-invocation-claim"
       ) {
         require(calls.length ===
           1, "call-bound oracle requires exactly one original model call");
@@ -278,7 +280,9 @@ export function validateFullCohortLedger(
         oracleInvocation.kind ===
           "sealed-call-bound-engineering-invocation-claim" ||
         oracleInvocation.kind ===
-          "sealed-call-bound-module-graph-invocation-claim"
+          "sealed-call-bound-module-graph-invocation-claim" ||
+        oracleInvocation.kind ===
+          "sealed-call-bound-repository-invocation-claim"
           ? {
               callId: oracleInvocation.callId,
               callReservationSha256: oracleInvocation.callReservationSha256,
@@ -290,7 +294,9 @@ export function validateFullCohortLedger(
         ...(oracleInvocation.kind ===
           "sealed-call-bound-engineering-invocation-claim" ||
         oracleInvocation.kind ===
-          "sealed-call-bound-module-graph-invocation-claim"
+          "sealed-call-bound-module-graph-invocation-claim" ||
+        oracleInvocation.kind ===
+          "sealed-call-bound-repository-invocation-claim"
           ? {
               baselineSha256: task.baselineSha256,
               resultSourceSha256: oracleInvocation.resultSourceSha256,
@@ -298,7 +304,17 @@ export function validateFullCohortLedger(
                 oracleInvocation.kind ===
                 "sealed-call-bound-module-graph-invocation-claim"
                   ? "sealed-js-module-graph-v1"
-                  : "sealed-json-function-v1",
+                  : oracleInvocation.kind ===
+                      "sealed-call-bound-repository-invocation-claim"
+                    ? "sealed-repository-blackbox-v1"
+                    : "sealed-json-function-v1",
+            }
+          : {}),
+        ...(oracleInvocation.kind ===
+        "sealed-call-bound-repository-invocation-claim"
+          ? {
+              recipeSha256: oracleInvocation.recipeSha256,
+              resultSourceFormat: "sealed-repository-tree-v1",
             }
           : {}),
         proposalSha256: oracleInvocation.proposalSha256,
@@ -316,7 +332,9 @@ export function validateFullCohortLedger(
         oracleInvocation.kind ===
           "sealed-call-bound-engineering-invocation-claim" ||
         oracleInvocation.kind ===
-          "sealed-call-bound-module-graph-invocation-claim"
+          "sealed-call-bound-module-graph-invocation-claim" ||
+        oracleInvocation.kind ===
+          "sealed-call-bound-repository-invocation-claim"
       )
         require(![
           task.baselineSha256,
@@ -325,6 +343,20 @@ export function validateFullCohortLedger(
         ].includes(
           oracleInvocation.resultSourceSha256,
         ), "engineering result reuses a frozen input role");
+      if (
+        oracleInvocation.kind ===
+        "sealed-call-bound-repository-invocation-claim"
+      )
+        require(task.stateFormatVersion === "repo-snapshot-v1" &&
+          oracleInvocation.resultSourceSha256 !==
+            oracleInvocation.proposalSha256 &&
+          ![
+            task.baselineSha256,
+            task.publicPacketSha256,
+            oracleInvocation.resultSourceSha256,
+          ].includes(
+            oracleInvocation.recipeSha256,
+          ), "repository claim differs from frozen snapshot or recipe roles");
       require(time(oracleInvocation.claimedAt) >=
         time(publicDispatch!.claimedAt) &&
         time(oracleInvocation.claimedAt) < time(plan.expiresAt) &&
@@ -339,7 +371,10 @@ export function validateFullCohortLedger(
             : oracleInvocation.kind ===
                 "sealed-call-bound-module-graph-invocation-claim"
               ? "call-bound-module-graph-invocation-claimed"
-              : "oracle-invocation-claimed",
+              : oracleInvocation.kind ===
+                  "sealed-call-bound-repository-invocation-claim"
+                ? "call-bound-repository-invocation-claimed"
+                : "oracle-invocation-claimed",
         oracleInvocation,
         oracleInvocation.claimedAt,
         parent,
@@ -351,7 +386,9 @@ export function validateFullCohortLedger(
         oracleInvocation?.kind ===
           "sealed-call-bound-engineering-invocation-claim" ||
         oracleInvocation?.kind ===
-          "sealed-call-bound-module-graph-invocation-claim") &&
+          "sealed-call-bound-module-graph-invocation-claim" ||
+        oracleInvocation?.kind ===
+          "sealed-call-bound-repository-invocation-claim") &&
         oracleVerdict.reservationId === reservation.reservationId &&
         oracleVerdict.claimSha256 === hashJson(oracleInvocation) &&
         time(oracleVerdict.recordedAt) >=
@@ -421,7 +458,8 @@ export function validateFullCohortLedger(
       oracleInvocation?.kind ===
         "sealed-call-bound-engineering-invocation-claim" ||
       oracleInvocation?.kind ===
-        "sealed-call-bound-module-graph-invocation-claim"
+        "sealed-call-bound-module-graph-invocation-claim" ||
+      oracleInvocation?.kind === "sealed-call-bound-repository-invocation-claim"
     )
       require(receipt.status !== "completed" &&
         receipt.outcome.success ===
@@ -465,7 +503,8 @@ export function validateFullCohortLedger(
       oracleInvocation?.kind ===
         "sealed-call-bound-engineering-invocation-claim" ||
       oracleInvocation?.kind ===
-        "sealed-call-bound-module-graph-invocation-claim"
+        "sealed-call-bound-module-graph-invocation-claim" ||
+      oracleInvocation?.kind === "sealed-call-bound-repository-invocation-claim"
     )
       require((receipt.proposalSha256 === null ||
         receipt.proposalSha256 === oracleInvocation.proposalSha256) &&
@@ -644,7 +683,9 @@ export function validateFullCohortLedger(
       item.oracleInvocation?.kind ===
         "sealed-call-bound-engineering-invocation-claim" ||
       item.oracleInvocation?.kind ===
-        "sealed-call-bound-module-graph-invocation-claim"
+        "sealed-call-bound-module-graph-invocation-claim" ||
+      item.oracleInvocation?.kind ===
+        "sealed-call-bound-repository-invocation-claim"
     ) {
       const boundClaim = item.oracleInvocation;
       const bound = item.calls.find(
@@ -656,7 +697,10 @@ export function validateFullCohortLedger(
           : boundClaim.kind ===
               "sealed-call-bound-module-graph-invocation-claim"
             ? "call-bound-module-graph-invocation-claimed"
-            : "call-bound-oracle-invocation-claimed";
+            : boundClaim.kind ===
+                "sealed-call-bound-repository-invocation-claim"
+              ? "call-bound-repository-invocation-claimed"
+              : "call-bound-oracle-invocation-claimed";
       require(positions.get(`call-settled:${hashJson(bound.receipt)}`)! <
         positions.get(
           `${eventType}:${hashJson(boundClaim)}`,
@@ -669,7 +713,7 @@ export function validateFullCohortLedger(
     }
     if (item.oracleInvocation && item.receipt)
       require(positions.get(
-        `${item.oracleInvocation.kind === "sealed-call-bound-oracle-invocation-claim" ? "call-bound-oracle-invocation-claimed" : item.oracleInvocation.kind === "sealed-call-bound-engineering-invocation-claim" ? "call-bound-engineering-invocation-claimed" : item.oracleInvocation.kind === "sealed-call-bound-module-graph-invocation-claim" ? "call-bound-module-graph-invocation-claimed" : "oracle-invocation-claimed"}:${hashJson(item.oracleInvocation)}`,
+        `${item.oracleInvocation.kind === "sealed-call-bound-oracle-invocation-claim" ? "call-bound-oracle-invocation-claimed" : item.oracleInvocation.kind === "sealed-call-bound-engineering-invocation-claim" ? "call-bound-engineering-invocation-claimed" : item.oracleInvocation.kind === "sealed-call-bound-module-graph-invocation-claim" ? "call-bound-module-graph-invocation-claimed" : item.oracleInvocation.kind === "sealed-call-bound-repository-invocation-claim" ? "call-bound-repository-invocation-claimed" : "oracle-invocation-claimed"}:${hashJson(item.oracleInvocation)}`,
       )! <
         positions.get(
           `attempt-settled:${hashJson(item.receipt)}`,
