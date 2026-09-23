@@ -1,9 +1,10 @@
 # Sealed-collection governance foundation
 
-This is **validation and local bookkeeping**, not a sealed evaluation pipeline.
-There is no model transport, protected oracle integration, signing, key creation,
-reviewer approval, promotion issuer, or user-configuration activation. Every
-summary and closure remains `promotionEligible: false`.
+This is **validation, local bookkeeping and retained-byte verification**, not a
+sealed evaluation pipeline. There is no model transport, protected oracle
+integration, signing, key creation, reviewer approval, promotion issuer, or
+user-configuration activation. Every summary and closure remains
+`promotionEligible: false`.
 
 The module name describes its intended integration, not evidence that the
 supplied tasks are actually unseen. The tests use invented storage fixtures;
@@ -132,6 +133,31 @@ every assignment has a terminal receipt, **not** that outcomes are known,
 successful, reviewed or promotion-eligible. A closure containing only crashed
 attempts can truthfully be complete. No missing assignment, unknown usage or
 null outcome can be silently dropped to manufacture evidence.
+
+### Retained original bytes
+
+`ArtifactStore` keeps exact original byte blobs in a separate private,
+content-addressed directory. It copies inputs before any asynchronous write,
+publishes without replacing existing blobs, bounds each blob to 2 MB, and
+verifies length and SHA-256 when reading. It does not convert raw provider
+requests/responses or source into normalized JSON. On Windows, the operator
+must provide private ACLs; even on Unix this store is not protected from an
+administrator who controls storage.
+
+After a **complete closed** collection, `auditOriginalBytes()` checks every
+committed task baseline/public packet/private oracle/reference repair, original
+call request/response, and attempt proposal/result/verification against a
+separately pinned role-to-hash-and-length manifest. It refuses missing, extra,
+reordered or corrupted blobs, and returns only an audit digest/count receipt—
+never private oracle bytes. The manifest SHA must be pinned by an independent
+authority before the audit; self-hashing an untrusted manifest supplies no
+governance. Other hashes, such as a model/runtime identity or policy version,
+may not identify a retained byte blob and are not covered by this audit.
+
+This is a post-closure integrity check. It does not prove the worker was sent
+those bytes, that the private oracle was hidden during execution, or that the
+database could not be rolled back. Protected worker/oracle transport and signed
+provenance still have to connect these components.
 
 ## Remaining trust boundary
 
