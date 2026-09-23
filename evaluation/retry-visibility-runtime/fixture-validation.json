@@ -1,0 +1,164 @@
+{
+  "version": "1.0.0",
+  "taskId": "retry-state-visibility",
+  "promotionEligible": false,
+  "modelCalls": 0,
+  "imageId": "sha256:0727de729879fd2ebf8469548473cb04be1cc2d34f349fc750cbf6c5b9a13dfb",
+  "runtime": {
+    "baseCommit": "06e16897649bd72baa90a05f3732474a2292ecdc",
+    "baseTree": "94f253dc906f1c65a2e21e5b0d99809080542850",
+    "lockSha256": "6b579e7161ef663bee61e92ee57b3955cf84bb6cc59719037e47f8a19134da62",
+    "sourceFiles": 923,
+    "node": "v24.16.0",
+    "platform": "linux",
+    "architecture": "arm64",
+    "hashes": {
+      "execute.mjs": "46661171d19e2fe065d7437af81b82a8a7ee877ed98a16228e894de18aa2d0c0",
+      "fixture.mjs": "88702c389d8b18e8f823d9024a8a1d023b90bfe39a8a64998c652ba9aef0af3c",
+      "provision-check.mjs": "1c5af794024f185714e0cb6216ef86300fd765a12aebae7b519a1041f28666d1"
+    }
+  },
+  "sources": {
+    "base": {
+      "commit": "06e16897649bd72baa90a05f3732474a2292ecdc",
+      "blobOid": "684f3043864e892751fd6473227c2f9d057370b5",
+      "sha256": "8407e01f6c19257107def02a485c684f4e4c521e763b23bea9826f8d07a114c5"
+    },
+    "repair": {
+      "commit": "5703abad6c19cd851329a2ed5f0b7891c7fb8cf9",
+      "blobOid": "1757689669660ac0335be63631de5f4d57f0490c",
+      "sha256": "b1395eb46197e2ceca2c469fb39c7d1671df50379ae000c05ea413ea583a9634"
+    }
+  },
+  "cases": [
+    {
+      "id": "cached-check-failure",
+      "base": {
+        "passed": false,
+        "attemptStatus": "verifying",
+        "workerStatuses": ["verifying"],
+        "verificationStatuses": ["verifying", "verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 1,
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "recordedCostUsd": 0.25
+      },
+      "repair": {
+        "passed": true,
+        "attemptStatus": "running",
+        "workerStatuses": ["running"],
+        "verificationStatuses": ["verifying", "verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 1,
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "recordedCostUsd": 0.25
+      }
+    },
+    {
+      "id": "cached-code78-ordinary",
+      "base": {
+        "passed": false,
+        "attemptStatus": "verifying",
+        "workerStatuses": ["verifying"],
+        "verificationStatuses": ["verifying", "verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 1,
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "recordedCostUsd": 0.25
+      },
+      "repair": {
+        "passed": true,
+        "attemptStatus": "running",
+        "workerStatuses": ["running"],
+        "verificationStatuses": ["verifying", "verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 1,
+        "inputTokens": 10,
+        "outputTokens": 5,
+        "recordedCostUsd": 0.25
+      }
+    },
+    {
+      "id": "cached-check-pass",
+      "base": {
+        "passed": true,
+        "attemptStatus": null,
+        "workerStatuses": [],
+        "verificationStatuses": ["verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "recordedCostUsd": 0
+      },
+      "repair": {
+        "passed": true,
+        "attemptStatus": null,
+        "workerStatuses": [],
+        "verificationStatuses": ["verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "recordedCostUsd": 0
+      }
+    },
+    {
+      "id": "uncached-retry",
+      "base": {
+        "passed": true,
+        "attemptStatus": "running",
+        "workerStatuses": ["running", "running"],
+        "verificationStatuses": ["verifying", "verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 2,
+        "inputTokens": 20,
+        "outputTokens": 10,
+        "recordedCostUsd": 0.5
+      },
+      "repair": {
+        "passed": true,
+        "attemptStatus": "running",
+        "workerStatuses": ["running", "running"],
+        "verificationStatuses": ["verifying", "verifying"],
+        "finalStatus": "succeeded",
+        "workerCalls": 2,
+        "inputTokens": 20,
+        "outputTokens": 10,
+        "recordedCostUsd": 0.5
+      }
+    },
+    {
+      "id": "cached-infrastructure-stop",
+      "base": {
+        "passed": true,
+        "attemptStatus": null,
+        "workerStatuses": [],
+        "verificationStatuses": ["verifying"],
+        "finalStatus": "failed",
+        "workerCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "recordedCostUsd": 0
+      },
+      "repair": {
+        "passed": true,
+        "attemptStatus": null,
+        "workerStatuses": [],
+        "verificationStatuses": ["verifying"],
+        "finalStatus": "failed",
+        "workerCalls": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "recordedCostUsd": 0
+      }
+    }
+  ],
+  "limitations": [
+    "The historical worker and verifier are deterministic stubs. Recorded cost is fixture accounting, not an API charge.",
+    "Candidate TypeScript and the fixture run in one Node process inside the isolated container. These observations are historical behavioral evidence, not independent authority for arbitrary malicious candidate code."
+  ]
+}
