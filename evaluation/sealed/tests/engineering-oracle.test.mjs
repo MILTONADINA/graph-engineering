@@ -236,6 +236,15 @@ test("guest input carries source and one case input, never private expected valu
     version: "1.0.0",
   });
   assert.throws(() => engineeringGuestRequest(source, { n: 3 }, "bad"));
+  assert.throws(
+    () =>
+      engineeringGuestRequest(
+        source,
+        JSON.parse('{"__proto__":{"admin":true}}'),
+        "a".repeat(32),
+      ),
+    /forbidden keys/,
+  );
   const ownedName = `graph-sealed-oracle-${randomUUID()}`;
   if (process.platform === "win32") {
     assert.throws(
