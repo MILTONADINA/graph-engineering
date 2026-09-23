@@ -1,7 +1,10 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { expect, it } from "vitest";
 import { authorizesPromotion } from "../src/promotion-authority.js";
-import { inspectSealedPopulationSplitManifest } from "../src/sealed-population-manifest.js";
+import {
+  inspectSealedDeclaredInventorySelection,
+  inspectSealedPopulationSplitManifest,
+} from "../src/sealed-population-manifest.js";
 import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
 import { fixture } from "./sealed-aggregate-fixture.js";
 
@@ -357,4 +360,361 @@ it("rejects forged signatures and signing after the frozen execution start", asy
   expect(() =>
     inspectSealedPopulationSplitManifest(wrongPurpose, trust, pins, { nowMs }),
   ).toThrow(/original manifest signature/);
+});
+
+const selectionRank = (
+  stage: "family" | "task" | "schedule" | "arm",
+  seed: string,
+  identity: string,
+) =>
+  hashJson({
+    domain: `graph-engineering/sealed-declared-inventory-selection/${stage}/v2`,
+    seed,
+    identity,
+  });
+const compareHex = (left: string, right: string) =>
+  left < right ? -1 : left > right ? 1 : 0;
+
+async function declaredSelectionScenario() {
+  const state = await scenario();
+  const { input } = state;
+  const first = structuredClone(input.inspection.plan.tasks[0]!);
+  const second = {
+    ...structuredClone(first),
+    taskId: "held-task-b",
+    stableTaskId: "stable-task-b",
+    stableFamilyId: "stable-family-b",
+    baselineSha256: sha256("baseline-b"),
+    publicPacketSha256: sha256("public-b"),
+    oracleSha256: sha256("oracle-b"),
+    risk: "moderate" as const,
+  };
+  const third = {
+    ...structuredClone(second),
+    taskId: "held-task-e",
+    stableTaskId: "stable-task-e",
+    stableFamilyId: "stable-family-e",
+    baselineSha256: sha256("baseline-e"),
+    publicPacketSha256: sha256("public-e"),
+    oracleSha256: sha256("oracle-e"),
+  };
+  const sourceEntry = (task: typeof first, stratum: string) => ({
+    ...structuredClone(input.sourceInventory.entries[0]!),
+    stableTaskId: task.stableTaskId,
+    stableFamilyId: task.stableFamilyId,
+    taskSha256: hashJson(task),
+    sourceArtifactSha256: sha256(`source:${task.stableTaskId}`),
+    stratum,
+  });
+  const primary = sourceEntry(first, "low");
+  const variant = {
+    ...structuredClone(primary),
+    stableTaskId: "stable-task-a-variant",
+    taskSha256: sha256("task-a-variant"),
+    // Related source tasks may share one baseline artifact in v2.
+    sourceArtifactSha256: primary.sourceArtifactSha256,
+  };
+  const spareLow = {
+    ...structuredClone(primary),
+    stableTaskId: "spare-low",
+    stableFamilyId: "spare-family-low",
+    taskSha256: sha256("spare-low-task"),
+    sourceArtifactSha256: sha256("spare-low-source"),
+  };
+  const entryB = sourceEntry(second, "moderate");
+  const entryE = sourceEntry(third, "moderate");
+  const spareModerate = {
+    ...structuredClone(entryB),
+    stableTaskId: "spare-moderate",
+    stableFamilyId: "spare-family-moderate",
+    taskSha256: sha256("spare-moderate-task"),
+    sourceArtifactSha256: sha256("spare-moderate-source"),
+  };
+  input.sourceInventory.entries = [
+    primary,
+    variant,
+    spareLow,
+    entryB,
+    entryE,
+    spareModerate,
+  ];
+  let seed = "";
+  for (let index = 1; index < 10_000; index++) {
+    const candidate = index.toString(16).padStart(64, "0");
+    const rankFamily = (stratum: string, family: string) =>
+      selectionRank("family", candidate, `${stratum}\0${family}`);
+    const moderateOrder = [
+      entryB.stableFamilyId,
+      entryE.stableFamilyId,
+      spareModerate.stableFamilyId,
+    ].sort((left, right) =>
+      compareHex(rankFamily("moderate", left), rankFamily("moderate", right)),
+    );
+    if (
+      rankFamily("low", primary.stableFamilyId) <
+        rankFamily("low", spareLow.stableFamilyId) &&
+      moderateOrder[2] === spareModerate.stableFamilyId &&
+      selectionRank(
+        "task",
+        candidate,
+        `${primary.stableFamilyId}\0${primary.stableTaskId}`,
+      ) <
+        selectionRank(
+          "task",
+          candidate,
+          `${variant.stableFamilyId}\0${variant.stableTaskId}`,
+        )
+    ) {
+      seed = candidate;
+      break;
+    }
+  }
+  expect(seed).toMatch(/^[a-f0-9]{64}$/);
+  const rule = {
+    version: "2.0.0" as const,
+    kind: "sealed-declared-inventory-hash-rank-selection" as const,
+    seed,
+    strata: [
+      { stratum: "low", taskCount: 1 },
+      { stratum: "moderate", taskCount: 2 },
+    ],
+    assignmentOrder: "ranked-task-pairs-with-hashed-arm-order" as const,
+  };
+  input.inspection.plan.samplingRule = canonicalJson(rule);
+  input.inspection.plan.tasks = [first, second, third].sort((left, right) =>
+    compareHex(
+      selectionRank("schedule", seed, left.stableFamilyId),
+      selectionRank("schedule", seed, right.stableFamilyId),
+    ),
+  );
+  input.inspection.plan.assignments = input.inspection.plan.tasks.flatMap(
+    (task, index) => {
+      const firstArm =
+        (Number.parseInt(
+          selectionRank("arm", seed, task.stableFamilyId).slice(0, 2),
+          16,
+        ) &
+          1) ===
+        0
+          ? ("baseline" as const)
+          : ("candidate" as const);
+      const secondArm = firstArm === "baseline" ? "candidate" : "baseline";
+      return [
+        {
+          assignmentId: `${task.taskId}-${firstArm}`,
+          taskId: task.taskId,
+          arm: firstArm,
+          ordinal: 2 * index,
+        },
+        {
+          assignmentId: `${task.taskId}-${secondArm}`,
+          taskId: task.taskId,
+          arm: secondArm,
+          ordinal: 2 * index + 1,
+        },
+      ];
+    },
+  );
+  const refresh = (keepSourcePin = false) => {
+    const plan = input.inspection.plan;
+    const planSha256 = hashJson(plan);
+    input.inspection.planSha256 = planSha256;
+    input.cohortPins.planSha256 = planSha256;
+    input.inspection.events[0]!.event.payloadSha256 = planSha256;
+    input.inspection.events[0]!.sha256 = hashJson(
+      input.inspection.events[0]!.event,
+    );
+    input.inspection.assignments = plan.assignments.map((assignment) => ({
+      assignment,
+      reservation: null,
+      publicDispatch: null,
+      oracleInvocation: null,
+      oracleVerdict: null,
+      receipt: null,
+      calls: [],
+    }));
+    state.pins.expectedPlanSha256 = planSha256;
+    if (!keepSourcePin)
+      state.pins.expectedSourceInventorySha256 = hashJson(
+        input.sourceInventory,
+      );
+    const payload = input.bundle.payload;
+    payload.planSha256 = planSha256;
+    payload.sourceInventorySha256 = hashJson(input.sourceInventory);
+    payload.taskInventorySha256 = hashJson(plan.tasks);
+    payload.assignmentInventorySha256 = hashJson(plan.assignments);
+    payload.samplingRuleSha256 = hashJson(plan.samplingRule);
+    payload.selectedStableTaskIds = plan.tasks.map((task) => task.stableTaskId);
+    payload.eligibleSourceCount = input.sourceInventory.entries.filter(
+      (entry) => entry.eligibility === "declared-unseen",
+    ).length;
+    payload.excludedSourceCount =
+      input.sourceInventory.entries.length - payload.eligibleSourceCount;
+    input.bundle.attestations = [
+      state.attest(0, selectedAt, payload),
+      state.attest(1, auditedAt, payload),
+    ];
+  };
+  refresh();
+  const inspect = () =>
+    inspectSealedDeclaredInventorySelection(input, state.trust, state.pins, {
+      nowMs,
+    });
+  return { ...state, rule, refresh, inspect };
+}
+
+it("recomputes opt-in declared-inventory selection and schedule without authority", async () => {
+  const state = await declaredSelectionScenario();
+  const receipt = state.inspect();
+  expect(receipt).toMatchObject({
+    kind: "sealed-declared-inventory-selection-inspection",
+    selectedTaskCount: 3,
+    selectableFamilyCount: 5,
+    excludedFamilyCount: 0,
+    declaredInventorySelectionRecomputed: true,
+    sourceEligibilityAuthenticated: false,
+    samplingRuleSatisfiedVerified: false,
+    independentSeedChronologyVerified: false,
+    sourcePopulationCompletenessVerified: false,
+    antiRollbackVerified: false,
+    populationIndependenceVerified: false,
+    promotionEligible: false,
+  });
+  expect(receipt.selectedStableTaskIds).toEqual(
+    state.input.inspection.plan.tasks.map((task) => task.stableTaskId),
+  );
+  expect(Object.isFrozen(receipt)).toBe(true);
+  expect(() =>
+    inspectSealedPopulationSplitManifest(state.input, state.trust, state.pins, {
+      nowMs,
+    }),
+  ).toThrow(/ambiguous source task identity, family, artifact/);
+  expect(
+    authorizesPromotion(receipt, {} as never, {
+      projectId: receipt.projectId,
+      policyVersion:
+        state.input.inspection.plan.configurations.candidate.policySha256,
+    }),
+  ).toBe(false);
+});
+
+it("keeps the same selection when the declared source array is reordered", async () => {
+  const state = await declaredSelectionScenario();
+  const before = state.inspect().selectedStableTaskIds;
+  state.input.sourceInventory.entries.reverse();
+  state.refresh();
+  expect(state.inspect().selectedStableTaskIds).toEqual(before);
+});
+
+it("rejects quota shortages, unrelated duplicate artifacts and mixed family strata", async () => {
+  const shortage = await declaredSelectionScenario();
+  shortage.input.sourceInventory.entries[2]!.eligibility =
+    "previously-disclosed" as never;
+  shortage.rule.strata = [
+    { stratum: "low", taskCount: 2 },
+    { stratum: "moderate", taskCount: 1 },
+  ];
+  shortage.input.inspection.plan.samplingRule = canonicalJson(shortage.rule);
+  shortage.refresh();
+  expect(() => shortage.inspect()).toThrow(
+    /quota exceeds available source families/,
+  );
+
+  const duplicate = await declaredSelectionScenario();
+  duplicate.input.sourceInventory.entries[2]!.sourceArtifactSha256 =
+    duplicate.input.sourceInventory.entries[0]!.sourceArtifactSha256;
+  duplicate.refresh();
+  expect(() => duplicate.inspect()).toThrow(
+    /ambiguous source task identity, family, artifact/,
+  );
+
+  const mixed = await declaredSelectionScenario();
+  mixed.input.sourceInventory.entries[1]!.stratum = "moderate";
+  mixed.refresh();
+  expect(() => mixed.inspect()).toThrow(
+    /one source family cannot span declared strata/,
+  );
+});
+
+it("rejects resigned task ordering, arm order, seed change and noncanonical rules", async () => {
+  const order = await declaredSelectionScenario();
+  order.input.inspection.plan.tasks.reverse();
+  order.refresh();
+  expect(() => order.inspect()).toThrow(/frozen task inventory differs/);
+
+  const arms = await declaredSelectionScenario();
+  const assignments = arms.input.inspection.plan.assignments;
+  const firstArm = assignments[0]!.arm;
+  assignments[0]!.arm = assignments[1]!.arm;
+  assignments[1]!.arm = firstArm;
+  arms.refresh();
+  expect(() => arms.inspect()).toThrow(/assignment ordinal or arm differs/);
+
+  const seed = await declaredSelectionScenario();
+  const original = seed.rule.seed;
+  let changed = "";
+  for (let index = 1; index < 1000; index++) {
+    const candidate = (index + 10_000).toString(16).padStart(64, "0");
+    if (
+      selectionRank("family", candidate, "low\0spare-family-low") <
+      selectionRank("family", candidate, "low\0stable-family")
+    ) {
+      changed = candidate;
+      break;
+    }
+  }
+  expect(changed).not.toBe(original);
+  seed.rule.seed = changed;
+  seed.input.inspection.plan.samplingRule = canonicalJson(seed.rule);
+  seed.refresh();
+  expect(() => seed.inspect()).toThrow(/frozen task inventory differs/);
+
+  const noncanonical = await declaredSelectionScenario();
+  noncanonical.input.inspection.plan.samplingRule = JSON.stringify(
+    noncanonical.rule,
+  );
+  noncanonical.refresh();
+  expect(() => noncanonical.inspect()).toThrow(/exact canonical JSON bytes/);
+
+  const repeatedStratum = await declaredSelectionScenario();
+  repeatedStratum.rule.strata = [
+    { stratum: "low", taskCount: 1 },
+    { stratum: "low", taskCount: 2 },
+  ];
+  repeatedStratum.input.inspection.plan.samplingRule = canonicalJson(
+    repeatedStratum.rule,
+  );
+  repeatedStratum.refresh();
+  expect(() => repeatedStratum.inspect()).toThrow(/unique, sorted/);
+});
+
+it("excludes an entire exposed family and distinguishes post-pin from pre-pin omissions", async () => {
+  const exposed = await declaredSelectionScenario();
+  exposed.input.sourceInventory.entries[1]!.eligibility =
+    "previously-disclosed" as never;
+  exposed.refresh();
+  expect(() => exposed.inspect()).toThrow(/frozen task inventory differs/);
+
+  const afterPin = await declaredSelectionScenario();
+  afterPin.input.sourceInventory.entries.pop(); // Unselected, eligible source.
+  afterPin.refresh(true); // Preserve the independently retained old inventory pin.
+  expect(() => afterPin.inspect()).toThrow(/pin differs/);
+
+  const beforePin = await declaredSelectionScenario();
+  beforePin.input.sourceInventory.entries.pop();
+  beforePin.refresh(); // Re-pinned and re-signed before any independent anchor.
+  expect(beforePin.inspect()).toMatchObject({
+    declaredInventorySelectionRecomputed: true,
+    sourcePopulationCompletenessVerified: false,
+  });
+});
+
+it("requires original manifest signatures and separate pins in the v2 path", async () => {
+  const state = await declaredSelectionScenario();
+  state.input.bundle.attestations[0]!.signature =
+    state.input.bundle.attestations[1]!.signature;
+  expect(() => state.inspect()).toThrow(/original manifest signature/);
+  const pin = await declaredSelectionScenario();
+  pin.pins.expectedSourceInventorySha256 = "f".repeat(64);
+  expect(() => pin.inspect()).toThrow(/pin differs/);
 });
