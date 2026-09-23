@@ -5,6 +5,11 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  validateCloudInput,
+  executeCloudGraph,
+  CLOUD_BYTES,
+} from "./cloud-graph.mjs";
 
 const SOURCE_PATH = "packages/engine/src/decisions.ts";
 const PACK_PATH = "create-graph-app/scripts/check-pack-contents.js";
@@ -57,6 +62,7 @@ async function describe() {
     typescript: require("typescript/package.json").version,
     zod: require("zod/package.json").version,
     esbuild: require("esbuild/package.json").version,
+    picomatch: require("picomatch/package.json").version,
   };
   if (
     versions.quickjs !== "0.32.0" ||
@@ -64,7 +70,8 @@ async function describe() {
       "0.32.0" ||
     versions.typescript !== "5.9.3" ||
     versions.zod !== "3.25.76" ||
-    versions.esbuild !== "0.28.2"
+    versions.esbuild !== "0.28.2" ||
+    versions.picomatch !== "4.0.7"
   )
     throw new Error("Runtime identity mismatch");
   return {
@@ -77,6 +84,12 @@ async function describe() {
       ),
     ),
     zodBundleSha256: sha256(await readFile("/opt/graph-guest/zod-guest.mjs")),
+    picomatchBundleSha256: sha256(
+      await readFile("/opt/graph-guest/picomatch-guest.mjs"),
+    ),
+    cloudGraphSha256: sha256(
+      await readFile("/opt/graph-guest/cloud-graph.mjs"),
+    ),
     executorSha256: sha256(await readFile(fileURLToPath(import.meta.url))),
     packageLockSha256: sha256(
       await readFile("/opt/graph-guest/package-lock.json"),
@@ -123,6 +136,8 @@ function validateJson(value) {
 }
 
 async function validateInput(value) {
+  if (value?.taskId === "cloud-graph-export")
+    return validateCloudInput(value, CandidateError);
   const { z } = await import("zod");
   const label = z.string().min(1).max(256);
   if (value?.taskId === "linux-private-verification-mount") {
@@ -651,6 +666,8 @@ export function observe(value){
 `;
 
 async function execute(request) {
+  if (request.taskId === "cloud-graph-export")
+    return executeCloudGraph(request, CandidateError);
   const started = performance.now();
   const deadline = started + LIMITS.executionMs;
   const [
@@ -1445,17 +1462,18 @@ async function main() {
   if (process.argv.length !== 2) throw new Error("Unsupported invocation");
   // Identity checks precede all untrusted source processing.
   await describe();
-  let result;
+  let result,
+    outputBytes = LIMITS.outputBytes;
   try {
     const request = await validateInput(await readInput());
+    if (request.taskId === "cloud-graph-export") outputBytes = CLOUD_BYTES;
     result = await execute(request);
   } catch (error) {
     if (!(error instanceof CandidateError)) throw error;
     result = candidateError();
   }
   const output = JSON.stringify(result);
-  if (Buffer.byteLength(output) > LIMITS.outputBytes)
-    throw new Error("Output limit");
+  if (Buffer.byteLength(output) > outputBytes) throw new Error("Output limit");
   process.stdout.write(output + "\n");
 }
 

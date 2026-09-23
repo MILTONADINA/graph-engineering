@@ -28,22 +28,28 @@ const runtimeSchema = z
     typescript: z.literal("5.9.3"),
     zod: z.literal("3.25.76"),
     esbuild: z.literal("0.28.2"),
+    picomatch: z.literal("4.0.7"),
     wasmSha256: z.string().regex(/^[a-f0-9]{64}$/),
     zodBundleSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    picomatchBundleSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    cloudGraphSha256: z.string().regex(/^[a-f0-9]{64}$/),
     executorSha256: z.string().regex(/^[a-f0-9]{64}$/),
     packageLockSha256: z.string().regex(/^[a-f0-9]{64}$/),
   })
   .strict();
 
 /** Strict JSON, including duplicate keys: no comments, suffix records or aliases. */
-export function parseGuestJson(text) {
-  if (typeof text !== "string" || Buffer.byteLength(text) > LIMITS.outputBytes)
+export function parseGuestJson(text, { taskId } = {}) {
+  const maxNodes = taskId === "cloud-graph-export" ? 50000 : 10000;
+  const outputBytes =
+    taskId === "cloud-graph-export" ? 256 * 1024 : LIMITS.outputBytes;
+  if (typeof text !== "string" || Buffer.byteLength(text) > outputBytes)
     throw new Error("Guest protocol exceeded its byte limit");
   const value = JSON.parse(text);
   const syntax = ts.parseJsonText("guest-response.json", text);
   let nodes = 0;
   const visit = (node, depth = 0) => {
-    if (++nodes > 10000 || depth > 32)
+    if (++nodes > maxNodes || depth > 32)
       throw new Error("Guest protocol nesting limit");
     if (ts.isObjectLiteralExpression(node)) {
       const keys = new Set();
@@ -64,7 +70,7 @@ export function parseGuestJson(text) {
   return value;
 }
 
-export function guestEnvelope(text) {
+export function guestEnvelope(text, options) {
   const envelope = z
     .object({
       version: z.literal("1.0.0"),
@@ -72,7 +78,7 @@ export function guestEnvelope(text) {
       observations: z.unknown(),
     })
     .strict()
-    .parse(parseGuestJson(text));
+    .parse(parseGuestJson(text, options));
   if (
     !Object.hasOwn(envelope, "observations") ||
     (envelope.status === "candidate-error" && envelope.observations !== null) ||
@@ -234,6 +240,9 @@ async function guestRuntime(imageId, endpoint, signal) {
     throw new Error("Guest runtime description failed");
   const runtime = runtimeSchema.parse(parseGuestJson(result.stdout));
   const expected = {
+    cloudGraphSha256: hash(
+      await readFile(new URL("guest-runtime/cloud-graph.mjs", import.meta.url)),
+    ),
     executorSha256: hash(
       await readFile(new URL("guest-runtime/executor.mjs", import.meta.url)),
     ),
@@ -313,6 +322,9 @@ export async function verifyCandidate({
     mountOracleSha256: hash(
       await readFile(new URL("candidate-mount.mjs", import.meta.url)),
     ),
+    cloudGraphOracleSha256: hash(
+      await readFile(new URL("candidate-cloud-graph.mjs", import.meta.url)),
+    ),
     imageId,
   };
   const startedAt = new Date().toISOString();
@@ -366,7 +378,7 @@ export async function verifyCandidate({
         break;
       }
       try {
-        const envelope = guestEnvelope(result.stdout);
+        const envelope = guestEnvelope(result.stdout, { taskId });
         if (envelope.status === "candidate-error") {
           checks.push({
             id: scenario.id,

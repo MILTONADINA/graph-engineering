@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736
 WORKDIR /opt/graph-guest
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
-COPY build-zod.mjs executor.mjs ./
+COPY build-zod.mjs executor.mjs cloud-graph.mjs ./
 RUN node build-zod.mjs
 USER 65534:65534
 ENV GRAPH_EVALUATION_GUEST_CONTAINER=1
