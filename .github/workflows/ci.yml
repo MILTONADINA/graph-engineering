@@ -32,6 +32,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+        if: runner.os != 'Linux' || runner.arch != 'X64'
+      - name: Install Linux x64 dependencies with one bounded retry
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          # onnxruntime-node fetches a native archive in postinstall, outside npm's fetch retry.
+          npm ci || { sleep 5; npm ci; }
       - run: npm run format:check
       - run: npm run check
       - name: Evaluation protocol and intake checks
