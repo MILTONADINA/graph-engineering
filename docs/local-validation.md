@@ -17,6 +17,17 @@ These fixtures are synthetic bookkeeping checks, not unseen tasks, independently
 signed evidence, actual model charges or a promotion approval. The protected
 collector and legitimate authority issuer remain unfinished.
 
+The new population/split manifest inspector passed seven focused synthetic
+signature and tamper tests, including duplicate family/artifact exclusion,
+non-source signer checks and signature purpose separation. The signed aggregate
+receipt now exposes the same frozen plan, registry and assignment-inventory
+digests for a later governed join. These are caller-supplied pins and invented
+keys: source eligibility, real signer control, non-backdated chronology and
+anti-rollback remain unverified, and promotion remains disabled. The complete
+workspace check passed after these changes: 452 engine tests passed, 47 were
+explicitly skipped, with typechecks and production builds green. The separate
+template-registry consistency suite passed all five focused tests locally.
+
 ## Isolated private-mount candidate replay
 
 The expanded guest suite passed 24/24 tests without skips. The mount receipt
@@ -460,12 +471,16 @@ freezing for trace ownership. Final image:
 `sha256:e74d285e9f704fd3940032396e0df0e45978a420c9877310b0868fc3e07f6fff`.
 The earlier pre-final receipt was retained privately, not relabeled as this run.
 
-The newly added Windows-only launch fixture is a separate CI check, not a Mac
-result. It probes the exact trusted callers' captured `npm`/`npm.cmd` executable
-choices, the recorded helper with real `npm --version`, and fixed argv/path
-boundaries. It performs no generated-candidate/native application build and
-does not supply calibration labels or promotion authority. Its native Windows
-result remains pending until that new CI job actually executes.
+The Windows-only launch fixture is a separate CI check, not a Mac result. It
+probes the exact trusted callers' captured `npm`/`npm.cmd` executable choices,
+the recorded helper with real `npm --version`, and fixed argv/path boundaries.
+It performs no generated-candidate/native application build and does not supply
+calibration labels or promotion authority. It passed on native Windows in fork
+[run 35837484276](https://github.com/MILTONADINA/graph-engineering/actions/runs/35837484276).
+The Windows platform job now also runs the existing generated-app smoke script:
+three current-scaffolder projects each install dependencies, build and test on
+the native runner. Its first CI result is pending; it is not a historical
+arbitrary-candidate or measured-model replay.
 
 ## Remaining evidence boundaries
 

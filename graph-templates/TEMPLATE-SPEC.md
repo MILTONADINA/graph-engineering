@@ -187,6 +187,12 @@ Deprecation: a template scheduled for removal sets `status: experimental` is not
 
 ## 8. Status
 
-- **implemented** — has `files/`, `tests/`, `examples/`, passes `tools/validate-templates`.
+- **implemented** — has an audited executable renderer, the required schemas
+  and examples, and passes `tools/validate-templates`. A non-empty `files/`
+  directory is required when `files.create` declares new files; modify-only
+  nodes instead need reviewed modification behavior. Tests may live beside the
+  node or in the central generated-code/runtime suite. A declared
+  `testing.strategy: none` does not waive the renderer's applicable central
+  validation and safety checks.
 - **planned** — registered (has `template.yaml`, no `files/`) so the registry documents the intended shape of the graph; an orchestrator must refuse to `generate` it.
 - **experimental** — implemented but contract (`inputs`/`outputs`) may still change without a major version bump; usable but the orchestrator should warn.
