@@ -105,6 +105,15 @@ async function execute(request) {
       context.evalCode(OBSERVER, "graph:private-observer", { type: "module" }),
     );
     const observe = own(context.getProp(observerModule, "observe"));
+    // Parse JSON as data, never as an object-literal expression. The host
+    // currently rejects prototype keys too, but this preserves the exact
+    // input semantics if that validation contract changes later.
+    const input = unwrap(
+      context.evalCode(
+        `JSON.parse(${JSON.stringify(canonical(request.input))})`,
+        "case:input",
+      ),
+    );
     const candidate = unwrap(
       context.evalCode(
         `const module={exports:{}};const exports=module.exports;\n${request.source}\n;module.exports.solve`,
@@ -113,9 +122,6 @@ async function execute(request) {
     );
     if (context.typeof(candidate) !== "function")
       throw new Error("Candidate has no solve function");
-    const input = unwrap(
-      context.evalCode(`(${canonical(request.input)})`, "case:input"),
-    );
     const result = unwrap(
       context.callFunction(candidate, context.undefined, input),
     );
