@@ -662,3 +662,36 @@ private cases are synthetic, and fixture-only keys sign the aggregate. The
 result is an integration check, not a live Qwen or paid-provider measurement,
 source/Docker provenance, an independent witness, or promotion authority;
 all authority flags remain false.
+
+## Current synthetic fixture harness — 2026-09-23 UTC
+
+The current four-file fixture harness was rerun with 60 synthetic tasks in
+120 offline containers. All 60 broken variants failed and all 60 oracle
+variants passed, ten per JavaScript, Python, Go, Rust, Java and C#. The
+[dated original receipt](../evaluation/fixture-validation-2026-09-23.json)
+records the image IDs and current harness source hash
+`d864be0c82646fb1c0f39d35e41df73678de05a27f4b0fe77a9ed9fafa9ac19f`.
+The earlier 2026-09-22 receipt remains historical evidence for its own
+pinned harness, not proof of the changed harness. A fast test now rejects a
+stale current receipt in CI; it checks retained evidence but does not rerun
+Docker. These are fixture/oracle checks with zero model calls, not measured
+coding-agent accuracy or token savings.
+
+## Guarded local-runner and selection-rule checkpoint — 2026-09-23 UTC
+
+The population-manifest suite passed 13 focused tests, including opt-in v2
+related-family exclusion, quota and schedule tampering, signatures,
+separate pins and the deliberate inability to detect source omissions made
+before an independent pin. It reports only conditional selection consistency.
+The new one-attempt local repository runner and the existing signed aggregate
+end-to-end test passed together in two native Docker tests with no skips.
+Their model server was a fake loopback responder; the runner records unknown
+success, never grants promotion, and leaves ambiguous attempts for explicit
+fenced recovery.
+
+The current full workspace check passed 459 engine tests (47 native opt-in
+skips), 59 scaffolder tests, nine dashboard tests, all typechecks and builds.
+The default sealed suite passed 131 tests with ten native opt-in skips.
+Seven Git-safety tests and three receipt/freshness tests passed separately.
+No live Qwen, paid API, independently controlled witness or unseen label was
+used in this checkpoint.

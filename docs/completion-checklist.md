@@ -70,15 +70,19 @@ Item 13 still contains buildable work, not only requests for partner labels:
   exercise the complete-tree claim, guest observations, and independent
   aggregate re-derivation. A synthetic fake-loopback run now joins the actual
   one-call public relay to the v1 repository oracle, original-byte audit and
-  aggregate inspector; it is not a live model measurement. Neither version authenticates Docker/source
-  provenance or safely mounts arbitrary secret-bearing repositories.
-  A separate current-witness
-  comparison rejects stale or changed checkpoints around aggregate inspection;
+  aggregate inspector; it is not a live model measurement. An opt-in local
+  one-attempt runner now joins the frozen public packet, one local model call,
+  retained bytes and v1 oracle without accepting an arbitrary repository mount;
+  it settles with unknown success rather than inventing a positive label.
+  Neither version authenticates Docker or source provenance or safely mounts
+  arbitrary secret-bearing repositories. A separate current-witness comparison
+  rejects stale or changed checkpoints around aggregate inspection;
   it cannot authenticate a caller-provided reader. The vault, image, manifest
   pin and trust remain operator-selected; no promotion authority is issued.
-  Execution beyond a reviewed safe scope, authentic source/worker/oracle transport and an
-  independently controlled append-only witness are still needed for real
-  held-out claims. Existing known-history tasks cannot be relabeled as unseen.
+  Execution beyond a reviewed safe scope, authentic source/worker/oracle
+  transport and an independently controlled append-only witness are still
+  needed for real held-out claims. Existing known-history tasks cannot be
+  relabeled as unseen.
 - Connect verified independent attestations to promotion-bound imports. The
   unsigned label importer, full-cohort preflight, current-identity comparison
   and purpose-separated row-signature verifier are analysis-only and cannot
@@ -88,10 +92,12 @@ Item 13 still contains buildable work, not only requests for partner labels:
   inventory, selected tasks and frozen assignments to purpose-separated
   selector/auditor signatures and separately supplied pins. The aggregate
   receipt exposes matching plan, registry and assignment-inventory digests for
-  a later governed join. Neither inspector authenticates source eligibility,
-  independent actor control or pre-run chronology; all authority flags stay
-  false. The
-  legitimate authority issuer must still join authenticated cohort-scale
+  a later governed join. An opt-in v2 rule verifier also recomputes stratum
+  quotas, related-family selection and arm order from the pinned _declared_
+  inventory; it cannot prove inventory completeness or independent seed choice.
+  Neither inspector authenticates source eligibility, independent actor control
+  or pre-run chronology; all authority flags stay false. A legitimate authority
+  issuer must still join authenticated cohort-scale
   provenance, complete outcomes, protected worker/oracle receipts, independent
   unseen-task review and operator-approved project/policy trust. Permanently
   disabling promotion would not complete that requested capability.
@@ -99,6 +105,12 @@ Item 13 still contains buildable work, not only requests for partner labels:
 The [paired-cohort accounting API](paired-cohort-evaluation.md) preserves every
 assigned task and original call independently of confidence-filtered rows;
 its unsigned analysis results cannot activate production routing.
+
+The current [synthetic fixture receipt](../evaluation/fixture-validation-2026-09-23.json)
+was regenerated from the present harness: 60 broken variants were rejected
+and 60 oracle variants passed in 120 offline containers. CI checks the retained
+receipt against the current harness source and task inventory. This remains
+fixture validation, not a model benchmark.
 
 These gaps are detailed in [the calibration workflow](calibration-corpus.md)
 and [repository black-box boundary](repository-blackbox-boundary.md).
