@@ -40,6 +40,50 @@ The numerical gates are unchanged: at least 50 calibration samples per route,
 measured API-cost reduction, no additional paired failures and no hard-policy
 violations. These thresholds do not establish representativeness by themselves.
 
+## Opt-in declared-inventory selection check
+
+`inspectSealedDeclaredInventorySelection()` supplements the signed
+population/split-manifest inspection. A v2 plan must put a **canonical JSON**
+rule in its existing `samplingRule` string, with version `2.0.0`, kind
+`sealed-declared-inventory-hash-rank-selection`, a 64-hex `seed`, sorted unique
+`strata` entries containing `stratum` and positive `taskCount`, and
+`assignmentOrder: "ranked-task-pairs-with-hashed-arm-order"`. Historical prose
+rules continue through `inspectSealedPopulationSplitManifest()` unchanged.
+
+Against the separately pinned, declared source inventory, v2 groups related
+tasks by `stableFamilyId`, excludes an entire family if any member is declared
+exposed, and rejects conflicting strata within one family. It ranks families
+within each stratum using domain-separated SHA-256 of the seed and family ID,
+then ranks tasks within each chosen family, selecting at most one task per
+family. A separate hash ranks the selected tasks for execution; another hash
+sets each task's baseline/candidate arm order. Explicit lexical identity
+tie-breakers make the selection independent of source-array order. Quotas must
+cover every selectable declared stratum and exactly exhaust the frozen task
+count. The inspector checks the exact selected task order and paired assignment
+ordinals/arms against the signed plan. Related source entries may share an
+artifact within their family in v2; the historical v1 inspector retains its
+stricter duplicate-family rule.
+
+For reproducibility, each rank is `hashJson({ domain, seed, identity })`,
+where `hashJson` is SHA-256 of canonical JSON and `domain` is
+`graph-engineering/sealed-declared-inventory-selection/<stage>/v2`. Stages are
+`family`, `task`, `schedule`, and `arm`. Family identity is
+`<stratum>\0<stableFamilyId>`; task identity is
+`<stableFamilyId>\0<stableTaskId>`; schedule and arm identities are the
+`stableFamilyId`. Sort by lowercase hex rank, then by lexical ID on a hash tie.
+An even low bit of the arm hash's first byte schedules baseline first; an odd
+bit schedules candidate first. Assignments then occupy consecutive ordinals
+for each scheduled task.
+
+The receipt says `declaredInventorySelectionRecomputed: true`, not that the
+population is complete, representative, independently chosen, or genuinely
+unseen. Removing an entry **after** the source-inventory digest has been
+independently pinned is detected; omitting it **before** that pin is not. A
+selector can also pick a favorable seed unless an independent pre-run witness
+anchors it. Thus source completeness, seed chronology, actor independence,
+protected execution, anti-rollback and `promotionEligible` remain false. The
+v2 check is local conditional consistency, not a promotion grant.
+
 The output binds the whole measured candidate configuration; a joint experiment
 does not justify independently changing a model, context policy or category later.
 `metricsEligible` describes only the supplied analysis. Every result has
