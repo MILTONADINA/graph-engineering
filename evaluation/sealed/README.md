@@ -424,6 +424,20 @@ non-blob input remain independently bounded. Build the
 engine before using this local module. The existing sealed schema adapter also
 requires the project's installed `tsx` dependency and source tree at runtime.
 
+The engine's private `inspectSignedSealedWorkerDelivery()` is a separate,
+analysis-only integration point for one completed call. Given an independently
+selected Ed25519 worker-key pin, a purpose-separated signed claim, a complete
+closed ledger and exact original request/response bytes, it verifies the
+signature, frozen provider/dispatch/call identities and both byte hashes. It
+returns only hashes and `promotionEligible: false`; it never exports the
+original bytes. It does not create or provision a signer, verify that the
+pin's owner is independent, attest the worker binary or loaded model, prove
+the named model actually produced the response, authenticate source origin,
+or cover private oracle execution. No production worker currently emits this
+receipt, and one verified call is not whole-cohort provenance. The verifier
+must be joined to independently governed key control, protected transport,
+oracle receipts and a current witness before any held-out authority claim.
+
 `inspectSealedCurrentGovernance()` in the engine also compares that signed
 aggregate with two fresh, challenge-bound checkpoints from a caller-configured
 current-witness reader. It fails on changed ledger heads, registrations, trust
