@@ -8,7 +8,7 @@
 import { types } from "node:util";
 import { tsImport } from "tsx/esm/api";
 import { ArtifactStore } from "./artifacts.mjs";
-import { hashJson } from "./schema.mjs";
+import { cloneJson, hashJson } from "./schema.mjs";
 import { SealedStore } from "./store.mjs";
 
 const { buildSealedPublicPacket, assertPublicPacketCommitment } =
@@ -88,10 +88,26 @@ export class SealedPublicPacketBridge {
     );
     identifier(collectionId, "collection ID");
     identifier(taskId, "task ID");
+    const request = cloneJson(
+      fields(
+        packetInput,
+        [
+          "root",
+          "policy",
+          "taskId",
+          "repositoryId",
+          "baselineSha256",
+          "objective",
+          "acceptance",
+          "selected",
+        ],
+        "Public packet input",
+      ),
+    );
     // The builder validates its complete request and reads every selected file
     // through the project export policy. No artifact is written on a mismatch.
     const before = this.#openTask(collectionId, taskId);
-    const prepared = await buildSealedPublicPacket(packetInput);
+    const prepared = await buildSealedPublicPacket(request);
     assertPublicPacketCommitment(prepared, before.task);
     const artifact = await this.#artifacts.put(prepared.bytes);
     if (artifact.sha256 !== before.task.publicPacketSha256)

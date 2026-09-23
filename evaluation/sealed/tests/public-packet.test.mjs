@@ -297,5 +297,22 @@ test("bridge input records refuse accessor and proxy substitution", async (t) =>
   );
   const proxy = new Proxy({}, { get: () => (touched = true) });
   await assert.rejects(bridge.retain(proxy), /plain data object/);
+  await assert.rejects(
+    bridge.retain({
+      collectionId: data.plan.collectionId,
+      taskId: packetInput.taskId,
+      packetInput: {
+        ...packetInput,
+        policy: {
+          ...packetInput.policy,
+          get exportPaths() {
+            touched = true;
+            return ["**"];
+          },
+        },
+      },
+    }),
+    /accessors/,
+  );
   assert.equal(touched, false);
 });
