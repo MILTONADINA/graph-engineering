@@ -121,3 +121,19 @@ it("rejects duplicate aliases and export data that exceeds its explicit bounds",
   await writeFile(path.join(root, "src", "task.ts"), "x".repeat(100_001));
   await expect(buildSealedPublicPacket(input)).rejects.toThrow(/bounded/);
 });
+
+it("rejects packets the fixed intake cannot parse", async () => {
+  const { input } = await fixture();
+  await expect(
+    buildSealedPublicPacket({ ...input, objective: "bad\ud800" }),
+  ).rejects.toThrow(/well-formed/);
+  await expect(
+    buildSealedPublicPacket({ ...input, acceptance: ["bad\udfff"] }),
+  ).rejects.toThrow(/well-formed/);
+  await expect(
+    buildSealedPublicPacket({
+      ...input,
+      selected: [{ path: "src/bad\nname.ts", kind: "source" }],
+    }),
+  ).rejects.toThrow(/well-formed/);
+});

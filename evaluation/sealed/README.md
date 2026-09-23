@@ -220,6 +220,12 @@ interrupted retention can leave an unreferenced content-addressed blob. A
 separately isolated worker/oracle transport, original acknowledgments and
 signed provenance are still required for sealed held-out evidence.
 
+An optional [public-packet intake sandbox](worker-runtime/README.md) now sends
+only the bridge-retained packet to a fixed, offline Docker guest and returns a
+content-hash acknowledgment. It is deliberately not a model worker or oracle
+transport. Its unsigned local acknowledgment does not settle the attempt or
+prove delivery of a proposal.
+
 ## Remaining trust boundary
 
 These APIs accept caller-supplied commitments and receipt claims. Hash matching
