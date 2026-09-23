@@ -59,9 +59,10 @@ source. This acknowledgment is unsigned and replayable. A malicious local
 Docker daemon, image provisioner or host administrator can defeat these
 controls; image ID alone does not prove supply-chain provenance. The bridge's
 claim can precede zero delivery, and a timeout can follow partial delivery.
-Recovery must fence in-flight transport. Protected execution, oracle isolation,
-original model request/response bytes and signed provenance remain separate
-unfinished boundaries.
+Recovery must fence in-flight transport. A separate local model relay is
+described below; this intake acknowledgment alone remains unfinished worker
+execution. A separate narrow private digest verifier exists, but general
+protected engineering-oracle execution and signed provenance are still absent.
 
 Pure tests run with the sealed suite:
 
@@ -78,4 +79,78 @@ GRAPH_SEALED_PUBLIC_INTAKE_NATIVE_TESTS=1 \
 GRAPH_SEALED_PUBLIC_INTAKE_IMAGE=sha256:<resolved-image-id> \
 GRAPH_SEALED_PUBLIC_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
   node --test evaluation/sealed/tests/worker-sandbox.test.mjs
+```
+
+## Experimental local model worker relay
+
+`runOneShotLocalModelWorker()` is a trusted `SealedPublicPacketBridge.dispatch()`
+callback for **one frozen local provider call**. The offline Docker guest gets
+only the bridge-retained canonical public packet and frozen model name/output
+limit. It builds an OpenAI-compatible JSON request. The host compares every
+byte with its own deterministic builder, retains those exact bytes in the
+private `ArtifactStore`, rechecks the active dispatch claim, and durably
+reserves the call **before** sending any request byte. The host—not the
+container—then POSTs the same bytes to the frozen `127.0.0.1` or `[::1]`
+provider origin at `/v1/chat/completions`. The endpoint receives no oracle,
+private memory, host environment, credential, or filesystem mount from this
+adapter. Only `local` providers with a frozen local-weights identity are
+accepted; paid/cloud providers and API keys are not supported here.
+
+A bounded HTTP response **body** is retained unmodified before call settlement;
+the transport status is recorded separately, but original wire headers and
+status-line bytes are not captured. A received partial body is retained when
+possible after an interrupted response, with the call marked ambiguous.
+A valid in-scope JSON proposal is also retained, but is **not applied or
+verified**. Invalid/out-of-scope proposals or a different reported model
+become provider errors while their raw response remains available for audit.
+A timeout, interrupted request or
+unretained response is conservatively ambiguous and must never be retried.
+The returned observation names request/response/proposal byte references and
+is unsigned, replayable, and `promotionEligible: false`; it does not settle the
+engineering attempt or establish a held-out outcome.
+
+```js
+let observation;
+const dispatch = await bridge.dispatch({
+  handle,
+  reservationId,
+  send: async (publicBytes, metadata) => {
+    observation = await runOneShotLocalModelWorker(publicBytes, metadata, {
+      store,
+      artifacts,
+      providerId: "frozen-local-provider-id",
+      imageId, // immutable image ID from the explicit offline build above
+      endpoint, // explicit local Unix Docker socket
+      signal, // supervisor-owned abort signal
+    });
+  },
+});
+// dispatch is only the durable bridge claim; observation is unsigned local
+// transport bookkeeping. The trusted collector still owns recovery/settlement.
+```
+
+The model server itself is **outside the container** and is neither isolated
+nor attested by this adapter. The frozen weights hashes are caller-supplied
+commitments, not independently verified against the running Qwen instance.
+The reported response model must exactly match the frozen requested model;
+aliases that the server reports under a different name are rejected. A local
+model may retain its own logs. The
+host and Docker daemon remain trusted. A race between the final ledger check
+and HTTP dispatch is not atomic; the supervisor must fence in-flight transport
+before abandoning an attempt. No general protected engineering oracle,
+independent review, signed transport provenance, or promotion authority is
+supplied by this relay. The separate digest verifier covers only one exact-byte
+question.
+`local-no-api-charge` means no marginal external API charge, not zero machine
+cost. The adapter performs no paid inference.
+
+The pure test runs without Docker. The opt-in native test uses a fake loopback
+model server, never a paid or running Qwen model:
+
+```sh
+node --test evaluation/sealed/tests/local-worker.test.mjs
+GRAPH_SEALED_PUBLIC_INTAKE_NATIVE_TESTS=1 \
+GRAPH_SEALED_PUBLIC_INTAKE_IMAGE=sha256:<resolved-image-id> \
+GRAPH_SEALED_PUBLIC_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
+  node --test evaluation/sealed/tests/local-worker.test.mjs
 ```
