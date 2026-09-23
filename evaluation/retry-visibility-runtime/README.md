@@ -47,5 +47,40 @@ the fixture. It demonstrates pinned historical behavior, but a malicious
 candidate could alter process globals or the fixture. It is therefore
 restricted to the two exact Git-pinned source digests. Arbitrary candidate
 source is refused before Docker starts. The receipt is analysis-only and does
-not mint promotion authority. A controller-owned candidate sandbox is needed
-before arbitrary candidate results can be treated as independent evidence.
+not mint promotion authority. A separate controller can protect observations,
+but independent hidden/governed evidence requires more than that sandbox.
+
+## Opt-in arbitrary-source behavioral diagnostic
+
+`diagnoseRetryCandidate({ [RETRY_SOURCE_PATH]: source })` in
+`evaluation/verify-retry-visibility.mjs` accepts one bounded `service.ts`
+source without the two historical digest allowlist. It runs the **real
+historical GraphEngine service code and Node runtime**, not a QuickJS
+approximation. The original `verifyRetryCandidate` remains the exact-hash
+historical-evidence entry point. The opt-in diagnostic runs in the native
+retry test when `GRAPH_ENGINE_RETRY_DOCKER_TESTS=1`.
+
+The Docker parent controls the original historical SQLite RunStore in a
+root-owned `0700` directory and observes status through a separate SQLite
+connection. It owns the fixed worker, verifier and result assembly. A uid-65534
+child runs the candidate service in a fresh project/workspace and reaches the
+store only through a bounded Unix-socket RPC shim. No host path, credential,
+network or private controller directory is mounted. The controller allows
+only `SETUID`, `SETGID` and `DAC_OVERRIDE`: the first two drop the candidate
+UID, while DAC override lets the controller inspect and clean the historical
+engine's uid-65534-owned `0700` project-data directories. The guest asserts
+`CapEff`, `CapPrm`, `CapInh` and `CapAmb` are zero, `NoNewPrivs` is set, and the
+controller-private SQLite directory is unreadable before candidate source
+loads. The parent checks fixed event/worker/verification order, actual
+workspace source progression, durable usage and final SQLite state.
+Guest-reported success alone is never accepted. Native regressions reject
+direct extra RPC events, missing worker events and forged stdout completion.
+
+This is a **public known-history behavioral diagnostic**, not an independent
+algorithm-provenance verifier. Candidate-controlled source legitimately has
+the same store/worker/verifier interface as the service and could deliberately
+imitate the five public witness traces. The receipt says
+`authorityStatus: "public-historical-diagnostic-only"`,
+`algorithmProvenanceVerified: false`, `independentWitnessVerified: false`, and
+`promotionEligible: false`. It does not justify held-out labels, model success,
+paired costs, routing promotion or arbitrary engineering correctness.
