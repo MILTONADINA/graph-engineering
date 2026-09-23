@@ -29,6 +29,10 @@ import { authenticationTemplates } from "./template-runtime-auth.js";
 import { permissionTemplates } from "./template-runtime-permissions.js";
 import { storageTemplates } from "./template-runtime-storage.js";
 import { devopsTemplates } from "./template-runtime-devops.js";
+import {
+  awsTemplates,
+  awsDescriptorForSecretScan,
+} from "./template-runtime-aws.js";
 import { databaseTemplates } from "./template-runtime-database.js";
 import { frontendTemplates } from "./template-runtime-frontend.js";
 import {
@@ -257,6 +261,7 @@ const extensions: Record<string, AuditedTemplateExtension> = {
   ...permissionTemplates,
   ...storageTemplates,
   ...devopsTemplates,
+  ...awsTemplates,
   ...databaseTemplates,
   ...frontendTemplates,
   ...projectTemplates,
@@ -976,9 +981,20 @@ export async function renderTemplateProposal(
   }));
   const changes = [];
   for (const artifact of artifacts) {
+    let scannerContent = artifact.content;
+    if (templateId === "devops.aws") {
+      if (
+        artifact.path !== target("deploy/ecs-express-create-service.json") ||
+        isAllowedPath(artifact.path, options.policy, true)
+      )
+        throw new Error(
+          "AWS descriptor must remain at its private audited path",
+        );
+      scannerContent = awsDescriptorForSecretScan(artifact.content);
+    }
     if (
       Buffer.byteLength(artifact.content) > 200_000 ||
-      containsSecret(artifact.content)
+      containsSecret(scannerContent)
     )
       throw new Error(
         "Template output is oversized or contains a potential secret",

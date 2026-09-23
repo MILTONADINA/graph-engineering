@@ -90,6 +90,73 @@ async function fixture() {
   return { base, root, config, run };
 }
 describe("safe recoverable publication", () => {
+  it("refuses to commit or push a private ECS Express descriptor, including nested paths", async () => {
+    for (const relative of [
+      "deploy/ecs-express-create-service.json",
+      "apps/api/deploy/ecs-express-create-service.json",
+    ]) {
+      const { base, root, config, run } = await fixture();
+      Object.assign(
+        run,
+        await createWorkspace(root, base, run.id, config.policy),
+      );
+      await mkdir(path.dirname(path.join(run.workspace!, relative)), {
+        recursive: true,
+      });
+      await writeFile(path.join(run.workspace!, relative), "{}\n");
+      await expect(publishRun(root, run, config)).rejects.toThrow(
+        "Private AWS descriptor cannot be published",
+      );
+      expect(
+        await util.checked("git", ["rev-list", "--count", "HEAD"], {
+          cwd: run.workspace,
+        }),
+      ).toBe("1");
+    }
+  });
+  it("refuses to publish a descriptor that was committed then deleted from the run branch", async () => {
+    for (const relative of [
+      "deploy/ecs-express-create-service.json",
+      "apps/api/deploy/ecs-express-create-service.json",
+      "apps/api/DEPLOY/ECS-EXPRESS-CREATE-SERVICE.JSON",
+    ]) {
+      const { base, root, config, run } = await fixture();
+      Object.assign(
+        run,
+        await createWorkspace(root, base, run.id, config.policy),
+      );
+      await mkdir(path.dirname(path.join(run.workspace!, relative)), {
+        recursive: true,
+      });
+      await writeFile(path.join(run.workspace!, relative), "{}\n");
+      await util.checked("git", ["add", "--", relative], {
+        cwd: run.workspace,
+      });
+      await util.checked(
+        "git",
+        [
+          "-c",
+          "core.hooksPath=/dev/null",
+          "commit",
+          "-m",
+          "private descriptor",
+        ],
+        { cwd: run.workspace },
+      );
+      await rm(path.join(run.workspace!, relative));
+      await util.checked("git", ["add", "--", relative], {
+        cwd: run.workspace,
+      });
+      await util.checked(
+        "git",
+        ["-c", "core.hooksPath=/dev/null", "commit", "-m", "remove descriptor"],
+        { cwd: run.workspace },
+      );
+      await expect(publishRun(root, run, config)).rejects.toThrow(
+        "Private AWS descriptor cannot be published",
+      );
+    }
+  });
   it("recovers workspace creation before run metadata was persisted", async () => {
     const { base, root, config, run } = await fixture();
     const first = await createWorkspace(root, base, run.id, config.policy);
