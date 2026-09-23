@@ -1,0 +1,4281 @@
+{
+  "corpusSha256": "443b490cd991b9afaa77a66ccb8eea7466d438e50b20f80170dd3a4cd237f049",
+  "taskSha256": "8510938b120ba956f6ac70f1f703b861a74399cd70bdef91489b798d5a99b7b4",
+  "historyVerified": true,
+  "version": "1.0.0",
+  "taskId": "verifier-infrastructure-stop",
+  "baseCommit": "99133f54c992d998fbd40534670755482aca2817",
+  "repairCommit": "06e16897649bd72baa90a05f3732474a2292ecdc",
+  "sourceIdentities": {
+    "base": [
+      {
+        "path": "packages/engine/src/service.ts",
+        "mode": "100644",
+        "blobOid": "c415b0945a980313f20bd8186b986363a7d40e3c",
+        "sha256": "4629de2dfc0274f7496d5a98024fdf757bb69fdb90fe20e26c9b24212773b32c"
+      },
+      {
+        "path": "scripts/verify-project.mjs",
+        "mode": "100644",
+        "blobOid": "01b9f92e462a1b07730764f2277de98b61e6b6d9",
+        "sha256": "f0965f30556140d8440f4dd81b219202f8ec5cce087f216828150dcb2e518896"
+      }
+    ],
+    "repair": [
+      {
+        "path": "packages/engine/src/service.ts",
+        "mode": "100644",
+        "blobOid": "684f3043864e892751fd6473227c2f9d057370b5",
+        "sha256": "8407e01f6c19257107def02a485c684f4e4c521e763b23bea9826f8d07a114c5"
+      },
+      {
+        "path": "scripts/verify-project.mjs",
+        "mode": "100644",
+        "blobOid": "b5a8d470f98d23e029f2b11a1a7301afaf27a4f4",
+        "sha256": "24a8f14d9366f239c827f6b5bf7bda8e65f177906cfeaef4f158393db01c2325"
+      }
+    ]
+  },
+  "baseline": {
+    "version": "1.0.0",
+    "taskId": "verifier-infrastructure-stop",
+    "fixtureKind": "known-history-quickjs-native-ledger-and-virtual-setup",
+    "imageId": "sha256:c60db856513039981a41782b5f5cb4f2749bbd037cee2d0befeff0fa44ed65f9",
+    "runtime": {
+      "version": "1.0.0",
+      "node": "v24.16.0",
+      "versions": {
+        "quickjs-emscripten-core": "0.32.0",
+        "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+        "typescript": "5.9.3",
+        "esbuild": "0.28.2",
+        "better-sqlite3": "13.0.3",
+        "picomatch": "4.0.3"
+      },
+      "hashes": {
+        "executor.mjs": "6b32fad2566a3c0485edaef51d55af66272d9912e354325e1b35e9dd5fac26d0",
+        "service-controller.mjs": "6ab5b0ad36c4f232abed31ce88b4f5248ffd17fe5c4b8c007c76f1336b90d58b",
+        "service-fixture.js": "c35ada771da0c70a1d5a0e77430fc6ae19bd10385224787ad250d1dc3ea36a11",
+        "service-harness.js": "8206e99e63b73ffbee9c70742f74506add6774a1eccc9ca91ae343853b576b86",
+        "setup-controller.mjs": "2b94810ae02a96ef4cd9ccb91d1b83f6211e06c192fe58adfd4f17767015f038",
+        "setup-fixture.js": "04ced223b8cb41a3c24031cf3f1196f5bb76d75e655faac3dbd59dfcc111824f",
+        "setup-executor.mjs": "167f413fd0f2bcf0bbda57f47329701c45eac5fb3c601e520d271c86a993e28c",
+        "store-bundle.mjs": "c7985975a64836e820dfa5158827167da8007aa510ea14bff413e8067dba4e3c",
+        "build-store.mjs": "e2d844ee5dfaec1d3e31e72a358a6eda70a4dd80dedebe477cf81bb086a218de",
+        "context.json": "8d2715c1ec628bc5f854139f4d83acb7b6220c6ff0901d07d241ed70cbb1099e",
+        "package-lock.json": "a362f2c6000f6a4ecafcea839acfb38049c9fe98dcbfaf21010a575384c9977c",
+        "wasm": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
+      }
+    },
+    "verifierHashes": {
+      "verify-verifier-infrastructure.mjs": "0dbdd043fa9150fe984010e9bc82cf75358904c0f73ad6b02445f4b7e2ab11f5",
+      "candidate-verifier-infrastructure.mjs": "a9e5da85a470033e0c693f8e24d278f517f37079b406718779f1f6104afef388",
+      "candidate-verifier-setup.mjs": "bde6356dff3cb00225dc88bdd62272034708348a2e6cb4171794477bf26a7d7b",
+      "infrastructure-runtime/history.mjs": "77e9c9830d32d6296ae870d1df40b274845bb2c9af606a2cfd6d8edeea591ec8",
+      "infrastructure-runtime/provision.mjs": "4a2c8ed782a34302424db78045b61d88db3b4d531b986898debace03003adcea",
+      "infrastructure-runtime/Dockerfile": "06647d764257df250fdf2689d72f65a2c2dd7d7cb4f5b01d32f50a14cd9069e4",
+      "verify-template-invocations.mjs": "6786267df2255978d68a137d8280763b22bc81398c466ac060088c35bfbc6bdf",
+      "candidate-template-invocations.mjs": "2c8d03720886a786ebc9fec387dd97237ba559b1d8697d4f12c7f6a11809b534",
+      "run.mjs": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "isolated-candidate.mjs": "5844c72f1fa16eed8c39aa8c84e477fd3681bbc42ca2eea0090a82e7ada05075",
+      "corpus-history.mjs": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321"
+    },
+    "trustedStoreIdentities": [
+      {
+        "path": "packages/engine/src/store.ts",
+        "mode": "100644",
+        "blobOid": "e0ae4fad9f5174ba27ca1abb5b702b583d9437c6",
+        "sha256": "7776ff07b07d101146e8a4b2c35f968baab99465043fece71b38c7f88d861f73"
+      },
+      {
+        "path": "packages/engine/src/util.ts",
+        "mode": "100644",
+        "blobOid": "29817b3d43f6a4b337c531f6f9d27ab7a06a090e",
+        "sha256": "8487a04494065e93c0ad81f8abb7eb53ddc375896bbab389c6e7dcf276d6f1a5"
+      },
+      {
+        "path": "packages/engine/src/policy.ts",
+        "mode": "100644",
+        "blobOid": "c20c12eb56cf78acd722b4aff78af4f2ee656e6a",
+        "sha256": "159e328a307106a8c1fe1576396819155ebd45fd1e7a100cd440d64eecb100db"
+      },
+      {
+        "path": "packages/engine/src/accounting.ts",
+        "mode": "100644",
+        "blobOid": "943ba944e206620fd83b4f0529c58277c5b1d45f",
+        "sha256": "4e9cfd075d4a638fb033235f7271a57fce33d4953c1e1f88e09811fac1cfeb2e"
+      }
+    ],
+    "candidateSources": [
+      {
+        "path": "packages/engine/src/service.ts",
+        "sha256": "4629de2dfc0274f7496d5a98024fdf757bb69fdb90fe20e26c9b24212773b32c",
+        "bytes": 44083
+      },
+      {
+        "path": "scripts/verify-project.mjs",
+        "sha256": "f0965f30556140d8440f4dd81b219202f8ec5cce087f216828150dcb2e518896",
+        "bytes": 1451
+      }
+    ],
+    "results": [
+      {
+        "id": "docker-125-measured",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 125,
+                "stderr": "Docker daemon could not create the container",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-78-measured",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "[graph-verifier:setup-failed]\nDependency image cannot be prepared",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "docker-125-unknownCost",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 2,
+                "estimatedCallCount": 2,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 125,
+                "stderr": "Docker daemon could not create the container",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-78-unknownCost",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 2,
+                "estimatedCallCount": 2,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "[graph-verifier:setup-failed]\nDependency image cannot be prepared",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "docker-125-unknownUsage",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 2,
+                "estimatedCallCount": 2,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 125,
+                "stderr": "Docker daemon could not create the container",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-78-unknownUsage",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 2,
+                "estimatedCallCount": 2,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "[graph-verifier:setup-failed]\nDependency image cannot be prepared",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "ordinary-eacces",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 1,
+                "stderr": "EACCES in authorization test assertion",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "ordinary-78-without-marker",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "Test assertion failed",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "marker-with-wrong-status",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 1,
+                "stderr": "[graph-verifier:setup-failed]\nThis is ordinary test output",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "marker-in-stdout-only",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "Test assertion failed",
+                "stdout": "[graph-verifier:setup-failed]",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "marker-not-at-stderr-start",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "Test output before marker\n[graph-verifier:setup-failed]",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "passing-check-ignores-marker",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": 0.375,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.375,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 0,
+                "stderr": "[graph-verifier:setup-failed]",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "ordinary-unknown-usage",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 2,
+                "estimatedCallCount": 2,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 1,
+                "stderr": "Ordinary assertion failure",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-copies-executable-and-relative-symlink",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 0,
+            "stdout": "",
+            "stderr": "",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "executable": "npm",
+                "args": [
+                  "test",
+                  "--prefix",
+                  "graph-templates/tools/validate-graph"
+                ],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-native-cp-eacces-workaround",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Uncaught EACCES: Fixture native recursive cp bind-mount failure\n",
+            "wrapperErrors": [],
+            "commands": [],
+            "destination": [],
+            "outside": "keep unchanged",
+            "uncaught": {
+              "message": "Fixture native recursive cp bind-mount failure",
+              "code": "EACCES"
+            }
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-root-metadata-mismatch",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Uncaught Error: Dependency metadata changed: /package.json. Rebuild the verification image explicitly.\n",
+            "wrapperErrors": [],
+            "commands": [],
+            "destination": [],
+            "outside": "keep unchanged",
+            "uncaught": {
+              "message": "Dependency metadata changed: /package.json. Rebuild the verification image explicitly.",
+              "code": null
+            }
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-late-metadata-before-any-copy",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Uncaught Error: Dependency metadata changed: graph-templates/tools/validate-graph/package-lock.json. Rebuild the verification image explicitly.\n",
+            "wrapperErrors": [],
+            "commands": [],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": {
+              "message": "Dependency metadata changed: graph-templates/tools/validate-graph/package-lock.json. Rebuild the verification image explicitly.",
+              "code": null
+            }
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-copy-file-denied",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Uncaught EACCES: Fixture file copy permission denied\n",
+            "wrapperErrors": [],
+            "commands": [],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 493
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": {
+              "message": "Fixture file copy permission denied",
+              "code": "EACCES"
+            }
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-destination-symlink-refused",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Uncaught ELOOP: Copy destination is an existing symlink\n",
+            "wrapperErrors": [],
+            "commands": [],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "symlink",
+                "mode": 511,
+                "target": "/outside"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": {
+              "message": "Copy destination is an existing symlink",
+              "code": "ELOOP"
+            }
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-npm-launch-enoent",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Uncaught ENOENT: npm executable unavailable\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": {
+              "message": "npm executable unavailable",
+              "code": "ENOENT"
+            }
+          }
+        },
+        "passed": false
+      },
+      {
+        "id": "setup-ordinary-eacces-test-failure",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "EACCES in the authorization test assertion\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-second-command-test-failure",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Assertion mismatch\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "executable": "npm",
+                "args": [
+                  "test",
+                  "--prefix",
+                  "graph-templates/tools/validate-graph"
+                ],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-child-78-is-not-wrapper-marker",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "Ordinary test exited 78\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-child-null-status",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Child interrupted\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-child-marker-spoof-characterization",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "[graph-verifier:setup-failed]\nchild-controlled text\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      }
+    ],
+    "allCompleted": true,
+    "passed": false,
+    "modelCalls": 0,
+    "actualNetworkCalls": 0,
+    "promotionEligible": false,
+    "limitations": [
+      "Known historical fixtures, not held-out tasks, independent labels, paid-provider measurements or promotion evidence.",
+      "Full service runs against bounded sequential-workflow capabilities and real historical SQLite RunStore; wider ContextEngine, Git, DAG and publication semantics are not covered.",
+      "Setup files and child processes are protected virtual fixtures, including an injected native-cp permission error; no actual npm tests, Docker daemon failure or bind-mount regression is reproduced.",
+      "The historical exit-78/stderr marker protocol is unauthenticated: a child can forge the combined pair. The fixture characterizes this limitation, not stronger provenance.",
+      "Finite behavioral cases and QuickJS/resource limits are not a proof of arbitrary candidate correctness or a general sandbox guarantee."
+    ]
+  },
+  "repaired": {
+    "version": "1.0.0",
+    "taskId": "verifier-infrastructure-stop",
+    "fixtureKind": "known-history-quickjs-native-ledger-and-virtual-setup",
+    "imageId": "sha256:c60db856513039981a41782b5f5cb4f2749bbd037cee2d0befeff0fa44ed65f9",
+    "runtime": {
+      "version": "1.0.0",
+      "node": "v24.16.0",
+      "versions": {
+        "quickjs-emscripten-core": "0.32.0",
+        "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+        "typescript": "5.9.3",
+        "esbuild": "0.28.2",
+        "better-sqlite3": "13.0.3",
+        "picomatch": "4.0.3"
+      },
+      "hashes": {
+        "executor.mjs": "6b32fad2566a3c0485edaef51d55af66272d9912e354325e1b35e9dd5fac26d0",
+        "service-controller.mjs": "6ab5b0ad36c4f232abed31ce88b4f5248ffd17fe5c4b8c007c76f1336b90d58b",
+        "service-fixture.js": "c35ada771da0c70a1d5a0e77430fc6ae19bd10385224787ad250d1dc3ea36a11",
+        "service-harness.js": "8206e99e63b73ffbee9c70742f74506add6774a1eccc9ca91ae343853b576b86",
+        "setup-controller.mjs": "2b94810ae02a96ef4cd9ccb91d1b83f6211e06c192fe58adfd4f17767015f038",
+        "setup-fixture.js": "04ced223b8cb41a3c24031cf3f1196f5bb76d75e655faac3dbd59dfcc111824f",
+        "setup-executor.mjs": "167f413fd0f2bcf0bbda57f47329701c45eac5fb3c601e520d271c86a993e28c",
+        "store-bundle.mjs": "c7985975a64836e820dfa5158827167da8007aa510ea14bff413e8067dba4e3c",
+        "build-store.mjs": "e2d844ee5dfaec1d3e31e72a358a6eda70a4dd80dedebe477cf81bb086a218de",
+        "context.json": "8d2715c1ec628bc5f854139f4d83acb7b6220c6ff0901d07d241ed70cbb1099e",
+        "package-lock.json": "a362f2c6000f6a4ecafcea839acfb38049c9fe98dcbfaf21010a575384c9977c",
+        "wasm": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
+      }
+    },
+    "verifierHashes": {
+      "verify-verifier-infrastructure.mjs": "0dbdd043fa9150fe984010e9bc82cf75358904c0f73ad6b02445f4b7e2ab11f5",
+      "candidate-verifier-infrastructure.mjs": "a9e5da85a470033e0c693f8e24d278f517f37079b406718779f1f6104afef388",
+      "candidate-verifier-setup.mjs": "bde6356dff3cb00225dc88bdd62272034708348a2e6cb4171794477bf26a7d7b",
+      "infrastructure-runtime/history.mjs": "77e9c9830d32d6296ae870d1df40b274845bb2c9af606a2cfd6d8edeea591ec8",
+      "infrastructure-runtime/provision.mjs": "4a2c8ed782a34302424db78045b61d88db3b4d531b986898debace03003adcea",
+      "infrastructure-runtime/Dockerfile": "06647d764257df250fdf2689d72f65a2c2dd7d7cb4f5b01d32f50a14cd9069e4",
+      "verify-template-invocations.mjs": "6786267df2255978d68a137d8280763b22bc81398c466ac060088c35bfbc6bdf",
+      "candidate-template-invocations.mjs": "2c8d03720886a786ebc9fec387dd97237ba559b1d8697d4f12c7f6a11809b534",
+      "run.mjs": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "isolated-candidate.mjs": "5844c72f1fa16eed8c39aa8c84e477fd3681bbc42ca2eea0090a82e7ada05075",
+      "corpus-history.mjs": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321"
+    },
+    "trustedStoreIdentities": [
+      {
+        "path": "packages/engine/src/store.ts",
+        "mode": "100644",
+        "blobOid": "e0ae4fad9f5174ba27ca1abb5b702b583d9437c6",
+        "sha256": "7776ff07b07d101146e8a4b2c35f968baab99465043fece71b38c7f88d861f73"
+      },
+      {
+        "path": "packages/engine/src/util.ts",
+        "mode": "100644",
+        "blobOid": "29817b3d43f6a4b337c531f6f9d27ab7a06a090e",
+        "sha256": "8487a04494065e93c0ad81f8abb7eb53ddc375896bbab389c6e7dcf276d6f1a5"
+      },
+      {
+        "path": "packages/engine/src/policy.ts",
+        "mode": "100644",
+        "blobOid": "c20c12eb56cf78acd722b4aff78af4f2ee656e6a",
+        "sha256": "159e328a307106a8c1fe1576396819155ebd45fd1e7a100cd440d64eecb100db"
+      },
+      {
+        "path": "packages/engine/src/accounting.ts",
+        "mode": "100644",
+        "blobOid": "943ba944e206620fd83b4f0529c58277c5b1d45f",
+        "sha256": "4e9cfd075d4a638fb033235f7271a57fce33d4953c1e1f88e09811fac1cfeb2e"
+      }
+    ],
+    "candidateSources": [
+      {
+        "path": "packages/engine/src/service.ts",
+        "sha256": "8407e01f6c19257107def02a485c684f4e4c521e763b23bea9826f8d07a114c5",
+        "bytes": 44768
+      },
+      {
+        "path": "scripts/verify-project.mjs",
+        "sha256": "24a8f14d9366f239c827f6b5bf7bda8e65f177906cfeaef4f158393db01c2325",
+        "bytes": 3870
+      }
+    ],
+    "results": [
+      {
+        "id": "docker-125-measured",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "failed",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": 0.375,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.375,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 0,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": true,
+            "resumed": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": 0.375,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.375,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            }
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 125,
+                "stderr": "Docker daemon could not create the container",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-78-measured",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "failed",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": 0.375,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.375,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 0,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": true,
+            "resumed": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": 0.375,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.375,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            }
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "[graph-verifier:setup-failed]\nDependency image cannot be prepared",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "docker-125-unknownCost",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "failed",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 0,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": true,
+            "resumed": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            }
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 125,
+                "stderr": "Docker daemon could not create the container",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-78-unknownCost",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "failed",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 0,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": true,
+            "resumed": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            }
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "[graph-verifier:setup-failed]\nDependency image cannot be prepared",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "docker-125-unknownUsage",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "failed",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 0,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": true,
+            "resumed": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            }
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 125,
+                "stderr": "Docker daemon could not create the container",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-78-unknownUsage",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "failed",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 0,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": true,
+            "resumed": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 1,
+                "estimatedCallCount": 1,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 1,
+              "recoveryEvents": 0
+            }
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "[graph-verifier:setup-failed]\nDependency image cannot be prepared",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "ordinary-eacces",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 1,
+                "stderr": "EACCES in authorization test assertion",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "ordinary-78-without-marker",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "Test assertion failed",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "marker-with-wrong-status",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 1,
+                "stderr": "[graph-verifier:setup-failed]\nThis is ordinary test output",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "marker-in-stdout-only",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "Test assertion failed",
+                "stdout": "[graph-verifier:setup-failed]",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "marker-not-at-stderr-start",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 34,
+                "outputTokens": 14,
+                "cachedTokens": 6,
+                "costUsd": 0.75,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 34,
+                  "outputTokens": 14,
+                  "cachedTokens": 6,
+                  "costUsd": 0.75,
+                  "estimated": false
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.75,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 78,
+                "stderr": "Test output before marker\n[graph-verifier:setup-failed]",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "passing-check-ignores-marker",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": 17,
+                "outputTokens": 7,
+                "cachedTokens": 3,
+                "costUsd": 0.375,
+                "estimated": false
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "callCount": 1,
+                "settledCallCount": 1,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 0,
+                "estimatedCallCount": 0,
+                "knownCostUsd": 0.375,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 1,
+              "verificationCalls": 1,
+              "publicationCalls": 1,
+              "content": "export const value = 2;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 0
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": 17,
+                  "outputTokens": 7,
+                  "cachedTokens": 3,
+                  "costUsd": 0.375,
+                  "estimated": false
+                },
+                "contextText": "export const value = 1;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 0,
+                "stderr": "[graph-verifier:setup-failed]",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "ordinary-unknown-usage",
+        "status": "completed",
+        "observations": {
+          "service": {
+            "first": {
+              "status": "succeeded",
+              "usage": {
+                "inputTokens": null,
+                "outputTokens": null,
+                "cachedTokens": null,
+                "costUsd": null,
+                "estimated": true
+              },
+              "accounting": {
+                "totals": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "callCount": 2,
+                "settledCallCount": 2,
+                "unresolvedCallCount": 0,
+                "unknownCostCallCount": 2,
+                "estimatedCallCount": 2,
+                "knownCostUsd": 0,
+                "unresolvedReservedCostUsd": 0,
+                "source": "inference-call-ledger",
+                "untrackedRunCount": 0,
+                "planningOnly": {
+                  "totals": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cachedTokens": 0,
+                    "costUsd": 0,
+                    "estimated": false
+                  },
+                  "callCount": 0,
+                  "settledCallCount": 0,
+                  "unresolvedCallCount": 0,
+                  "unknownCostCallCount": 0,
+                  "estimatedCallCount": 0,
+                  "knownCostUsd": 0,
+                  "unresolvedReservedCostUsd": 0,
+                  "savedPlanCallCount": 0,
+                  "unsavedPlanCallCount": 0
+                }
+              },
+              "workerCalls": 2,
+              "verificationCalls": 2,
+              "publicationCalls": 1,
+              "content": "export const value = 3;\n",
+              "blockedEvents": 0,
+              "recoveryEvents": 1
+            },
+            "reconciliationDenied": null,
+            "resumed": null
+          },
+          "inventory": {
+            "worker": [
+              {
+                "sequence": 1,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 1;\n"
+              },
+              {
+                "sequence": 2,
+                "usage": {
+                  "inputTokens": null,
+                  "outputTokens": null,
+                  "cachedTokens": null,
+                  "costUsd": null,
+                  "estimated": true
+                },
+                "contextText": "export const value = 2;\n"
+              }
+            ],
+            "verification": [
+              {
+                "sequence": 1,
+                "code": 1,
+                "stderr": "Ordinary assertion failure",
+                "stdout": "",
+                "snapshotHash": "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+              },
+              {
+                "sequence": 2,
+                "code": 0,
+                "stderr": "",
+                "stdout": "",
+                "snapshotHash": "0c5dc25e91a87f3cd310be8a7a255e3278ac202fa73339db4b4aecb4120b4228"
+              }
+            ]
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-copies-executable-and-relative-symlink",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 0,
+            "stdout": "",
+            "stderr": "",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "executable": "npm",
+                "args": [
+                  "test",
+                  "--prefix",
+                  "graph-templates/tools/validate-graph"
+                ],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-native-cp-eacces-workaround",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 0,
+            "stdout": "",
+            "stderr": "",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "executable": "npm",
+                "args": [
+                  "test",
+                  "--prefix",
+                  "graph-templates/tools/validate-graph"
+                ],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-root-metadata-mismatch",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "[graph-verifier:setup-failed]\nDependency metadata changed: /package.json. Rebuild the verification image explicitly.\n",
+            "wrapperErrors": [
+              "[graph-verifier:setup-failed]",
+              "Dependency metadata changed: /package.json. Rebuild the verification image explicitly."
+            ],
+            "commands": [],
+            "destination": [],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-late-metadata-before-any-copy",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "[graph-verifier:setup-failed]\nDependency metadata changed: graph-templates/tools/validate-graph/package-lock.json. Rebuild the verification image explicitly.\n",
+            "wrapperErrors": [
+              "[graph-verifier:setup-failed]",
+              "Dependency metadata changed: graph-templates/tools/validate-graph/package-lock.json. Rebuild the verification image explicitly."
+            ],
+            "commands": [],
+            "destination": [],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-copy-file-denied",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "[graph-verifier:setup-failed]\nFixture file copy permission denied\n",
+            "wrapperErrors": [
+              "[graph-verifier:setup-failed]",
+              "Fixture file copy permission denied"
+            ],
+            "commands": [],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 493
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-destination-symlink-refused",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "[graph-verifier:setup-failed]\nRefusing to copy dependencies through an existing symlink\n",
+            "wrapperErrors": [
+              "[graph-verifier:setup-failed]",
+              "Refusing to copy dependencies through an existing symlink"
+            ],
+            "commands": [],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "symlink",
+                "mode": 511,
+                "target": "/outside"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-npm-launch-enoent",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "[graph-verifier:setup-failed]\nnpm executable unavailable\n",
+            "wrapperErrors": [
+              "[graph-verifier:setup-failed]",
+              "npm executable unavailable"
+            ],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-ordinary-eacces-test-failure",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "EACCES in the authorization test assertion\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-second-command-test-failure",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Assertion mismatch\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              },
+              {
+                "executable": "npm",
+                "args": [
+                  "test",
+                  "--prefix",
+                  "graph-templates/tools/validate-graph"
+                ],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-child-78-is-not-wrapper-marker",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "Ordinary test exited 78\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-child-null-status",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "Child interrupted\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      },
+      {
+        "id": "setup-child-marker-spoof-characterization",
+        "status": "completed",
+        "observations": {
+          "setup": {
+            "exitCode": 78,
+            "stdout": "",
+            "stderr": "[graph-verifier:setup-failed]\nchild-controlled text\n",
+            "wrapperErrors": [],
+            "commands": [
+              {
+                "executable": "npm",
+                "args": ["run", "check"],
+                "cwd": "/workspace",
+                "shell": false,
+                "stdio": "inherit"
+              }
+            ],
+            "destination": [
+              {
+                "path": "node_modules",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/.bin",
+                "type": "directory",
+                "mode": 493
+              },
+              {
+                "path": "node_modules/.bin/pkg",
+                "type": "symlink",
+                "mode": 511,
+                "target": "../pkg/run.js"
+              },
+              {
+                "path": "node_modules/pkg",
+                "type": "directory",
+                "mode": 365
+              },
+              {
+                "path": "node_modules/pkg/run.js",
+                "type": "file",
+                "mode": 493,
+                "content": "fixture executable\n"
+              }
+            ],
+            "outside": "keep unchanged",
+            "uncaught": null
+          }
+        },
+        "passed": true
+      }
+    ],
+    "allCompleted": true,
+    "passed": true,
+    "modelCalls": 0,
+    "actualNetworkCalls": 0,
+    "promotionEligible": false,
+    "limitations": [
+      "Known historical fixtures, not held-out tasks, independent labels, paid-provider measurements or promotion evidence.",
+      "Full service runs against bounded sequential-workflow capabilities and real historical SQLite RunStore; wider ContextEngine, Git, DAG and publication semantics are not covered.",
+      "Setup files and child processes are protected virtual fixtures, including an injected native-cp permission error; no actual npm tests, Docker daemon failure or bind-mount regression is reproduced.",
+      "The historical exit-78/stderr marker protocol is unauthenticated: a child can forge the combined pair. The fixture characterizes this limitation, not stronger provenance.",
+      "Finite behavioral cases and QuickJS/resource limits are not a proof of arbitrary candidate correctness or a general sandbox guarantee."
+    ]
+  },
+  "valid": true,
+  "modelCalls": 0,
+  "promotionEligible": false
+}
