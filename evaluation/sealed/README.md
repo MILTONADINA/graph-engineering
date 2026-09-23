@@ -77,7 +77,9 @@ any reservation. Constraints prevent repeated collection/task/arm reservations,
 repeated domain/stable-task/arm exposure and duplicate global call IDs. Additional
 checks refuse previously exposed stable tasks/families across renamed collections
 or domains. The two legitimate arms within one collection remain permitted.
-Call count and conservative reserved budget limits are independent of how many
+The version 3 ledger adds a one-time public dispatch claim. Existing version 2
+databases migrate in place without changing their plans, reservations, receipts
+or event history. Call count and conservative reserved budget limits are independent of how many
 decision questions share a call. Plan/configuration hashes bind every attempt.
 
 ### Paid-call session cap
@@ -132,6 +134,11 @@ unknown usage. Existing settled calls remain intact. The attempt becomes
 when the process died immediately after reservation and before dispatch.
 
 Recovery never issues a request, resets a reservation or creates a new attempt.
+A committed public dispatch claim survives recovery and cannot be retried, even
+if the process died before sending a byte. If another process starts recovery
+between claim and callback, the bridge rechecks attempt state; that check cannot
+close the remaining race. A trusted supervisor must stop or fence the transport
+before abandonment and treat any in-flight delivery as ambiguous.
 A late receipt is refused after abandonment. Close requires all reserved
 attempts to be terminal; unreserved assignments remain explicit `not-attempted`
 entries rather than being omitted.
@@ -193,19 +200,25 @@ provenance still have to connect these components.
 task commitment and retained-byte vault. Its `retain()` refuses changed source,
 unexportable/private paths, secrets and hash drift before it creates an opaque
 in-process handle. Its `dispatch()` requires that exact handle and an active
-matching attempt reservation, re-verifies the retained bytes, and passes only a
-detached public packet to a trusted callback. Oracle, reference-repair and
+matching attempt reservation, re-verifies the retained bytes, commits an
+immutable `public-dispatch-claimed` ledger event, and then passes only a
+detached public packet to a trusted callback. The claim must precede every
+model-call reservation for that attempt; concurrent processes cannot claim the
+same reservation twice. Oracle, reference-repair and
 private-memory bytes are never selected by this bridge. It does not settle the
-ledger or claim that a worker actually received the packet.
+ledger or claim that a worker actually received the packet. The claim is an
+at-most-once **callback attempt** gate, not a delivery receipt or protected
+worker grant. A direct store claim is likewise bookkeeping, not transport.
 
 Handles intentionally do not survive collector restart; if an attempt was
 already reserved, a crash must use the ledger's explicit recovery/abandonment
 path, not retry an ambiguous dispatch.
-The bridge does **not** provide an atomic or one-time transport lease: the same
-active reservation can invoke a trusted callback more than once. An interrupted
-retention can leave an unreferenced content-addressed blob. A separately
-isolated worker/oracle transport, durable dispatch receipts and original signed
-provenance are still required for sealed held-out evidence.
+If the process dies after the claim but before the callback, delivery may be
+zero; if the callback fails after partial transmission, delivery is unknown.
+There is no atomic transaction spanning SQLite and an external worker. An
+interrupted retention can leave an unreferenced content-addressed blob. A
+separately isolated worker/oracle transport, original acknowledgments and
+signed provenance are still required for sealed held-out evidence.
 
 ## Remaining trust boundary
 
@@ -230,7 +243,8 @@ node --test evaluation/sealed/tests/*.test.mjs
 ```
 
 Tests exercise real SQLite transactions, two competing Node processes, a process
-that exits after committing its reservation, recovery/closure completeness,
+that exits after committing its reservation or one-time dispatch claim,
+recovery/closure completeness, version 2 migration,
 nullable observations/costs, repeated batched-call references, configuration and
 exposure guards, private-path checks and artifact/event tampering. No provider,
 model, signature, secret, or unseen real task is used.

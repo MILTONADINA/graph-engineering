@@ -23,6 +23,7 @@ export const {
   usageSchema,
   observationSchema,
   reservationSchema,
+  publicDispatchClaimSchema,
   callReservationSchema,
   callReceiptSchema,
   attemptReceiptSchema,
