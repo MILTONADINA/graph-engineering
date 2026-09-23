@@ -89,7 +89,7 @@ memory, credential patterns, private runtime data, and non-allowlisted paths.
 Client-local MCP files are ignored by Git. Codex recognizes the configured
 stdio server. A constrained Claude Code call using the explicit project MCP
 configuration retrieved exportable source; normal project-wide approval is
-still a separate client action. Cloud `context_get` defaults to lexical
+complete for that project server only. Cloud `context_get` defaults to lexical
 retrieval for bounded cold latency. Request `retrieval: "hybrid"` explicitly
 when the local embedding index is prepared and semantic recall is needed.
 Cursor's project configuration is present, but a live Cursor connection has
