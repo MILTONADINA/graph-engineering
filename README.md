@@ -55,7 +55,7 @@ Pruning previews unless `--apply` is supplied. `backup NEW_ARCHIVE_DIRECTORY` in
 | `sidecars/laya`      | Explicitly provisioned, offline-serving decision sidecar                                 |
 | `evaluation`         | Synthetic smoke fixtures, measured baseline/candidate runner, recorded-evidence workflow |
 | `create-graph-app`   | Existing coarse-grained app scaffolder and six working templates                         |
-| `graph-templates`    | Fine-node contracts and validation; ten audited deterministic runtime adapters           |
+| `graph-templates`    | Fine-node contracts and validation; 43 audited deterministic runtime adapters            |
 | `reference-app`      | Source application behind the original templates                                         |
 
 The two template systems intentionally retain their different schemas. Existing scaffolding remains usable independently; see [create-graph-app](create-graph-app/README.md), [graph templates](graph-templates/README.md), and the [reference architecture](reference-app/REFERENCE_ARCHITECTURE.md).
