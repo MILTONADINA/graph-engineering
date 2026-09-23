@@ -233,6 +233,13 @@ they are not complete DLP or protection against a malicious curator who copies
 or re-encodes private knowledge into otherwise permitted source/docs. Packet
 commitments do not authenticate the git baseline or source provenance.
 
+For a v2 declared-tree task, `retain()` additionally requires the exact frozen
+`executionScopeReference`. After the public commitment check but before
+retention or dispatch, it rejects any public source/docs packet path matching
+an operator-declared runtime-only file, including case-folded aliases. This
+prevents that sealed packet from exporting runtime bytes; it does not govern
+separate general MCP source/docs retrieval.
+
 Handles intentionally do not survive collector restart; if an attempt was
 already reserved, a crash must use the ledger's explicit recovery/abandonment
 path, not retry an ambiguous dispatch.
