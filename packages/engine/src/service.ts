@@ -13,13 +13,7 @@ import type {
 import { ContextEngine } from "./context/index.js";
 import { loadProject, loadProviders, projectDataDir } from "./project.js";
 import { RunStore } from "./store.js";
-import {
-  assertProvider,
-  contextForProvider,
-  isAllowedPath,
-  redact,
-  safePath,
-} from "./policy.js";
+import { assertProvider, isAllowedPath, redact, safePath } from "./policy.js";
 import { errorMessage, hash, id, now, readJson, writeJson } from "./util.js";
 import { decide, decisionProviders } from "./decisions.js";
 import { loadPromotionAuthority } from "./promotion-authority.js";
@@ -788,7 +782,8 @@ export class GraphEngine {
             );
             if (!provider)
               throw new Error("DAG worker is no longer configured");
-            let stepPacket = await currentContext();
+            let stepPacket: ContextPacket = await currentContext();
+            const suppliedSourceHashes = new Map<string, string>();
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
@@ -819,7 +814,7 @@ export class GraphEngine {
                 throw new Error("Policy changed before DAG patch application");
               if (!result.proposal.requests.length) return result;
               const items: ContextPacket["items"] = [];
-              for (const relative of result.proposal.requests) {
+              for (const relative of new Set(result.proposal.requests)) {
                 if (
                   provider.kind !== "local" &&
                   !isAllowedPath(relative, this.config.policy, true)
@@ -827,12 +822,22 @@ export class GraphEngine {
                   throw new Error(
                     `Source request is not exportable: ${relative}`,
                   );
-                const text = await readFile(
-                  await safePath(workspace, relative, this.config.policy),
-                  "utf8",
+                const absolute = await safePath(
+                  workspace,
+                  relative,
+                  this.config.policy,
                 );
+                let text: string;
+                try {
+                  text = await readFile(absolute, "utf8");
+                } catch {
+                  throw new Error(
+                    `Requested source is unavailable: ${relative}`,
+                  );
+                }
                 if (Buffer.byteLength(text) > budgetTokens)
                   throw new Error("Requested source exceeds context budget");
+                const contentHash = hash(text);
                 items.push({
                   id: hash(relative + text),
                   kind: "code",
@@ -842,18 +847,49 @@ export class GraphEngine {
                     path: relative,
                     startLine: 1,
                     endLine: text.split("\n").length,
-                    contentHash: hash(text),
+                    contentHash,
                     snapshotId: stepPacket.snapshotId,
                   },
                 });
               }
-              stepPacket = {
+              const requestedPacket = {
                 ...stepPacket,
                 items,
                 estimatedTokens:
                   Buffer.byteLength(JSON.stringify(items)) +
                   Buffer.byteLength(JSON.stringify(stepPacket.mandatory)),
               };
+              const suppliedPacket = fitWorkerContext({
+                provider,
+                policy: this.config.policy,
+                context: requestedPacket,
+                objective: step.objective,
+                acceptance: run.plan.acceptance,
+                effort: step.effort,
+                signal: state.signal,
+              }).context;
+              if (!suppliedPacket.items.length)
+                throw new Error(
+                  "Requested sources yielded no exportable evidence within context budget; stopped to avoid no-progress model turns",
+                );
+              if (
+                !suppliedPacket.items.some(
+                  (item) =>
+                    item.source &&
+                    suppliedSourceHashes.get(item.source.path) !==
+                      item.source.contentHash,
+                )
+              )
+                throw new Error(
+                  "DAG worker repeated source requests without new evidence; stopped to avoid no-progress model turns",
+                );
+              stepPacket = suppliedPacket;
+              for (const item of suppliedPacket.items)
+                if (item.source)
+                  suppliedSourceHashes.set(
+                    item.source.path,
+                    item.source.contentHash,
+                  );
             }
             throw new Error(
               "DAG worker exhausted its context-request turn budget",
@@ -937,6 +973,7 @@ export class GraphEngine {
               step.id,
             );
             let proposalApplied = false;
+            const suppliedSourceHashes = new Map<string, string>();
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
@@ -1009,7 +1046,7 @@ export class GraphEngine {
                 throw new Error("Policy changed before patch application");
               if (result.proposal.requests.length) {
                 const items = [];
-                for (const relative of result.proposal.requests) {
+                for (const relative of new Set(result.proposal.requests)) {
                   if (
                     provider.kind !== "local" &&
                     !isAllowedPath(relative, this.config.policy, true)
@@ -1017,14 +1054,24 @@ export class GraphEngine {
                     throw new Error(
                       `Source request is not exportable: ${relative}`,
                     );
-                  const content = await readFile(
-                    await safePath(workspace, relative, this.config.policy),
-                    "utf8",
+                  const requestedPath = await safePath(
+                    workspace,
+                    relative,
+                    this.config.policy,
                   );
+                  let content: string;
+                  try {
+                    content = await readFile(requestedPath, "utf8");
+                  } catch {
+                    throw new Error(
+                      `Requested source is unavailable: ${relative}`,
+                    );
+                  }
                   if (Buffer.byteLength(content) > budgetTokens)
                     throw new Error(
                       `Requested file is too large for the context budget: ${relative}`,
                     );
+                  const contentHash = hash(content);
                   items.push({
                     id: hash(relative + content),
                     kind: "code" as const,
@@ -1034,19 +1081,43 @@ export class GraphEngine {
                       path: relative,
                       startLine: 1,
                       endLine: content.split("\n").length,
-                      contentHash: hash(content),
+                      contentHash,
                       snapshotId: run.plan.snapshotId,
                     },
                   });
                 }
-                stepPacket = {
+                const requestedPacket = {
                   ...stepPacket,
                   items,
                   estimatedTokens:
                     Buffer.byteLength(JSON.stringify(items)) +
                     Buffer.byteLength(JSON.stringify(stepPacket.mandatory)),
                 };
-                contextForProvider(stepPacket, provider, this.config.policy);
+                stepPacket = fitWorkerContext({
+                  ...input,
+                  context: requestedPacket,
+                }).context;
+                if (!stepPacket.items.length)
+                  throw new Error(
+                    "Requested sources yielded no exportable evidence within context budget; stopped to avoid no-progress model turns",
+                  );
+                if (
+                  !stepPacket.items.some(
+                    (item) =>
+                      item.source &&
+                      suppliedSourceHashes.get(item.source.path) !==
+                        item.source.contentHash,
+                  )
+                )
+                  throw new Error(
+                    "Worker repeated source requests without new evidence; stopped to avoid no-progress model turns",
+                  );
+                for (const item of stepPacket.items)
+                  if (item.source)
+                    suppliedSourceHashes.set(
+                      item.source.path,
+                      item.source.contentHash,
+                    );
                 continue;
               }
               const changed = await applyProposal(

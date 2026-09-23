@@ -422,4 +422,86 @@ describe("managed DAG safety boundaries", () => {
     expect(sent[0]).not.toContain("PRIVATE_CONTENT_CANARY");
     await assertUnchanged(run.workspace!);
   });
+
+  it("stops a DAG worker that repeats an already supplied source without new evidence", async () => {
+    const { root } = await fixture((config) => {
+      config.policy.maxTurns = 6;
+    });
+    const worker = vi.fn(async () => ({
+      ...result("one"),
+      proposal: {
+        summary: "Need source",
+        requests: ["first.js", "first.js"],
+        changes: [],
+      },
+    }));
+    const verify = vi.fn(passing);
+    const engine = await open(root, { worker, verify });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/repeated source requests without new evidence/);
+    expect(worker).toHaveBeenCalledTimes(2);
+    expect(run.usage.inputTokens).toBe(20);
+    expect(verify).not.toHaveBeenCalled();
+    await assertUnchanged(run.workspace!);
+  });
+
+  it("does not leak a private DAG workspace path when requested source is missing", async () => {
+    const { root } = await fixture();
+    const worker = vi.fn(async () => ({
+      ...result("one"),
+      proposal: {
+        summary: "Need missing source",
+        requests: ["missing.js"],
+        changes: [],
+      },
+    }));
+    const engine = await open(root, { worker });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/Requested source is unavailable: missing\.js/);
+    expect(run.error).not.toContain(run.workspace!);
+    expect(worker).toHaveBeenCalledTimes(1);
+    await assertUnchanged(run.workspace!);
+  });
+
+  it("stops a DAG cloud request when an allowed file contains unexportable evidence", async () => {
+    const { root, data } = await fixture((config) => {
+      config.policy.inference = "allowlisted";
+      config.policy.network = "allowlisted";
+      config.policy.allowedHosts = ["api.openai.com"];
+      config.policy.exportPaths = ["first.js"];
+      config.policy.providers = ["cloud"];
+      config.policy.maxTurns = 4;
+    });
+    await writeFile(
+      path.join(root, "first.js"),
+      'export const SERVICE_API_KEY = "abcdefghijklmnopqrstuvwxyz0123456789";\n',
+    );
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+    });
+    const worker = vi.fn(async () => ({
+      ...result("one"),
+      proposal: {
+        summary: "Need source",
+        requests: ["first.js"],
+        changes: [],
+      },
+    }));
+    const engine = await open(root, { worker });
+    const planned = await plan(engine, [
+      step("one", [], "cloud"),
+      step("two", ["one"], "cloud"),
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/no exportable evidence/);
+    expect(worker).toHaveBeenCalledTimes(1);
+    expect(run.error).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+  });
 });
