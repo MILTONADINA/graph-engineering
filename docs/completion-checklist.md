@@ -33,7 +33,10 @@ without applying a patch. The real branch fix passed automated checks; human
 acceptance and a successful unassisted engine run remain outstanding. The
 attempts exposed an exact-file retrieval gap and a no-progress source-request
 loop. Both now have bounded fixes and focused regressions; the failed runs are
-not retroactively counted as successful.
+not retroactively counted as successful. Two further local-only Qwen runs
+received the scanner source (and, in the second, the regression itself),
+applied isolated patches, failed the focused Docker check, and stopped without
+publication. They prove the verification gate, not autonomous repair success.
 
 Item 13 now also has a [local paired context diagnostic](../evaluation/README.md#opt-in-local-multi-file-context-pair):
 the existing oMLX Qwen received all 19 synthetic source files in one arm and

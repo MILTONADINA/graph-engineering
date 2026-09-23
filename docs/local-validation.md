@@ -136,7 +136,7 @@ stop guard was added for ordinary and DAG workers. A separately isolated one-tur
 `03916d8f`/`3c882446` passed source/export preflight but the native process
 exited nonzero after roughly ten minutes; usage stayed unknown, and raw native
 stderr was intentionally withheld because it can contain credentials or
-context. No patch was applied by either managed run. These failures are
+context. No patch was applied by either of those earlier managed runs. These failures are
 retained as development evidence, not counted as automated real-task success.
 Focused regression tests now verify that identical source requests stop after
 two calls, nonexistent requests return relative-path errors, and filtered or
@@ -145,6 +145,22 @@ substitute for a successful live end-to-end repair.
 An additional focused regression found that root-level `package.json` could
 also be omitted by the initial path matcher; it now follows the same bounded
 indexed-path priority as nested source files.
+
+After those retrieval/request fixes, an isolated local-only replay used the
+existing oMLX `qwen-local` with a hard `$0` external-API budget, one attempt,
+two worker turns maximum, no publication, and the pinned network-disabled
+verification image. The first plan/run `2ee10e24`/`fd13bfbd` received the
+scanner source and patched only `policy.ts`, but missed the quoted JSON and
+camelCase assertions; its focused regression failed and recovery stopped. A
+targeted fresh plan/run `97d05d7c`/`56d222d0` included both the scanner and
+regression test after transport fitting; Qwen again patched only `policy.ts`
+but proposed a malformed regex, so the focused regression failed and recovery
+stopped. The two retained ledgers report 9,219 local input and 639 output
+tokens combined, with no marginal metered API charge. Neither patch entered
+the feature branch, neither run was promoted, and no full-suite claim is made for
+either run. The branch's separately reviewed fix remained green under the full
+local check and the fork's nine-job CI run
+[`35915333328`](https://github.com/MILTONADINA/graph-engineering/actions/runs/35915333328).
 
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
 pinned local Laya checkpoint, and a network-disabled `node:24-alpine` container.
