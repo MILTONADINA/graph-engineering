@@ -125,6 +125,10 @@ Item 13 still contains buildable work, not only requests for partner labels:
   unsigned label importer, full-cohort preflight, current-identity comparison
   and purpose-separated row-signature verifier are analysis-only and cannot
   authorize routing; `evaluate --promote` rejects without writing evidence.
+  Runtime dispatch now accepts an opaque loader binding and checks for policy
+  drift after each asynchronous, per-route authority lookup. The loader has no
+  verified grant or trusted identity resolver to attach, so routing remains in
+  shadow mode.
   Original row and bounded aggregate signature inspection exist. A separate
   signed population/split manifest inspector now binds a declared source
   inventory, selected tasks and frozen assignments to purpose-separated

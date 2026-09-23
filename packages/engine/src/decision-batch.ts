@@ -4,15 +4,18 @@ import type {
 } from "@graph-engineering/contracts";
 import { z } from "zod";
 import {
-  canPromote,
   decisionProviderSchema,
+  meetsPromotionMetrics,
   promotionEvidenceSchema,
   type DecisionProvider,
   type PromotionEvidence,
 } from "./decisions.js";
 import { assertEndpoint, containsSecret } from "./policy.js";
 import { hash, id, now } from "./util.js";
-import type { VerifiedPromotionAuthority } from "./promotion-authority.js";
+import {
+  authorizesPromotionFromBinding,
+  type PromotionDispatchBinding,
+} from "./promotion-authority.js";
 
 export interface DecisionQuestion {
   id: string;
@@ -59,8 +62,8 @@ export interface DecisionBatchOptions {
   policy: ProjectPolicy;
   providers: DecisionProvider[];
   evidence?: PromotionEvidence[];
-  /** Only the verified importer may issue this; JSON evidence alone is advisory. */
-  promotionAuthority?: VerifiedPromotionAuthority;
+  /** Opaque loader-issued binding; raw caller identity/authority is never accepted. */
+  promotionBinding?: PromotionDispatchBinding;
   signal?: AbortSignal;
   budget?: DecisionBudget;
 }
@@ -373,7 +376,7 @@ export async function decideBatch(
         }
       }
     }
-    const policyChanged = hash(options.policy) !== policyVersion;
+    let policyChanged = hash(options.policy) !== policyVersion;
     if (policyChanged)
       failure = "Decision policy changed during the request; baseline retained";
     for (const question of pending) {
@@ -383,15 +386,22 @@ export async function decideBatch(
           item.provider === provider.id &&
           item.model === provider.model,
       );
-      const promoted =
+      const eligible =
+        !policyChanged &&
         policy.decisionMode === "promoted" &&
         policy.promotedCategories.includes(question.category) &&
         !!proof &&
-        canPromote(proof, {
-          authority: options.promotionAuthority,
+        meetsPromotionMetrics(proof) &&
+        (await authorizesPromotionFromBinding(options.promotionBinding, proof, {
           projectId: options.projectId,
           policyVersion,
-        });
+        }));
+      if (hash(options.policy) !== policyVersion) {
+        policyChanged = true;
+        failure =
+          "Decision policy changed during authorization; baseline retained";
+      }
+      const promoted = eligible && !policyChanged;
       let selected: string | null = null,
         confidence: number | null = null,
         questionFailure = failure;
@@ -451,6 +461,18 @@ export async function decideBatch(
             : {}),
         },
       });
+    }
+    if (policyChanged) {
+      for (const question of questions)
+        selections[question.id] = question.baseline;
+      resolved.clear();
+      for (const record of records) {
+        if (record.mode !== "promoted") continue;
+        record.mode = "shadow";
+        record.evidence.promotionAuthority = "unverified";
+        record.evidence.failure =
+          "Decision policy changed during authorization; baseline retained";
+      }
     }
     // No cascading spend after a failed accounting write or exceeded price bound.
     if (accountingFailure || policyChanged) break;

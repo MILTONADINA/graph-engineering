@@ -86,7 +86,9 @@ const response = (answers: object, extra: object = {}) =>
 // These synthetic routing tests isolate behavior AFTER authority verification.
 // Unmocked forgery/JSON-boundary tests live in promotion-authority.test.ts.
 beforeEach(() =>
-  vi.spyOn(promotionAuthority, "authorizesPromotion").mockReturnValue(true),
+  vi
+    .spyOn(promotionAuthority, "authorizesPromotionFromBinding")
+    .mockResolvedValue(true),
 );
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -118,6 +120,91 @@ describe("independent question batching", () => {
       ),
     ).toBe(true);
     expect(result.usage).toHaveLength(1);
+  });
+  it("keeps baselines and stops escalation when policy changes while identity resolution awaits", async () => {
+    const input = options();
+    input.providers.push(hosted());
+    let entered!: () => void;
+    let release!: () => void;
+    const resolving = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(
+      promotionAuthority.authorizesPromotionFromBinding,
+    ).mockImplementation(async () => {
+      entered();
+      await held;
+      return true;
+    });
+    const fetch = vi.fn(async () =>
+      response({
+        workflow: { choice: "alternative", confidence: 0.99 },
+        effort: { choice: "low", confidence: 0.99 },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const pending = decideBatch(input);
+    await resolving;
+    input.policy.network = "deny";
+    release();
+    const result = await pending;
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.selections).toEqual({ workflow: "safe", effort: "high" });
+    expect(result.records).toHaveLength(2);
+    expect(
+      result.records.every(
+        (record) =>
+          record.mode === "shadow" &&
+          String(record.evidence.failure).includes("policy changed"),
+      ),
+    ).toBe(true);
+    expect(
+      promotionAuthority.authorizesPromotionFromBinding,
+    ).toHaveBeenCalledTimes(1);
+  });
+  it("revokes an earlier promoted question if a later identity check observes policy drift", async () => {
+    const input = options();
+    let entered!: () => void;
+    let release!: () => void;
+    const resolving = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(promotionAuthority.authorizesPromotionFromBinding)
+      .mockResolvedValueOnce(true)
+      .mockImplementationOnce(async () => {
+        entered();
+        await held;
+        return true;
+      });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response({
+          workflow: { choice: "alternative", confidence: 0.99 },
+          effort: { choice: "low", confidence: 0.99 },
+        }),
+      ),
+    );
+    const pending = decideBatch(input);
+    await resolving;
+    input.policy.network = "deny";
+    release();
+    const result = await pending;
+    expect(result.selections).toEqual({ workflow: "safe", effort: "high" });
+    expect(result.records.every((record) => record.mode === "shadow")).toBe(
+      true,
+    );
+    expect(
+      result.records.every((record) =>
+        String(record.evidence.failure).includes("policy changed"),
+      ),
+    ).toBe(true);
   });
   it("does not dispatch hosted inference if policy changes during the reservation await", async () => {
     const input = options();
@@ -158,6 +245,40 @@ describe("independent question batching", () => {
       result.records.filter((record) => record.evidence.usage),
     ).toHaveLength(1);
   });
+  it("resolves promotion separately for each evidence report with the current policy scope", async () => {
+    const input = options();
+    const binding = Object.freeze({}) as typeof input.promotionBinding;
+    input.promotionBinding = binding;
+    vi.mocked(
+      promotionAuthority.authorizesPromotionFromBinding,
+    ).mockResolvedValue(false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response({
+          workflow: { choice: "alternative", confidence: 0.99 },
+          effort: { choice: "low", confidence: 0.99 },
+        }),
+      ),
+    );
+    const result = await decideBatch(input);
+    expect(result.selections).toEqual({ workflow: "safe", effort: "high" });
+    const checks = vi.mocked(promotionAuthority.authorizesPromotionFromBinding)
+      .mock.calls;
+    expect(checks).toHaveLength(2);
+    expect(checks.map(([, evidence]) => evidence.category)).toEqual([
+      "workflow",
+      "effort",
+    ]);
+    expect(checks.every(([received]) => received === binding)).toBe(true);
+    expect(
+      checks.every(
+        ([, , scope]) =>
+          scope.projectId === input.projectId &&
+          scope.policyVersion === hash(input.policy),
+      ),
+    ).toBe(true);
+  });
   it("escalates only unresolved questions, never all questions once one succeeds", async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()
@@ -172,6 +293,8 @@ describe("independent question batching", () => {
       );
     vi.stubGlobal("fetch", fetch);
     const input = options();
+    const binding = Object.freeze({}) as typeof input.promotionBinding;
+    input.promotionBinding = binding;
     input.providers.push(hosted());
     input.evidence!.push(proof("effort", "jev"));
     const result = await decideBatch(input);
@@ -183,6 +306,22 @@ describe("independent question batching", () => {
       workflow: "alternative",
       effort: "low",
     });
+    const checkedRoutes = vi.mocked(
+      promotionAuthority.authorizesPromotionFromBinding,
+    ).mock.calls;
+    expect(
+      checkedRoutes.map(([, evidence]) => [
+        evidence.provider,
+        evidence.category,
+      ]),
+    ).toEqual([
+      ["laya", "workflow"],
+      ["laya", "effort"],
+      ["jev", "effort"],
+    ]);
+    expect(checkedRoutes.every(([received]) => received === binding)).toBe(
+      true,
+    );
   });
   it("batches planning workflow, budget, and effort instead of Promise.all requests", async () => {
     const fetch = vi
