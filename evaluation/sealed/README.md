@@ -324,7 +324,10 @@ consuming the assignment. It makes at most one model POST, retains original
 request/response bytes, runs the private repository oracle only for a bounded
 completed proposal, and settles the attempt with `success: null`. A malformed
 model response settles `provider-error`; an oracle observation settles
-`candidate-rejected` without disclosing its private verdict. No typed decision
+`candidate-rejected` without disclosing its private verdict. A completed but
+publicly non-executable proposal (for example, a request for more source or an
+unchanged edit) is rejected before the private oracle with no verification
+hash; its receipt explicitly says no private test ran. No typed decision
 observation or independent label is invented. Duplicate invocation cannot
 reissue the consumed assignment. The returned summary is analysis-only and
 always has `promotionEligible: false`.

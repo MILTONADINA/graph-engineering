@@ -74,6 +74,8 @@ Item 13 still contains buildable work, not only requests for partner labels:
   one-attempt runner now joins the frozen public packet, one local model call,
   retained bytes and v1 oracle without accepting an arbitrary repository mount;
   it settles with unknown success rather than inventing a positive label.
+  Publicly non-executable model proposals settle without private-oracle claims;
+  transport or oracle uncertainty still requires explicit fenced recovery.
   Neither version authenticates Docker or source provenance or safely mounts
   arbitrary secret-bearing repositories. A separate current-witness comparison
   rejects stale or changed checkpoints around aggregate inspection;

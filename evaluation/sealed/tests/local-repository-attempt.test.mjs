@@ -22,7 +22,10 @@ import { SealedPublicPacketBridge } from "../public-packet.mjs";
 import { retainRepositorySnapshot } from "../repository-snapshot.mjs";
 import { canonicalJson, hashJson } from "../schema.mjs";
 import { SealedStore } from "../store.mjs";
-import { repositoryOracleBytes } from "../oracle-runtime/repository.mjs";
+import {
+  repositoryOracleBytes,
+  repositorySha256,
+} from "../oracle-runtime/repository.mjs";
 import { buildLocalModelRequest } from "../worker-runtime/model-request.mjs";
 import { fixture } from "./helpers.mjs";
 
@@ -71,6 +74,13 @@ test(
       await rm(root, { recursive: true, force: true });
     });
     const artifacts = new ArtifactStore({ directory: artifactDirectory });
+    const originalGet = artifacts.get.bind(artifacts);
+    let failRetainedResponseSha256 = null;
+    artifacts.get = async (reference) => {
+      if (reference.sha256 === failRetainedResponseSha256)
+        throw new Error("Injected retained response storage failure");
+      return originalGet(reference);
+    };
     await git(repository, "init", "-q");
     await writeFile(path.join(repository, "solver.mjs"), source);
     await chmod(path.join(repository, "solver.mjs"), 0o644);
@@ -159,7 +169,30 @@ test(
         url: request.url,
         bytes: Buffer.concat(chunks),
       });
-      const content = requests.length === 1 ? "not-json" : proposal;
+      const content =
+        requests.length === 1
+          ? "not-json"
+          : requests.length === 2
+            ? proposal
+            : requests.length === 3
+              ? canonicalJson({
+                  summary: "Need another public source before editing",
+                  changes: [],
+                  requests: ["src/other.mjs"],
+                })
+              : requests.length === 4
+                ? canonicalJson({
+                    summary: "No effective edit",
+                    changes: [
+                      {
+                        path: "solver.mjs",
+                        before: "input.n",
+                        after: "input.n",
+                      },
+                    ],
+                    requests: [],
+                  })
+                : proposal;
       const responseBytes = Buffer.from(
         canonicalJson({
           model: "weights-v1",
@@ -168,6 +201,8 @@ test(
         }),
       );
       responses.push(responseBytes);
+      if (requests.length === 5)
+        failRetainedResponseSha256 = repositorySha256(responseBytes);
       response.writeHead(200, { "content-type": "application/json" });
       response.end(responseBytes);
     });
@@ -303,5 +338,100 @@ test(
       source,
     );
     assert.equal(store.closeCollection(plan.collectionId).complete, true);
+
+    const publicRejectedPlan = structuredClone(plan);
+    publicRejectedPlan.collectionId = `repo-public-reject-${randomUUID()}`;
+    publicRejectedPlan.tasks[0].stableTaskId = `stable-public-reject-${randomUUID()}`;
+    publicRejectedPlan.tasks[0].stableFamilyId = `family-public-reject-${randomUUID()}`;
+    store.registerPlan(publicRejectedPlan, registry, {
+      expectedRegistrySha256: hashJson(registry),
+    });
+    const rejectedHandle = await bridge.retain({
+      collectionId: publicRejectedPlan.collectionId,
+      taskId: task.taskId,
+      packetInput,
+      oracleReference: oracleRef,
+    });
+    for (const assignmentId of [
+      "baseline-assignment",
+      "candidate-assignment",
+    ]) {
+      const observation = await runOneShotLocalRepositoryAttempt(
+        {
+          ...input,
+          collectionId: publicRejectedPlan.collectionId,
+          handle: rejectedHandle,
+          assignmentId,
+        },
+        runtime,
+      );
+      assert.equal(observation.status, "candidate-rejected");
+      assert.equal(observation.promotionEligible, false);
+    }
+    assert.equal(requests.length, 4);
+    const rejected = store.inspectCollection(publicRejectedPlan.collectionId);
+    for (const assignment of rejected.assignments) {
+      assert.equal(assignment.calls.length, 1);
+      assert.equal(assignment.calls[0].receipt.status, "completed");
+      assert.equal(assignment.oracleInvocation, null);
+      assert.equal(assignment.oracleVerdict, null);
+      assert.equal(assignment.receipt.status, "candidate-rejected");
+      assert.equal(assignment.receipt.outcome.success, null);
+      assert.equal(assignment.receipt.resultSourceSha256, null);
+      assert.equal(assignment.receipt.outcome.verificationSha256, null);
+      assert.match(
+        assignment.receipt.limitations.join(" "),
+        /no private test ran/,
+      );
+    }
+    assert.equal(
+      store.closeCollection(publicRejectedPlan.collectionId).complete,
+      true,
+    );
+
+    const unavailablePlan = structuredClone(plan);
+    unavailablePlan.collectionId = `repo-unavailable-${randomUUID()}`;
+    unavailablePlan.tasks[0].stableTaskId = `stable-unavailable-${randomUUID()}`;
+    unavailablePlan.tasks[0].stableFamilyId = `family-unavailable-${randomUUID()}`;
+    store.registerPlan(unavailablePlan, registry, {
+      expectedRegistrySha256: hashJson(registry),
+    });
+    const unavailableHandle = await bridge.retain({
+      collectionId: unavailablePlan.collectionId,
+      taskId: task.taskId,
+      packetInput,
+      oracleReference: oracleRef,
+    });
+    const unavailableInput = {
+      ...input,
+      collectionId: unavailablePlan.collectionId,
+      handle: unavailableHandle,
+    };
+    await assert.rejects(
+      runOneShotLocalRepositoryAttempt(unavailableInput, runtime),
+      (error) =>
+        error.cause?.message === "Injected retained response storage failure" &&
+        typeof error.reservationId === "string",
+    );
+    assert.equal(requests.length, 5);
+    const unavailable = store.inspectCollection(unavailablePlan.collectionId);
+    assert.equal(
+      unavailable.assignments[0].calls[0].receipt.status,
+      "completed",
+    );
+    assert.equal(unavailable.assignments[0].receipt, null);
+    assert.equal(unavailable.assignments[0].oracleInvocation, null);
+    assert.equal(unavailable.assignments[0].oracleVerdict, null);
+    await assert.rejects(
+      runOneShotLocalRepositoryAttempt(unavailableInput, runtime),
+      /Assignment already consumed/,
+    );
+    assert.equal(requests.length, 5);
+    assert.equal(
+      store.recoverCollection(unavailablePlan.collectionId, {
+        abandonOutstanding: true,
+      })[0].status,
+      "collector-crashed",
+    );
   },
 );
