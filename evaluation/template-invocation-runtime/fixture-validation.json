@@ -1,0 +1,2477 @@
+{
+  "corpusSha256": "443b490cd991b9afaa77a66ccb8eea7466d438e50b20f80170dd3a4cd237f049",
+  "taskSha256": "ccd225d740e4eeb8efa2e20d0950be60889296ff2796f23235f111576585fc68",
+  "historyVerified": true,
+  "version": "1.0.0",
+  "taskId": "distinct-template-node-invocations",
+  "baseCommit": "e9bdbe0096a86ff467736016f1a9f9e060115469",
+  "repairCommit": "a07076c273117bd488a8971258c82c5eb149cf29",
+  "sourceIdentities": {
+    "base": [
+      {
+        "path": "graph-templates/tools/validate-graph/index.js",
+        "mode": "100644",
+        "blobOid": "758b89dd40184bda2459d1fa305a87fdabd1ec7b",
+        "sha256": "a7193e0c08cab9a3bbfe49c79477912a0f2679bbb3ba365f6c7d764ff7ea3ff5"
+      },
+      {
+        "path": "graph-templates/artifacts/architecture.schema.json",
+        "mode": "100644",
+        "blobOid": "e207e36e3630133440fb93b94c780df0737ebfc9",
+        "sha256": "fcdc95f08110663cfec20976f5107b83b0e4e3e3d6d30ad35d7b014370cf20ff"
+      },
+      {
+        "path": "graph-templates/artifacts/test.schema.json",
+        "mode": "100644",
+        "blobOid": "dd1abcd0b3fdf076235a79cef492050ba721748b",
+        "sha256": "77ba37d395fa8295283e2c25ec38720306b7672dab53cdbeb8922f9712e48830"
+      }
+    ],
+    "repair": [
+      {
+        "path": "graph-templates/tools/validate-graph/index.js",
+        "mode": "100644",
+        "blobOid": "5eae2f9e6b4f21ea6528dc893c79286753e3c78c",
+        "sha256": "b0ac281c6c3de239424b42ae37946b3c1642026441107932d03ae0b4691ed67b"
+      },
+      {
+        "path": "graph-templates/tools/validate-graph/contracts.js",
+        "mode": "100644",
+        "blobOid": "f6c248e6608a6a9a04a990e59a0b985e49c457f2",
+        "sha256": "f4290b6270553c0712a0ddc8b62d9dcf358d84f6b597ac2e8cfe6092aa1b8110"
+      },
+      {
+        "path": "graph-templates/tools/validate-graph/validate.js",
+        "mode": "100644",
+        "blobOid": "57d1b0b4730dcba6eea02db5593a48e864871bba",
+        "sha256": "8c75d75111fa015480ef735a305ce947e9d1549c29d07a5016f4ed0954fe5c2c"
+      },
+      {
+        "path": "graph-templates/artifacts/architecture.schema.json",
+        "mode": "100644",
+        "blobOid": "09375a474363cf22c80f8f667ef2826f4ef1ab46",
+        "sha256": "a3ccad2f9603cca6de4483a861ed43fa819392124b82951cbe0fc59376c801aa"
+      },
+      {
+        "path": "graph-templates/artifacts/test.schema.json",
+        "mode": "100644",
+        "blobOid": "f8073681fc7ce5347df80b895c5a6a862c571d19",
+        "sha256": "c53bf53e436c018fc3c41da69560bc8a51b69938416b6abad5588599a589e7df"
+      }
+    ]
+  },
+  "baseline": {
+    "version": "1.0.0",
+    "taskId": "distinct-template-node-invocations",
+    "fixtureKind": "known-history-quickjs-json-schema-behavior",
+    "imageId": "sha256:efabd17945f4c02733c06046a6e2fb0b2c8885f0c6c7dcc78675aade34522f5d",
+    "runtime": {
+      "version": "1.0.0",
+      "node": "v24.16.0",
+      "versions": {
+        "quickjs": "0.32.0",
+        "wasm": "0.32.0",
+        "ajv": "8.17.1",
+        "formats": "3.0.1",
+        "esbuild": "0.28.2"
+      },
+      "hashes": {
+        "executor.mjs": "19d7f8ffb91398e2ce3aaa0f2f4b6e4960daa54c10dcc81526e8f546b403e5b0",
+        "fixture.js": "cd46659266e1db258ee82716d46c06a726874e48cf36337f2b6b4e94dca5bb10",
+        "build-ajv.mjs": "00f33eb4c6eaa22cec1786d12d3d612c7d823d716e93521a458740c8ae165520",
+        "package-lock.json": "e8e2ca80097e3c0746cfb59e1f4f640087f88875d2836980eb03506e204004ba",
+        "context.json": "8e203c9858f96d0cf06b464aa60d59aef9dfed8cc17bc49c354d2cc47e129a27",
+        "ajv-guest.js": "bb5f213b83f433c74adf6176acec960b984297ab5359d5e23c54cfec96181d62",
+        "wasm": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
+      }
+    },
+    "verifierHashes": {
+      "verify-template-invocations.mjs": "6786267df2255978d68a137d8280763b22bc81398c466ac060088c35bfbc6bdf",
+      "candidate-template-invocations.mjs": "2c8d03720886a786ebc9fec387dd97237ba559b1d8697d4f12c7f6a11809b534",
+      "template-invocation-runtime/history.mjs": "68454c13477d33db8bc6db4ca1d8149ea59bf316e3ad88459a57db46f4096d04",
+      "run.mjs": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "isolated-candidate.mjs": "5844c72f1fa16eed8c39aa8c84e477fd3681bbc42ca2eea0090a82e7ada05075",
+      "corpus-history.mjs": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321"
+    },
+    "baselineSchemaIdentities": [
+      {
+        "path": "graph-templates/artifacts/requirements.schema.json",
+        "mode": "100644",
+        "blobOid": "5c32ab9b23529dbec7b8529644b3513605996614",
+        "sha256": "17e2bdb2ecb35e5dd0ab6f50d578bf65724a743fb0926e321c5d8206bb4ba706"
+      },
+      {
+        "path": "graph-templates/artifacts/architecture.schema.json",
+        "mode": "100644",
+        "blobOid": "e207e36e3630133440fb93b94c780df0737ebfc9",
+        "sha256": "fcdc95f08110663cfec20976f5107b83b0e4e3e3d6d30ad35d7b014370cf20ff"
+      },
+      {
+        "path": "graph-templates/artifacts/database.schema.json",
+        "mode": "100644",
+        "blobOid": "a8148dc560c37938b8b30557a99785c37a705c69",
+        "sha256": "1a47f53f8beda8a44e4e1369f968d1febe493ea3bed873637b89dba0d74b01aa"
+      },
+      {
+        "path": "graph-templates/artifacts/api.schema.json",
+        "mode": "100644",
+        "blobOid": "7e0288653c6775fc23bfa7c60cb98025ad6e1cbb",
+        "sha256": "4fe62cf214ff7dc3f8891dde764470afdc6e5e9c58aaadcf9ca01dac35b351eb"
+      },
+      {
+        "path": "graph-templates/artifacts/auth.schema.json",
+        "mode": "100644",
+        "blobOid": "9be1f98f2938e2d23ae1ae03d2b85c70da34a5e7",
+        "sha256": "267471de9381b40d97301dce481fe305a8ebd53e24d6c2920d5420c46a7b8d64"
+      },
+      {
+        "path": "graph-templates/artifacts/storage.schema.json",
+        "mode": "100644",
+        "blobOid": "5765a321200c99918b04320466e67a8bf1b08647",
+        "sha256": "b6df4e2e1c7af5cd8002592c91a96434bce82b1c7fb58c1b3a5e523c8861bde0"
+      },
+      {
+        "path": "graph-templates/artifacts/frontend.schema.json",
+        "mode": "100644",
+        "blobOid": "8e9e5a6bea8cb18d579862b99994ac22896cda34",
+        "sha256": "d965033e13dcb7d6896b77113efb819801d53d9ba7592346b8ef60aacebb6dc8"
+      },
+      {
+        "path": "graph-templates/artifacts/integration.schema.json",
+        "mode": "100644",
+        "blobOid": "2b406920bdec62c457ecf868f3ec370f0551ae4e",
+        "sha256": "c96f89fb3d1333eb5ccf9b3a3dccb6c7ce55483f80c93cdb50ae9f06023d5c2e"
+      },
+      {
+        "path": "graph-templates/artifacts/test.schema.json",
+        "mode": "100644",
+        "blobOid": "dd1abcd0b3fdf076235a79cef492050ba721748b",
+        "sha256": "77ba37d395fa8295283e2c25ec38720306b7672dab53cdbeb8922f9712e48830"
+      },
+      {
+        "path": "graph-templates/artifacts/deployment.schema.json",
+        "mode": "100644",
+        "blobOid": "1dcee614c38dfeada399ad2939ebefd58a828681",
+        "sha256": "7ddbd5b562a299fb7d3aef41a0f84a8c6ea17cce930c1b3d430e2a4001ad21db"
+      }
+    ],
+    "candidateSources": [
+      {
+        "path": "graph-templates/tools/validate-graph/index.js",
+        "sha256": "a7193e0c08cab9a3bbfe49c79477912a0f2679bbb3ba365f6c7d764ff7ea3ff5",
+        "bytes": 7128
+      },
+      {
+        "path": "graph-templates/artifacts/architecture.schema.json",
+        "sha256": "fcdc95f08110663cfec20976f5107b83b0e4e3e3d6d30ad35d7b014370cf20ff",
+        "bytes": 2604
+      },
+      {
+        "path": "graph-templates/artifacts/test.schema.json",
+        "sha256": "77ba37d395fa8295283e2c25ec38720306b7672dab53cdbeb8922f9712e48830",
+        "bytes": 1668
+      }
+    ],
+    "allCompleted": true,
+    "passed": false,
+    "results": [
+      {
+        "id": "repeated-template-distinct-instances",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "explicit-instance-edge",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "invalid-connections",
+                "message": "edge service:Orders -> repository:Accounts references a node not in this project"
+              }
+            ],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "duplicate-instance",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "unknown-edge-target",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "invalid-connections",
+                "message": "edge service:Orders -> missing:instance references a node not in this project"
+              }
+            ],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "unknown-edge-source",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "invalid-connections",
+                "message": "edge missing:instance -> repository:Orders references a node not in this project"
+              }
+            ],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "template-id-is-not-instance",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "ambiguous-unbound-prerequisite",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "wrong-template-binding",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "dangling-binding",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "undeclared-binding",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "missing-template",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "missing-dependencies",
+                "message": "node \"unknown.template\" is not in the template registry"
+              }
+            ],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "missing-required-template",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "missing-dependencies",
+                "message": "node \"backend.fixture-service\" requires \"backend.fixture-repository\" which is not in this project's node list"
+              },
+              {
+                "check": "missing-dependencies",
+                "message": "node \"backend.fixture-service\" requires \"backend.fixture-repository\" which is not in this project's node list"
+              }
+            ],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "prerequisite-after-consumer",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "instance-edge-cycle",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "invalid-connections",
+                "message": "edge repository:Orders -> service:Orders references a node not in this project"
+              }
+            ],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "planned-template",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "template-conflict",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "duplicate-functionality",
+                "message": "node \"backend.fixture-service\" conflicts with \"backend.fixture-repository\", both are present in this project"
+              },
+              {
+                "check": "duplicate-functionality",
+                "message": "node \"backend.fixture-service\" conflicts with \"backend.fixture-repository\", both are present in this project"
+              }
+            ],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-wrong-template-pair",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-dangling-instance",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-one-instance-is-not-all",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-template-only-ambiguous",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-wrong-template-pair",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-unknown-instance",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-v2-missing-template",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-invalid-version",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "v2-missing-instance",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "v2-empty-instance",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "unsupported-architecture-version",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-stack-contract",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-order-contract",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-artifact-metadata",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-test-kind",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "other-artifacts-still-validated",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "duplicate-artifact-alias",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "missing-architecture",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "check": "invalid-schemas",
+                "message": "architecture.json missing or not valid JSON at project root"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "legacy-singleton-compatible",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "legacy-duplicate-not-inferred",
+        "status": "completed",
+        "passed": false,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "arbitrary-json-is-not-artifact",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              },
+              {
+                "check": "orphan-nodes",
+                "message": "node \"backend.fixture-service\" is generated but nothing depends on or connects to it"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      }
+    ],
+    "modelCalls": 0,
+    "actualNetworkCalls": 0,
+    "promotionEligible": false,
+    "limitations": [
+      "Known historical fixtures, not unseen tasks, independent labels, paired worker measurements or promotion evidence.",
+      "Finite fixture coverage rejects specified regressions; it is not a proof of validator correctness for arbitrary graphs.",
+      "The operator provisions the reviewed local image. Resource limits and QuickJS reduce exposure but are not a general sandbox guarantee."
+    ]
+  },
+  "repaired": {
+    "version": "1.0.0",
+    "taskId": "distinct-template-node-invocations",
+    "fixtureKind": "known-history-quickjs-json-schema-behavior",
+    "imageId": "sha256:efabd17945f4c02733c06046a6e2fb0b2c8885f0c6c7dcc78675aade34522f5d",
+    "runtime": {
+      "version": "1.0.0",
+      "node": "v24.16.0",
+      "versions": {
+        "quickjs": "0.32.0",
+        "wasm": "0.32.0",
+        "ajv": "8.17.1",
+        "formats": "3.0.1",
+        "esbuild": "0.28.2"
+      },
+      "hashes": {
+        "executor.mjs": "19d7f8ffb91398e2ce3aaa0f2f4b6e4960daa54c10dcc81526e8f546b403e5b0",
+        "fixture.js": "cd46659266e1db258ee82716d46c06a726874e48cf36337f2b6b4e94dca5bb10",
+        "build-ajv.mjs": "00f33eb4c6eaa22cec1786d12d3d612c7d823d716e93521a458740c8ae165520",
+        "package-lock.json": "e8e2ca80097e3c0746cfb59e1f4f640087f88875d2836980eb03506e204004ba",
+        "context.json": "8e203c9858f96d0cf06b464aa60d59aef9dfed8cc17bc49c354d2cc47e129a27",
+        "ajv-guest.js": "bb5f213b83f433c74adf6176acec960b984297ab5359d5e23c54cfec96181d62",
+        "wasm": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
+      }
+    },
+    "verifierHashes": {
+      "verify-template-invocations.mjs": "6786267df2255978d68a137d8280763b22bc81398c466ac060088c35bfbc6bdf",
+      "candidate-template-invocations.mjs": "2c8d03720886a786ebc9fec387dd97237ba559b1d8697d4f12c7f6a11809b534",
+      "template-invocation-runtime/history.mjs": "68454c13477d33db8bc6db4ca1d8149ea59bf316e3ad88459a57db46f4096d04",
+      "run.mjs": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "isolated-candidate.mjs": "5844c72f1fa16eed8c39aa8c84e477fd3681bbc42ca2eea0090a82e7ada05075",
+      "corpus-history.mjs": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321"
+    },
+    "baselineSchemaIdentities": [
+      {
+        "path": "graph-templates/artifacts/requirements.schema.json",
+        "mode": "100644",
+        "blobOid": "5c32ab9b23529dbec7b8529644b3513605996614",
+        "sha256": "17e2bdb2ecb35e5dd0ab6f50d578bf65724a743fb0926e321c5d8206bb4ba706"
+      },
+      {
+        "path": "graph-templates/artifacts/architecture.schema.json",
+        "mode": "100644",
+        "blobOid": "e207e36e3630133440fb93b94c780df0737ebfc9",
+        "sha256": "fcdc95f08110663cfec20976f5107b83b0e4e3e3d6d30ad35d7b014370cf20ff"
+      },
+      {
+        "path": "graph-templates/artifacts/database.schema.json",
+        "mode": "100644",
+        "blobOid": "a8148dc560c37938b8b30557a99785c37a705c69",
+        "sha256": "1a47f53f8beda8a44e4e1369f968d1febe493ea3bed873637b89dba0d74b01aa"
+      },
+      {
+        "path": "graph-templates/artifacts/api.schema.json",
+        "mode": "100644",
+        "blobOid": "7e0288653c6775fc23bfa7c60cb98025ad6e1cbb",
+        "sha256": "4fe62cf214ff7dc3f8891dde764470afdc6e5e9c58aaadcf9ca01dac35b351eb"
+      },
+      {
+        "path": "graph-templates/artifacts/auth.schema.json",
+        "mode": "100644",
+        "blobOid": "9be1f98f2938e2d23ae1ae03d2b85c70da34a5e7",
+        "sha256": "267471de9381b40d97301dce481fe305a8ebd53e24d6c2920d5420c46a7b8d64"
+      },
+      {
+        "path": "graph-templates/artifacts/storage.schema.json",
+        "mode": "100644",
+        "blobOid": "5765a321200c99918b04320466e67a8bf1b08647",
+        "sha256": "b6df4e2e1c7af5cd8002592c91a96434bce82b1c7fb58c1b3a5e523c8861bde0"
+      },
+      {
+        "path": "graph-templates/artifacts/frontend.schema.json",
+        "mode": "100644",
+        "blobOid": "8e9e5a6bea8cb18d579862b99994ac22896cda34",
+        "sha256": "d965033e13dcb7d6896b77113efb819801d53d9ba7592346b8ef60aacebb6dc8"
+      },
+      {
+        "path": "graph-templates/artifacts/integration.schema.json",
+        "mode": "100644",
+        "blobOid": "2b406920bdec62c457ecf868f3ec370f0551ae4e",
+        "sha256": "c96f89fb3d1333eb5ccf9b3a3dccb6c7ce55483f80c93cdb50ae9f06023d5c2e"
+      },
+      {
+        "path": "graph-templates/artifacts/test.schema.json",
+        "mode": "100644",
+        "blobOid": "dd1abcd0b3fdf076235a79cef492050ba721748b",
+        "sha256": "77ba37d395fa8295283e2c25ec38720306b7672dab53cdbeb8922f9712e48830"
+      },
+      {
+        "path": "graph-templates/artifacts/deployment.schema.json",
+        "mode": "100644",
+        "blobOid": "1dcee614c38dfeada399ad2939ebefd58a828681",
+        "sha256": "7ddbd5b562a299fb7d3aef41a0f84a8c6ea17cce930c1b3d430e2a4001ad21db"
+      }
+    ],
+    "candidateSources": [
+      {
+        "path": "graph-templates/tools/validate-graph/index.js",
+        "sha256": "b0ac281c6c3de239424b42ae37946b3c1642026441107932d03ae0b4691ed67b",
+        "bytes": 502
+      },
+      {
+        "path": "graph-templates/tools/validate-graph/contracts.js",
+        "sha256": "f4290b6270553c0712a0ddc8b62d9dcf358d84f6b597ac2e8cfe6092aa1b8110",
+        "bytes": 2562
+      },
+      {
+        "path": "graph-templates/tools/validate-graph/validate.js",
+        "sha256": "8c75d75111fa015480ef735a305ce947e9d1549c29d07a5016f4ed0954fe5c2c",
+        "bytes": 9446
+      },
+      {
+        "path": "graph-templates/artifacts/architecture.schema.json",
+        "sha256": "a3ccad2f9603cca6de4483a861ed43fa819392124b82951cbe0fc59376c801aa",
+        "bytes": 3469
+      },
+      {
+        "path": "graph-templates/artifacts/test.schema.json",
+        "sha256": "c53bf53e436c018fc3c41da69560bc8a51b69938416b6abad5588599a589e7df",
+        "bytes": 1846
+      }
+    ],
+    "allCompleted": true,
+    "passed": true,
+    "results": [
+      {
+        "id": "repeated-template-distinct-instances",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "explicit-instance-edge",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "duplicate-instance",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "duplicate-functionality",
+                "check": "duplicate-functionality",
+                "message": "Duplicate instanceId \"repository:Accounts\"",
+                "nodeId": "repository:Accounts"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Binding \"backend.fixture-repository\" -> \"repository:Orders\" must select an instance of that template",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Manifest instance \"repository:Orders\" does not match the architecture template \"backend.fixture-repository\"",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Test suite \"repository:Orders.test.js\" has an invalid template/instance pair"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "unknown-edge-target",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Edge service:Orders -> missing:instance references an unknown instance"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "unknown-edge-source",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Edge missing:instance -> repository:Orders references an unknown instance"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "template-id-is-not-instance",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Edge backend.fixture-service -> backend.fixture-repository references an unknown instance"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "ambiguous-unbound-prerequisite",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "ambiguous-dependency",
+                "check": "ambiguous-dependency",
+                "message": "Instance \"service:Orders\" must bind \"backend.fixture-repository\" to one of: repository:Accounts, repository:Orders",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"repository:Orders\" is generated but nothing depends on it",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "wrong-template-binding",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Binding \"backend.fixture-repository\" -> \"service:Accounts\" must select an instance of that template",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"repository:Orders\" is generated but nothing depends on it",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "dangling-binding",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Binding \"backend.fixture-repository\" -> \"repository:Missing\" must select an instance of that template",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"repository:Orders\" is generated but nothing depends on it",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "undeclared-binding",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Binding \"unknown.template\" is not a declared prerequisite",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "missing-template",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "missing-dependencies",
+                "check": "missing-dependencies",
+                "message": "Template \"unknown.template\" is not in the registry",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Manifest instance \"service:Orders\" does not match the architecture template \"backend.fixture-service\"",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Test suite \"service:Orders.test.js\" has an invalid template/instance pair"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"repository:Orders\" is generated but nothing depends on it",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "missing-required-template",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "missing-dependencies",
+                "check": "missing-dependencies",
+                "message": "Instance \"service:Accounts\" requires template \"backend.fixture-repository\"",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "missing-dependencies",
+                "check": "missing-dependencies",
+                "message": "Instance \"service:Orders\" requires template \"backend.fixture-repository\"",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Manifest instance \"repository:Accounts\" does not match the architecture template \"backend.fixture-repository\"",
+                "nodeId": "repository:Accounts"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Manifest instance \"repository:Orders\" does not match the architecture template \"backend.fixture-repository\"",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Test suite \"repository:Accounts.test.js\" has an invalid template/instance pair"
+              },
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Test suite \"repository:Orders.test.js\" has an invalid template/instance pair"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "prerequisite-after-consumer",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "dependency-order",
+                "check": "dependency-order",
+                "message": "Prerequisite \"repository:Orders\" must run before \"service:Orders\"",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "instance-edge-cycle",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "dependency-order",
+                "check": "dependency-order",
+                "message": "Prerequisite \"service:Orders\" must run before \"repository:Orders\"",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "circular-dependencies",
+                "check": "circular-dependencies",
+                "message": "Dependency cycle: repository:Orders -> service:Orders -> repository:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "planned-template",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "unimplemented-template",
+                "check": "unimplemented-template",
+                "message": "Template \"backend.fixture-service\" has status \"planned\"; only implemented templates can execute",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "unimplemented-template",
+                "check": "unimplemented-template",
+                "message": "Template \"backend.fixture-service\" has status \"planned\"; only implemented templates can execute",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "template-conflict",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "duplicate-functionality",
+                "check": "duplicate-functionality",
+                "message": "Template \"backend.fixture-service\" conflicts with \"backend.fixture-repository\"",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "duplicate-functionality",
+                "check": "duplicate-functionality",
+                "message": "Template \"backend.fixture-service\" conflicts with \"backend.fixture-repository\"",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-wrong-template-pair",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Test suite \"repository:Accounts.test.js\" has an invalid template/instance pair"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"repository:Accounts\" has no matching test suite",
+                "nodeId": "repository:Accounts"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-dangling-instance",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Test suite \"repository:Accounts.test.js\" has an invalid template/instance pair"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"repository:Accounts\" has no matching test suite",
+                "nodeId": "repository:Accounts"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-one-instance-is-not-all",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"repository:Orders\" has no matching test suite",
+                "nodeId": "repository:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "test-template-only-ambiguous",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Test suite \"repository:Accounts.test.js\" must identify a unique instance for \"backend.fixture-repository\""
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Test suite \"repository:Orders.test.js\" must identify a unique instance for \"backend.fixture-repository\""
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Test suite \"service:Accounts.test.js\" must identify a unique instance for \"backend.fixture-service\""
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Test suite \"service:Orders.test.js\" must identify a unique instance for \"backend.fixture-service\""
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"repository:Accounts\" has no matching test suite",
+                "nodeId": "repository:Accounts"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"repository:Orders\" has no matching test suite",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"service:Accounts\" has no matching test suite",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"service:Orders\" has no matching test suite",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-wrong-template-pair",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Manifest instance \"repository:Orders\" does not match the architecture template \"backend.fixture-service\"",
+                "nodeId": "repository:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-unknown-instance",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-connections",
+                "check": "invalid-connections",
+                "message": "Manifest instance \"repository:Missing\" does not match the architecture template \"backend.fixture-repository\"",
+                "nodeId": "repository:Missing"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-v2-missing-template",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "manifest.json: Manifest entry \"repository:Orders\" requires templateId"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "manifest-invalid-version",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "Invalid manifest version for \"repository:Orders\"",
+                "nodeId": "repository:Orders"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "v2-missing-instance",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "architecture.json: [{\"instancePath\":\"/data/nodes/1\",\"schemaPath\":\"#/allOf/0/then/properties/data/properties/nodes/items/required\",\"keyword\":\"required\",\"params\":{\"missingProperty\":\"instanceId\"},\"message\":\"must have required property 'instanceId'\"},{\"instancePath\":\"\",\"schemaPath\":\"#/allOf/0/if\",\"keyword\":\"if\",\"params\":{\"failingKeyword\":\"then\"},\"message\":\"must match \\\"then\\\" schema\"}]"
+              },
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "A valid architecture.json artifact is required"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "v2-empty-instance",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "architecture.json: [{\"instancePath\":\"/data/nodes/1/instanceId\",\"schemaPath\":\"#/properties/data/properties/nodes/items/properties/instanceId/minLength\",\"keyword\":\"minLength\",\"params\":{\"limit\":1},\"message\":\"must NOT have fewer than 1 characters\"}]"
+              },
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "A valid architecture.json artifact is required"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "unsupported-architecture-version",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "architecture.json: [{\"instancePath\":\"/data/nodes/0\",\"schemaPath\":\"#/allOf/0/else/properties/data/properties/nodes/items/not\",\"keyword\":\"not\",\"params\":{},\"message\":\"must NOT be valid\"},{\"instancePath\":\"/data/nodes/1\",\"schemaPath\":\"#/allOf/0/else/properties/data/properties/nodes/items/not\",\"keyword\":\"not\",\"params\":{},\"message\":\"must NOT be valid\"},{\"instancePath\":\"/data/nodes/2\",\"schemaPath\":\"#/allOf/0/else/properties/data/properties/nodes/items/not\",\"keyword\":\"not\",\"params\":{},\"message\":\"must NOT be valid\"},{\"instancePath\":\"/data/nodes/3\",\"schemaPath\":\"#/allOf/0/else/properties/data/properties/nodes/items/not\",\"keyword\":\"not\",\"params\":{},\"message\":\"must NOT be valid\"},{\"instancePath\":\"\",\"schemaPath\":\"#/allOf/0/if\",\"keyword\":\"if\",\"params\":{\"failingKeyword\":\"else\"},\"message\":\"must match \\\"else\\\" schema\"},{\"instancePath\":\"/version\",\"schemaPath\":\"#/properties/version/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[12]\\\\.\\\\d+\\\\.\\\\d+$\"},\"message\":\"must match pattern \\\"^[12]\\\\.\\\\d+\\\\.\\\\d+$\\\"\"}]"
+              },
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "A valid architecture.json artifact is required"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-stack-contract",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "architecture.json: [{\"instancePath\":\"/data/stack/backend\",\"schemaPath\":\"#/properties/data/properties/stack/properties/backend/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[\"express\",\"fastify\",\"nestjs\"]},\"message\":\"must be equal to one of the allowed values\"}]"
+              },
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "A valid architecture.json artifact is required"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-order-contract",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "architecture.json: [{\"instancePath\":\"/data/nodes/0/order\",\"schemaPath\":\"#/properties/data/properties/nodes/items/properties/order/minimum\",\"keyword\":\"minimum\",\"params\":{\"comparison\":\">=\",\"limit\":0},\"message\":\"must be >= 0\"}]"
+              },
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "A valid architecture.json artifact is required"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-artifact-metadata",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "architecture.json: [{\"instancePath\":\"/metadata/generatedAt\",\"schemaPath\":\"requirements.schema.json#/$defs/metadata/properties/generatedAt/format\",\"keyword\":\"format\",\"params\":{\"format\":\"date-time\"},\"message\":\"must match format \\\"date-time\\\"\"}]"
+              },
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "A valid architecture.json artifact is required"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "invalid-test-kind",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "test.json: [{\"instancePath\":\"/data/suites/0/kind\",\"schemaPath\":\"#/properties/data/properties/suites/items/properties/kind/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[\"unit\",\"integration\",\"api\"]},\"message\":\"must be equal to one of the allowed values\"}]"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"repository:Accounts\" has no matching test suite",
+                "nodeId": "repository:Accounts"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"repository:Orders\" has no matching test suite",
+                "nodeId": "repository:Orders"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"service:Accounts\" has no matching test suite",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "missing-tests",
+                "check": "missing-tests",
+                "message": "Instance \"service:Orders\" has no matching test suite",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "other-artifacts-still-validated",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "database.json: expected artifactType database.schema"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "duplicate-artifact-alias",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "Multiple files declare architecture; keep one canonical artifact"
+              }
+            ],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "missing-architecture",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "A valid architecture.json artifact is required"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "legacy-singleton-compatible",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "legacy-duplicate-not-inferred",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 1,
+          "result": {
+            "valid": false,
+            "errors": [
+              {
+                "rule": "invalid-schemas",
+                "check": "invalid-schemas",
+                "message": "Legacy architecture repeats template \"project.fixture\"; migrate with explicit instanceId and bindings"
+              }
+            ],
+            "warnings": [],
+            "repairs": []
+          }
+        }
+      },
+      {
+        "id": "arbitrary-json-is-not-artifact",
+        "status": "completed",
+        "passed": true,
+        "observed": {
+          "exitCode": 0,
+          "result": {
+            "valid": true,
+            "errors": [],
+            "warnings": [
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Accounts\" is generated but nothing depends on it",
+                "nodeId": "service:Accounts"
+              },
+              {
+                "rule": "orphan-nodes",
+                "check": "orphan-nodes",
+                "message": "Instance \"service:Orders\" is generated but nothing depends on it",
+                "nodeId": "service:Orders"
+              }
+            ],
+            "repairs": []
+          }
+        }
+      }
+    ],
+    "modelCalls": 0,
+    "actualNetworkCalls": 0,
+    "promotionEligible": false,
+    "limitations": [
+      "Known historical fixtures, not unseen tasks, independent labels, paired worker measurements or promotion evidence.",
+      "Finite fixture coverage rejects specified regressions; it is not a proof of validator correctness for arbitrary graphs.",
+      "The operator provisions the reviewed local image. Resource limits and QuickJS reduce exposure but are not a general sandbox guarantee."
+    ]
+  },
+  "valid": true,
+  "modelCalls": 0,
+  "promotionEligible": false
+}
