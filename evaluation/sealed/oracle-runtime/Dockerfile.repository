@@ -1,0 +1,6 @@
+FROM node@sha256:40ad9f3064e67d6860b4bc3fe1880b2953934fd6320ada990e45fe0efa6badd7
+RUN mkdir -p /opt/sealed-repository/source /work
+COPY evaluation/sealed/oracle-runtime/repository-executor.mjs /opt/sealed-repository/repository-executor.mjs
+USER 65534:65534
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/node", "--max-old-space-size=96", "/opt/sealed-repository/repository-executor.mjs"]
