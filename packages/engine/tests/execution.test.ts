@@ -62,6 +62,28 @@ async function fixture() {
   return { root, config, data };
 }
 describe("managed execution", () => {
+  it("requires security review for API-key and token identifiers in a real-task objective", async () => {
+    const { root } = await fixture();
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async () => {
+        throw new Error("Stop after review scope is recorded");
+      },
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective:
+        "Implement the regression in packages/engine/tests/cloud-export-prefixed-secret.regression.test.ts by changing only packages/engine/src/policy.ts. The containsSecret function must detect long literal assignments in unquoted namespaced SERVICE_API_KEY, quoted JSON key SERVICE_API_KEY, and camelCase serviceApiKey. It must not classify a generateAccessToken(user.id) function call as a secret.",
+      acceptance: ["The regression test passes"],
+    });
+    const run = await engine.start(plan.id);
+    await engine.wait(run.id);
+    const scope = engine.store
+      .events(run.id)
+      .find((event) => event.type === "context.tools_completed");
+    expect(scope?.data.reviewRequired).toBe("security");
+  });
+
   it("stops repeated source requests when the worker receives no new evidence", async () => {
     const { root } = await fixture();
     let calls = 0;

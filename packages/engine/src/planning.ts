@@ -25,6 +25,25 @@ export const WORKFLOWS = {
 } as const;
 export type Workflow = keyof typeof WORKFLOWS;
 
+// Safety floors cannot depend on a decision model recognizing identifier
+// boundaries. Word boundaries alone miss SERVICE_API_KEY and serviceApiKey.
+export function requiresSecurityReview(objective: string): boolean {
+  return (
+    /\b(?:auth|authentication|authorization|credentials?|security|permissions?|tokens?|crypto|cryptography|secrets?|passwords?|api[- ]?keys?|private[- ]?keys?)\b/i.test(
+      objective,
+    ) ||
+    /(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|private[_-]?key|secret|password)(?=$|[^A-Za-z0-9])/i.test(
+      objective,
+    ) ||
+    /(?:ApiKey|AccessToken|PrivateKey|Secret|Password)(?=$|[^a-z])/.test(
+      objective,
+    ) ||
+    /(?:^|[^A-Za-z0-9])(?:apiKey|accessToken|privateKey)(?=$|[^a-z])/.test(
+      objective,
+    )
+  );
+}
+
 /** These are bounded routing choices, never permissions or replacements for required checks. */
 export async function routePlan(options: {
   projectId: string;
