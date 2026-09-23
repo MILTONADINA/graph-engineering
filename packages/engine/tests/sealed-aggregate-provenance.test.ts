@@ -3,10 +3,12 @@ import {
   inspectPrivateSealedAggregateFromManifest,
   inspectPrivateSealedAggregateProvenance,
 } from "../src/sealed-aggregate-provenance.js";
+import { validateFullCohortLedger } from "../src/full-cohort-ledger.js";
 import { hashJson } from "../src/sealed-collection-schema.js";
 import {
   aggregateReviewerAt,
   collectorAt,
+  engineeringFixture,
   fixture,
   nowMs,
 } from "./sealed-aggregate-fixture.js";
@@ -69,6 +71,111 @@ it("binds a nonterminal call-bound oracle claim and private verdict bytes withou
   await expect(
     inspectPrivateSealedAggregateProvenance(tampered, { nowMs }),
   ).rejects.toThrow(/content differs/);
+});
+
+it("re-derives a protected engineering proposal, result and private case verdict without authority", async () => {
+  const { input } = await engineeringFixture();
+  const receipt = await inspectPrivateSealedAggregateProvenance(input, {
+    nowMs,
+  });
+  expect(receipt.callBoundProposalJoinsChecked).toBe(1);
+  expect(receipt.protectedExecutionVerified).toBe(false);
+  expect(receipt.promotionEligible).toBe(false);
+  expect(
+    input.cohort.inspection.assignments[1]!.receipt!.outcome.success,
+  ).toBeNull();
+  expect(
+    input.originalArtifacts
+      .filter((item) =>
+        item.role.startsWith("oracle/engineering-v1/candidate/"),
+      )
+      .map((item) => item.role),
+  ).toEqual([
+    "oracle/engineering-v1/candidate/derived-proposal",
+    "oracle/engineering-v1/candidate/result-source",
+    "oracle/engineering-v1/candidate/private-verdict",
+  ]);
+  const missing = structuredClone(input);
+  missing.originalArtifacts = missing.originalArtifacts.filter(
+    (item) => item.role !== "oracle/engineering-v1/candidate/result-source",
+  );
+  await expect(
+    inspectPrivateSealedAggregateProvenance(missing, { nowMs }),
+  ).rejects.toThrow(/inventory is incomplete/);
+  for (const role of [
+    "task/held-task/baseline",
+    "task/held-task/private-oracle",
+    "oracle/engineering-v1/candidate/derived-proposal",
+    "oracle/engineering-v1/candidate/result-source",
+    "oracle/engineering-v1/candidate/private-verdict",
+  ]) {
+    const changed = structuredClone(input);
+    changed.originalArtifacts.find((item) => item.role === role)!.bytesBase64 =
+      Buffer.from(`forged ${role}`).toString("base64");
+    await expect(
+      inspectPrivateSealedAggregateProvenance(changed, { nowMs }),
+    ).rejects.toThrow(/content differs/);
+  }
+});
+
+it("rejects engineering result or verdict bytes that disagree with freshly signed history", async () => {
+  const wrongResult = await engineeringFixture({ wrongResult: true });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(wrongResult.input, { nowMs }),
+  ).rejects.toThrow(/Engineering result source differs/);
+  const malformedVerdict = await engineeringFixture({
+    malformedVerdict: true,
+  });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(malformedVerdict.input, { nowMs }),
+  ).rejects.toThrow();
+  const wrongCounts = await engineeringFixture({ wrongCounts: true });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(wrongCounts.input, { nowMs }),
+  ).rejects.toThrow(/verdict counts differ/);
+  const wrongStatus = await engineeringFixture({ wrongStatus: true });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(wrongStatus.input, { nowMs }),
+  ).rejects.toThrow(/verdict counts differ/);
+  const reorderedCases = await engineeringFixture({ reverseCases: true });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(reorderedCases.input, { nowMs }),
+  ).rejects.toThrow(/case result differs/);
+  const wrongClaim = await engineeringFixture({ wrongVerdictClaim: true });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(wrongClaim.input, { nowMs }),
+  ).rejects.toThrow(/verdict differs from frozen claim/);
+  const missingVerdict = await engineeringFixture({ omitVerdict: true });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(missingVerdict.input, { nowMs }),
+  ).rejects.toThrow(/Engineering private verdict is missing/);
+});
+
+it("rejects imported engineering claims with altered scope or measured-success authority", async () => {
+  const { input } = await engineeringFixture();
+  const changedBaseline = structuredClone(input.cohort.inspection);
+  const baselineClaim = changedBaseline.assignments[1]!.oracleInvocation;
+  if (baselineClaim?.kind !== "sealed-call-bound-engineering-invocation-claim")
+    throw new Error("Expected engineering fixture claim");
+  baselineClaim.baselineSha256 =
+    changedBaseline.plan.tasks[0]!.publicPacketSha256;
+  expect(() =>
+    validateFullCohortLedger(changedBaseline, input.cohort.pins),
+  ).toThrow();
+  const reusedResult = structuredClone(input.cohort.inspection);
+  const resultClaim = reusedResult.assignments[1]!.oracleInvocation;
+  if (resultClaim?.kind !== "sealed-call-bound-engineering-invocation-claim")
+    throw new Error("Expected engineering fixture claim");
+  resultClaim.resultSourceSha256 = reusedResult.plan.tasks[0]!.baselineSha256;
+  expect(() =>
+    validateFullCohortLedger(reusedResult, input.cohort.pins),
+  ).toThrow();
+  const promoted = structuredClone(input.cohort.inspection);
+  promoted.assignments[1]!.receipt!.status = "completed";
+  promoted.assignments[1]!.receipt!.outcome.success = true;
+  expect(() => validateFullCohortLedger(promoted, input.cohort.pins)).toThrow(
+    /cannot authorize measured attempt success/,
+  );
 });
 
 it("rejects a response-to-proposal mismatch even when the ledger and aggregate are freshly signed", async () => {

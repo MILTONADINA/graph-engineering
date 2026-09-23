@@ -1,0 +1,8 @@
+**
+!evaluation/
+!evaluation/guest-runtime/
+!evaluation/guest-runtime/package.json
+!evaluation/guest-runtime/package-lock.json
+!evaluation/sealed/
+!evaluation/sealed/oracle-runtime/
+!evaluation/sealed/oracle-runtime/engineering-executor.mjs

@@ -27,7 +27,15 @@ export async function fixture(
   mismatchedRequest = false,
   wrongPacketIdentity = false,
   largeArtifacts = false,
+  engineeringOracle = false,
+  wrongEngineeringResult = false,
+  wrongEngineeringCounts = false,
+  omitEngineeringVerdict = false,
+  reverseEngineeringCases = false,
+  wrongEngineeringStatus = false,
+  wrongEngineeringVerdictClaim = false,
 ) {
+  const callBound = callBoundOracle || engineeringOracle;
   const originals = new Map<string, string>();
   const retain = (bytes: Buffer) => {
     const digest = sha256(bytes);
@@ -40,8 +48,24 @@ export async function fixture(
         ? Buffer.alloc(1_100_000, name)
         : Buffer.from(`synthetic-original:${name}`),
     );
-  const baselineSha256 = original("baseline");
-  const source = "const value = 1;";
+  const source = engineeringOracle
+    ? "module.exports.solve = (input) => input.value + 1;"
+    : "const value = 1;";
+  const changedSource = engineeringOracle
+    ? "module.exports.solve = (input) => input.value + 2;"
+    : "const value = 2;";
+  const baselineSha256 = engineeringOracle
+    ? retain(
+        Buffer.from(
+          canonicalJson({
+            kind: "sealed-engineering-baseline",
+            path: "source.ts",
+            source,
+            version: "1.0.0",
+          }),
+        ),
+      )
+    : original("baseline");
   const publicPacketSha256 = retain(
     Buffer.from(
       canonicalJson({
@@ -68,7 +92,7 @@ export async function fixture(
   );
   const proposalText = canonicalJson({
     summary: "Update the selected value",
-    changes: [{ path: "source.ts", before: source, after: "const value = 2;" }],
+    changes: [{ path: "source.ts", before: source, after: changedSource }],
     requests: [],
   });
   const alternateProposalText = canonicalJson({
@@ -77,14 +101,41 @@ export async function fixture(
     requests: [],
   });
   const proposalSha256 = retain(Buffer.from(proposalText));
-  const oracleBytes = Buffer.from(
-    JSON.stringify({
-      expectedSha256: proposalSha256,
-      kind: "sealed-digest-oracle",
-      version: "1.0.0",
-    }),
-  );
+  const engineeringCases = [
+    { id: "first", input: { value: 1 }, expected: 3 },
+    { id: "second", input: { value: 4 }, expected: 6 },
+  ];
+  const oracleBytes = engineeringOracle
+    ? Buffer.from(
+        canonicalJson({
+          kind: "sealed-json-function-oracle",
+          path: "source.ts",
+          cases: engineeringCases,
+          version: "1.0.0",
+        }),
+      )
+    : Buffer.from(
+        JSON.stringify({
+          expectedSha256: proposalSha256,
+          kind: "sealed-digest-oracle",
+          version: "1.0.0",
+        }),
+      );
   const oracleSha256 = retain(oracleBytes);
+  const engineeringResultSha256 = engineeringOracle
+    ? retain(
+        Buffer.from(
+          canonicalJson({
+            kind: "sealed-engineering-baseline",
+            path: "source.ts",
+            source: wrongEngineeringResult
+              ? "module.exports.solve = (input) => input.value + 3;"
+              : changedSource,
+            version: "1.0.0",
+          }),
+        ),
+      )
+    : null;
   const verdictBytes = malformedVerdict
     ? Buffer.from("not a digest verdict")
     : Buffer.from(
@@ -211,7 +262,7 @@ export async function fixture(
     maxCostUsdPerAttempt: 10,
     maxDurationMs: 3_600_000,
   };
-  if (callBoundOracle)
+  if (callBound)
     candidate.providers.push({
       ...structuredClone(candidate.providers[0]!),
       providerId: "local-worker",
@@ -327,12 +378,12 @@ export async function fixture(
       reservationId: reservation.reservationId,
       ordinal: 0,
       providerId:
-        callBoundOracle && assignment.arm === "candidate"
+        callBound && assignment.arm === "candidate"
           ? "local-worker"
           : "laya-worker",
       requestedModel: "weights-v1",
       requestSha256:
-        callBoundOracle && assignment.arm === "candidate" && !mismatchedRequest
+        callBound && assignment.arm === "candidate" && !mismatchedRequest
           ? exactRequestSha256
           : original(`request-${assignment.assignmentId}`),
       reservedCostUsd: 0,
@@ -354,7 +405,7 @@ export async function fixture(
       reservationSha256: hashJson(callReservation),
       status: "completed" as const,
       responseSha256:
-        callBoundOracle && assignment.arm === "candidate"
+        callBound && assignment.arm === "candidate"
           ? retain(
               Buffer.from(
                 canonicalJson({
@@ -391,7 +442,7 @@ export async function fixture(
       observedAt: day,
       callId: callReservation.callId,
     };
-    const isOracle = callBoundOracle && assignment.arm === "candidate";
+    const isOracle = callBound && assignment.arm === "candidate";
     const publicDispatch = isOracle
       ? {
           version: "1.0.0" as const,
@@ -414,7 +465,9 @@ export async function fixture(
     const oracleInvocation = isOracle
       ? {
           version: "1.0.0" as const,
-          kind: "sealed-call-bound-oracle-invocation-claim" as const,
+          kind: engineeringOracle
+            ? ("sealed-call-bound-engineering-invocation-claim" as const)
+            : ("sealed-call-bound-oracle-invocation-claim" as const),
           reservationId: reservation.reservationId,
           reservationSha256: hashJson(reservation),
           collectionId: plan.collectionId,
@@ -424,6 +477,13 @@ export async function fixture(
           planSha256,
           publicDispatchSha256: hashJson(publicDispatch),
           oracleSha256: task.oracleSha256,
+          ...(engineeringOracle
+            ? {
+                baselineSha256: task.baselineSha256,
+                resultSourceSha256: engineeringResultSha256!,
+                verifierKind: "sealed-json-function-v1" as const,
+              }
+            : {}),
           callId: callReservation.callId,
           callReservationSha256: hashJson(callReservation),
           callReceiptSha256: hashJson(callReceipt),
@@ -434,17 +494,58 @@ export async function fixture(
           claimedAt: day,
         }
       : null;
-    const oracleVerdict = isOracle
-      ? {
-          version: "1.0.0" as const,
-          kind: "sealed-private-oracle-verdict-reference" as const,
-          reservationId: reservation.reservationId,
-          claimSha256: hashJson(oracleInvocation),
-          verificationSha256: verdictSha256,
-          verificationBytes: verdictBytes.length,
-          recordedAt: day,
-        }
-      : null;
+    const engineeringCaseResults = engineeringCases.map((item) => ({
+      id: item.id,
+      baselineStatus: "completed" as const,
+      baselineValueSha256: sha256(
+        Buffer.from(canonicalJson(item.input.value + 1)),
+      ),
+      candidateStatus: "completed" as const,
+      candidateValueSha256: sha256(Buffer.from(canonicalJson(item.expected))),
+    }));
+    if (reverseEngineeringCases) engineeringCaseResults.reverse();
+    const selectedVerdictBytes =
+      isOracle && engineeringOracle
+        ? malformedVerdict
+          ? Buffer.from("not an engineering verdict")
+          : Buffer.from(
+              canonicalJson({
+                baselineFailed: engineeringCases.length,
+                caseCount: engineeringCases.length,
+                caseResults: engineeringCaseResults,
+                claimSha256: wrongEngineeringVerdictClaim
+                  ? hashJson({ forged: "engineering-claim" })
+                  : hashJson(oracleInvocation),
+                kind: "sealed-engineering-verification",
+                nonce: "ab".repeat(16),
+                oracleSha256: task.oracleSha256,
+                passed: wrongEngineeringCounts
+                  ? engineeringCases.length - 1
+                  : engineeringCases.length,
+                resultSourceSha256: engineeringResultSha256,
+                status:
+                  wrongEngineeringCounts || wrongEngineeringStatus
+                    ? "fail"
+                    : "pass",
+                version: "1.0.0",
+              }),
+            )
+        : verdictBytes;
+    const selectedVerdictSha256 = isOracle
+      ? retain(selectedVerdictBytes)
+      : verdictSha256;
+    const oracleVerdict =
+      isOracle && !(engineeringOracle && omitEngineeringVerdict)
+        ? {
+            version: "1.0.0" as const,
+            kind: "sealed-private-oracle-verdict-reference" as const,
+            reservationId: reservation.reservationId,
+            claimSha256: hashJson(oracleInvocation),
+            verificationSha256: selectedVerdictSha256,
+            verificationBytes: selectedVerdictBytes.length,
+            recordedAt: day,
+          }
+        : null;
     const receipt = {
       version: "1.0.0" as const,
       kind: "sealed-attempt-receipt" as const,
@@ -458,14 +559,19 @@ export async function fixture(
       proposalSha256:
         oracleInvocation?.proposalSha256 ??
         original(`proposal-${assignment.assignmentId}`),
-      resultSourceSha256: original(`result-${assignment.assignmentId}`),
+      resultSourceSha256:
+        isOracle && engineeringOracle
+          ? engineeringResultSha256!
+          : original(`result-${assignment.assignmentId}`),
       observations: assignment.arm === "candidate" ? [observation] : [],
       callReceiptSha256s: [hashJson(callReceipt)],
       outcome: {
         success: isOracle ? null : true,
         policyViolation: false,
         verificationSha256: isOracle
-          ? null
+          ? engineeringOracle && !omitEngineeringVerdict
+            ? selectedVerdictSha256
+            : null
           : original(`verification-${assignment.assignmentId}`),
         runtimeSha256: isOracle
           ? null
@@ -508,7 +614,13 @@ export async function fixture(
     append("call-reserved", item.calls[0]!.reservation);
     append("call-settled", item.calls[0]!.receipt);
     if (item.oracleInvocation)
-      append("call-bound-oracle-invocation-claimed", item.oracleInvocation);
+      append(
+        item.oracleInvocation.kind ===
+          "sealed-call-bound-engineering-invocation-claim"
+          ? "call-bound-engineering-invocation-claimed"
+          : "call-bound-oracle-invocation-claimed",
+        item.oracleInvocation,
+      );
     if (item.oracleVerdict)
       append("oracle-verdict-retained", item.oracleVerdict);
     append("attempt-settled", item.receipt);
@@ -682,9 +794,17 @@ export async function fixture(
         `oracle/v1/${item.assignment.assignmentId}/derived-proposal`,
         item.oracleInvocation.proposalSha256,
       );
+    if (
+      item.oracleInvocation?.kind ===
+      "sealed-call-bound-engineering-invocation-claim"
+    ) {
+      const role = `oracle/engineering-v1/${item.assignment.assignmentId}`;
+      add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
+      add(`${role}/result-source`, item.oracleInvocation.resultSourceSha256);
+    }
     if (item.oracleVerdict)
       add(
-        `oracle/v1/${item.assignment.assignmentId}/private-verdict`,
+        `${item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
         item.oracleVerdict.verificationSha256,
       );
   }
@@ -821,6 +941,35 @@ export async function fixture(
     keys: { rowLabeler, rowReviewer, collector, aggregateReviewer },
     signed,
   };
+}
+
+export function engineeringFixture(
+  options: {
+    malformedVerdict?: boolean;
+    wrongResult?: boolean;
+    wrongCounts?: boolean;
+    omitVerdict?: boolean;
+    reverseCases?: boolean;
+    wrongStatus?: boolean;
+    wrongVerdictClaim?: boolean;
+  } = {},
+) {
+  return fixture(
+    false,
+    false,
+    options.malformedVerdict ?? false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    options.wrongResult ?? false,
+    options.wrongCounts ?? false,
+    options.omitVerdict ?? false,
+    options.reverseCases ?? false,
+    options.wrongStatus ?? false,
+    options.wrongVerdictClaim ?? false,
+  );
 }
 
 /** Re-sign this synthetic fixture after a real SealedStore chose IDs and times. */
