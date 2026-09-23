@@ -483,9 +483,13 @@ the native runner. Its first attempt in fork
 [run 35843049416](https://github.com/MILTONADINA/graph-engineering/actions/runs/35843049416)
 installed and built the frontend, then Vitest failed to reload its test file:
 the hosted runner supplied an 8.3 `RUNNER~1` temp path while Vite resolved the
-long `runneradmin` path. The CI step now sets all temp variables to the runner's
-canonical temp directory; the rerun must pass before native generated-app
-acceptance can be claimed. This is not a historical arbitrary-candidate or
+long `runneradmin` path. Setting all temp variables to the runner's canonical
+temp directory made the native Windows platform job pass in fork
+[run 35844198661](https://github.com/MILTONADINA/graph-engineering/actions/runs/35844198661).
+The same run's Ubuntu generated-app job failed before execution on an ONNX
+Runtime postinstall network timeout; that separate root install now has one
+bounded retry. Native Windows generated-app acceptance remains a
+current-scaffolder integration check, not a historical arbitrary-candidate or
 measured-model replay.
 
 ## Remaining evidence boundaries
