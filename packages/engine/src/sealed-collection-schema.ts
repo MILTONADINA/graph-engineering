@@ -432,6 +432,13 @@ export function validateCollectionPlan(
   )
     throw new Error("Every task needs exactly two ordered arm assignments");
   for (const task of plan.tasks) {
+    if (
+      task.oracleSha256 === task.publicPacketSha256 ||
+      task.referenceRepairSha256 === task.publicPacketSha256
+    )
+      throw new Error(
+        "Private oracle or reference repair cannot equal the public worker packet",
+      );
     unique(
       task.allowedOutputPaths.map((name) => name.toLowerCase()),
       "Conflicting task output paths",

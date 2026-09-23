@@ -143,6 +143,19 @@ test("known historical task or family cannot become unseen by renaming domain", 
     );
   }
 });
+test("private oracle and repair cannot be identical to the public worker packet", () => {
+  for (const privateField of ["oracleSha256", "referenceRepairSha256"]) {
+    const { plan, registry } = fixture();
+    plan.tasks[0][privateField] = plan.tasks[0].publicPacketSha256;
+    assert.throws(
+      () =>
+        validateCollectionPlan(plan, registry, {
+          expectedRegistrySha256: hashJson(registry),
+        }),
+      /Private oracle or reference repair/,
+    );
+  }
+});
 test("exact known artifacts and duplicate task content cannot evade IDs or inflate samples", () => {
   const { plan, registry } = fixture();
   registry.entries.push({
