@@ -187,6 +187,26 @@ those bytes, that the private oracle was hidden during execution, or that the
 database could not be rolled back. Protected worker/oracle transport and signed
 provenance still have to connect these components.
 
+### Public packet handoff boundary
+
+`SealedPublicPacketBridge` joins the fresh source/docs exporter to the frozen
+task commitment and retained-byte vault. Its `retain()` refuses changed source,
+unexportable/private paths, secrets and hash drift before it creates an opaque
+in-process handle. Its `dispatch()` requires that exact handle and an active
+matching attempt reservation, re-verifies the retained bytes, and passes only a
+detached public packet to a trusted callback. Oracle, reference-repair and
+private-memory bytes are never selected by this bridge. It does not settle the
+ledger or claim that a worker actually received the packet.
+
+Handles intentionally do not survive collector restart; if an attempt was
+already reserved, a crash must use the ledger's explicit recovery/abandonment
+path, not retry an ambiguous dispatch.
+The bridge does **not** provide an atomic or one-time transport lease: the same
+active reservation can invoke a trusted callback more than once. An interrupted
+retention can leave an unreferenced content-addressed blob. A separately
+isolated worker/oracle transport, durable dispatch receipts and original signed
+provenance are still required for sealed held-out evidence.
+
 ## Remaining trust boundary
 
 These APIs accept caller-supplied commitments and receipt claims. Hash matching
