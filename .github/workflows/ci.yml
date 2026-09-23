@@ -35,7 +35,7 @@ jobs:
       - run: npm run format:check
       - run: npm run check
       - name: Evaluation protocol and intake checks
-        run: node --test evaluation/candidate-cases.test.mjs evaluation/candidate-portable.test.mjs evaluation/candidate-mount.test.mjs evaluation/native-mount.test.mjs evaluation/candidate-build-order.test.mjs evaluation/verify-build-order.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs evaluation/candidate-template-invocations.test.mjs evaluation/verify-template-invocations.test.mjs evaluation/candidate-retry-visibility.test.mjs evaluation/verify-retry-visibility.test.mjs evaluation/candidate-cloud-graph.test.mjs
+        run: node --test evaluation/candidate-cases.test.mjs evaluation/candidate-portable.test.mjs evaluation/candidate-mount.test.mjs evaluation/native-mount.test.mjs evaluation/candidate-build-order.test.mjs evaluation/verify-build-order.test.mjs evaluation/isolated-candidate.test.mjs evaluation/calibration-corpus.test.mjs evaluation/corpus-history.test.mjs evaluation/candidate-template-invocations.test.mjs evaluation/verify-template-invocations.test.mjs evaluation/candidate-retry-visibility.test.mjs evaluation/verify-retry-visibility.test.mjs evaluation/candidate-cloud-graph.test.mjs evaluation/candidate-verifier-infrastructure.test.mjs evaluation/candidate-verifier-setup.test.mjs evaluation/verify-verifier-infrastructure.test.mjs
       - run: npm ci --prefix graph-templates/tools/validate-graph
       - name: Sealed collection bookkeeping
         run: node --test evaluation/sealed/tests/*.test.mjs
@@ -231,3 +231,9 @@ jobs:
           node --test evaluation/candidate-retry-visibility.test.mjs evaluation/verify-retry-visibility.test.mjs
         env:
           GRAPH_ENGINE_RETRY_DOCKER_TESTS: "1"
+      - name: Historical verifier-infrastructure replay
+        run: |
+          node evaluation/infrastructure-runtime/provision.mjs
+          node --test evaluation/candidate-verifier-infrastructure.test.mjs evaluation/candidate-verifier-setup.test.mjs evaluation/verify-verifier-infrastructure.test.mjs
+        env:
+          GRAPH_ENGINE_INFRASTRUCTURE_GUEST_TESTS: "1"
