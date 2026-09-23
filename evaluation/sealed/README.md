@@ -375,6 +375,18 @@ success; it is not a passing cohort. The returned receipt has
 does not authenticate source, model, Docker, reviewers, labels or an external
 witness, and does not run a paid provider.
 
+The opt-in `live-qwen-v2-smoke.mjs` exercises this supervisor with the user's
+existing oMLX `qwen-local` server and a newly created, tiny known-synthetic
+repository. It requires `GRAPH_SEALED_LIVE_QWEN=1` plus exact installed Docker
+image IDs in `GRAPH_SEALED_PUBLIC_INTAKE_IMAGE` and
+`GRAPH_SEALED_REPOSITORY_V2_IMAGE`; it checks those IDs and the oMLX model
+alias before creating a private ledger. Run it at most once per intended
+collection, with `node evaluation/sealed/live-qwen-v2-smoke.mjs` after setting
+the variables. The script makes one call per frozen arm, retains ledger and
+vault originals under ignored `.graph/local`, never retries an ambiguous
+attempt, and prints no private verdict. It does not install a model, call a
+paid provider, accept an arbitrary checkout, or create held-out evidence.
+
 The [private digest-oracle boundary](oracle-runtime/README.md) re-reads the
 frozen public packet and one settled local model response, verifies the exact
 request hash, and derives the proposal with the same strict parser as the

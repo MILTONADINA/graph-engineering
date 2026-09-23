@@ -83,7 +83,9 @@ that cloud default/explicit graph make no embedding calls, explicit hybrid does,
 local default remains hybrid, and private-source canaries stay out of cloud
 responses. Claude Code reported API-equivalent token cost in its JSON output;
 the session used the existing Max subscription with no API key override, and
-no separate API charge was intentionally enabled. Cursor remains unverified.
+no separate API charge was intentionally enabled. The ordinary Claude Code
+project-MCP approval was subsequently completed for this server only; no other
+personal servers were approved. Cursor remains unverified.
 
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
 pinned local Laya checkpoint, and a network-disabled `node:24-alpine` container.
@@ -717,3 +719,21 @@ The default sealed suite passed 131 tests with ten native opt-in skips.
 Seven Git-safety tests and three receipt/freshness tests passed separately.
 No live Qwen, paid API, independently controlled witness or unseen label was
 used in this checkpoint.
+
+## Existing oMLX Qwen sealed-cohort smoke — 2026-09-23 UTC
+
+The opt-in `evaluation/sealed/live-qwen-v2-smoke.mjs` ran exactly once against
+the already-installed oMLX `qwen-local` endpoint. It created its own small
+known-synthetic repository, froze a two-arm v2 collection, and used the pinned
+local Docker intake and repository-verifier images. Both model calls completed
+and reached a retained private-oracle verdict. Their recorded usage was 360
+input / 79 output tokens and 360 input / 80 output tokens, with $0 marginal
+external API cost. A read-only check confirmed the retained ledger/vault
+artifacts; their private details remain under ignored `.graph/local`.
+
+The collection closed with two terminal attempts. Both receipts deliberately
+record `success: null`, and the supervisor returns `promotionEligible: false`.
+This is a transport and oracle-integration smoke using a previously known
+synthetic task. It is not unseen held-out evaluation, comparative model
+accuracy, authenticated model provenance, a paid-provider measurement, or
+independent review. No new Qwen model was installed or downloaded.
