@@ -212,6 +212,34 @@ branch or human accepted. This is evidence that the managed run and verifier
 can complete a bounded real task, not a production-quality generalized repair,
 a full-suite result, or completion of item 6.
 
+## Real UTF-8 subprocess repair — 2026-09-23 UTC
+
+A distinct non-synthetic defect in `command()` decoded each child-process
+stdout/stderr chunk separately, corrupting a UTF-8 code point split across
+chunks. A new regression in an isolated detached worktree at `c65d053`
+failed against the original source (one failed, three passed): both streams
+contained replacement characters instead of `😀`. The unchanged source and
+test hashes, pinned offline image, and exact request-byte budget passed
+preflight; the actual Graph Engine retrieval packet was checked again before
+the model boundary for both the decoder code and regression evidence.
+
+One bounded run (`b9e53a1d`/`487a0ca3`) used the existing oMLX Qwen and local
+Laya, with one worker call, one permitted attempt, a `$0` metered-API ceiling,
+and publication disabled. Qwen proposed per-stream raw-Buffer accumulation
+followed by one UTF-8 decode at child close. The unchanged test passed all
+four cases in the pinned network-disabled Docker verifier. Its reported 9,641
+input and 600 output tokens are local-provider estimates, not paid-provider
+accounting. The branch applies the same behavior with a declaration-only
+cleanup; its focused test passed, then a full `npm run check` passed 548 engine
+tests (51 skipped), 59 scaffolder tests and nine dashboard tests. The first
+full-check attempt had one Java binding assertion with no call edge; the
+focused Java file then passed, and one full-check retry passed. The Java
+analyzer uses a separate output path, and the intermittent cause remains
+unproven. [The retained public receipt](../evaluation/real-utf8-repair-2026-09-23.json)
+records the candidate and reviewed-source hashes separately. This is a
+successful unassisted real-task repair and focused verification, not human
+acceptance, held-out calibration or proof of a general paid-token saving.
+
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
 pinned local Laya checkpoint, and a network-disabled `node:24-alpine` container.
 Run `2167781e-9fc0-4ede-b1cf-a067f2cb610e` succeeded between

@@ -1,0 +1,40 @@
+{
+  "version": "1.0.0",
+  "kind": "non-synthetic-local-engineering-run",
+  "baselineRevision": "c65d0537c9a424c767619a93cc48a66bf973eee4",
+  "baselineSourceSha256": "53ea94df414b19d3dcb39da8b30a83873b11f43dc6c460e41055842e478385d9",
+  "regressionSha256": "800dbe6658b6b5dcd417a99beed1901eda125aab5da0ec999143753a987943bd",
+  "baselineFocusedResult": "1 failed, 3 passed: split UTF-8 bytes decoded as replacement characters on stdout and stderr",
+  "planId": "b9e53a1d-a85a-449f-a682-8f1e624c8939",
+  "runId": "487a0ca3-c578-4974-aebe-2619adb7446d",
+  "runStatus": "succeeded",
+  "model": "existing local oMLX qwen-local",
+  "decisionModel": "local Laya, 3 recorded decisions",
+  "workerCalls": 1,
+  "usage": {
+    "inputTokens": 9641,
+    "outputTokens": 600,
+    "cachedTokens": 0,
+    "costUsd": 0,
+    "estimated": true
+  },
+  "candidateSourceSha256": "ad01baff56a0f9124ff9b7cf943424a67ecda7c8d02b2fe0f45150a0cabc758b",
+  "focusedVerification": {
+    "imageId": "sha256:776b595392d923e44088c223720e1c0d566f231cfcfcb4354f17336561b5ae56",
+    "snapshotHash": "980be1827deaf289052cf2754049f289e0dd98d994a05f7297aa33e6f5199068",
+    "test": "packages/engine/tests/util.test.ts",
+    "passed": 4,
+    "failed": 0,
+    "regressionUnchanged": true
+  },
+  "reviewedBranchSourceSha256": "d4f4f493a1473735395074455623fb249001700ee2bb0626ef43d305573884b9",
+  "reviewedChangeFromCandidate": "Declaration-only const cleanup; output decoding and byte-bound behavior unchanged",
+  "publication": "none",
+  "humanAccepted": false,
+  "heldOutEvaluation": false,
+  "limitations": [
+    "The selected task and regression are known to the local operator, not independently held out.",
+    "The child-process regression uses a 100 ms write gap; an extreme scheduling stall could coalesce reads.",
+    "This retained summary is not independently signed source, worker, or oracle provenance."
+  ]
+}
