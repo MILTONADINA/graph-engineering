@@ -86,11 +86,48 @@ export function graphSelectedPaths(context, allPaths, editablePaths) {
   return selected;
 }
 
+export function pairedArmOrder(option) {
+  switch (option ?? "full-then-graph") {
+    case "full-then-graph":
+      return ["full", "graph"];
+    case "graph-then-full":
+      return ["graph", "full"];
+    default:
+      throw new Error(
+        "GRAPH_PAIRED_ARM_ORDER must be full-then-graph or graph-then-full",
+      );
+  }
+}
+
+export function comparePairedArms(arms) {
+  if (!Array.isArray(arms) || arms.length !== 2)
+    throw new Error("Paired comparison requires both completed arms");
+  const full = arms.find((item) => item.arm === "full");
+  const graph = arms.find((item) => item.arm === "graph");
+  if (!full || !graph || full === graph)
+    throw new Error("Paired comparison requires one full and one graph arm");
+  return {
+    pairedArmsReceivedResponses: arms.every(
+      (item) => item.exactModelResponse !== null,
+    ),
+    exactRequestByteDifference:
+      full.exactModelRequest.bytes - graph.exactModelRequest.bytes,
+    reportedInputTokenDifference:
+      full.reportedInputTokens === null || graph.reportedInputTokens === null
+        ? null
+        : full.reportedInputTokens - graph.reportedInputTokens,
+    bothPassedSyntheticFixture:
+      full.status === "fixture-passed" && graph.status === "fixture-passed",
+    measuredPaidApiSavingsUsd: null,
+  };
+}
+
 async function preflight() {
   if (process.env.GRAPH_LIVE_PAIRED_QWEN !== "1" || process.argv.length !== 2)
     throw new Error(
       "Explicit GRAPH_LIVE_PAIRED_QWEN=1 is required; no arguments are accepted",
     );
+  const armOrder = pairedArmOrder(process.env.GRAPH_PAIRED_ARM_ORDER);
   if (process.platform === "win32")
     throw new Error(
       "This local private-Docker run is not supported on Windows",
@@ -135,7 +172,7 @@ async function preflight() {
     throw new Error(
       "Private .graph parent and owned .graph/local are required",
     );
-  return { imageId, local };
+  return { imageId, local, armOrder };
 }
 
 async function writeSources(directory, files) {
@@ -394,7 +431,7 @@ export async function runArm(
 }
 
 async function main() {
-  const { imageId, local } = await preflight();
+  const { imageId, local, armOrder } = await preflight();
   const retainedDirectory = await mkdtemp(
     path.join(local, "paired-qwen-context-"),
   );
@@ -434,7 +471,7 @@ async function main() {
     promotionEligible: false,
     matchedProviderAndOutputLimit: true,
     localApiCostDoesNotIncludeHardware: true,
-    armOrder: ["full", "graph"],
+    armOrder,
     armOrderEffectUncontrolled: true,
     retainedDirectory,
     preflight: null,
@@ -463,21 +500,7 @@ async function main() {
           "Local model transport is ambiguous; no second arm or retry was dispatched",
         );
     }
-    const [full, graph] = report.arms;
-    report.comparison = {
-      pairedArmsReceivedResponses:
-        report.arms.length === 2 &&
-        report.arms.every((item) => item.exactModelResponse !== null),
-      exactRequestByteDifference:
-        full.exactModelRequest.bytes - graph.exactModelRequest.bytes,
-      reportedInputTokenDifference:
-        full.reportedInputTokens === null || graph.reportedInputTokens === null
-          ? null
-          : full.reportedInputTokens - graph.reportedInputTokens,
-      bothPassedSyntheticFixture:
-        full.status === "fixture-passed" && graph.status === "fixture-passed",
-      measuredPaidApiSavingsUsd: null,
-    };
+    report.comparison = comparePairedArms(report.arms);
   } catch (error) {
     report.error = error instanceof Error ? error.message : String(error);
     report.noAutomaticRetry = true;
