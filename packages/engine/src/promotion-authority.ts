@@ -26,6 +26,11 @@ declare const verifiedPromotionBrand: unique symbol;
 export interface VerifiedPromotionAuthority {
   readonly [verifiedPromotionBrand]: true;
 }
+declare const promotionDispatchBrand: unique symbol;
+/** Process-local loader result. Serialized evidence and caller objects cannot mint it. */
+export interface PromotionDispatchBinding {
+  readonly [promotionDispatchBrand]: true;
+}
 export interface PromotionScope {
   projectId: string;
   policyVersion: string;
@@ -41,6 +46,30 @@ interface VerifiedClaims {
   expiresAt: number;
 }
 const verified = new WeakMap<object, VerifiedClaims>();
+interface DispatchClaims {
+  projectId: string;
+  policyVersion: string;
+  /** A future verified importer must resolve one grant and fresh identity per report. */
+  resolveForEvidence?: (evidence: PromotionEvidence) => Promise<
+    | {
+        authority: VerifiedPromotionAuthority;
+        currentIdentity: PromotionRuntimeIdentity;
+      }
+    | undefined
+  >;
+}
+const dispatchBindings = new WeakMap<object, DispatchClaims>();
+function bindDispatch(
+  scope: Pick<PromotionScope, "projectId" | "policyVersion">,
+) {
+  const binding = Object.freeze({}) as PromotionDispatchBinding;
+  // Advisory files never supply a route-specific grant/identity resolver.
+  dispatchBindings.set(binding, {
+    projectId: scope.projectId,
+    policyVersion: scope.policyVersion,
+  });
+  return binding;
+}
 
 const name = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
 /** These are separately selected comparison values, not evidence of approval. */
@@ -625,22 +654,62 @@ export function authorizesPromotion(
   );
 }
 
+/**
+ * Resolve identity separately for each decision from a loader-issued binding.
+ * No public options field or advisory JSON can supply a current identity.
+ * Until a verified issuer installs a trusted resolver of paired per-report
+ * authority and fresh identity, this deliberately returns false, including
+ * for cast/serialized bindings.
+ */
+export async function authorizesPromotionFromBinding(
+  binding: unknown,
+  evidence: PromotionEvidence,
+  scope: Pick<PromotionScope, "projectId" | "policyVersion">,
+): Promise<boolean> {
+  if (!binding || typeof binding !== "object") return false;
+  const claims = dispatchBindings.get(binding);
+  if (
+    !claims ||
+    claims.projectId !== scope.projectId ||
+    claims.policyVersion !== scope.policyVersion ||
+    !claims.resolveForEvidence
+  )
+    return false;
+  try {
+    const resolved = await claims.resolveForEvidence(evidence);
+    if (
+      !resolved ||
+      !verified.has(resolved.authority) ||
+      resolved.currentIdentity.category !== evidence.category ||
+      resolved.currentIdentity.providerKind !== evidence.provider
+    )
+      return false;
+    return authorizesPromotion(resolved.authority, evidence, {
+      ...scope,
+      currentIdentity: resolved.currentIdentity,
+    });
+  } catch {
+    return false;
+  }
+}
+
 export const PROMOTION_IMPORT_BLOCKED =
   "Unsigned evaluation is analysis-only. Promotion requires original signed reviews, operator-approved trust, and a verified sealed held-out collection workflow; the promotion-bound importer is not implemented. No promotion file was written.";
 
 /** Existing files remain untouched and readable for analysis, never authority. */
 export async function loadPromotionAuthority(
   dataDir: string,
-  scope: PromotionScope,
+  scope: Pick<PromotionScope, "projectId" | "policyVersion">,
 ): Promise<{
   evidence: PromotionEvidence[];
-  authority: VerifiedPromotionAuthority | undefined;
+  binding: PromotionDispatchBinding;
   status: "absent" | "unverified";
 }> {
   if (!scope.projectId || !/^[a-f0-9]{64}$/.test(scope.policyVersion))
     throw new Error(
       "Promotion loading requires the current project and policy identity",
     );
+  const binding = bindDispatch(scope);
   const filename = path.join(dataDir, "promotions.json");
   let text: string;
   try {
@@ -650,7 +719,7 @@ export async function loadPromotionAuthority(
     text = await readFile(filename, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      return { evidence: [], authority: undefined, status: "absent" };
+      return { evidence: [], binding, status: "absent" };
     throw error;
   }
   if (Buffer.byteLength(text) > 2_000_000)
@@ -659,5 +728,5 @@ export async function loadPromotionAuthority(
     .array(promotionEvidenceSchema)
     .max(1000)
     .parse(JSON.parse(text));
-  return { evidence, authority: undefined, status: "unverified" };
+  return { evidence, binding, status: "unverified" };
 }

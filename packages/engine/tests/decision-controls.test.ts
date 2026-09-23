@@ -73,7 +73,9 @@ function answer(choices: Record<string, string>) {
 // Scope-controller unit tests simulate an already verified authority boundary.
 // They never issue or persist a real grant; unmocked forgery tests are separate.
 beforeEach(() =>
-  vi.spyOn(promotionAuthority, "authorizesPromotion").mockReturnValue(true),
+  vi
+    .spyOn(promotionAuthority, "authorizesPromotionFromBinding")
+    .mockResolvedValue(true),
 );
 afterEach(() => {
   vi.unstubAllGlobals();

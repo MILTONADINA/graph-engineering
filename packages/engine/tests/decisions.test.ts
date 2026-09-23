@@ -189,7 +189,10 @@ describe("bounded decision dispatch", () => {
   });
   it("after verified authority, still requires matching model identity and fitted confidence threshold", async () => {
     // Isolate downstream routing gates; this mock is not a production grant issuer.
-    vi.spyOn(promotionAuthority, "authorizesPromotion").mockReturnValue(true);
+    vi.spyOn(
+      promotionAuthority,
+      "authorizesPromotionFromBinding",
+    ).mockResolvedValue(true);
     const fetch = vi.fn(async () => answer());
     vi.stubGlobal("fetch", fetch);
     const input = {

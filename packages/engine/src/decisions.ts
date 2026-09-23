@@ -10,7 +10,7 @@ import { decideBatch, type DecisionBudget } from "./decision-batch.js";
 import {
   authorizesPromotion,
   type PromotionScope,
-  type VerifiedPromotionAuthority,
+  type PromotionDispatchBinding,
 } from "./promotion-authority.js";
 export { decideBatch } from "./decision-batch.js";
 export type {
@@ -159,7 +159,7 @@ export async function decide(options: {
   policy: ProjectPolicy;
   providers: DecisionProvider[];
   evidence?: PromotionEvidence[];
-  promotionAuthority?: VerifiedPromotionAuthority;
+  promotionBinding?: PromotionDispatchBinding;
   signal?: AbortSignal;
   budget?: DecisionBudget;
 }): Promise<DecisionRecord[]> {
