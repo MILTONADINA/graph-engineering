@@ -38,11 +38,18 @@ export function createMcpServer(
       inputSchema: {
         query: z.string().min(1),
         budgetTokens: z.number().int().positive().optional(),
+        retrieval: z.enum(["lexical", "graph", "hybrid"]).optional(),
       },
     },
     async (args) => {
       await allowed();
-      const packet = await engine.context.getContext(args);
+      const retrieval =
+        args.retrieval ?? (options.client === "cloud" ? "lexical" : "hybrid");
+      const packet = await engine.context.getContext({
+        query: args.query,
+        budgetTokens: args.budgetTokens,
+        retrieval,
+      });
       if (options.client === "cloud") {
         if (
           containsSecret(packet.query) ||

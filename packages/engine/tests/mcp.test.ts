@@ -54,6 +54,121 @@ it("serves real indexed context through MCP and refuses cloud export for offline
   }
 });
 
+it("defaults cloud context to lexical retrieval and requires explicit hybrid embedding work", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-retrieval-"));
+  const config = await initializeProject(root);
+  config.policy.inference = "allowlisted";
+  config.policy.network = "allowlisted";
+  config.policy.allowedHosts = ["api.openai.com"];
+  config.policy.exportPaths = ["public/**"];
+  await writeFile(
+    path.join(root, ".graph", "project.json"),
+    JSON.stringify(config),
+  );
+  await mkdir(path.join(root, "public"));
+  await mkdir(path.join(root, "private"));
+  await writeFile(
+    path.join(root, "public", "source.ts"),
+    "export function retrievalSignal() { return true; }",
+  );
+  await writeFile(
+    path.join(root, "public", "notes.md"),
+    "retrievalSignal is documented here.",
+  );
+  await writeFile(
+    path.join(root, "private", "PRIVATE_RETRIEVAL_CANARY.ts"),
+    "export function retrievalSignalPrivate() { return false; }",
+  );
+  const engine = await GraphEngine.open(root);
+  try {
+    // A synthetic vector proves the retrieval branch without provisioning or
+    // loading a local embedding model during this regression test.
+    const embeddings = (engine.context as any).embeddings;
+    const available = vi.spyOn(embeddings, "available").mockResolvedValue(true);
+    const embed = vi.spyOn(embeddings, "embed").mockImplementation(async () => {
+      const vector = new Float32Array(768);
+      vector[0] = 1;
+      return vector;
+    });
+    const connect = async (kind: "local" | "cloud") => {
+      const server = createMcpServer(engine, { client: kind });
+      const client = new Client({
+        name: `retrieval-${kind}`,
+        version: "1.0.0",
+      });
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      return { client, server };
+    };
+    const cloud = await connect("cloud");
+    try {
+      const lexical = await cloud.client.callTool({
+        name: "context_get",
+        arguments: { query: "retrievalSignal", budgetTokens: 4000 },
+      });
+      expect(lexical.isError).not.toBe(true);
+      expect(JSON.stringify(lexical)).toContain("public/source.ts");
+      expect(JSON.stringify(lexical)).toContain("public/notes.md");
+      expect(JSON.stringify(lexical)).not.toContain("PRIVATE_RETRIEVAL_CANARY");
+      expect(available).not.toHaveBeenCalled();
+      expect(embed).not.toHaveBeenCalled();
+
+      const graph = await cloud.client.callTool({
+        name: "context_get",
+        arguments: {
+          query: "retrievalSignal",
+          budgetTokens: 4000,
+          retrieval: "graph",
+        },
+      });
+      expect(graph.isError).not.toBe(true);
+      expect(JSON.stringify(graph)).not.toContain("PRIVATE_RETRIEVAL_CANARY");
+      expect(available).not.toHaveBeenCalled();
+      expect(embed).not.toHaveBeenCalled();
+
+      const hybrid = await cloud.client.callTool({
+        name: "context_get",
+        arguments: {
+          query: "retrievalSignal",
+          budgetTokens: 4000,
+          retrieval: "hybrid",
+        },
+      });
+      expect(hybrid.isError).not.toBe(true);
+      expect(JSON.stringify(hybrid)).not.toContain("PRIVATE_RETRIEVAL_CANARY");
+      expect(available).toHaveBeenCalled();
+      expect(embed).toHaveBeenCalled();
+    } finally {
+      await cloud.client.close();
+      await cloud.server.close();
+    }
+
+    embed.mockClear();
+    const local = await connect("local");
+    try {
+      const packet = await local.client.callTool({
+        name: "context_get",
+        arguments: { query: "retrievalSignal", budgetTokens: 4000 },
+      });
+      expect(packet.isError).not.toBe(true);
+      expect(JSON.stringify(packet)).toContain("PRIVATE_RETRIEVAL_CANARY");
+      expect(embed).toHaveBeenCalled();
+    } finally {
+      await local.client.close();
+      await local.server.close();
+    }
+  } finally {
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(projectDataDir(config.projectId), {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+
 it("cloud MCP omits private diagnostics and credential-bearing symbols and graph targets", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-export-"));
   const config = await initializeProject(root);
