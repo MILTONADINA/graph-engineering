@@ -1,4 +1,4 @@
-# Local validation — 2026-09-22 UTC
+# Local validation — 2026-09-22–23 UTC
 
 These are development observations, not production calibration or a claimed
 percentage reduction in model cost. Private run databases retain detailed
@@ -498,3 +498,31 @@ MCP configuration is independent of these native worker limitations.
 Fork branch protections were verified for `main` and `dev`. Feature-stack CI
 runs on the fork. No PR approval, merge, upstream synchronization or main push
 is part of these measurements.
+
+## Sealed transport development checkpoint — 2026-09-23 UTC
+
+The local one-call worker relay passed eight native public-intake/relay tests
+against a fake loopback model and an offline Docker guest. The private digest
+oracle passed eight native tests against its own offline guest. Neither test
+uses a paid provider or proves that the currently unavailable Qwen endpoint
+generated a proposal. The digest oracle verifies only exact proposal bytes,
+not arbitrary engineering tests, and its returned observation has no authority.
+
+The full workspace check passed 59 scaffolder, nine dashboard and 411 engine
+tests, with 47 explicit engine opt-in skips, plus typechecks and builds. The
+sealed pure suite passed 79 tests with three native opt-in skips. The local
+worker/oracle native tests were exercised separately. A concurrent oracle run
+failed through its 15-second guest failure path while the full workspace suite
+was active; a subsequent isolated run passed in about 1.2 seconds. This is a
+load-sensitive local observation, not a claim that every runtime deadline is
+adequate under contention.
+
+The prior pushed fork workflow [run 35814725693](https://github.com/MILTONADINA/graph-engineering/actions/runs/35814725693)
+passed on retry after Linux x64 `onnxruntime-node` postinstall timed out once.
+The new relay, oracle and signature-verification stack has not yet been
+validated by its own fork CI run at this checkpoint. A security review found
+and corrected an oracle-probing error-order issue, a public-path screening gap,
+and common bearer/named-token secret-pattern misses; those regression tests
+pass. Pattern screening is not complete DLP. A frozen packet and local SQLite
+claim do not authenticate git provenance, original model output, global
+one-shot execution, or operator-approved promotion.
