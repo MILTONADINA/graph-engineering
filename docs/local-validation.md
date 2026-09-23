@@ -63,6 +63,28 @@ claims, independent labels or promotion approvals are supplied by this proof.
 
 ## Real local inference
 
+On 2026-09-23 the existing oMLX server reported model alias `qwen-local` at
+`127.0.0.1:1234/v1`. A focused live call through Graph Engineering's actual
+worker adapter, with thinking disabled and a no-change objective, returned a
+schema-valid proposal with empty `changes` and `requests`: 273 input tokens,
+18 output tokens, and $0 estimated marginal API cost. This is adapter
+compatibility evidence, not a managed engineering repair, paired cohort, or
+held-out result. A raw 16-token diagnostic with default thinking enabled
+ended before its final answer; the configured thinking-off diagnostic returned
+`READY` in one output token. No paid API was called.
+
+A constrained Claude Code Max-session invocation called the rebuilt project
+MCP with only `context_get` allowed. The default cloud retrieval returned the
+exportable source path `packages/engine/src/mcp.ts` for an exact symbol query
+in a 6.5-second client round trip. A broader first query returned no matching
+items, so this verifies connectivity and one bounded source lookup, not general
+retrieval quality. The MCP regression test uses stubbed vectors and verifies
+that cloud default/explicit graph make no embedding calls, explicit hybrid does,
+local default remains hybrid, and private-source canaries stay out of cloud
+responses. Claude Code reported API-equivalent token cost in its JSON output;
+the session used the existing Max subscription with no API key override, and
+no separate API charge was intentionally enabled. Cursor remains unverified.
+
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
 pinned local Laya checkpoint, and a network-disabled `node:24-alpine` container.
 Run `2167781e-9fc0-4ede-b1cf-a067f2cb610e` succeeded between
