@@ -18,6 +18,14 @@ const SHELL =
 const MAX_TREE_BYTES = 16_000_000;
 const MAX_FRAME_BYTES = 32_000;
 
+/** A deterministic rejection of model-supplied edits, not an oracle failure. */
+export class RepositoryProposalRejectedError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RepositoryProposalRejectedError";
+  }
+}
+
 export const repositorySha256 = (bytes) =>
   createHash("sha256").update(bytes).digest("hex");
 
@@ -243,7 +251,9 @@ export function applyRepositoryProposal(
     !Array.isArray(proposal.requests) ||
     proposal.requests.length !== 0
   )
-    throw new Error("Repository verifier needs bounded exact source edits");
+    throw new RepositoryProposalRejectedError(
+      "Repository verifier needs bounded exact source edits",
+    );
   const changed = new Map();
   for (const change of proposal.changes) {
     if (
@@ -257,11 +267,15 @@ export function applyRepositoryProposal(
       change.after.includes("\0") ||
       Buffer.byteLength(change.after) > 100_000
     )
-      throw new Error("Repository changes require exact bounded source edits");
+      throw new RepositoryProposalRejectedError(
+        "Repository changes require exact bounded source edits",
+      );
     const source = original.get(change.path).source;
     const first = source.indexOf(change.before);
     if (first < 0 || source.indexOf(change.before, first + 1) >= 0)
-      throw new Error("Repository replacement must match exactly once");
+      throw new RepositoryProposalRejectedError(
+        "Repository replacement must match exactly once",
+      );
     const result =
       source.slice(0, first) +
       change.after +
@@ -272,7 +286,9 @@ export function applyRepositoryProposal(
       result.includes("\0") ||
       Buffer.byteLength(result) > 2_000_000
     )
-      throw new Error("Repository replacement produced an invalid source file");
+      throw new RepositoryProposalRejectedError(
+        "Repository replacement produced an invalid source file",
+      );
     changed.set(change.path, result);
   }
   const files = baselineFiles.map((file) => ({
