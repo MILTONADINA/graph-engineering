@@ -1,0 +1,3027 @@
+{
+  "version": "1.0.0",
+  "manifestSha256": "443b490cd991b9afaa77a66ccb8eea7466d438e50b20f80170dd3a4cd237f049",
+  "taskId": "task:f8cec20627dfb9ce7ff4e03b1601e57906cc91d59e4dd929b7bd8ebcb7fe3717",
+  "taskSha256": "821b759383230809417cc24f50cd775753c426342f19da015663629bf5c38963",
+  "splitId": "split:846c3178149b6015c89bc90b5af2904be514ae1db04c4dd9ded1e68057637dec",
+  "split": "calibration",
+  "historyVerified": true,
+  "modelCalls": 0,
+  "promotionEligible": false,
+  "kind": "isolated-historical-fixture-validation",
+  "results": {
+    "base": {
+      "version": "1.0.0",
+      "kind": "isolated-historical-candidate-verification",
+      "taskId": "linux-private-verification-mount",
+      "startedAt": "2026-09-23T01:42:08.977Z",
+      "finishedAt": "2026-09-23T01:42:13.067Z",
+      "runnerSha256": "0fef4c3bf1a6b728fa56dab27243548ded24cdff5702b7e65f73b2c01d09202a",
+      "transportSha256": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "receiptSha256": "318e5dff62edda59d55fae3dd19041993e0909dfd0d65d8dcbc779faafeacf8a",
+      "historyHelperSha256": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321",
+      "hostDependencyLockSha256": "ef0887a343df93cca88532bff39ae87e5880ff9796be4e7aa32556054ab513e0",
+      "hostRuntime": {
+        "node": "v26.3.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "typescript": "5.9.3"
+      },
+      "oracleSha256": "8d82ba9e0115c8742cfdeeabd0c53c0b91b25e64b8c76ac0ab007dc7aad6160b",
+      "portableOracleSha256": "a3c06c757e28104b46f89b960128f130ea6a4be2e920d2a732b822eb98b4806d",
+      "mountOracleSha256": "13296db3023899a2e4c3a650792c2ded783a3f9b55a4183aaf21abf27d77ae5e",
+      "imageId": "sha256:45812aec2021134905507a9a86c48e1f128a86c2753eb63081a70d93128c57a3",
+      "runtime": {
+        "version": "1.0.0",
+        "node": "v24.16.0",
+        "quickjs": "0.32.0",
+        "typescript": "5.9.3",
+        "zod": "3.25.76",
+        "esbuild": "0.28.2",
+        "wasmSha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+        "zodBundleSha256": "0ffb0fb5dda0b3a05a351f0d746dd79e05aeb737816c8e0abbea9713248ff597",
+        "executorSha256": "dcaeb4e6ea125ef8127dd618838cd3225ebcef9c005a47d61cf003753d61b5bd",
+        "packageLockSha256": "6899a00ed4afdd14facd71f4823e3cdaf01da7130758e9d0d2d679c742f87391"
+      },
+      "sourceHashes": {
+        "packages/engine/src/execution/docker.ts": "fcf3f81da4499bee5988bd56fa745fc5a0cfbcbc7f9d5ee5508a342f916c44f4"
+      },
+      "expectedChecks": 10,
+      "allCompleted": true,
+      "checks": [
+        {
+          "id": "linux-private-owner",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "e3de8be51dff102327114da2c79bb0db892b0f9313abdf451ad96953ec98b49a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-alternate-owner-two-checks",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-0a5d4e11bf22ef7b2173",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "first.js"
+                ],
+                "timeoutMs": 12000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-0a5d4e11bf22ef7b2173"],
+                "timeoutMs": 5000
+              },
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-a7ef42b6412f632a64f9",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "second.js"
+                ],
+                "timeoutMs": 12000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-a7ef42b6412f632a64f9"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": ["node", "first.js"],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              {
+                "argv": ["node", "second.js"],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "1f1ecffaf0813f5bc5806b6d293a0dd65fba47a984c42d4c64af44bcdae1aa0a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-root-owner",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "e3de8be51dff102327114da2c79bb0db892b0f9313abdf451ad96953ec98b49a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "darwin-owner",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "e3de8be51dff102327114da2c79bb0db892b0f9313abdf451ad96953ec98b49a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "windows-without-identity-apis",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-dac48691d1e993bf3957",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=C:\\fixture\\repo\\verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-dac48691d1e993bf3957"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["C:\\fixture\\repo\\verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["C:\\fixture\\repo\\worktree\\src\\check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture\\src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "C:\\fixture\\repo\\worktree\\src\\check.js",
+                  "C:\\fixture\\repo\\verification-fixture\\src\\check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["C:\\fixture\\repo\\worktree\\README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "C:\\fixture\\repo\\worktree\\README.md",
+                  "C:\\fixture\\repo\\verification-fixture\\README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture\\src\\check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["C:\\fixture\\repo\\verification-fixture\\README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "c520e8e2f7c6a2c73217f4b692bef65c9d7144d6a6e4a395af074465a5722370",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-without-gid-api",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "e3de8be51dff102327114da2c79bb0db892b0f9313abdf451ad96953ec98b49a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-without-uid-api",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "e3de8be51dff102327114da2c79bb0db892b0f9313abdf451ad96953ec98b49a",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-first-failure-stops",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-0a5d4e11bf22ef7b2173",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "first.js"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-0a5d4e11bf22ef7b2173"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": ["node", "first.js"],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 2,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "d13adfa400e8aeb909b238d4a068dd287b87e69f3685a023cf5efd4d2870f4e7",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-path-with-spaces",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-d4c2dd557a285adc8949",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture with spaces/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-d4c2dd557a285adc8949"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture with spaces/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture with spaces/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture with spaces/repo/worktree/src/check.js",
+                  "/fixture with spaces/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture with spaces/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture with spaces/repo/worktree/README.md",
+                  "/fixture with spaces/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "a915c8f1f43f8bb53c1576cb2e3f596624f54d047090f32b853d57efa38f3a55",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-no-input-files",
+          "passed": false,
+          "matched": {
+            "invocation": false,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "3ed203e1e0303d192e5a56aef7288eae6a59128553aee1dc5fb2c1e2318de030",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "failed",
+      "modelCalls": 0,
+      "actualNetworkCalls": 0,
+      "promotionEligible": false,
+      "limitations": [
+        "Controller-owned simulated filesystem and command traces verify invocation, source-copy scope and cleanup; they do not execute Docker or prove native permissions.",
+        "The separate explicitly gated native Linux fixture must establish actual private bind-mount traversal without DAC_OVERRIDE or permission widening.",
+        "Only the declared historical Docker interface is supported, not arbitrary Node APIs or general container correctness.",
+        "No model calls, reviewed labels, paired costs, unseen population or promotion authority are produced.",
+        "Only the declared historical task and simulated capabilities are checked; no complete program correctness or provider behavior is proved.",
+        "QuickJS limits are defense in depth; the external process deadline and container memory boundary are mandatory.",
+        "The operator must provision the reviewed image; matching hashes do not authenticate the operator or eliminate runtime vulnerabilities.",
+        "This is candidate verification, not a measured model run, independent label, held-out result, or promotion authorization."
+      ]
+    },
+    "repair": {
+      "version": "1.0.0",
+      "kind": "isolated-historical-candidate-verification",
+      "taskId": "linux-private-verification-mount",
+      "startedAt": "2026-09-23T01:42:13.069Z",
+      "finishedAt": "2026-09-23T01:42:16.954Z",
+      "runnerSha256": "0fef4c3bf1a6b728fa56dab27243548ded24cdff5702b7e65f73b2c01d09202a",
+      "transportSha256": "76440489103459426dae2ec956a927faea77e04340e47d8997b4b887d9c3b380",
+      "receiptSha256": "318e5dff62edda59d55fae3dd19041993e0909dfd0d65d8dcbc779faafeacf8a",
+      "historyHelperSha256": "712da94736caeebd13efa497bebff9c8217b37518747406b7268b98a8f8e8321",
+      "hostDependencyLockSha256": "ef0887a343df93cca88532bff39ae87e5880ff9796be4e7aa32556054ab513e0",
+      "hostRuntime": {
+        "node": "v26.3.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "typescript": "5.9.3"
+      },
+      "oracleSha256": "8d82ba9e0115c8742cfdeeabd0c53c0b91b25e64b8c76ac0ab007dc7aad6160b",
+      "portableOracleSha256": "a3c06c757e28104b46f89b960128f130ea6a4be2e920d2a732b822eb98b4806d",
+      "mountOracleSha256": "13296db3023899a2e4c3a650792c2ded783a3f9b55a4183aaf21abf27d77ae5e",
+      "imageId": "sha256:45812aec2021134905507a9a86c48e1f128a86c2753eb63081a70d93128c57a3",
+      "runtime": {
+        "version": "1.0.0",
+        "node": "v24.16.0",
+        "quickjs": "0.32.0",
+        "typescript": "5.9.3",
+        "zod": "3.25.76",
+        "esbuild": "0.28.2",
+        "wasmSha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232",
+        "zodBundleSha256": "0ffb0fb5dda0b3a05a351f0d746dd79e05aeb737816c8e0abbea9713248ff597",
+        "executorSha256": "dcaeb4e6ea125ef8127dd618838cd3225ebcef9c005a47d61cf003753d61b5bd",
+        "packageLockSha256": "6899a00ed4afdd14facd71f4823e3cdaf01da7130758e9d0d2d679c742f87391"
+      },
+      "sourceHashes": {
+        "packages/engine/src/execution/docker.ts": "13f465c423575c73bfda05d73c249cd362171f2aed9dba022c7d993105d07d2f"
+      },
+      "expectedChecks": 10,
+      "allCompleted": true,
+      "checks": [
+        {
+          "id": "linux-private-owner",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "1001:1001",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "27c7e8d70f37ba63fda6d62ad47374f60658bdf70cdf012f87a2780f1fd4d090",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-alternate-owner-two-checks",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-0a5d4e11bf22ef7b2173",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "23456:34567",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "first.js"
+                ],
+                "timeoutMs": 12000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-0a5d4e11bf22ef7b2173"],
+                "timeoutMs": 5000
+              },
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-a7ef42b6412f632a64f9",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "23456:34567",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "second.js"
+                ],
+                "timeoutMs": 12000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-a7ef42b6412f632a64f9"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": ["node", "first.js"],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              {
+                "argv": ["node", "second.js"],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "77b7a18ab9ea47a98e58a8598d6b0bc596051cf1e1a6d6d689d5bfdc3feef425",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-root-owner",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "0:0",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "a75dc91cf4b612707a8d104a364e4547d7a6095801bcb24fbfa44617d25a0201",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "darwin-owner",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "501:20",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "f202bc2089d3bb5a2f8cf9b738a9d19174841ec2f7ff8b58f84b5e5435dc200d",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "windows-without-identity-apis",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-dac48691d1e993bf3957",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=C:\\fixture\\repo\\verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-dac48691d1e993bf3957"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["C:\\fixture\\repo\\verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["C:\\fixture\\repo\\worktree\\src\\check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture\\src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "C:\\fixture\\repo\\worktree\\src\\check.js",
+                  "C:\\fixture\\repo\\verification-fixture\\src\\check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["C:\\fixture\\repo\\worktree\\README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "C:\\fixture\\repo\\worktree\\README.md",
+                  "C:\\fixture\\repo\\verification-fixture\\README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture\\src\\check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["C:\\fixture\\repo\\verification-fixture\\README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "C:\\fixture\\repo\\verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "89c2fcf21ae662dccf89acc20037d791c5961d1d3b1a899da5ce2dc383467994",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-without-gid-api",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "a2e2e443a88b0098720203f257b4162971d225fa0f75cab1dedb9eccbc9994dd",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-without-uid-api",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "a2e2e443a88b0098720203f257b4162971d225fa0f75cab1dedb9eccbc9994dd",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-first-failure-stops",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-0a5d4e11bf22ef7b2173",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "1001:1001",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "first.js"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-0a5d4e11bf22ef7b2173"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/src/check.js",
+                  "/fixture/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture/repo/worktree/README.md",
+                  "/fixture/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/src/check.js"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture/repo/verification-fixture/README.md"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": ["node", "first.js"],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 2,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "68b4cba5e666e2da7bfa9a305e48d2c6b8f58593aeeb3adab99ad5bab3e8eff1",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-path-with-spaces",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-d4c2dd557a285adc8949",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "1001:1001",
+                  "--mount",
+                  "type=bind,source=/fixture with spaces/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-d4c2dd557a285adc8949"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture with spaces/repo/verification-"]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture with spaces/repo/worktree/src/check.js"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture/src",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture with spaces/repo/worktree/src/check.js",
+                  "/fixture with spaces/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": ["/fixture with spaces/repo/worktree/README.md"]
+              },
+              {
+                "operation": "mkdir",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture",
+                  {
+                    "recursive": true
+                  }
+                ]
+              },
+              {
+                "operation": "copyFile",
+                "args": [
+                  "/fixture with spaces/repo/worktree/README.md",
+                  "/fixture with spaces/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture/src/check.js"
+                ]
+              },
+              {
+                "operation": "readFile",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture/README.md"
+                ]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture with spaces/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "86c250e0cdef9e71b8ecdb70ea5865d67e362af1d1f46af6c17f0ed606a7fb23",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "id": "linux-no-input-files",
+          "passed": true,
+          "matched": {
+            "invocation": true,
+            "filesystem": true,
+            "results": true
+          },
+          "observed": {
+            "calls": [
+              {
+                "kind": "checked",
+                "executable": "docker",
+                "args": [
+                  "image",
+                  "inspect",
+                  "--format",
+                  "{{.Id}}",
+                  "fixture-verification:local"
+                ],
+                "timeoutMs": 10000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": [
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--name",
+                  "graph-check-919b63bc5aa0dec627f5",
+                  "--network=none",
+                  "--cap-drop=ALL",
+                  "--security-opt=no-new-privileges",
+                  "--pids-limit=256",
+                  "--memory=4g",
+                  "--cpus=2",
+                  "--user",
+                  "1001:1001",
+                  "--mount",
+                  "type=bind,source=/fixture/repo/verification-fixture,target=/workspace",
+                  "--workdir",
+                  "/workspace",
+                  "--env",
+                  "CI=true",
+                  "--env",
+                  "HOME=/tmp",
+                  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "timeoutMs": 37000
+              },
+              {
+                "kind": "command",
+                "executable": "docker",
+                "args": ["rm", "-f", "graph-check-919b63bc5aa0dec627f5"],
+                "timeoutMs": 5000
+              }
+            ],
+            "filesystem": [
+              {
+                "operation": "mkdtemp",
+                "args": ["/fixture/repo/verification-"]
+              },
+              {
+                "operation": "rm",
+                "args": [
+                  "/fixture/repo/verification-fixture",
+                  {
+                    "recursive": true,
+                    "force": true
+                  }
+                ]
+              }
+            ],
+            "results": [
+              {
+                "argv": [
+                  "node",
+                  "/workspace/src/check.js",
+                  "argument with spaces"
+                ],
+                "image": "fixture-verification:local",
+                "imageId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "code": 0,
+                "stdout": "",
+                "stderr": "",
+                "snapshotHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ]
+          },
+          "status": "completed",
+          "exitCode": 0,
+          "terminated": false,
+          "stdoutSha256": "ed4d81f8ed8099e90d9d38c568a1e6339b3074743e0c4f6670eaea5da2e1545e",
+          "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "status": "passed",
+      "modelCalls": 0,
+      "actualNetworkCalls": 0,
+      "promotionEligible": false,
+      "limitations": [
+        "Controller-owned simulated filesystem and command traces verify invocation, source-copy scope and cleanup; they do not execute Docker or prove native permissions.",
+        "The separate explicitly gated native Linux fixture must establish actual private bind-mount traversal without DAC_OVERRIDE or permission widening.",
+        "Only the declared historical Docker interface is supported, not arbitrary Node APIs or general container correctness.",
+        "No model calls, reviewed labels, paired costs, unseen population or promotion authority are produced.",
+        "Only the declared historical task and simulated capabilities are checked; no complete program correctness or provider behavior is proved.",
+        "QuickJS limits are defense in depth; the external process deadline and container memory boundary are mandatory.",
+        "The operator must provision the reviewed image; matching hashes do not authenticate the operator or eliminate runtime vulnerabilities.",
+        "This is candidate verification, not a measured model run, independent label, held-out result, or promotion authorization."
+      ]
+    }
+  },
+  "fixtureValid": true
+}

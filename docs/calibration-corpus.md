@@ -13,7 +13,7 @@ Task category, complexity, and risk are explicitly proposed classifications.
 | `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                   |
 | `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                   |
 | `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                   |
-| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Intake only; native Linux check required                                      |
+| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier; native Linux permissions test awaits CI proof    |
 | `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing  |
 | `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance |
 | `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                   |
@@ -158,6 +158,40 @@ acceptance. It must run on Windows and is provisioned in that CI job; the Mac's
 default suite explicitly skips it. The original corpus remains immutable: its
 readiness fields describe the pinned intake snapshot, while this workflow and
 the current executable registry describe the subsequently added tooling.
+
+## Verify isolated private-mount candidates
+
+The isolated runner accepts `--task linux-private-verification-mount` with exactly
+`packages/engine/src/execution/docker.ts`. Ten controller-owned witnesses cover
+Linux/macOS identities, Windows and missing-API fallbacks, root ownership, spaces
+in paths, multiple commands, early failure and empty input inventories. They
+verify exact Docker restrictions, private source-copy scope, result consistency
+and cleanup. Candidate code cannot open real files, change modes or launch Docker.
+
+```sh
+node evaluation/isolated-candidate.mjs \
+  --expected-sha256 REVIEWED_MANIFEST_SHA256 \
+  --task linux-private-verification-mount --validate-history \
+  --output /private/new-mount-fixture-receipt.json
+```
+
+The [recorded simulated receipt](../evaluation/isolated-mount-fixture-validation.json)
+contains 20 completed historical executions: all ten baseline invocations differ
+from the repair contract, and all ten repair witnesses pass. The actual historical
+repair adds both owner identity and `HOME=/tmp`; even platforms without uid/gid
+APIs therefore differ from the old invocation. Filesystem and returned-result
+checks still pass independently on the baseline.
+
+Command traces alone do not prove filesystem permissions. The separate
+`GRAPH_ENGINE_NATIVE_MOUNT_TESTS=1 node --test evaluation/native-mount.test.mjs`
+requires a non-root native Linux host and an unremapped local Docker daemon. It
+checks the exact historical traces, then projects only their numeric identities
+into fixed native probes of an owned 0700 directory and 0600 file. It must observe
+actual root/non-owner `EACCES`, owner read access, zero capabilities, and unchanged
+host modes. Candidate commands never execute natively. This check is configured
+in Linux CI; the Mac explicitly skips it, so native proof remains pending until
+that job succeeds. Neither fixture measures model performance or authorizes
+promotion.
 
 ## Inspect candidate build ordering
 

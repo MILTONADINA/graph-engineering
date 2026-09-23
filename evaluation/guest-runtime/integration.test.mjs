@@ -5,6 +5,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { candidateCase } from "../candidate-cases.mjs";
 import { portableCandidateCase } from "../candidate-portable.mjs";
+import {
+  mountCandidateCase,
+  mountScenario,
+  checkMountObservation,
+  MOUNT_SOURCE_PATH,
+} from "../candidate-mount.mjs";
 
 const enabled = process.env.GRAPH_ENGINE_GUEST_RUNTIME_TESTS === "1";
 const historical = process.env.GRAPH_ENGINE_GUEST_HISTORY_TESTS === "1";
@@ -15,6 +21,7 @@ const packPath = "create-graph-app/scripts/check-pack-contents.js";
 const smokePath = "create-graph-app/scripts/smoke-generated-apps.js";
 const helperPath = "create-graph-app/scripts/npm-command.js";
 const portableWitness = portableCandidateCase();
+const mountWitness = mountCandidateCase();
 const witness = candidateCase("unmetered-decision-budget");
 const scenario = witness.scenarios.find(
   (item) => item.id === "jev-null-allowed",
@@ -163,6 +170,26 @@ function portableCompleted(source, selected, files) {
     "error",
     "exitCode",
   ]);
+  return result.parsed.observations;
+}
+
+function mountEnvelope(source, selected = mountWitness.scenarios[0]) {
+  return {
+    version: "1.0.0",
+    taskId: "linux-private-verification-mount",
+    files: { [MOUNT_SOURCE_PATH]: source },
+    scenario: { input: selected.input, runCodes: selected.runCodes },
+  };
+}
+function mountCompleted(source, selected) {
+  const result = run(mountEnvelope(source, selected));
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.equal(
+    result.parsed.status,
+    "completed",
+    JSON.stringify(result.parsed),
+  );
   return result.parsed.observations;
 }
 
@@ -733,6 +760,171 @@ test(
               (check) => !check.passed && check.id.startsWith("smoke"),
             ),
         );
+    }
+  },
+);
+
+test(
+  "mount guest captures filesystem modes and unsafe Docker arguments despite prototype poisoning",
+  { skip: !enabled },
+  () => {
+    const observed = mountCompleted(`
+    import {mkdtemp,mkdir,rm} from 'node:fs/promises';
+    import path from 'node:path';
+    import {command} from '../util.js';
+    export async function verifyInContainer(workspace){
+      Object.prototype.toJSON=function(){return {operation:'safe',args:[]};};
+      Array.prototype.toJSON=function(){return ['run','--cap-drop=ALL'];};
+      Array.prototype[Symbol.iterator]=function*(){};
+      const view=await mkdtemp(path.join(path.dirname(workspace),'verification-'));
+      await mkdir(view,{recursive:true,mode:511});
+      const args=['run','--cap-add=ALL'];await command('docker',args,{timeoutMs:1234});args[1]='--cap-drop=ALL';
+      await rm(view,{recursive:true,force:true});return [];
+    }
+  `);
+    assert.deepEqual(observed.calls, [
+      {
+        kind: "command",
+        executable: "docker",
+        args: ["run", "--cap-add=ALL"],
+        timeoutMs: 1234,
+      },
+    ]);
+    assert.deepEqual(observed.filesystem[1], {
+      operation: "mkdir",
+      args: [
+        "/fixture/repo/verification-fixture",
+        { recursive: true, mode: 511 },
+      ],
+    });
+    assert.equal(
+      mountWitness.check(mountWitness.scenarios[0], observed).passed,
+      false,
+    );
+  },
+);
+
+test(
+  "mount capabilities refuse private reads, getters, unknown imports and caught escapes",
+  { skip: !enabled },
+  () => {
+    const sources = [
+      `import {readFile,mkdtemp} from 'node:fs/promises';export async function verifyInContainer(){await mkdtemp('/fixture/repo/verification-');try{await readFile('/fixture/repo/worktree/.graph/local/private-memory.json');}catch{}return [];}`,
+      `import {readFile,mkdtemp} from 'node:fs/promises';export async function verifyInContainer(){await mkdtemp('/fixture/repo/verification-');try{await readFile('/etc/passwd');}catch{}return [];}`,
+      `import {mkdir,mkdtemp} from 'node:fs/promises';export async function verifyInContainer(){const view=await mkdtemp('/fixture/repo/verification-');try{await mkdir(view,{get mode(){return 511}});}catch{}return [];}`,
+      `import {command} from '../util.js';export async function verifyInContainer(){try{await command('docker',['run'],{get timeoutMs(){return 100}});}catch{}return [];}`,
+      `import {command} from '../util.js';export async function verifyInContainer(){try{await command('sh',['-c','id'],{timeoutMs:100});}catch{}return [];}`,
+      `export async function verifyInContainer(){try{await import('node:child_process');}catch{}return [];}`,
+      `import {command} from '../util.js';export async function verifyInContainer(){await command('docker',new Proxy(['run'],{}),{timeoutMs:100});return [];}`,
+      `import {mkdtemp} from 'node:fs/promises';export async function verifyInContainer(){try{await mkdtemp('/other/verification-');}catch{}return [];}`,
+    ];
+    for (const source of sources) {
+      const result = run(mountEnvelope(source));
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stderr, "");
+      assert.deepEqual(result.parsed, {
+        version: "1.0.0",
+        status: "candidate-error",
+        observations: null,
+      });
+    }
+  },
+);
+
+test(
+  "mount protocol rejects extra sources and escaping virtual paths",
+  { skip: !enabled },
+  () => {
+    const valid = mountEnvelope(
+      "export async function verifyInContainer(){return [];}",
+    );
+    for (const modify of [
+      (input) => (input.files["verifier.js"] = "unsafe"),
+      (input) => (input.scenario.input.files[0].path = "../escape"),
+      (input) =>
+        input.scenario.input.files.push({ ...input.scenario.input.files[0] }),
+      (input) => (input.scenario.input.workspace = "relative"),
+      (input) => (input.scenario.input.uid = -1),
+      (input) => (input.scenario.runCodes = []),
+      (input) => (input.scenario.expected = { passed: true }),
+    ]) {
+      const changed = structuredClone(valid);
+      modify(changed);
+      const result = run(changed);
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(result.parsed, {
+        version: "1.0.0",
+        status: "candidate-error",
+        observations: null,
+      });
+    }
+  },
+);
+
+test(
+  "both pinned mount revisions execute as guest ESM across ten host witnesses plus maximum virtual file scope",
+  { skip: !enabled || !historical },
+  () => {
+    for (const [revision, digest, repaired] of [
+      [
+        "b135c373d288526e55feb7d0c92abbbe6187cad8",
+        "fcf3f81da4499bee5988bd56fa745fc5a0cfbcbc7f9d5ee5508a342f916c44f4",
+        false,
+      ],
+      [
+        "fc5676816a4f892113de03aca7c8765c2f421789",
+        "13f465c423575c73bfda05d73c249cd362171f2aed9dba022c7d993105d07d2f",
+        true,
+      ],
+    ]) {
+      const history = spawnSync(
+        "git",
+        ["--no-replace-objects", "show", `${revision}:${MOUNT_SOURCE_PATH}`],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 10000,
+          env: {
+            ...process.env,
+            GIT_NO_LAZY_FETCH: "1",
+            GIT_TERMINAL_PROMPT: "0",
+          },
+        },
+      );
+      assert.equal(
+        history.status,
+        0,
+        "Explicit historical proof requires already-local reviewed Git objects",
+      );
+      assert.equal(
+        createHash("sha256").update(history.stdout).digest("hex"),
+        digest,
+      );
+      const checks = mountWitness.scenarios.map((selected) =>
+        mountWitness.check(selected, mountCompleted(history.stdout, selected)),
+      );
+      assert.equal(
+        checks.every((check) => check.passed),
+        repaired,
+        JSON.stringify(checks.filter((check) => !check.passed)),
+      );
+      if (!repaired) assert.equal(checks[0].passed, false);
+      if (repaired) {
+        const capacity = mountScenario("maximum-file-scope", {
+          files: Array.from({ length: 16 }, (_, index) => ({
+            path: `src/file-${index}.ts`,
+            content: `export const value=${index};`,
+            allowed: true,
+          })),
+        });
+        assert.equal(
+          checkMountObservation(
+            capacity,
+            mountCompleted(history.stdout, capacity),
+          ).passed,
+          true,
+        );
+      }
     }
   },
 );
