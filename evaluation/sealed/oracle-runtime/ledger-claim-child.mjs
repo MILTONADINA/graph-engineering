@@ -6,6 +6,9 @@ const [
   expectedPlanSha256,
   oracleSha256,
   proposalSha256,
+  callId,
+  expectedCallReceiptSha256,
+  expectedResponseSha256,
   imageId,
 ] = process.argv.slice(2);
 const store = new SealedStore({ directory });
@@ -14,6 +17,9 @@ try {
     expectedPlanSha256,
     oracleSha256,
     proposalSha256,
+    callId,
+    expectedCallReceiptSha256,
+    expectedResponseSha256,
     imageId,
   });
 } finally {

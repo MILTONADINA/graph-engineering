@@ -12,6 +12,7 @@ import { ArtifactStore } from "../artifacts.mjs";
 import { SealedPublicPacketBridge } from "../public-packet.mjs";
 import { hashJson } from "../schema.mjs";
 import { SealedStore } from "../store.mjs";
+import { buildLocalModelRequest } from "../worker-runtime/model-request.mjs";
 import { fixture, digest } from "./helpers.mjs";
 import {
   oracleDockerCommand,
@@ -32,7 +33,16 @@ const { buildSealedPublicPacket } = await tsImport(
 const imageId = `sha256:${"a".repeat(64)}`;
 const endpoint = "unix:///var/run/docker.sock";
 
-async function setup(t, { dispatch = true } = {}) {
+async function setup(
+  t,
+  {
+    dispatch = true,
+    settle = true,
+    callStatus = "completed",
+    proposalText,
+    callRequestSha256,
+  } = {},
+) {
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-oracle-"));
   const ledgerDirectory = path.join(root, "ledger");
   const artifactDirectory = path.join(root, "artifacts");
@@ -51,8 +61,11 @@ async function setup(t, { dispatch = true } = {}) {
   });
   const artifacts = new ArtifactStore({ directory: artifactDirectory });
   const data = fixture();
-  const proposal = await artifacts.put(Buffer.from("expected fixed output\n"));
-  const oracleContent = oracleBytes(proposal.sha256);
+  const expectedProposalBytes = Buffer.from(
+    JSON.stringify({ summary: "fixed output", changes: [], requests: [] }),
+    "utf8",
+  );
+  const oracleContent = oracleBytes(sha256(expectedProposalBytes));
   const oracle = await artifacts.put(oracleContent);
   const packetInput = {
     root: source,
@@ -90,6 +103,54 @@ async function setup(t, { dispatch = true } = {}) {
         publicBytes = Buffer.from(bytes);
       },
     });
+  const modelProposal = proposalText ?? expectedProposalBytes.toString("utf8");
+  const response = await artifacts.put(
+    Buffer.from(
+      JSON.stringify({
+        model: "fixture-model",
+        choices: [{ message: { content: modelProposal } }],
+        usage: { prompt_tokens: 5, completion_tokens: 2 },
+      }),
+      "utf8",
+    ),
+  );
+  const callId = "oracle-local-call";
+  let call = null;
+  let receipt = null;
+  if (settle && dispatch) {
+    const requestBytes = buildLocalModelRequest(
+      publicBytes,
+      "fixture-model",
+      data.plan.configurations.baseline.providers[0].maxOutputTokens,
+    );
+    call = store.reserveCall(attempt.reservationId, {
+      callId,
+      providerId: "local-worker",
+      requestedModel: "fixture-model",
+      requestSha256: callRequestSha256 ?? sha256(requestBytes),
+      reservedCostUsd: 0,
+    });
+    requestBytes.fill(0);
+    receipt = store.completeCall({
+      version: "1.0.0",
+      kind: "sealed-call-receipt",
+      callId,
+      reservationSha256: hashJson(call),
+      status: callStatus,
+      responseSha256: response.sha256,
+      reportedModel: callStatus === "completed" ? "fixture-model" : null,
+      usage: {
+        inputTokens: 5,
+        outputTokens: 2,
+        costUsd: 0,
+        reportedCostUsd: 0,
+        chargedCostUsd: 0,
+        basis: "local-no-api-charge",
+        pricingSha256: null,
+      },
+      finishedAt: new Date().toISOString(),
+    });
+  }
   const request = {
     store,
     artifacts,
@@ -97,7 +158,8 @@ async function setup(t, { dispatch = true } = {}) {
     reservationId: attempt.reservationId,
     expectedPlanSha256: hashJson(data.plan),
     oracleReference: oracle,
-    proposalReference: proposal,
+    callId,
+    responseReference: response,
   };
   return {
     root,
@@ -105,11 +167,18 @@ async function setup(t, { dispatch = true } = {}) {
     request,
     publicBytes,
     oracleContent,
-    proposal,
+    expectedProposalBytes,
+    call,
+    receipt,
   };
 }
 
-function child(directory, request, reservationId = request.reservationId) {
+function child(
+  directory,
+  request,
+  receipt,
+  reservationId = request.reservationId,
+) {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
@@ -121,7 +190,18 @@ function child(directory, request, reservationId = request.reservationId) {
         reservationId,
         request.expectedPlanSha256,
         request.oracleReference.sha256,
-        request.proposalReference.sha256,
+        sha256(
+          Buffer.from(
+            JSON.stringify({
+              summary: "fixed output",
+              changes: [],
+              requests: [],
+            }),
+          ),
+        ),
+        request.callId,
+        hashJson(receipt),
+        request.responseReference.sha256,
         imageId,
       ],
       { stdio: ["ignore", "pipe", "pipe"] },
@@ -133,6 +213,25 @@ function child(directory, request, reservationId = request.reservationId) {
     proc.once("error", reject);
     proc.once("close", (code) => resolve({ code, stderr }));
   });
+}
+function claimInput(request, receipt, proposalSha256) {
+  return {
+    expectedPlanSha256: request.expectedPlanSha256,
+    oracleSha256: request.oracleReference.sha256,
+    proposalSha256,
+    callId: request.callId,
+    expectedCallReceiptSha256: receipt
+      ? hashJson(receipt)
+      : digest("missing-call-receipt"),
+    expectedResponseSha256: request.responseReference.sha256,
+    imageId,
+  };
+}
+function privateVerdictReference(request) {
+  const record = request.store.inspectCollection(request.collectionId)
+    .assignments[0].oracleVerdict;
+  assert.ok(record);
+  return { sha256: record.verificationSha256, bytes: record.verificationBytes };
 }
 
 test("private digest oracle verifies bytes without echoing the expected digest", () => {
@@ -256,14 +355,14 @@ test("private oracle never enters the bridge-retained public packet or host pref
       },
       runtime,
     ),
-    /frozen task roles/,
+    /original completed local model response/,
   );
   await assert.rejects(
     runProtectedOracle(
       { ...request, proposalReference: request.oracleReference },
       runtime,
     ),
-    /frozen task roles/,
+    /invalid fields/,
   );
   assert.equal(
     request.store.inspectCollection(request.collectionId).assignments[0]
@@ -276,12 +375,10 @@ test("oracle requires the prior public dispatch claim", async (t) => {
   const { request } = await setup(t, { dispatch: false });
   assert.throws(
     () =>
-      request.store.claimOracleInvocation(request.reservationId, {
-        expectedPlanSha256: request.expectedPlanSha256,
-        oracleSha256: request.oracleReference.sha256,
-        proposalSha256: request.proposalReference.sha256,
-        imageId,
-      }),
+      request.store.claimOracleInvocation(
+        request.reservationId,
+        claimInput(request, null, digest("proposal")),
+      ),
     /prior public dispatch/,
   );
   if (process.platform === "win32") return;
@@ -290,12 +387,66 @@ test("oracle requires the prior public dispatch claim", async (t) => {
     /publicly dispatched reservation/,
   );
 });
+test("collector refuses uncalled, ambiguous, forged request/response and caller-selected proposals", async (t) => {
+  if (process.platform === "win32") return;
+  const runtime = { imageId, endpoint };
+  const absent = await setup(t, { settle: false });
+  await assert.rejects(
+    runProtectedOracle(absent.request, runtime),
+    /original completed local model response/,
+  );
+  assert.equal(
+    absent.request.store.inspectCollection(absent.request.collectionId)
+      .assignments[0].oracleInvocation,
+    null,
+  );
+  const ambiguous = await setup(t, { callStatus: "ambiguous" });
+  await assert.rejects(
+    runProtectedOracle(ambiguous.request, runtime),
+    /original completed local model response/,
+  );
+  const wrongRequest = await setup(t, {
+    callRequestSha256: digest("unrelated-call-request"),
+  });
+  await assert.rejects(
+    runProtectedOracle(wrongRequest.request, runtime),
+    /request differs from frozen public packet/,
+  );
+  const correct = await setup(t);
+  const unrelatedResponse = await correct.request.artifacts.put(
+    Buffer.from("not the settled response"),
+  );
+  await assert.rejects(
+    runProtectedOracle(
+      { ...correct.request, responseReference: unrelatedResponse },
+      runtime,
+    ),
+    /original completed local model response/,
+  );
+  await assert.rejects(
+    runProtectedOracle(
+      { ...correct.request, proposalReference: unrelatedResponse },
+      runtime,
+    ),
+    /invalid fields/,
+  );
+  const malformed = await setup(t, { proposalText: "not-json" });
+  await assert.rejects(
+    runProtectedOracle(malformed.request, runtime),
+    /Unexpected token|JSON|proposal/,
+  );
+  assert.equal(
+    malformed.request.store.inspectCollection(malformed.request.collectionId)
+      .assignments[0].oracleInvocation,
+    null,
+  );
+});
 
 test(
-  "proposal read failure wipes the returned private oracle bytes before any claim",
+  "derived proposal read failure wipes private oracle bytes before any claim",
   { skip: process.platform === "win32" },
   async (t) => {
-    const { request } = await setup(t);
+    const { request, expectedProposalBytes } = await setup(t);
     const get = request.artifacts.get.bind(request.artifacts);
     let returnedOracleBytes;
     request.artifacts.get = async (reference) => {
@@ -303,11 +454,13 @@ test(
         returnedOracleBytes = await get(reference);
         return returnedOracleBytes;
       }
-      throw new Error("simulated proposal read failure");
+      if (reference.sha256 === sha256(expectedProposalBytes))
+        throw new Error("simulated derived proposal read failure");
+      return get(reference);
     };
     await assert.rejects(
       runProtectedOracle(request, { imageId, endpoint }),
-      /simulated proposal read failure/,
+      /simulated derived proposal read failure/,
     );
     assert.ok(returnedOracleBytes);
     assert.ok(returnedOracleBytes.every((byte) => byte === 0));
@@ -320,17 +473,16 @@ test(
 );
 
 test("claim survives a process exit, and two processes cannot claim the same attempt", async (t) => {
-  const { root, ledgerDirectory, request } = await setup(t);
-  const crash = await child(ledgerDirectory, request);
+  const { root, ledgerDirectory, request, receipt, expectedProposalBytes } =
+    await setup(t);
+  const crash = await child(ledgerDirectory, request, receipt);
   assert.equal(crash.code, 23);
   assert.throws(
     () =>
-      request.store.claimOracleInvocation(request.reservationId, {
-        expectedPlanSha256: request.expectedPlanSha256,
-        oracleSha256: request.oracleReference.sha256,
-        proposalSha256: request.proposalReference.sha256,
-        imageId,
-      }),
+      request.store.claimOracleInvocation(
+        request.reservationId,
+        claimInput(request, receipt, sha256(expectedProposalBytes)),
+      ),
     /already claimed; never retry/,
   );
   const persisted = request.store.inspectCollection(request.collectionId);
@@ -349,7 +501,7 @@ test("claim survives a process exit, and two processes cannot claim the same att
   );
   assert.equal(
     persisted.events.filter(
-      (item) => item.event.type === "oracle-invocation-claimed",
+      (item) => item.event.type === "call-bound-oracle-invocation-claimed",
     ).length,
     1,
   );
@@ -357,12 +509,10 @@ test("claim survives a process exit, and two processes cannot claim the same att
   try {
     assert.throws(
       () =>
-        reopened.claimOracleInvocation(request.reservationId, {
-          expectedPlanSha256: request.expectedPlanSha256,
-          oracleSha256: request.oracleReference.sha256,
-          proposalSha256: request.proposalReference.sha256,
-          imageId,
-        }),
+        reopened.claimOracleInvocation(
+          request.reservationId,
+          claimInput(request, receipt, sha256(expectedProposalBytes)),
+        ),
       /already claimed; never retry/,
     );
   } finally {
@@ -370,6 +520,7 @@ test("claim survives a process exit, and two processes cannot claim the same att
   }
   const db = new Database(path.join(ledgerDirectory, "sealed.sqlite"));
   try {
+    db.pragma("recursive_triggers = ON");
     assert.throws(
       () => db.prepare("DELETE FROM oracle_invocations").run(),
       /Immutable oracle invocation claim/,
@@ -378,13 +529,23 @@ test("claim survives a process exit, and two processes cannot claim the same att
       () => db.prepare("UPDATE oracle_invocations SET claim_json=?").run("{}"),
       /Immutable oracle invocation claim/,
     );
+    const existing = db
+      .prepare("SELECT * FROM oracle_invocations WHERE reservation_id=?")
+      .get(request.reservationId);
+    assert.throws(
+      () =>
+        db
+          .prepare("INSERT OR REPLACE INTO oracle_invocations VALUES(?,?)")
+          .run(existing.reservation_id, existing.claim_json),
+      /Immutable oracle invocation claim/,
+    );
   } finally {
     db.close();
   }
   const competing = await setup(t);
   const results = await Promise.all([
-    child(competing.ledgerDirectory, competing.request),
-    child(competing.ledgerDirectory, competing.request),
+    child(competing.ledgerDirectory, competing.request, competing.receipt),
+    child(competing.ledgerDirectory, competing.request, competing.receipt),
   ]);
   assert.deepEqual(results.map((item) => item.code).sort(), [1, 23]);
   assert.match(
@@ -392,6 +553,37 @@ test("claim survives a process exit, and two processes cannot claim the same att
     /already claimed; never retry/,
   );
 });
+test(
+  "recovery immediately after the durable claim stops guest launch and cannot retry",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const { request } = await setup(t);
+    const claim = request.store.claimOracleInvocation.bind(request.store);
+    request.store.claimOracleInvocation = (...args) => {
+      const value = claim(...args);
+      request.store.recoverCollection(request.collectionId, {
+        abandonOutstanding: true,
+      });
+      return value;
+    };
+    await assert.rejects(
+      runProtectedOracle(request, { imageId, endpoint }),
+      /active, publicly dispatched reservation/,
+    );
+    const assignment = request.store.inspectCollection(request.collectionId)
+      .assignments[0];
+    assert.equal(assignment.receipt.status, "collector-crashed");
+    assert.equal(assignment.oracleVerdict, null);
+    assert.equal(
+      assignment.oracleInvocation.kind,
+      "sealed-call-bound-oracle-invocation-claim",
+    );
+    await assert.rejects(
+      runProtectedOracle(request, { imageId, endpoint }),
+      /active, publicly dispatched reservation/,
+    );
+  },
+);
 
 test("guest refuses direct host invocation without echoing its input", async () => {
   const frame = frameOracleRequest(
@@ -430,6 +622,7 @@ test(
     });
     assert.equal(observation.promotionEligible, false);
     assert.equal(Object.hasOwn(observation, "status"), false);
+    assert.equal(Object.hasOwn(observation, "oracleSha256"), false);
     assert.equal(
       JSON.stringify(observation).includes(oracleContent.toString()),
       false,
@@ -440,8 +633,9 @@ test(
       ),
       false,
     );
+    assert.equal(Object.hasOwn(observation, "verificationReference"), false);
     const verification = Buffer.from(
-      await request.artifacts.get(observation.verificationReference),
+      await request.artifacts.get(privateVerdictReference(request)),
     );
     const parsed = JSON.parse(verification.toString());
     assert.equal(parsed.status, "pass");
@@ -458,23 +652,73 @@ test(
       }),
       /already claimed; never retry/,
     );
-    const failing = await setup(t);
-    const wrongProposal = await failing.request.artifacts.put(
-      Buffer.from("different fixed output\n"),
-    );
-    const failedObservation = await runProtectedOracle(
-      { ...failing.request, proposalReference: wrongProposal },
-      { imageId: nativeImage, endpoint: nativeEndpoint },
-    );
+    const failing = await setup(t, {
+      proposalText: JSON.stringify({
+        summary: "different output",
+        changes: [],
+        requests: [],
+      }),
+    });
+    const failedObservation = await runProtectedOracle(failing.request, {
+      imageId: nativeImage,
+      endpoint: nativeEndpoint,
+    });
     const failedVerification = Buffer.from(
       await failing.request.artifacts.get(
-        failedObservation.verificationReference,
+        privateVerdictReference(failing.request),
       ),
     );
     assert.equal(JSON.parse(failedVerification).status, "fail");
     assert.equal(
-      failedObservation.verificationReference.bytes,
-      observation.verificationReference.bytes,
+      privateVerdictReference(failing.request).bytes,
+      privateVerdictReference(request).bytes,
+    );
+  },
+);
+test(
+  "native oracle refuses a corrupt retained verdict and never retries its claimed call",
+  {
+    skip:
+      process.platform === "win32" ||
+      process.env.GRAPH_SEALED_ORACLE_NATIVE_TESTS !== "1",
+    timeout: 30_000,
+  },
+  async (t) => {
+    const { request } = await setup(t);
+    const get = request.artifacts.get.bind(request.artifacts);
+    let injected = false;
+    request.artifacts.get = async (reference) => {
+      const bytes = await get(reference);
+      if (
+        !injected &&
+        bytes.length < 4096 &&
+        Buffer.from(bytes).includes(
+          Buffer.from('"kind":"sealed-digest-verification"'),
+        )
+      ) {
+        injected = true;
+        bytes[0] ^= 1;
+      }
+      return bytes;
+    };
+    await assert.rejects(
+      runProtectedOracle(request, {
+        imageId: process.env.GRAPH_SEALED_ORACLE_IMAGE,
+        endpoint: process.env.GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT,
+      }),
+      /Retained private verdict differs/,
+    );
+    assert.equal(injected, true);
+    const assignment = request.store.inspectCollection(request.collectionId)
+      .assignments[0];
+    assert.ok(assignment.oracleInvocation);
+    assert.equal(assignment.oracleVerdict, null);
+    await assert.rejects(
+      runProtectedOracle(request, {
+        imageId: process.env.GRAPH_SEALED_ORACLE_IMAGE,
+        endpoint: process.env.GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT,
+      }),
+      /already claimed; never retry/,
     );
   },
 );

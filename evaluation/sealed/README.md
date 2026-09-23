@@ -73,14 +73,21 @@ try {
 ```
 
 All writes use immediate SQLite transactions, WAL and explicitly configured
-`synchronous=FULL`. Registration stores the complete assignment inventory before
+`synchronous=FULL`. The store connection also enables `recursive_triggers` so
+`INSERT OR REPLACE` cannot silently bypass its no-update/no-delete triggers.
+This setting cannot constrain a separately opened malicious SQLite connection
+or a storage administrator; the ledger remains unsigned bookkeeping.
+Registration stores the complete assignment inventory before
 any reservation. Constraints prevent repeated collection/task/arm reservations,
 repeated domain/stable-task/arm exposure and duplicate global call IDs. Additional
 checks refuse previously exposed stable tasks/families across renamed collections
 or domains. The two legitimate arms within one collection remain permitted.
-The version 4 ledger includes one-time public dispatch and oracle-invocation
-claims. Existing version 2 and 3 databases migrate in place without changing
-their plans, reservations, receipts or event history. Call count and
+The version 5 ledger adds a settled-call-bound oracle claim and a private
+verdict-reference event to the earlier one-time public dispatch and legacy
+oracle bookkeeping. Existing version 2, 3 and 4 databases migrate in place
+without changing their plans, reservations, receipts or event history. Version
+4 unbound oracle claims remain readable but are not upgraded to call-bound
+evidence. Call count and
 conservative reserved budget limits are independent of how many
 decision questions share a call. Plan/configuration hashes bind every attempt.
 
@@ -183,13 +190,17 @@ administrator who controls storage.
 
 After a **complete closed** collection, `auditOriginalBytes()` checks every
 committed task baseline/public packet/private oracle/reference repair, original
-call request/response, and attempt proposal/result/verification against a
+call request/response, call-bound derived proposal/private verdict, and attempt
+proposal/result/verification against a
 separately pinned role-to-hash-and-length manifest. It refuses missing, extra,
 reordered or corrupted blobs, and returns only an audit digest/count receipt—
 never private oracle bytes. The manifest SHA must be pinned by an independent
 authority before the audit; self-hashing an untrusted manifest supplies no
 governance. Other hashes, such as a model/runtime identity or policy version,
-may not identify a retained byte blob and are not covered by this audit.
+may not identify a retained byte blob and are not covered by this audit. A
+migrated version 4 unbound oracle claim's proposal hash is identity-only: that
+legacy claim did not bind a retained proposal blob or byte length, so the
+original-byte audit does not count it as verified bytes.
 
 This is a post-closure integrity check. It does not prove the worker was sent
 those bytes, that the private oracle was hidden during execution, or that the
@@ -236,17 +247,22 @@ content-hash acknowledgment. A separate one-call local model relay can submit
 the same committed bytes to a loopback endpoint. Neither unsigned observation
 settles the engineering attempt or proves delivery of a proposal.
 
-The [private digest-oracle boundary](oracle-runtime/README.md) separately
-loads a plan-bound private oracle and proposal from the vault into a fixed,
-offline Docker verifier. `claimOracleInvocation()` commits one immutable
-reservation-keyed row/event before any guest execution; changing directories
-cannot reset it within the same ledger. A second valid ledger or rolled-back
-copy needs an external identity/anti-rollback witness to prevent another claim.
-The guest performs only exact digest comparison, not general
-engineering tests. Its private, nonce-bound verdict is retained as an original
-artifact and is not returned to a model-facing worker. This remains unsigned
-local bookkeeping and does not prove worker output provenance, independent
-review or held-out validity.
+The [private digest-oracle boundary](oracle-runtime/README.md) re-reads the
+frozen public packet and one settled local model response, verifies the exact
+request hash, and derives the proposal with the same strict parser as the
+local relay. It then loads the private oracle and derived proposal into a
+fixed, offline Docker verifier. `claimOracleInvocation()` commits one
+immutable reservation-keyed, call-bound row/event **after** that model call
+settles and before guest execution; changing directories cannot reset it
+within the same ledger. No subsequent model call is permitted in the claimed
+attempt. A second valid ledger or rolled-back copy still needs an external
+identity/anti-rollback witness to prevent another claim. The guest performs
+only exact digest comparison, not general engineering tests. Its private,
+nonce-bound verdict is retained in the vault and its reference in the ledger;
+neither the verdict nor its reference is returned to a model-facing worker.
+This path cannot mark a measured attempt successful. It remains unsigned local
+bookkeeping and does not prove worker output provenance, independent review or
+held-out validity.
 
 ## Remaining trust boundary
 
@@ -273,7 +289,8 @@ node --test evaluation/sealed/tests/*.test.mjs
 
 Tests exercise real SQLite transactions, two competing Node processes, a process
 that exits after committing its reservation or one-time dispatch claim,
-recovery/closure completeness, version 2/3 migration and durable oracle claims,
+recovery/closure completeness, version 2/3/4 migration and durable call-bound
+oracle claims,
 nullable observations/costs, repeated batched-call references, configuration and
 exposure guards, private-path checks and artifact/event tampering. No provider,
 model, signature, secret, or unseen real task is used.

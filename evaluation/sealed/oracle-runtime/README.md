@@ -9,12 +9,16 @@ promotion decision.
 The trusted collector keeps the oracle blob in `ArtifactStore`, with its hash
 frozen as `task.oracleSha256` in `SealedStore`. `runProtectedOracle()` requires
 an active attempt, its prior public-dispatch claim, an independently supplied
-plan digest, the exact private-oracle artifact reference and a different
-proposal artifact reference. It reads both from the private vault, creates a
-durable one-shot claim in the same sealed ledger, and then sends the two
-bounded byte sequences through **stdin only** to the fixed Docker guest.
-Neither the public-packet bridge nor the public-intake sandbox receives oracle
-bytes. No host directory is mounted into the guest.
+plan digest, the exact private-oracle artifact reference, and **one completed
+local model call ID plus its retained response reference**. It re-reads the
+frozen public packet, derives and checks the exact original model request hash,
+then re-reads the settled response and uses the same strict parser as the local
+worker to derive the proposal's UTF-8 bytes. The caller cannot supply a
+proposal reference. It retains those derived bytes, creates a durable
+call-bound one-shot claim, and sends the oracle and proposal through **stdin
+only** to the fixed Docker guest. Neither the public-packet bridge nor the
+public-intake sandbox receives oracle bytes. No host directory is mounted into
+the guest.
 
 The oracle blob is canonical JSON produced by `oracleBytes(expectedSha256)`:
 
@@ -27,11 +31,18 @@ The oracle blob is canonical JSON produced by `oracleBytes(expectedSha256)`:
 ```
 
 The guest emits only a nonce-bound pass/fail verification record. The collector
-retains those exact original bytes in the private artifact vault and returns
-only its reference, claim hash and nonsecret identities. The returned object
-does **not** include a verdict. A trusted evaluator can later read the private
-verification artifact and bind its SHA to an attempt receipt. This adapter
-does not settle the ledger or prove that a real model generated the proposal.
+retains and re-reads those exact original bytes in the private artifact vault,
+then records their reference in an immutable private `oracle-verdict-retained`
+ledger event. The returned object includes neither the verdict nor its
+reference, oracle hash or derived proposal digest (the latter may equal the
+private expected digest). A trusted auditor can read the private record and
+verify its artifact.
+The post-closure original-byte manifest uses exact roles
+`oracle/v1/<assignmentId>/derived-proposal` and
+`oracle/v1/<assignmentId>/private-verdict`, even when no successful attempt
+receipt exists. This adapter cannot settle a measured successful attempt or
+prove that a real model generated the response; local call receipts remain
+unsigned bookkeeping.
 
 Provision the image explicitly from the pinned, multi-architecture Node OCI
 index. Dependency fetching is not needed. Use the actual local Unix socket:
@@ -55,14 +66,22 @@ logs. It is non-root and limited to 32 PIDs, 256 MB, one CPU, 15 seconds,
 container and fails closed if cleanup is unconfirmed. Both the guest and host
 suppress oracle-containing errors; an invalid response is never returned raw.
 
-The claim is created **before** guest execution and is never cleared in that
-ledger, even after timeout, abort, crash, malformed output or zero delivery. A
-single `oracle_invocations` row is keyed by reservation ID and recorded with an
-immutable `oracle-invocation-claimed` event in one immediate SQLite
-transaction. Replacing a caller-supplied directory cannot reset the claim:
-there is no separate claim-directory argument. Existing version 3 ledgers
-migrate to version 4 without changing prior events. The ledger transaction is
-**not atomic with Docker execution**. A trusted supervisor must fence
+The claim is created **after the referenced call has settled and before** guest
+execution. It is never cleared, even after timeout, abort, crash, malformed
+output or zero delivery. A single `oracle_invocations` row is keyed by
+reservation ID and recorded with an immutable
+`call-bound-oracle-invocation-claimed` event in one immediate SQLite
+transaction. Its call ID, reservation/receipt hashes, response hash and derived
+proposal hash are frozen; the independent cohort validator requires the claim
+event strictly after that call's `call-settled` event. No further model call may
+be reserved after the oracle claim. Replacing a caller-supplied directory cannot
+reset the claim: there is no separate claim-directory argument. Existing version
+4 ledgers migrate to version 5 without changing prior events; historical
+unbound v4 claims remain readable as **legacy, non-call-bound records** and
+cannot acquire a v5 verdict row. Their proposal hashes are identity-only;
+legacy v4 claims did not establish retained proposal bytes, so the original-byte
+audit does not verify them. The ledger transaction is **not atomic with
+Docker execution or the artifact vault**. A trusted supervisor must fence
 concurrent recovery/settlement while an invocation is in flight; post-run
 rechecks can detect but cannot eliminate that race. A hostile same-user
 filesystem owner can copy/roll back the entire unsigned ledger, or register the

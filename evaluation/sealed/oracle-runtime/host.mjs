@@ -1,11 +1,14 @@
 // Trusted collector-side bridge. The model-facing worker must not load this module.
 // This is one narrow digest verifier, not signed held-out engineering evidence.
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { types } from "node:util";
 import { ArtifactStore } from "../artifacts.mjs";
 import { hashJson } from "../schema.mjs";
 import { SealedStore } from "../store.mjs";
+import { buildLocalModelRequest } from "../worker-runtime/model-request.mjs";
+import { inspectPublicPacket } from "../worker-runtime/packet.mjs";
+import { parseRetainedLocalProposal } from "../worker-runtime/proposal.mjs";
 import { frameOracleRequest } from "./verifier.mjs";
 
 const SHA = /^[a-f0-9]{64}$/;
@@ -167,7 +170,8 @@ function activeAttempt(
   reservationId,
   expectedPlanSha256,
   oracle,
-  proposal,
+  callId,
+  response,
   expectedClaim = null,
 ) {
   const inspection = store.inspectCollection(collectionId);
@@ -202,18 +206,32 @@ function activeAttempt(
   const task = inspection.plan.tasks.find(
     (item) => item.taskId === reservation.taskId,
   );
+  const call = assignment.calls.find(
+    (item) => item.reservation.callId === callId,
+  );
+  const provider = inspection.plan.configurations[
+    reservation.arm
+  ].providers.find((item) => item.providerId === call?.reservation.providerId);
   if (
     !task ||
     task.oracleSha256 !== oracle.sha256 ||
     task.publicPacketSha256 === oracle.sha256 ||
-    [
-      task.oracleSha256,
-      task.publicPacketSha256,
-      task.referenceRepairSha256,
-    ].includes(proposal.sha256)
+    assignment.calls.length !== 1 ||
+    !call?.receipt ||
+    call.receipt.status !== "completed" ||
+    call.receipt.responseSha256 !== response.sha256 ||
+    call.receipt.reportedModel !== call.reservation.requestedModel ||
+    call.receipt.usage.basis !== "local-no-api-charge" ||
+    !provider ||
+    provider.kind !== "local" ||
+    provider.modelIdentity.kind !== "local-weights" ||
+    provider.requestedModel !== call.reservation.requestedModel ||
+    Date.parse(call.reservation.reservedAt) <
+      Date.parse(assignment.publicDispatch.claimedAt) ||
+    Date.parse(call.receipt.finishedAt) > Date.now()
   )
     throw new Error(
-      "Oracle or proposal reference differs from frozen task roles",
+      "Oracle requires the original completed local model response in its frozen task",
     );
   const elapsed = Date.now() - Date.parse(reservation.reservedAt);
   if (
@@ -221,7 +239,7 @@ function activeAttempt(
     elapsed >= inspection.plan.configurations[reservation.arm].maxDurationMs
   )
     throw new Error("Oracle attempt deadline has expired");
-  return inspection;
+  return { inspection, assignment, task, call };
 }
 
 function checkedVerdict(result, oracleSha256, nonce) {
@@ -259,7 +277,8 @@ export async function runProtectedOracle(input, runtime) {
     reservationId,
     expectedPlanSha256,
     oracleReference,
-    proposalReference,
+    callId,
+    responseReference,
   } = fields(
     input,
     [
@@ -269,7 +288,8 @@ export async function runProtectedOracle(input, runtime) {
       "reservationId",
       "expectedPlanSha256",
       "oracleReference",
-      "proposalReference",
+      "callId",
+      "responseReference",
     ],
     "Protected oracle request",
   );
@@ -295,6 +315,8 @@ export async function runProtectedOracle(input, runtime) {
     !ID.test(reservationId) ||
     typeof expectedPlanSha256 !== "string" ||
     !SHA.test(expectedPlanSha256) ||
+    typeof callId !== "string" ||
+    !ID.test(callId) ||
     (signal !== null &&
       signal !== undefined &&
       !(signal instanceof AbortSignal))
@@ -303,21 +325,92 @@ export async function runProtectedOracle(input, runtime) {
       "Protected oracle needs trusted local stores and identities",
     );
   const oracle = artifactReference(oracleReference, "Private oracle");
-  const proposal = artifactReference(proposalReference, "Proposal");
+  const response = artifactReference(
+    responseReference,
+    "Original model response",
+  );
   const dockerEndpoint = oracleDockerEndpoint(endpoint);
   const name = `graph-sealed-oracle-${randomUUID()}`;
   const argv = oracleDockerCommand(imageId, name, dockerEndpoint);
-  activeAttempt(
+  const preflight = activeAttempt(
     store,
     collectionId,
     reservationId,
     expectedPlanSha256,
     oracle,
-    proposal,
+    callId,
+    response,
   );
+  let proposal;
   const nonce = randomBytes(16);
   let frame;
   try {
+    const packetReference = {
+      sha256: preflight.assignment.publicDispatch.publicPacketSha256,
+      bytes: preflight.assignment.publicDispatch.publicPacketBytes,
+    };
+    const publicBytes = await artifacts.get(packetReference);
+    let packet;
+    try {
+      inspectPublicPacket(Buffer.from(publicBytes));
+      packet = JSON.parse(Buffer.from(publicBytes).toString("utf8"));
+      if (
+        packet.taskId !== preflight.task.taskId ||
+        packet.repositoryId !== preflight.task.repositoryId ||
+        packet.baselineSha256 !== preflight.task.baselineSha256
+      )
+        throw new Error(
+          "Public packet identity differs from frozen oracle task",
+        );
+      const expectedRequest = buildLocalModelRequest(
+        Buffer.from(publicBytes),
+        preflight.call.reservation.requestedModel,
+        preflight.inspection.plan.configurations[
+          preflight.assignment.reservation.arm
+        ].providers.find(
+          (item) => item.providerId === preflight.call.reservation.providerId,
+        ).maxOutputTokens,
+      );
+      try {
+        if (
+          preflight.call.reservation.requestSha256 !==
+          createHash("sha256").update(expectedRequest).digest("hex")
+        )
+          throw new Error(
+            "Local model call request differs from frozen public packet",
+          );
+      } finally {
+        expectedRequest.fill(0);
+      }
+    } finally {
+      publicBytes.fill(0);
+    }
+    const responseBytes = await artifacts.get(response);
+    try {
+      const parsed = parseRetainedLocalProposal(
+        Buffer.from(responseBytes),
+        preflight.task,
+        packet,
+        preflight.call.reservation.requestedModel,
+      );
+      try {
+        proposal = await artifacts.put(parsed.proposalBytes);
+      } finally {
+        parsed.proposalBytes.fill(0);
+      }
+    } finally {
+      responseBytes.fill(0);
+    }
+    if (
+      [
+        preflight.task.oracleSha256,
+        preflight.task.publicPacketSha256,
+        preflight.task.referenceRepairSha256,
+      ].includes(proposal.sha256)
+    )
+      throw new Error(
+        "Derived proposal uses a frozen private/task artifact role",
+      );
     const oracleBytes = await artifacts.get(oracle);
     try {
       const proposalBytes = await artifacts.get(proposal);
@@ -354,12 +447,16 @@ export async function runProtectedOracle(input, runtime) {
       reservationId,
       expectedPlanSha256,
       oracle,
-      proposal,
+      callId,
+      response,
     );
     const claim = store.claimOracleInvocation(reservationId, {
       expectedPlanSha256,
       oracleSha256: oracle.sha256,
       proposalSha256: proposal.sha256,
+      callId,
+      expectedCallReceiptSha256: hashJson(preflight.call.receipt),
+      expectedResponseSha256: response.sha256,
       imageId,
     });
     activeAttempt(
@@ -368,7 +465,8 @@ export async function runProtectedOracle(input, runtime) {
       reservationId,
       expectedPlanSha256,
       oracle,
-      proposal,
+      callId,
+      response,
       claim,
     );
     let result;
@@ -398,36 +496,64 @@ export async function runProtectedOracle(input, runtime) {
       oracle.sha256,
       nonce.toString("hex"),
     );
-    activeAttempt(
-      store,
-      collectionId,
-      reservationId,
-      expectedPlanSha256,
-      oracle,
-      proposal,
-      claim,
-    );
-    const verificationReference = await artifacts.put(verdictBytes);
-    activeAttempt(
-      store,
-      collectionId,
-      reservationId,
-      expectedPlanSha256,
-      oracle,
-      proposal,
-      claim,
-    );
-    return Object.freeze({
-      version: "1.0.0",
-      kind: "sealed-local-digest-oracle-observation",
-      collectionId,
-      reservationId,
-      claimSha256: hashJson(claim),
-      oracleSha256: oracle.sha256,
-      verificationReference,
-      imageId,
-      promotionEligible: false,
-    });
+    try {
+      activeAttempt(
+        store,
+        collectionId,
+        reservationId,
+        expectedPlanSha256,
+        oracle,
+        callId,
+        response,
+        claim,
+      );
+      const verificationReference = await artifacts.put(verdictBytes);
+      const retained = await artifacts.get(verificationReference);
+      try {
+        if (!Buffer.from(retained).equals(verdictBytes))
+          throw new Error("Retained private verdict differs from guest bytes");
+        checkedVerdict(
+          {
+            failure: null,
+            code: 0,
+            stdout: Buffer.from(retained),
+            stderr: Buffer.alloc(0),
+          },
+          oracle.sha256,
+          nonce.toString("hex"),
+        );
+      } finally {
+        retained.fill(0);
+      }
+      activeAttempt(
+        store,
+        collectionId,
+        reservationId,
+        expectedPlanSha256,
+        oracle,
+        callId,
+        response,
+        claim,
+      );
+      store.retainOracleVerdict(reservationId, {
+        claimSha256: hashJson(claim),
+        verificationReference,
+      });
+      return Object.freeze({
+        version: "1.0.0",
+        kind: "sealed-local-digest-oracle-observation",
+        collectionId,
+        reservationId,
+        claimSha256: hashJson(claim),
+        callId,
+        responseSha256: response.sha256,
+        verificationRecorded: true,
+        imageId,
+        promotionEligible: false,
+      });
+    } finally {
+      verdictBytes.fill(0);
+    }
   } finally {
     frame.fill(0);
     nonce.fill(0);

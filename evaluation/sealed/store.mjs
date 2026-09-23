@@ -21,6 +21,7 @@ import {
   reservationSchema,
   publicDispatchClaimSchema,
   oracleInvocationClaimSchema,
+  oracleVerdictRecordSchema,
   callReservationSchema,
   callReceiptSchema,
   attemptReceiptSchema,
@@ -163,11 +164,12 @@ export class SealedStore {
     try {
       this.#db.pragma("busy_timeout = 5000");
       this.#db.pragma("foreign_keys = ON");
+      this.#db.pragma("recursive_triggers = ON");
       this.#db.pragma("journal_mode = WAL");
       this.#db.pragma("synchronous = FULL");
       this.#db.pragma("max_page_count = 16384");
       const version = this.#db.pragma("user_version", { simple: true });
-      if (![0, 1, 2, 3, 4].includes(version))
+      if (![0, 1, 2, 3, 4, 5].includes(version))
         throw new Error("Unsupported sealed ledger version");
       this.#db
         .transaction(() => {
@@ -177,6 +179,7 @@ export class SealedStore {
           CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,collection_id TEXT NOT NULL,assignment_id TEXT NOT NULL,reservation_json TEXT NOT NULL,receipt_json TEXT,UNIQUE(collection_id,assignment_id),FOREIGN KEY(collection_id,assignment_id) REFERENCES assignments(collection_id,id));
           CREATE TABLE IF NOT EXISTS public_dispatches(reservation_id TEXT PRIMARY KEY REFERENCES attempts(id),claim_json TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS oracle_invocations(reservation_id TEXT PRIMARY KEY REFERENCES attempts(id),claim_json TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS oracle_verdicts(reservation_id TEXT PRIMARY KEY REFERENCES oracle_invocations(reservation_id),record_json TEXT NOT NULL);
           CREATE TABLE IF NOT EXISTS exposures(domain TEXT NOT NULL,task_id TEXT NOT NULL,arm TEXT NOT NULL,reservation_id TEXT NOT NULL UNIQUE REFERENCES attempts(id),PRIMARY KEY(domain,task_id,arm));
           CREATE TABLE IF NOT EXISTS family_exposures(domain TEXT NOT NULL,family_id TEXT NOT NULL,collection_id TEXT NOT NULL REFERENCES collections(id),PRIMARY KEY(domain,family_id));
           CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY,reservation_id TEXT NOT NULL REFERENCES attempts(id),ordinal INTEGER NOT NULL,reservation_json TEXT NOT NULL,receipt_json TEXT,UNIQUE(reservation_id,ordinal));
@@ -191,6 +194,8 @@ export class SealedStore {
           CREATE TRIGGER IF NOT EXISTS public_dispatches_no_delete BEFORE DELETE ON public_dispatches BEGIN SELECT RAISE(ABORT,'Immutable public dispatch claim');END;
           CREATE TRIGGER IF NOT EXISTS oracle_invocations_no_update BEFORE UPDATE ON oracle_invocations BEGIN SELECT RAISE(ABORT,'Immutable oracle invocation claim');END;
           CREATE TRIGGER IF NOT EXISTS oracle_invocations_no_delete BEFORE DELETE ON oracle_invocations BEGIN SELECT RAISE(ABORT,'Immutable oracle invocation claim');END;
+          CREATE TRIGGER IF NOT EXISTS oracle_verdicts_no_update BEFORE UPDATE ON oracle_verdicts BEGIN SELECT RAISE(ABORT,'Immutable oracle verdict reference');END;
+          CREATE TRIGGER IF NOT EXISTS oracle_verdicts_no_delete BEFORE DELETE ON oracle_verdicts BEGIN SELECT RAISE(ABORT,'Immutable oracle verdict reference');END;
           CREATE TRIGGER IF NOT EXISTS calls_no_change BEFORE UPDATE OF reservation_json ON calls BEGIN SELECT RAISE(ABORT,'Immutable call reservation');END;
           CREATE TRIGGER IF NOT EXISTS spending_authorizations_no_update BEFORE UPDATE ON spending_authorizations BEGIN SELECT RAISE(ABORT,'Immutable spending authorization');END;
           CREATE TRIGGER IF NOT EXISTS spending_authorizations_no_delete BEFORE DELETE ON spending_authorizations BEGIN SELECT RAISE(ABORT,'Immutable spending authorization');END;
@@ -199,7 +204,7 @@ export class SealedStore {
           CREATE TRIGGER IF NOT EXISTS attempts_one_settlement BEFORE UPDATE OF receipt_json ON attempts WHEN OLD.receipt_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Attempt already terminal');END;
           CREATE TRIGGER IF NOT EXISTS calls_one_settlement BEFORE UPDATE OF receipt_json ON calls WHEN OLD.receipt_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Call already terminal');END;
           CREATE TRIGGER IF NOT EXISTS collections_one_closure BEFORE UPDATE OF closure_json ON collections WHEN OLD.closure_json IS NOT NULL BEGIN SELECT RAISE(ABORT,'Collection already closed');END;
-          PRAGMA user_version=4;
+          PRAGMA user_version=5;
         `);
         })
         .immediate();
@@ -227,6 +232,9 @@ export class SealedStore {
     return snapshot({
       journalMode: this.#db.pragma("journal_mode", { simple: true }),
       synchronous: this.#db.pragma("synchronous", { simple: true }),
+      recursiveTriggers: this.#db.pragma("recursive_triggers", {
+        simple: true,
+      }),
       maxPageCount: this.#db.pragma("max_page_count", { simple: true }),
     });
   }
@@ -768,18 +776,61 @@ export class SealedStore {
         plan.configurations[reservation.arm].maxDurationMs
     )
       throw new Error("Oracle invocation differs from the frozen attempt");
+    if (claim.kind === "sealed-call-bound-oracle-invocation-claim") {
+      const row = this.#db
+        .prepare(
+          "SELECT reservation_json,receipt_json FROM calls WHERE id=? AND reservation_id=?",
+        )
+        .get(claim.callId, reservation.reservationId);
+      if (!row?.receipt_json)
+        throw new Error(
+          "Call-bound oracle needs a settled call in this attempt",
+        );
+      const call = callReservationSchema.parse(
+        decodeJson(row.reservation_json),
+      );
+      const receipt = callReceiptSchema.parse(decodeJson(row.receipt_json));
+      const provider = plan.configurations[reservation.arm].providers.find(
+        (item) => item.providerId === call.providerId,
+      );
+      if (
+        !provider ||
+        provider.kind !== "local" ||
+        provider.modelIdentity.kind !== "local-weights" ||
+        call.requestedModel !== provider.requestedModel ||
+        receipt.status !== "completed" ||
+        receipt.reportedModel !== call.requestedModel ||
+        receipt.usage.basis !== "local-no-api-charge" ||
+        !receipt.responseSha256 ||
+        claim.callReservationSha256 !== hashJson(call) ||
+        claim.callReceiptSha256 !== hashJson(receipt) ||
+        claim.responseSha256 !== receipt.responseSha256 ||
+        Date.parse(call.reservedAt) < Date.parse(publicDispatch.claimedAt) ||
+        Date.parse(receipt.finishedAt) < Date.parse(call.reservedAt) ||
+        claimedAt < Date.parse(receipt.finishedAt)
+      )
+        throw new Error(
+          "Oracle claim differs from a completed local model call",
+        );
+    }
   }
-  /** Durable one-shot oracle invocation claim; not proof the guest ran. */
+  /** Durable one-shot call-bound claim; not proof of guest execution or proposal correctness. */
   claimOracleInvocation(reservationId, input) {
     const data = decodeJson(input);
     if (
       !data ||
       Array.isArray(data) ||
       Object.keys(data).sort().join(",") !==
-        "expectedPlanSha256,imageId,oracleSha256,proposalSha256" ||
-      ![data.expectedPlanSha256, data.oracleSha256, data.proposalSha256].every(
-        (value) => typeof value === "string" && sha256.test(value),
-      ) ||
+        "callId,expectedCallReceiptSha256,expectedPlanSha256,expectedResponseSha256,imageId,oracleSha256,proposalSha256" ||
+      ![
+        data.expectedCallReceiptSha256,
+        data.expectedPlanSha256,
+        data.expectedResponseSha256,
+        data.oracleSha256,
+        data.proposalSha256,
+      ].every((value) => typeof value === "string" && sha256.test(value)) ||
+      typeof data.callId !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(data.callId) ||
       typeof data.imageId !== "string" ||
       !/^sha256:[a-f0-9]{64}$/.test(data.imageId)
     )
@@ -810,12 +861,40 @@ export class SealedStore {
           attempt.reservation,
           attempt.plan,
         );
+        const callRow = this.#db
+          .prepare(
+            "SELECT reservation_json,receipt_json FROM calls WHERE id=? AND reservation_id=?",
+          )
+          .get(data.callId, reservationId);
+        if (!callRow?.receipt_json)
+          throw new Error("Oracle claim requires a completed local model call");
+        if (
+          this.#db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM calls WHERE reservation_id=?",
+            )
+            .get(reservationId).count !== 1
+        )
+          throw new Error("Oracle claim requires exactly one model call");
+        const call = callReservationSchema.parse(
+          decodeJson(callRow.reservation_json),
+        );
+        const receipt = callReceiptSchema.parse(
+          decodeJson(callRow.receipt_json),
+        );
+        if (
+          hashJson(receipt) !== data.expectedCallReceiptSha256 ||
+          receipt.responseSha256 !== data.expectedResponseSha256
+        )
+          throw new Error(
+            "Oracle claim response/call receipt differs from frozen call",
+          );
         const task = attempt.plan.tasks.find(
           (item) => item.taskId === attempt.reservation.taskId,
         );
         const claim = oracleInvocationClaimSchema.parse({
           version: "1.0.0",
-          kind: "sealed-oracle-invocation-claim",
+          kind: "sealed-call-bound-oracle-invocation-claim",
           reservationId,
           reservationSha256: hashJson(attempt.reservation),
           collectionId: attempt.reservation.collectionId,
@@ -825,6 +904,11 @@ export class SealedStore {
           planSha256: attempt.planSha256,
           publicDispatchSha256: hashJson(publicDispatch),
           oracleSha256: data.oracleSha256,
+          callId: call.callId,
+          callReservationSha256: hashJson(call),
+          callReceiptSha256: hashJson(receipt),
+          responseSha256: receipt.responseSha256,
+          proposalDerivation: "openai-chat-content-utf8-v1",
           proposalSha256: data.proposalSha256,
           imageId: data.imageId,
           claimedAt: now(),
@@ -840,10 +924,79 @@ export class SealedStore {
           .run(reservationId, canonicalJson(claim));
         this.#event(
           attempt.reservation.collectionId,
-          "oracle-invocation-claimed",
+          "call-bound-oracle-invocation-claimed",
           claim,
         );
         return snapshot(claim);
+      })
+      .immediate();
+  }
+  /** Retain only a private artifact reference; the verdict never reaches the model. */
+  retainOracleVerdict(reservationId, input) {
+    const data = decodeJson(input);
+    if (
+      !data ||
+      Array.isArray(data) ||
+      Object.keys(data).sort().join(",") !==
+        "claimSha256,verificationReference" ||
+      typeof data.claimSha256 !== "string" ||
+      !sha256.test(data.claimSha256) ||
+      !data.verificationReference ||
+      Array.isArray(data.verificationReference) ||
+      Object.keys(data.verificationReference).sort().join(",") !==
+        "bytes,sha256" ||
+      typeof data.verificationReference.sha256 !== "string" ||
+      !sha256.test(data.verificationReference.sha256) ||
+      !Number.isSafeInteger(data.verificationReference.bytes) ||
+      data.verificationReference.bytes < 1 ||
+      data.verificationReference.bytes > 4096
+    )
+      throw new Error(
+        "Oracle verdict needs exact bounded private reference and claim",
+      );
+    return this.#db
+      .transaction(() => {
+        const attempt = this.#attempt(reservationId, { open: true });
+        const row = this.#db
+          .prepare(
+            "SELECT claim_json FROM oracle_invocations WHERE reservation_id=?",
+          )
+          .get(reservationId);
+        if (!row) throw new Error("Oracle verdict requires a durable claim");
+        if (
+          this.#db
+            .prepare("SELECT 1 FROM oracle_verdicts WHERE reservation_id=?")
+            .get(reservationId)
+        )
+          throw new Error("Oracle verdict already retained; never replace");
+        const claim = oracleInvocationClaimSchema.parse(
+          decodeJson(row.claim_json),
+        );
+        if (
+          claim.kind !== "sealed-call-bound-oracle-invocation-claim" ||
+          hashJson(claim) !== data.claimSha256
+        )
+          throw new Error("Oracle verdict differs from call-bound claim");
+        const record = oracleVerdictRecordSchema.parse({
+          version: "1.0.0",
+          kind: "sealed-private-oracle-verdict-reference",
+          reservationId,
+          claimSha256: data.claimSha256,
+          verificationSha256: data.verificationReference.sha256,
+          verificationBytes: data.verificationReference.bytes,
+          recordedAt: now(),
+        });
+        if (Date.parse(record.recordedAt) < Date.parse(claim.claimedAt))
+          throw new Error("Oracle verdict predates its claim");
+        this.#db
+          .prepare("INSERT INTO oracle_verdicts VALUES(?,?)")
+          .run(reservationId, canonicalJson(record));
+        this.#event(
+          attempt.reservation.collectionId,
+          "oracle-verdict-retained",
+          record,
+        );
+        return snapshot(record);
       })
       .immediate();
   }
@@ -853,6 +1006,14 @@ export class SealedStore {
       .transaction(() => {
         const attempt = this.#attempt(reservationId, { open: true }),
           config = attempt.plan.configurations[attempt.reservation.arm];
+        if (
+          this.#db
+            .prepare("SELECT 1 FROM oracle_invocations WHERE reservation_id=?")
+            .get(reservationId)
+        )
+          throw new Error(
+            "Oracle opportunity consumed; no further model calls",
+          );
         if (
           Date.now() < Date.parse(attempt.reservation.reservedAt) ||
           Date.now() >= Date.parse(attempt.plan.expiresAt) ||
@@ -1061,6 +1222,23 @@ export class SealedStore {
     const receipt = attemptReceiptSchema.parse(decodeJson(input)),
       attempt = this.#attempt(receipt.reservationId, { open: true }),
       reservation = attempt.reservation;
+    const oracleRow = this.#db
+      .prepare(
+        "SELECT claim_json FROM oracle_invocations WHERE reservation_id=?",
+      )
+      .get(reservation.reservationId);
+    if (oracleRow) {
+      const oracleClaim = oracleInvocationClaimSchema.parse(
+        decodeJson(oracleRow.claim_json),
+      );
+      if (
+        oracleClaim.kind === "sealed-call-bound-oracle-invocation-claim" &&
+        (receipt.status === "completed" || receipt.outcome.success !== null)
+      )
+        throw new Error(
+          "Call-bound digest oracle is non-authorizing and cannot settle measured attempt success",
+        );
+    }
     const calls = this.#db
       .prepare("SELECT * FROM calls WHERE reservation_id=? ORDER BY ordinal")
       .all(reservation.reservationId);
@@ -1370,6 +1548,30 @@ export class SealedStore {
         )
           throw new Error("Oracle claim follows terminal attempt");
       }
+      const verdictRow = row
+        ? this.#db
+            .prepare(
+              "SELECT record_json FROM oracle_verdicts WHERE reservation_id=?",
+            )
+            .get(row.id)
+        : null;
+      const oracleVerdict = verdictRow
+        ? oracleVerdictRecordSchema.parse(decodeJson(verdictRow.record_json))
+        : null;
+      if (
+        oracleVerdict &&
+        (!oracleInvocation ||
+          oracleInvocation.kind !==
+            "sealed-call-bound-oracle-invocation-claim" ||
+          oracleVerdict.reservationId !== row.id ||
+          oracleVerdict.claimSha256 !== hashJson(oracleInvocation) ||
+          Date.parse(oracleVerdict.recordedAt) <
+            Date.parse(oracleInvocation.claimedAt) ||
+          (row.receipt_json &&
+            Date.parse(oracleVerdict.recordedAt) >
+              Date.parse(decodeJson(row.receipt_json).finishedAt)))
+      )
+        throw new Error("Oracle verdict reference differs from its claim");
       const calls = row
         ? this.#db
             .prepare(
@@ -1382,6 +1584,7 @@ export class SealedStore {
         reservation,
         publicDispatch,
         oracleInvocation,
+        oracleVerdict,
         receipt: row?.receipt_json
           ? attemptReceiptSchema.parse(decodeJson(row.receipt_json))
           : null,
@@ -1409,8 +1612,17 @@ export class SealedStore {
         });
       if (item.oracleInvocation)
         artifacts.push({
-          type: "oracle-invocation-claimed",
+          type:
+            item.oracleInvocation.kind ===
+            "sealed-call-bound-oracle-invocation-claim"
+              ? "call-bound-oracle-invocation-claimed"
+              : "oracle-invocation-claimed",
           payload: item.oracleInvocation,
+        });
+      if (item.oracleVerdict)
+        artifacts.push({
+          type: "oracle-verdict-retained",
+          payload: item.oracleVerdict,
         });
       for (const call of item.calls) {
         artifacts.push({ type: "call-reserved", payload: call.reservation });
