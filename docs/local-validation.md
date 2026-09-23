@@ -645,3 +645,20 @@ review of included runtime digests remains necessary. Every v2 receipt keeps
 `artifactSourceAuthenticated`, `protectedExecutionVerified` and
 `promotionEligible` false. No unseen independent labels, live Qwen result,
 paid-provider outcomes, or partner-approved witness were supplied.
+
+## Fake-loopback relay-to-repository-oracle integration — 2026-09-23 UTC
+
+The native v1 repository end-to-end test now sends its exact public packet
+through the one-shot local model relay to a synthetic loopback HTTP responder,
+then passes the retained original response to the protected offline repository
+oracle. It checks the request bytes and private-canary exclusion, the single
+ledger call and vault copies, the call-bound oracle claim, collection closure,
+original-byte audit and independently re-derived signed aggregate. The
+local Docker run passed one test with no skips. CI provisions the pinned
+public-intake image alongside the repository verifier image for this test.
+
+The HTTP responder still returns a prewritten repair, the baseline arm and
+private cases are synthetic, and fixture-only keys sign the aggregate. The
+result is an integration check, not a live Qwen or paid-provider measurement,
+source/Docker provenance, an independent witness, or promotion authority;
+all authority flags remain false.

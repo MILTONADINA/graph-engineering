@@ -336,11 +336,16 @@ jobs:
       - name: Offline bounded repository black-box oracle
         run: |
           npm run build -w @graph-engineering/engine
+          docker pull node:24-bookworm-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
+          docker build --pull=false --network=none \
+            -f evaluation/sealed/worker-runtime/Dockerfile \
+            -t graph-sealed-public-intake:ci evaluation/sealed/worker-runtime
           docker build --pull=false --network=none \
             -f evaluation/sealed/oracle-runtime/Dockerfile.repository \
             -t graph-sealed-repository:ci .
           GRAPH_SEALED_REPOSITORY_NATIVE_TESTS=1 \
           GRAPH_SEALED_REPOSITORY_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-repository:ci)" \
+          GRAPH_SEALED_PUBLIC_INTAKE_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-public-intake:ci)" \
           GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
             node --test --test-concurrency=1 \
               evaluation/sealed/oracle-runtime/repository.test.mjs \
