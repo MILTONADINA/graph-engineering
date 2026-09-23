@@ -227,17 +227,43 @@ async function scanRuntimeFile(artifacts, entry, inventoryEntry) {
       chunk.bytes !== Math.min(CHUNK_BYTES, entry.bytes - index * CHUNK_BYTES)
     )
       throw new Error("V2 runtime chunk length differs from frozen file");
-    const bytes = Buffer.from(await artifacts.get(chunk));
-    digest.update(bytes);
-    count += bytes.length;
-    // Scan ASCII credential patterns even within binary payloads. This is a
-    // bounded heuristic, not a substitute for human digest review of binaries.
-    const window = carry + bytes.toString("latin1");
-    assertNoDetectedSecret(window);
-    carry = window.slice(-4096);
+    const retained = await artifacts.get(chunk);
+    const bytes = Buffer.from(retained);
+    try {
+      digest.update(bytes);
+      count += bytes.length;
+      // Scan ASCII credential patterns even within binary payloads. This is a
+      // bounded heuristic, not a substitute for human digest review of binaries.
+      const window = carry + bytes.toString("latin1");
+      assertNoDetectedSecret(window);
+      carry = window.slice(-4096);
+    } finally {
+      bytes.fill(0);
+      retained.fill(0);
+    }
   }
   if (count !== entry.bytes || digest.digest("hex") !== entry.sha256)
     throw new Error("V2 runtime source differs from frozen snapshot");
+}
+
+/**
+ * Read-only public-scope preflight over a verified original snapshot inventory.
+ * This is a heuristic secret screen, not independent declassification.
+ */
+export async function inspectRepositoryV2RuntimeFiles({
+  artifacts,
+  scope,
+  inventoryEntries,
+}) {
+  if (!(artifacts instanceof ArtifactStore))
+    throw new Error("V2 runtime inspection needs a private artifact vault");
+  const tree = projectRepositoryV2Tree(inventoryEntries, scope);
+  const byPath = new Map(inventoryEntries.map((entry) => [entry.path, entry]));
+  for (const entry of scope.entries) assertNonPrivatePath(entry.path);
+  for (const entry of scope.entries)
+    if (entry.type === "file" && entry.class === "operator-declared-runtime")
+      await scanRuntimeFile(artifacts, entry, byPath.get(entry.path));
+  return tree;
 }
 
 /**
@@ -268,15 +294,15 @@ export async function materializeRepositoryScopeV2({
     artifacts,
     rootReference: baseline,
   });
-  const tree = projectRepositoryV2Tree(entries, scope);
-  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
-  for (const entry of scope.entries) assertNonPrivatePath(entry.path);
   // The operator's explicit runtime declaration is not a proof of safety.
   // Reject recognizable credentials before any guest-staging path exists.
   // Binary content may still hide secrets and needs human digest review.
-  for (const entry of scope.entries)
-    if (entry.type === "file" && entry.class === "operator-declared-runtime")
-      await scanRuntimeFile(artifacts, entry, byPath.get(entry.path));
+  const tree = await inspectRepositoryV2RuntimeFiles({
+    artifacts,
+    scope,
+    inventoryEntries: entries,
+  });
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
   const target = await privateTarget(directory);
   const directories = tree.entries.filter(
     (entry) => entry.type === "directory",

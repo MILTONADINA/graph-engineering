@@ -4,10 +4,12 @@
 import { types } from "node:util";
 import { ArtifactStore } from "./artifacts.mjs";
 import { SealedPublicPacketBridge } from "./public-packet.mjs";
+import { inspectRepositoryV2RuntimeFiles } from "./repository-scope-v2.mjs";
 import { inspectRepositorySnapshotInventory } from "./repository-snapshot.mjs";
 import { hashJson } from "./schema.mjs";
 import { SealedStore } from "./store.mjs";
 import { runProtectedRepositoryOracle } from "./oracle-runtime/repository-host.mjs";
+import { runProtectedRepositoryV2Oracle } from "./oracle-runtime/repository-host-v2.mjs";
 import {
   applyRepositoryProposal,
   parseRepositoryOracle,
@@ -15,6 +17,12 @@ import {
   RepositoryProposalRejectedError,
   repositorySha256,
 } from "./oracle-runtime/repository.mjs";
+import {
+  assertRepositoryV2RecipeScope,
+  deriveRepositoryV2CandidateTree,
+  parseRepositoryV2Oracle,
+  parseRepositoryV2Scope,
+} from "./oracle-runtime/repository-v2.mjs";
 import { localDockerEndpoint } from "./worker-runtime/host.mjs";
 import { runOneShotLocalModelWorker } from "./worker-runtime/local-worker.mjs";
 import { inspectPublicPacket } from "./worker-runtime/packet.mjs";
@@ -83,7 +91,7 @@ function frozenProvider(plan, assignment, providerId) {
   return provider;
 }
 
-async function preflight({
+async function preflightV1({
   store,
   artifacts,
   bridge,
@@ -173,6 +181,7 @@ async function preflight({
     )
       throw new Error("Repository execution source differs from public packet");
     return {
+      mode: "v1",
       task,
       planSha256: inspection.planSha256,
       packet,
@@ -188,6 +197,141 @@ async function preflight({
     publicBytes?.fill(0);
     oracleBytes?.fill(0);
     publicRetained.fill(0);
+    oracleRetained?.fill(0);
+  }
+}
+
+async function preflightV2({
+  store,
+  artifacts,
+  bridge,
+  handle,
+  collectionId,
+  assignmentId,
+  baselineRef,
+  scopeRef,
+  oracleRef,
+  providerId,
+  repositoryImageId,
+}) {
+  const retained =
+    SealedPublicPacketBridge.prototype.inspectRetainedHandle.call(
+      bridge,
+      handle,
+      store,
+      artifacts,
+    );
+  const inspection = store.inspectCollection(collectionId);
+  const assignment = inspection.plan.assignments.find(
+    (item) => item.assignmentId === assignmentId,
+  );
+  const task = inspection.plan.tasks.find(
+    (item) => item.taskId === assignment?.taskId,
+  );
+  if (
+    inspection.closure ||
+    !assignment ||
+    !task ||
+    retained.collectionId !== collectionId ||
+    retained.taskId !== task.taskId ||
+    retained.planSha256 !== inspection.planSha256 ||
+    retained.artifact.sha256 !== task.publicPacketSha256 ||
+    task.stateFormatVersion !== "repo-snapshot-v1" ||
+    task.executionScopeSha256 !== scopeRef.sha256 ||
+    baselineRef.sha256 !== task.baselineSha256 ||
+    oracleRef.sha256 !== task.oracleSha256
+  )
+    throw new Error("V2 repository attempt differs from its frozen task");
+  const provider = frozenProvider(inspection.plan, assignment, providerId);
+  let publicRetained;
+  let scopeRetained;
+  let oracleRetained;
+  let publicBytes;
+  let scopeBytes;
+  let oracleBytes;
+  try {
+    publicRetained = await artifacts.get(retained.artifact);
+    scopeRetained = await artifacts.get(scopeRef);
+    oracleRetained = await artifacts.get(oracleRef);
+    publicBytes = Buffer.from(publicRetained);
+    scopeBytes = Buffer.from(scopeRetained);
+    oracleBytes = Buffer.from(oracleRetained);
+    const ack = inspectPublicPacket(publicBytes);
+    const packet = JSON.parse(publicBytes.toString("utf8"));
+    if (
+      ack.taskId !== task.taskId ||
+      ack.repositoryId !== task.repositoryId ||
+      packet.baselineSha256 !== baselineRef.sha256
+    )
+      throw new Error("V2 public packet differs from frozen task");
+    const scope = parseRepositoryV2Scope(scopeBytes);
+    if (
+      scope.baselineSnapshot.sha256 !== baselineRef.sha256 ||
+      scope.baselineSnapshot.bytes !== baselineRef.bytes
+    )
+      throw new Error("V2 execution scope differs from frozen baseline");
+    const { recipe } = parseRepositoryV2Oracle(oracleBytes);
+    const { scopeSha256 } = assertRepositoryV2RecipeScope(recipe, scope);
+    if (scopeSha256 !== scopeRef.sha256 || recipe.imageId !== repositoryImageId)
+      throw new Error("V2 recipe differs from frozen image or safe scope");
+    const editable = scope.entries.filter(
+      (entry) => entry.type === "file" && entry.class === "public-editable",
+    );
+    if (
+      task.allowedOutputPaths.length !== editable.length ||
+      task.allowedOutputPaths.some(
+        (name, index) => name !== editable[index].path,
+      )
+    )
+      throw new Error("V2 output paths differ from frozen editable scope");
+    const snapshot = await inspectRepositorySnapshotInventory({
+      artifacts,
+      rootReference: baselineRef,
+    });
+    if (snapshot.receipt.rootSha256 !== baselineRef.sha256)
+      throw new Error("V2 repository snapshot changed identity");
+    const baselineTree = await inspectRepositoryV2RuntimeFiles({
+      artifacts,
+      scope,
+      inventoryEntries: snapshot.entries,
+    });
+    const runtimePaths = new Set(
+      scope.entries
+        .filter(
+          (entry) =>
+            entry.type === "file" &&
+            entry.class === "operator-declared-runtime",
+        )
+        .map((entry) => entry.path.toLowerCase()),
+    );
+    if (
+      packet.files.some((file) => runtimePaths.has(file.path.toLowerCase())) ||
+      editable.some((entry) => {
+        const source = packet.files.find((file) => file.path === entry.path);
+        return (
+          !source ||
+          source.kind !== "source" ||
+          source.sha256 !== entry.sha256 ||
+          Buffer.byteLength(source.content, "utf8") !== entry.bytes
+        );
+      })
+    )
+      throw new Error("V2 public source differs from frozen execution scope");
+    return {
+      mode: "v2",
+      task,
+      planSha256: inspection.planSha256,
+      packet,
+      scope,
+      baselineTree,
+      requestedModel: provider.requestedModel,
+    };
+  } finally {
+    publicBytes?.fill(0);
+    scopeBytes?.fill(0);
+    oracleBytes?.fill(0);
+    publicRetained?.fill(0);
+    scopeRetained?.fill(0);
     oracleRetained?.fill(0);
   }
 }
@@ -237,12 +381,23 @@ async function inspectCompletedProposal(
     )
       throw new Error("Retained model proposal differs from original response");
     try {
-      applyRepositoryProposal(
-        frozen.baselineFiles,
-        parsed.proposalBytes,
-        frozen.task.allowedOutputPaths,
-        frozen.sourcePaths,
-      );
+      if (frozen.mode === "v2") {
+        const candidate = deriveRepositoryV2CandidateTree({
+          scope: frozen.scope,
+          baselineTree: frozen.baselineTree,
+          publicFiles: frozen.packet.files,
+          proposalBytes: parsed.proposalBytes,
+          allowedOutputPaths: frozen.task.allowedOutputPaths,
+        });
+        candidate.manifestBytes.fill(0);
+      } else {
+        applyRepositoryProposal(
+          frozen.baselineFiles,
+          parsed.proposalBytes,
+          frozen.task.allowedOutputPaths,
+          frozen.sourcePaths,
+        );
+      }
     } catch (cause) {
       if (!(cause instanceof RepositoryProposalRejectedError)) throw cause;
       return { executable: false, proposalSha256: model.proposal.sha256 };
@@ -262,6 +417,7 @@ function terminalReceipt(
   publicSha256,
   status,
   publicProposalSha256 = null,
+  expectedClaimKind = "sealed-call-bound-repository-invocation-claim",
 ) {
   const inspection = store.inspectCollection(collectionId);
   const item = inspection.assignments.find(
@@ -278,8 +434,7 @@ function terminalReceipt(
       publicProposalSha256 === null &&
       (!item.oracleInvocation ||
         !item.oracleVerdict ||
-        item.oracleInvocation.kind !==
-          "sealed-call-bound-repository-invocation-claim")) ||
+        item.oracleInvocation.kind !== expectedClaimKind)) ||
     (status === "candidate-rejected" &&
       publicProposalSha256 !== null &&
       (!SHA.test(publicProposalSha256) ||
@@ -330,13 +485,20 @@ function terminalReceipt(
   };
 }
 
-/**
- * Run one frozen v1 repository assignment with one local model call. The
- * collector owns the bridge/store/vault and never gives the model the oracle.
- * An exception after reservation leaves that assignment open for explicit
- * fenced recovery; this function never retries or abandons ambiguous delivery.
- */
-export async function runOneShotLocalRepositoryAttempt(input, runtime) {
+/** One frozen repository assignment, with mode-specific preflight and oracle. */
+async function runOneShotLocalRepositoryCore(input, runtime, mode) {
+  const inputNames = [
+    "store",
+    "artifacts",
+    "bridge",
+    "handle",
+    "collectionId",
+    "assignmentId",
+    "baselineReference",
+    "oracleReference",
+    "providerId",
+  ];
+  if (mode === "v2") inputNames.push("scopeReference");
   const {
     store,
     artifacts,
@@ -345,23 +507,10 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
     collectionId,
     assignmentId,
     baselineReference,
+    scopeReference,
     oracleReference,
     providerId,
-  } = fields(
-    input,
-    [
-      "store",
-      "artifacts",
-      "bridge",
-      "handle",
-      "collectionId",
-      "assignmentId",
-      "baselineReference",
-      "oracleReference",
-      "providerId",
-    ],
-    "Local repository attempt",
-  );
+  } = fields(input, inputNames, "Local repository attempt");
   const runtimeNames = ["intakeImageId", "repositoryImageId", "endpoint"];
   if (
     runtime &&
@@ -393,8 +542,10 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
   const dockerEndpoint = localDockerEndpoint(endpoint);
   signal?.throwIfAborted();
   const baselineRef = reference(baselineReference, "Repository baseline");
+  const scopeRef =
+    mode === "v2" ? reference(scopeReference, "V2 execution scope") : null;
   const oracleRef = reference(oracleReference, "Private repository oracle");
-  const frozen = await preflight({
+  const preflightInput = {
     store,
     artifacts,
     bridge,
@@ -405,7 +556,11 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
     oracleRef,
     providerId,
     repositoryImageId,
-  });
+  };
+  const frozen =
+    mode === "v2"
+      ? await preflightV2({ ...preflightInput, scopeRef })
+      : await preflightV1(preflightInput);
   signal?.throwIfAborted();
   const reservation = store.reserveAttempt(collectionId, assignmentId);
   try {
@@ -447,20 +602,29 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
         frozen,
       );
       if (candidate.executable) {
-        const oracle = await runProtectedRepositoryOracle(
-          {
-            store,
-            artifacts,
-            collectionId,
-            reservationId: reservation.reservationId,
-            expectedPlanSha256: frozen.planSha256,
-            baselineReference: baselineRef,
-            oracleReference: oracleRef,
-            callId: model.callId,
-            responseReference: model.response,
-          },
-          { imageId: repositoryImageId, endpoint: dockerEndpoint, signal },
-        );
+        const oracleInput = {
+          store,
+          artifacts,
+          collectionId,
+          reservationId: reservation.reservationId,
+          expectedPlanSha256: frozen.planSha256,
+          baselineReference: baselineRef,
+          oracleReference: oracleRef,
+          callId: model.callId,
+          responseReference: model.response,
+        };
+        const oracleRuntime = {
+          imageId: repositoryImageId,
+          endpoint: dockerEndpoint,
+          signal,
+        };
+        const oracle =
+          mode === "v2"
+            ? await runProtectedRepositoryV2Oracle(
+                { ...oracleInput, scopeReference: scopeRef },
+                oracleRuntime,
+              )
+            : await runProtectedRepositoryOracle(oracleInput, oracleRuntime);
         if (
           !oracle.verificationRecorded ||
           oracle.reservationId !== reservation.reservationId ||
@@ -487,11 +651,17 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
         dispatch.publicPacketSha256,
         status,
         publicProposalSha256,
+        mode === "v2"
+          ? "sealed-call-bound-repository-v2-invocation-claim"
+          : "sealed-call-bound-repository-invocation-claim",
       ),
     );
     return Object.freeze({
-      kind: "sealed-local-repository-attempt-observation",
-      version: "1.0.0",
+      kind:
+        mode === "v2"
+          ? "sealed-local-repository-v2-attempt-observation"
+          : "sealed-local-repository-attempt-observation",
+      version: mode === "v2" ? "2.0.0" : "1.0.0",
       collectionId,
       assignmentId,
       reservationId: reservation.reservationId,
@@ -509,4 +679,20 @@ export async function runOneShotLocalRepositoryAttempt(input, runtime) {
     error.reservationId = reservation.reservationId;
     throw error;
   }
+}
+
+/**
+ * One frozen v1 selected-source repository assignment and local model call.
+ * Uncertain delivery or oracle execution stays open for explicit recovery.
+ */
+export async function runOneShotLocalRepositoryAttempt(input, runtime) {
+  return runOneShotLocalRepositoryCore(input, runtime, "v1");
+}
+
+/**
+ * One frozen v2 operator-declared safe-tree assignment and local model call.
+ * This does not make the scope independently reviewed or promotion-eligible.
+ */
+export async function runOneShotLocalRepositoryV2Attempt(input, runtime) {
+  return runOneShotLocalRepositoryCore(input, runtime, "v2");
 }

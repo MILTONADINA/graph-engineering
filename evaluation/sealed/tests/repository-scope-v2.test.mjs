@@ -20,7 +20,10 @@ import {
   inspectRepositorySnapshotInventory,
   retainRepositorySnapshot,
 } from "../repository-snapshot.mjs";
-import { materializeRepositoryScopeV2 } from "../repository-scope-v2.mjs";
+import {
+  inspectRepositoryV2RuntimeFiles,
+  materializeRepositoryScopeV2,
+} from "../repository-scope-v2.mjs";
 import { repositoryV2ScopeBytes } from "../oracle-runtime/repository-v2.mjs";
 import { canonicalJson } from "../schema.mjs";
 
@@ -305,6 +308,32 @@ test("v2 materializer detects a runtime credential before creating guest staging
     /potential secret/,
   );
   await assert.rejects(stat(directory), { code: "ENOENT" });
+});
+
+test("v2 read-only runtime preflight rejects a secret before reservation or staging", async (t) => {
+  const state = await setup(t, {
+    runtimeBlob: Buffer.from(
+      'const password = "abcdefghijklmnopqrstuvwxyz123456";\n',
+    ),
+  });
+  await assert.rejects(
+    inspectRepositoryV2RuntimeFiles({
+      artifacts: state.artifacts,
+      scope: state.scope,
+      inventoryEntries: state.entries,
+    }),
+    /potential secret/,
+  );
+  const clean = await setup(t);
+  const tree = await inspectRepositoryV2RuntimeFiles({
+    artifacts: clean.artifacts,
+    scope: clean.scope,
+    inventoryEntries: clean.entries,
+  });
+  assert.deepEqual(
+    tree.entries.map((entry) => entry.path),
+    clean.scope.entries.map((entry) => entry.path),
+  );
 });
 
 test("v2 materializer refuses staging beneath a non-private parent", async (t) => {
