@@ -111,7 +111,7 @@ items. An initial full check found four authentication-template false
 positives; a focused correction excluded function calls and comparison
 expressions while retaining literal detection. The focused template/policy
 tests then passed, followed by one successful complete `npm run check`:
-516 engine tests passed, 47 explicitly skipped, plus 59 scaffolder and nine
+517 engine tests passed, 47 explicitly skipped, plus 59 scaffolder and nine
 dashboard tests, typechecks and production builds. Automated success is not
 human acceptance. Credential screening is pattern-based, not proof that all
 possible secrets are absent; cloud export remains explicitly allowlisted.

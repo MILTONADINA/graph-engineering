@@ -372,8 +372,8 @@ describe("installed capability discovery", () => {
     expect(capabilities.find((c) => c.kind === "claude")).toMatchObject({
       installed: true,
       available: true,
-      authentication: "native-login",
-      supportsSubscription: true,
+      authentication: process.platform === "win32" ? "api-key" : "native-login",
+      supportsSubscription: process.platform !== "win32",
     });
     expect(capabilities.find((c) => c.kind === "codex")).toMatchObject({
       available: true,
@@ -404,10 +404,37 @@ describe("installed capability discovery", () => {
 });
 
 describe("native Claude proposals", () => {
-  it("uses the existing Max subscription without exposing an API key or tools", async () => {
+  it("fails closed on Windows when managed policy cannot be ruled out", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform");
+    if (!descriptor?.configurable)
+      throw new Error("Cannot simulate the Windows native-policy boundary");
+    Object.defineProperty(process, "platform", {
+      ...descriptor,
+      value: "win32",
+    });
+    try {
+      const request = input();
+      delete request.provider.apiKeyEnv;
+      await expect(invokeInstalledWorker(request)).rejects.toThrow(
+        "subscription mode requires",
+      );
+      expect(nativeCalls).toEqual([]);
+    } finally {
+      Object.defineProperty(process, "platform", descriptor);
+    }
+  });
+
+  it("uses the Max subscription only where managed policy can be ruled out", async () => {
     const request = input();
     delete request.provider.apiKeyEnv;
     vi.stubEnv("ANTHROPIC_API_KEY", "");
+    if (process.platform === "win32") {
+      await expect(invokeInstalledWorker(request)).rejects.toThrow(
+        "subscription mode requires",
+      );
+      expect(nativeCalls).toEqual([]);
+      return;
+    }
     const result = await invokeInstalledWorker(request);
     expect(result.proposal).toEqual(proposal);
     const run = nativeCalls[0];
