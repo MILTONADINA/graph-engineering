@@ -106,7 +106,16 @@ export async function provisionRetryImage() {
       { flag: "wx", mode: 0o644 },
     );
     await mkdir(path.join(directory, "runtime"));
-    for (const name of ["execute.mjs", "fixture.mjs", "provision-check.mjs"])
+    for (const name of [
+      "execute.mjs",
+      "fixture.mjs",
+      "provision-check.mjs",
+      "candidate-controller.mjs",
+      "candidate-guest.mjs",
+      "candidate-project.mjs",
+      "candidate-rpc-helper.mjs",
+      "candidate-store-shim.mjs",
+    ])
       await copyFile(
         fileURLToPath(new URL(name, import.meta.url)),
         path.join(directory, "runtime", name),
