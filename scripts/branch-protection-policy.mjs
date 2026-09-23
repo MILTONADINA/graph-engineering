@@ -21,7 +21,6 @@ export const requiredChecks = {
 
 const requiredApprovals = { main: 1, dev: 0 };
 const lastPushApproval = { main: true, dev: false };
-
 export function protectionFor(branch) {
   const contexts = requiredChecks[branch];
   if (!contexts) throw new Error(`Unsupported protected branch: ${branch}`);

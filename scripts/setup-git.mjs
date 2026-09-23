@@ -20,4 +20,6 @@ execFileSync("git", ["config", "core.hooksPath", ".githooks"], {
 execFileSync("git", ["config", "push.default", "current"], {
   stdio: "inherit",
 });
-console.log("Installed the main/master push guard. Feature PRs target dev.");
+console.log(
+  "Installed the main/master/dev push guard. Feature PRs target dev.",
+);
