@@ -298,6 +298,33 @@ export class SealedPublicPacketBridge {
     return reservation;
   }
 
+  /** Validate an in-process retained handle without exposing its packet bytes. */
+  inspectRetainedHandle(handle, store, artifacts) {
+    if (this.#store !== store || this.#artifacts !== artifacts)
+      throw new Error("Public packet handle uses different sealed stores");
+    if (
+      !handle ||
+      typeof handle !== "object" ||
+      this.#handles.get(handle) !== handle
+    )
+      throw new Error("Public packet handle was not retained by this bridge");
+    const { inspection, task } = this.#openTask(
+      handle.collectionId,
+      handle.taskId,
+    );
+    if (
+      inspection.planSha256 !== handle.planSha256 ||
+      task.publicPacketSha256 !== handle.artifact.sha256
+    )
+      throw new Error("Public packet handle differs from frozen task");
+    return Object.freeze({
+      collectionId: handle.collectionId,
+      taskId: handle.taskId,
+      planSha256: handle.planSha256,
+      artifact: handle.artifact,
+    });
+  }
+
   /** Attempt a trusted callback at most once after a durable claim; delivery is not proven. */
   async dispatch(input) {
     const { handle, reservationId, send } = fields(
