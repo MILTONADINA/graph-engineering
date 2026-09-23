@@ -10,6 +10,7 @@ import {
   collectorAt,
   engineeringFixture,
   fixture,
+  moduleGraphFixture,
   nowMs,
 } from "./sealed-aggregate-fixture.js";
 
@@ -169,6 +170,93 @@ it("rejects imported engineering claims with altered scope or measured-success a
   resultClaim.resultSourceSha256 = reusedResult.plan.tasks[0]!.baselineSha256;
   expect(() =>
     validateFullCohortLedger(reusedResult, input.cohort.pins),
+  ).toThrow();
+  const promoted = structuredClone(input.cohort.inspection);
+  promoted.assignments[1]!.receipt!.status = "completed";
+  promoted.assignments[1]!.receipt!.outcome.success = true;
+  expect(() => validateFullCohortLedger(promoted, input.cohort.pins)).toThrow(
+    /cannot authorize measured attempt success/,
+  );
+});
+
+it("re-derives a bounded module graph and private verdict without authorizing success", async () => {
+  const { input } = await moduleGraphFixture();
+  const receipt = await inspectPrivateSealedAggregateProvenance(input, {
+    nowMs,
+  });
+  expect(receipt.callBoundProposalJoinsChecked).toBe(1);
+  expect(receipt.protectedExecutionVerified).toBe(false);
+  expect(receipt.promotionEligible).toBe(false);
+  expect(
+    input.cohort.inspection.assignments[1]!.receipt!.outcome.success,
+  ).toBeNull();
+  expect(
+    input.originalArtifacts
+      .filter((item) =>
+        item.role.startsWith("oracle/module-graph-v1/candidate/"),
+      )
+      .map((item) => item.role),
+  ).toEqual([
+    "oracle/module-graph-v1/candidate/derived-proposal",
+    "oracle/module-graph-v1/candidate/result-source",
+    "oracle/module-graph-v1/candidate/private-verdict",
+  ]);
+});
+
+it("rejects freshly signed module-graph originals, manifest, path, and verdict inconsistencies", async () => {
+  for (const [options, pattern] of [
+    [{ wrongResult: true }, /Module graph result source differs/],
+    [{ wrongBefore: true }, /full frozen source edit/],
+    [{ badManifest: true }, /public manifest differs/],
+    [{ badPath: true }, /Invalid input|module graph path|Module graph paths/i],
+    [{ wrongInputSha: true }, /case result differs/],
+    [{ repeatedChallenge: true }, /case result differs/],
+    [{ wrongCounts: true }, /verdict counts differ/],
+    [{ wrongCaseCount: true }, /verdict differs from frozen claim/],
+    [{ wrongStatus: true }, /verdict counts differ/],
+    [{ wrongVerdictResult: true }, /verdict differs from frozen claim/],
+    [{ wrongVerdictClaim: true }, /verdict differs from frozen claim/],
+    [{ reverseCases: true }, /case result differs/],
+    [{ omitVerdict: true }, /private verdict is missing/],
+  ] as const) {
+    const { input } = await moduleGraphFixture(options);
+    await expect(
+      inspectPrivateSealedAggregateProvenance(input, { nowMs }),
+    ).rejects.toThrow(pattern);
+  }
+  const { input } = await moduleGraphFixture();
+  const missing = structuredClone(input);
+  missing.originalArtifacts = missing.originalArtifacts.filter(
+    (item) => item.role !== "oracle/module-graph-v1/candidate/result-source",
+  );
+  await expect(
+    inspectPrivateSealedAggregateProvenance(missing, { nowMs }),
+  ).rejects.toThrow(/inventory is incomplete/);
+  for (const role of [
+    "task/held-task/baseline",
+    "task/held-task/private-oracle",
+    "oracle/module-graph-v1/candidate/derived-proposal",
+    "oracle/module-graph-v1/candidate/result-source",
+    "oracle/module-graph-v1/candidate/private-verdict",
+  ]) {
+    const tampered = structuredClone(input);
+    tampered.originalArtifacts.find((item) => item.role === role)!.bytesBase64 =
+      Buffer.from(`tampered ${role}`).toString("base64");
+    await expect(
+      inspectPrivateSealedAggregateProvenance(tampered, { nowMs }),
+    ).rejects.toThrow(/content differs/);
+  }
+});
+
+it("refuses imported module-graph measured success and altered claim scope", async () => {
+  const { input } = await moduleGraphFixture();
+  const changedBaseline = structuredClone(input.cohort.inspection);
+  const claim = changedBaseline.assignments[1]!.oracleInvocation;
+  if (claim?.kind !== "sealed-call-bound-module-graph-invocation-claim")
+    throw new Error("Expected module graph fixture claim");
+  claim.baselineSha256 = changedBaseline.plan.tasks[0]!.publicPacketSha256;
+  expect(() =>
+    validateFullCohortLedger(changedBaseline, input.cohort.pins),
   ).toThrow();
   const promoted = structuredClone(input.cohort.inspection);
   promoted.assignments[1]!.receipt!.status = "completed";
@@ -400,6 +488,29 @@ function manifestSource(input: Awaited<ReturnType<typeof fixture>>["input"]) {
   };
   return { detached, manifest, originals, reader, supplied };
 }
+
+it("keeps the inline original-byte cap while vault-reading a larger module-graph cohort", async () => {
+  const { input } = await moduleGraphFixture({ largeArtifacts: true });
+  await expect(
+    inspectPrivateSealedAggregateProvenance(input, { nowMs }),
+  ).rejects.toThrow(/byte bounds|private input bound/);
+  const source = manifestSource(input);
+  const total = source.manifest.entries.reduce(
+    (sum, entry) => sum + entry.bytes,
+    0,
+  );
+  expect(total).toBeGreaterThan(1_500_000);
+  const receipt = await inspectPrivateSealedAggregateFromManifest(
+    source.detached,
+    source.manifest,
+    hashJson(source.manifest),
+    source.reader,
+    { nowMs },
+  );
+  expect(receipt.originalArtifactBytes).toBe(total);
+  expect(receipt.callBoundProposalJoinsChecked).toBe(1);
+  expect(receipt.promotionEligible).toBe(false);
+});
 
 it("audits more than 2 MB of aggregate originals through bounded manifest reads", async () => {
   const { input } = await fixture(

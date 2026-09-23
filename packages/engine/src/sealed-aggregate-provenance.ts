@@ -175,6 +175,18 @@ const sha256 = (bytes: Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
 const at = (value: string) => Date.parse(value);
 
+function oracleRolePrefix(item: CohortInspection["assignments"][number]) {
+  const namespace =
+    item.oracleInvocation?.kind ===
+    "sealed-call-bound-module-graph-invocation-claim"
+      ? "oracle/module-graph-v1"
+      : item.oracleInvocation?.kind ===
+          "sealed-call-bound-engineering-invocation-claim"
+        ? "oracle/engineering-v1"
+        : "oracle/v1";
+  return `${namespace}/${item.assignment.assignmentId}`;
+}
+
 function originalReferences(inspection: CohortInspection) {
   const references = new Map<string, string>();
   const add = (role: string, digest: string | null) => {
@@ -212,15 +224,17 @@ function originalReferences(inspection: CohortInspection) {
       );
     if (
       item.oracleInvocation?.kind ===
-      "sealed-call-bound-engineering-invocation-claim"
+        "sealed-call-bound-engineering-invocation-claim" ||
+      item.oracleInvocation?.kind ===
+        "sealed-call-bound-module-graph-invocation-claim"
     ) {
-      const prefix = `oracle/engineering-v1/${item.assignment.assignmentId}`;
+      const prefix = oracleRolePrefix(item);
       add(`${prefix}/derived-proposal`, item.oracleInvocation.proposalSha256);
       add(`${prefix}/result-source`, item.oracleInvocation.resultSourceSha256);
     }
     if (item.oracleVerdict)
       add(
-        `${item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
+        `${oracleRolePrefix(item)}/private-verdict`,
         item.oracleVerdict.verificationSha256,
       );
   }
@@ -283,9 +297,7 @@ function auditOriginalBytes(
     if (
       item.oracleVerdict &&
       item.oracleVerdict.verificationBytes !==
-        bytesByRole.get(
-          `${item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
-        )
+        bytesByRole.get(`${oracleRolePrefix(item)}/private-verdict`)
     )
       throw new Error(
         "Private oracle verdict size differs from original bytes",
@@ -388,9 +400,7 @@ async function auditManifestOriginalBytes(
     if (
       item.oracleVerdict &&
       item.oracleVerdict.verificationBytes !==
-        refs.get(
-          `${item.oracleInvocation?.kind === "sealed-call-bound-engineering-invocation-claim" ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}/private-verdict`,
-        )?.bytes
+        refs.get(`${oracleRolePrefix(item)}/private-verdict`)?.bytes
     )
       throw new Error("Oracle verdict size differs from original bytes");
   }
@@ -540,6 +550,197 @@ const engineeringVerdictSchema = z
     version: z.literal("1.0.0"),
   })
   .strict();
+const privateModuleGraphName =
+  /^(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519)|[^/]*\.(?:pem|key|p12|pfx))$/i;
+const moduleGraphPathSchema = engineeringPathSchema.refine(
+  (value) =>
+    value.length >= 4 &&
+    value.endsWith(".js") &&
+    !/[\x7f?#%]/.test(value) &&
+    Buffer.from(value, "utf8").toString("utf8") === value &&
+    !value
+      .split("/")
+      .some(
+        (part) =>
+          part.toLowerCase() === "node_modules" ||
+          privateModuleGraphName.test(part) ||
+          [".ssh", ".aws", ".gnupg", "private-memory"].includes(
+            part.toLowerCase(),
+          ),
+      ),
+);
+const moduleGraphSourceSchema = z
+  .string()
+  .refine(
+    (value) =>
+      value.trim().length > 0 &&
+      !value.includes("\0") &&
+      Buffer.from(value, "utf8").toString("utf8") === value &&
+      Buffer.byteLength(value) <= 100_000,
+  );
+const moduleGraphBaselineSchema = z
+  .object({
+    kind: z.literal("sealed-js-module-graph-baseline"),
+    version: z.literal("1.0.0"),
+    entry: moduleGraphPathSchema,
+    files: z
+      .array(
+        z
+          .object({
+            path: moduleGraphPathSchema,
+            source: moduleGraphSourceSchema,
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(7),
+  })
+  .strict();
+const moduleGraphOracleSchema = z
+  .object({
+    kind: z.literal("sealed-js-module-graph-oracle"),
+    version: z.literal("1.0.0"),
+    cases: z.array(engineeringCaseSchema).min(2).max(12),
+  })
+  .strict();
+const challengeSchema = z.string().regex(/^[a-f0-9]{32}$/);
+const moduleGraphCaseResultSchema = z
+  .object({
+    id: id.max(32),
+    inputSha256: digestSchema,
+    baselineChallenge: challengeSchema,
+    candidateChallenge: challengeSchema,
+    baselineStatus: z.enum(["completed", "candidate-error"]),
+    baselineValueSha256: digestSchema.nullable(),
+    candidateStatus: z.enum(["completed", "candidate-error"]),
+    candidateValueSha256: digestSchema.nullable(),
+  })
+  .strict();
+const moduleGraphVerdictSchema = z
+  .object({
+    kind: z.literal("sealed-js-module-graph-verification"),
+    version: z.literal("1.0.0"),
+    claimSha256: digestSchema,
+    oracleSha256: digestSchema,
+    baselineSha256: digestSchema,
+    resultSourceSha256: digestSchema,
+    baselineFailed: z.number().int().min(1).max(12),
+    passed: z.number().int().min(0).max(12),
+    caseCount: z.number().int().min(2).max(12),
+    status: z.enum(["pass", "fail"]),
+    caseResults: z.array(moduleGraphCaseResultSchema).min(2).max(12),
+  })
+  .strict();
+
+function checkModuleGraphBaseline(
+  baseline: z.infer<typeof moduleGraphBaselineSchema>,
+) {
+  const paths = baseline.files.map((file) => file.path);
+  if (
+    paths.some((path, index) => index > 0 && paths[index - 1]! >= path) ||
+    new Set(paths.map((path) => path.toLowerCase())).size !== paths.length ||
+    !paths.includes(baseline.entry)
+  )
+    throw new Error("Module graph paths are not a unique sorted baseline");
+  return paths;
+}
+
+function checkModuleGraphPublicPacket(
+  packet: {
+    files: { path: string; kind: string; content: string }[];
+  },
+  baseline: z.infer<typeof moduleGraphBaselineSchema>,
+) {
+  const paths = checkModuleGraphBaseline(baseline);
+  if (packet.files.length !== baseline.files.length + 1)
+    throw new Error("Module graph public file inventory differs from baseline");
+  const publicFiles = new Map(packet.files.map((file) => [file.path, file]));
+  for (const file of baseline.files) {
+    const publicFile = publicFiles.get(file.path);
+    if (publicFile?.kind !== "source" || publicFile.content !== file.source)
+      throw new Error("Module graph public source differs from baseline");
+  }
+  const manifest = publicFiles.get("module-graph.manifest.json");
+  if (
+    manifest?.kind !== "documentation" ||
+    manifest.content !==
+      canonicalJson({
+        kind: "sealed-js-module-graph-public-manifest",
+        version: "1.0.0",
+        entry: baseline.entry,
+        paths,
+      })
+  )
+    throw new Error("Module graph public manifest differs from baseline");
+}
+
+function deriveModuleGraphResult(
+  baseline: z.infer<typeof moduleGraphBaselineSchema>,
+  proposalBytes: Buffer,
+  allowedPaths: string[],
+) {
+  const paths = checkModuleGraphBaseline(baseline);
+  if (
+    allowedPaths.length !== paths.length ||
+    allowedPaths.some((path, index) => path !== paths[index])
+  )
+    throw new Error("Module graph output scope differs from baseline");
+  const proposal = z
+    .object({
+      summary: z.string().max(4000),
+      changes: z
+        .array(
+          z
+            .object({
+              path: moduleGraphPathSchema,
+              before: z.string(),
+              after: moduleGraphSourceSchema,
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(7),
+      requests: z.array(z.string()).length(0),
+    })
+    .strict()
+    .parse(
+      decodeJson(
+        new TextDecoder("utf8", { fatal: true }).decode(proposalBytes),
+      ),
+    );
+  const changes = new Map<string, string>();
+  const originals = new Map(
+    baseline.files.map((file) => [file.path, file.source]),
+  );
+  for (const change of proposal.changes) {
+    if (
+      !originals.has(change.path) ||
+      !allowedPaths.includes(change.path) ||
+      changes.has(change.path) ||
+      change.before !== originals.get(change.path)
+    )
+      throw new Error("Module graph change is not a full frozen source edit");
+    changes.set(change.path, change.after);
+  }
+  const result = Buffer.from(
+    canonicalJson({
+      kind: "sealed-js-module-graph-baseline",
+      version: "1.0.0",
+      entry: baseline.entry,
+      files: baseline.files.map((file) => ({
+        path: file.path,
+        source: changes.get(file.path) ?? file.source,
+      })),
+    }),
+    "utf8",
+  );
+  if (
+    result.length > 800_000 ||
+    result.equals(Buffer.from(canonicalJson(baseline)))
+  )
+    throw new Error("Module graph result is unchanged or exceeds its bound");
+  return result;
+}
 
 function parseCanonicalEngineering<T extends z.ZodTypeAny>(
   bytes: Buffer,
@@ -676,6 +877,90 @@ function checkEngineeringVerdict(
   return verdict.status;
 }
 
+function checkModuleGraphVerdict(
+  oracleBytes: Buffer,
+  verdictBytes: Buffer,
+  claim: Extract<
+    NonNullable<CohortInspection["assignments"][number]["oracleInvocation"]>,
+    { kind: "sealed-call-bound-module-graph-invocation-claim" }
+  >,
+  verdictReference: NonNullable<
+    CohortInspection["assignments"][number]["oracleVerdict"]
+  >,
+) {
+  const oracle = parseCanonicalEngineering(
+    oracleBytes,
+    moduleGraphOracleSchema,
+    100_000,
+    "Module graph private oracle",
+  );
+  const verdict = parseCanonicalEngineering(
+    verdictBytes,
+    moduleGraphVerdictSchema,
+    8192,
+    "Module graph private verdict",
+  );
+  if (
+    new Set(oracle.cases.map((item) => item.id)).size !== oracle.cases.length ||
+    oracle.cases.some(
+      (item) =>
+        Buffer.byteLength(canonicalJson(item.input)) > 4096 ||
+        Buffer.byteLength(canonicalJson(item.expected)) > 4096,
+    ) ||
+    verdict.claimSha256 !== hashJson(claim) ||
+    verdict.oracleSha256 !== claim.oracleSha256 ||
+    verdict.baselineSha256 !== claim.baselineSha256 ||
+    verdict.resultSourceSha256 !== claim.resultSourceSha256 ||
+    verdictReference.claimSha256 !== hashJson(claim) ||
+    verdictReference.verificationSha256 !== sha256(verdictBytes) ||
+    verdictReference.verificationBytes !== verdictBytes.length ||
+    verdict.caseCount !== oracle.cases.length ||
+    verdict.caseResults.length !== oracle.cases.length
+  )
+    throw new Error("Module graph private verdict differs from frozen claim");
+  let baselineFailed = 0;
+  let passed = 0;
+  const challenges = new Set<string>();
+  for (const [index, item] of verdict.caseResults.entries()) {
+    const expected = oracle.cases[index]!;
+    const expectedSha256 = sha256(
+      Buffer.from(canonicalJson(expected.expected)),
+    );
+    if (
+      item.id !== expected.id ||
+      item.inputSha256 !== sha256(Buffer.from(canonicalJson(expected.input))) ||
+      challenges.has(item.baselineChallenge) ||
+      challenges.has(item.candidateChallenge) ||
+      item.baselineChallenge === item.candidateChallenge ||
+      (item.baselineStatus === "completed") !==
+        (item.baselineValueSha256 !== null) ||
+      (item.candidateStatus === "completed") !==
+        (item.candidateValueSha256 !== null)
+    )
+      throw new Error("Module graph case result differs from private oracle");
+    challenges.add(item.baselineChallenge);
+    challenges.add(item.candidateChallenge);
+    if (
+      item.baselineStatus !== "completed" ||
+      item.baselineValueSha256 !== expectedSha256
+    )
+      baselineFailed++;
+    if (
+      item.candidateStatus === "completed" &&
+      item.candidateValueSha256 === expectedSha256
+    )
+      passed++;
+  }
+  if (
+    baselineFailed < 1 ||
+    verdict.baselineFailed !== baselineFailed ||
+    verdict.passed !== passed ||
+    verdict.status !== (passed === oracle.cases.length ? "pass" : "fail")
+  )
+    throw new Error("Module graph verdict counts differ from private cases");
+  return verdict.status;
+}
+
 /** Re-derive, in the private collector, the bytes a call-bound oracle saw. */
 async function checkCallBoundOriginals(
   inspection: CohortInspection,
@@ -712,7 +997,8 @@ async function checkCallBoundOriginals(
     const claim = item.oracleInvocation;
     if (
       claim?.kind !== "sealed-call-bound-oracle-invocation-claim" &&
-      claim?.kind !== "sealed-call-bound-engineering-invocation-claim"
+      claim?.kind !== "sealed-call-bound-engineering-invocation-claim" &&
+      claim?.kind !== "sealed-call-bound-module-graph-invocation-claim"
     )
       continue;
     const task = inspection.plan.tasks.find(
@@ -723,7 +1009,9 @@ async function checkCallBoundOriginals(
     )!;
     const engineering =
       claim.kind === "sealed-call-bound-engineering-invocation-claim";
-    const role = `${engineering ? "oracle/engineering-v1" : "oracle/v1"}/${item.assignment.assignmentId}`;
+    const moduleGraph =
+      claim.kind === "sealed-call-bound-module-graph-invocation-claim";
+    const role = oracleRolePrefix(item);
     let publicBytes: Buffer | undefined;
     let responseBytes: Buffer | undefined;
     let requestBytes: Buffer | undefined;
@@ -832,10 +1120,41 @@ async function checkCallBoundOriginals(
             "Engineering result source differs from proposal and baseline",
           );
       }
+      if (moduleGraph) {
+        baselineBytes = await read(`task/${task.taskId}/baseline`);
+        const baseline = parseCanonicalEngineering(
+          baselineBytes,
+          moduleGraphBaselineSchema,
+          800_000,
+          "Module graph baseline",
+        );
+        if (claim.baselineSha256 !== task.baselineSha256)
+          throw new Error("Module graph baseline differs from frozen task");
+        checkModuleGraphPublicPacket(packet, baseline);
+        derivedResult = deriveModuleGraphResult(
+          baseline,
+          exactProposal,
+          task.allowedOutputPaths,
+        );
+        resultBytes = await read(`${role}/result-source`);
+        if (
+          !derivedResult.equals(resultBytes) ||
+          sha256(derivedResult) !== claim.resultSourceSha256 ||
+          (item.receipt?.resultSourceSha256 != null &&
+            item.receipt.resultSourceSha256 !== claim.resultSourceSha256)
+        )
+          throw new Error(
+            "Module graph result source differs from proposal and baseline",
+          );
+      }
       parsedProposal.fill(0);
       parsedProposal = undefined;
-      if (engineering && !item.oracleVerdict)
-        throw new Error("Engineering private verdict is missing");
+      if ((engineering || moduleGraph) && !item.oracleVerdict)
+        throw new Error(
+          engineering
+            ? "Engineering private verdict is missing"
+            : "Module graph private verdict is missing",
+        );
       if (item.oracleVerdict) {
         oracleBytes = await read(`task/${task.taskId}/private-oracle`);
         verdictBytes = await read(`${role}/private-verdict`);
@@ -858,6 +1177,23 @@ async function checkCallBoundOriginals(
           )
             throw new Error(
               "Engineering attempt outcome differs from private verdict",
+            );
+        } else if (moduleGraph) {
+          const status = checkModuleGraphVerdict(
+            oracleBytes,
+            verdictBytes,
+            claim,
+            item.oracleVerdict,
+          );
+          if (
+            (item.receipt?.outcome.verificationSha256 != null &&
+              item.receipt.outcome.verificationSha256 !==
+                item.oracleVerdict.verificationSha256) ||
+            (item.receipt?.outcome.success != null &&
+              item.receipt.outcome.success !== (status === "pass"))
+          )
+            throw new Error(
+              "Module graph attempt outcome differs from private verdict",
             );
         } else {
           let oracle: ReturnType<typeof decodeJson>;
@@ -1234,8 +1570,8 @@ async function inspectAggregateWithOriginalEvidence(
       "Configuration, model, runtime, and label-evidence digests are signed identities only; their raw bytes were not audited.",
       "Canonical JSON digests bind the ledger and evaluation values, not their original serialization bytes.",
       "Protected model/oracle execution, independent population selection, and provider billing remain unverified.",
-      "Engineering case-result hashes and counters are checked against private expected values, but the aggregate does not re-execute source or authenticate guest observations.",
-      "A private oracle verdict nonce has no independent persisted nonce witness in this aggregate; only its canonical shape is checked.",
+      "Engineering and module-graph case-result hashes and counters are checked against private expected values, but the aggregate does not re-execute source or authenticate guest observations.",
+      "Private oracle nonces and module-graph challenges have no independent persisted randomness witness; only their canonical shape and applicable uniqueness are checked.",
     ],
   });
 }
