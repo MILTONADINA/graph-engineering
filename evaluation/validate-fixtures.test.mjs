@@ -62,22 +62,46 @@ test("retained 120-container synthetic receipt matches the current fixture harne
   assert.equal(receipt.valid, true);
   assert.equal(receipt.taskCount, 60);
   assert.equal(receipt.containerExecutions, 120);
+  const fixtures = selectFixtures();
   assert.deepEqual(
     receipt.results.map((row) => row.taskId),
-    selectFixtures().map((task) => task.id),
+    fixtures.map((task) => task.id),
   );
   assert.equal(new Set(receipt.results.map((row) => row.taskId)).size, 60);
-  for (const row of receipt.results) {
+  const sourceHash = (task, files) =>
+    sha256(
+      Object.keys(task.files)
+        .sort()
+        .map((name) => [name, files[name] ?? null]),
+    );
+  const imageIds = new Map();
+  for (const [index, row] of receipt.results.entries()) {
+    const task = fixtures[index];
     assert.equal(row.synthetic, true);
     assert.equal(row.valid, true);
+    assert.equal(row.language, task.language);
+    assert.equal(row.expectedCases, task.tests.length);
+    assert.equal(row.expectedHash, sha256(task.tests));
+    assert.equal(row.image, task.verification.image);
     assert.match(row.imageId, /^sha256:[a-f0-9]{64}$/);
+    if (imageIds.has(row.image))
+      assert.equal(row.imageId, imageIds.get(row.image));
+    else imageIds.set(row.image, row.imageId);
+    const harnessHash = sha256({
+      files: task.verification.files,
+      argv: task.verification.argv,
+    });
     assert.equal(row.broken.success, false);
     assert.equal(Number.isInteger(row.broken.exitCode), true);
     assert.notEqual(row.broken.exitCode, 0);
     assert.equal(row.broken.sourceUnchanged, true);
+    assert.equal(row.broken.sourceHash, sourceHash(task, task.files));
+    assert.equal(row.broken.harnessHash, harnessHash);
     assert.equal(row.oracle.success, true);
     assert.equal(row.oracle.exitCode, 0);
     assert.equal(row.oracle.sourceUnchanged, true);
+    assert.equal(row.oracle.sourceHash, sourceHash(task, task.oracleFiles));
+    assert.equal(row.oracle.harnessHash, harnessHash);
   }
   assert.deepEqual(
     receipt.byLanguage.map(
