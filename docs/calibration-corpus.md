@@ -13,14 +13,14 @@ Task category, complexity, and risk are explicitly proposed classifications.
 | `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                   |
 | `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                   |
 | `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                   |
-| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier; native Linux permissions test awaits CI proof    |
+| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier plus native Linux private-mount permission proof  |
 | `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing  |
 | `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance |
 | `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                   |
 
 Each manifest case records full base/repair commit IDs, exact paths, Git blob
 IDs, regular-file modes, SHA256 source hashes, objective, acceptance criteria,
-scope limitations, and missing work. For the five still-unimplemented replays,
+scope limitations, and missing work. For the four still-unimplemented replays,
 `replay.adapterPath` and `replay.harnessPath` identify **planned, not existing**
 files under `evaluation/replays/<case>/`; `requiredAdapter` and `requiredHarness`
 describe the concrete work. Two additional adapters run exact trusted history
@@ -189,9 +189,8 @@ checks the exact historical traces, then projects only their numeric identities
 into fixed native probes of an owned 0700 directory and 0600 file. It must observe
 actual root/non-owner `EACCES`, owner read access, zero capabilities, and unchanged
 host modes. Candidate commands never execute natively. This check is configured
-in Linux CI; the Mac explicitly skips it, so native proof remains pending until
-that job succeeds. Neither fixture measures model performance or authorizes
-promotion.
+in Linux CI and passed on commit `e27a29d` in run `35807582602`; the Mac explicitly
+skips it. Neither fixture measures model performance or authorizes promotion.
 
 ## Inspect candidate build ordering
 
