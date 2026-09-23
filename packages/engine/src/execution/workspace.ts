@@ -13,6 +13,11 @@ import type { WorkerProposal } from "../workers/api.js";
 import { hash } from "../util.js";
 import { checkedGit, managedGit } from "./git.js";
 import { containsSecret, isAllowedPath, safePath } from "../policy.js";
+import {
+  awsDescriptorForSecretScan,
+  isAwsDescriptorPath,
+  verifyAwsDescriptorDockerfile,
+} from "../template-runtime-aws.js";
 
 export async function gitFiles(root: string): Promise<string[]> {
   const result = await managedGit(root, [
@@ -149,7 +154,20 @@ export async function prepareProposal(
         );
       content = content.replace(change.before, () => change.after);
     }
-    if (containsSecret(content))
+    let scannerContent = content;
+    if (
+      isAwsDescriptorPath(change.path) &&
+      !isAllowedPath(change.path, policy, true)
+    ) {
+      await verifyAwsDescriptorDockerfile(
+        workspace,
+        change.path,
+        content,
+        policy,
+      );
+      scannerContent = awsDescriptorForSecretScan(content);
+    }
+    if (containsSecret(scannerContent))
       throw new Error(`Patch includes a potential secret in ${change.path}`);
     staged.set(change.path, { absolute, content });
   }

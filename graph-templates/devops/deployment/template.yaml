@@ -4,9 +4,9 @@ version: 0.1.0
 description: >
   Planned. A higher-level composition node analogous to api.crud — given a
   target (docker/serverless/vm), invokes devops.docker + devops.github-actions
-  + a target-specific node (e.g. devops.aws, also planned) in the right order
+  + a target-specific node (e.g. the offline devops.aws ECS Express descriptor) in the right order
   and reconciles their combined output into one deployment.schema.json. Not
-  yet implemented; devops.docker and devops.github-actions are usable
+  yet implemented; devops.docker, devops.github-actions and devops.aws are usable
   independently in the meantime.
 category: devops
 subcategory: deployment
