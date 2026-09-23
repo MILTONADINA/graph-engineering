@@ -26,9 +26,12 @@ as well as host identity; an initial host regression incorrectly expected the
 old Windows fallback to match and was corrected after inspecting both Git and
 the recorded trace. The original evidence was not relabeled or overwritten.
 
-The separate native Linux permission test is configured in CI but was not run
-on this Mac. Simulated argv is not a native DAC proof. No paid providers, real
-models, independent labels or promotion activation ran during this work.
+The separate native Linux permission test passed in GitHub run `35807582602`
+on commit `e27a29d`: actual host-owned 0700/0600 bind mount, capability-free root
+denied with `EACCES`, matching owner permitted, and host modes unchanged. This
+was native Linux CI, not this Mac or a conclusion inferred from simulated argv.
+No paid providers, real models, independent labels or promotion activation ran
+during this work.
 
 ## Additional historical clean-build proof
 
