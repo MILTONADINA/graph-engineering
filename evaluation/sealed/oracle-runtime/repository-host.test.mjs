@@ -53,6 +53,13 @@ async function setup(
     originalSource = baselineSource,
     publishedSource = originalSource,
     change = repair,
+    sourceFiles = null,
+    allowedPaths = ["solver.mjs"],
+    changes = null,
+    recipeOptions = {},
+    privateCases = cases,
+    objective = "Repair the selected repository entry to double numeric input",
+    acceptance = ["The JSON-line entry returns a doubled numeric answer"],
   } = {},
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-repo-host-"));
@@ -63,14 +70,20 @@ async function setup(
   await mkdir(ledgerDir, { mode: 0o700 });
   await mkdir(artifactDir, { mode: 0o700 });
   await git(repo, "init", "-q");
-  await writeFile(path.join(repo, "solver.mjs"), originalSource);
-  await chmod(path.join(repo, "solver.mjs"), 0o644);
+  const frozenSources = sourceFiles ?? { "solver.mjs": originalSource };
+  const sourcePaths = Object.keys(frozenSources).sort();
+  for (const relative of sourcePaths) {
+    const filename = path.join(repo, relative);
+    await mkdir(path.dirname(filename), { recursive: true });
+    await writeFile(filename, frozenSources[relative], { flag: "wx" });
+    await chmod(filename, 0o644);
+  }
   await mkdir(path.join(repo, "private"));
   await writeFile(
     path.join(repo, "private", "expected.txt"),
     "PRIVATE_EXPECTED_CANARY_64e8",
   );
-  await git(repo, "add", "solver.mjs");
+  await git(repo, "add", ...sourcePaths);
   await git(
     repo,
     "-c",
@@ -101,7 +114,7 @@ async function setup(
       maxDepth: 4,
     },
   });
-  if (publishedSource !== originalSource) {
+  if (sourceFiles === null && publishedSource !== originalSource) {
     await writeFile(path.join(repo, "solver.mjs"), publishedSource);
     await chmod(path.join(repo, "solver.mjs"), 0o644);
   }
@@ -113,27 +126,33 @@ async function setup(
     runArgv: ["node", "solver.mjs"],
     cwd: ".",
     env: { LANG: "C.UTF-8" },
-    sourcePaths: ["solver.mjs"],
+    sourcePaths,
     buildTimeoutMs: 5000,
     runTimeoutMs: 5000,
+    ...recipeOptions,
   };
-  const oracleRef = await artifacts.put(repositoryOracleBytes(recipe, cases));
+  const oracleRef = await artifacts.put(
+    repositoryOracleBytes(recipe, privateCases),
+  );
   const { plan, registry } = fixture(`repo-host-${randomUUID()}`);
   plan.tasks[0].stateFormatVersion = "repo-snapshot-v1";
-  plan.tasks[0].allowedOutputPaths = ["solver.mjs"];
+  plan.tasks[0].allowedOutputPaths = allowedPaths;
   plan.tasks[0].baselineSha256 = baselineRef.sha256;
   plan.tasks[0].oracleSha256 = oracleRef.sha256;
   for (const config of Object.values(plan.configurations))
     config.categoryStateVersions[0].stateFormatVersion = "repo-snapshot-v1";
   const packetInput = {
     root: repo,
-    policy: { ...DEFAULT_POLICY, exportPaths: ["solver.mjs"] },
+    policy: { ...DEFAULT_POLICY, exportPaths: sourcePaths },
     taskId: plan.tasks[0].taskId,
     repositoryId: plan.tasks[0].repositoryId,
     baselineSha256: baselineRef.sha256,
-    objective: "Repair the selected repository entry to double numeric input",
-    acceptance: ["The JSON-line entry returns a doubled numeric answer"],
-    selected: [{ path: "solver.mjs", kind: "source" }],
+    objective,
+    acceptance,
+    selected: sourcePaths.map((relative) => ({
+      path: relative,
+      kind: "source",
+    })),
   };
   const publicPacket = await buildSealedPublicPacket(packetInput);
   plan.tasks[0].publicPacketSha256 = publicPacket.sha256;
@@ -158,7 +177,7 @@ async function setup(
   });
   const proposal = JSON.stringify({
     summary: "Repair bounded repository behavior",
-    changes: [
+    changes: changes ?? [
       { path: "solver.mjs", before: change.before, after: change.after },
     ],
     requests: [],
@@ -376,6 +395,100 @@ test(
     await assert.rejects(
       runProtectedRepositoryOracle(state.request, { imageId, endpoint }),
       /already claimed/,
+    );
+  },
+);
+
+test(
+  "native repository host runs a frozen multi-file project check and private cases",
+  { skip: !native, timeout: 120_000 },
+  async (t) => {
+    const imageId = process.env.GRAPH_SEALED_REPOSITORY_IMAGE;
+    assert.match(imageId ?? "", /^sha256:[a-f0-9]{64}$/);
+    assert.match(
+      process.env.GRAPH_SEALED_ORACLE_DOCKER_ENDPOINT ?? "",
+      /^unix:\/\/\//,
+    );
+    const sourceFiles = {
+      "app/main.mjs":
+        'import {compute} from "../lib/calc.mjs";import {factor} from "../config.mjs";let text="";for await(const part of process.stdin)text+=part;const input=JSON.parse(text);process.stdout.write(JSON.stringify({answer:compute(input.n)*factor})+"\\n");\n',
+      "checks/smoke.test.mjs":
+        'import assert from "node:assert/strict";import test from "node:test";import {compute} from "../lib/calc.mjs";import {factor} from "../config.mjs";test("project imports load",()=>{assert.equal(typeof compute,"function");assert.equal(factor,2)});\n',
+      "config.mjs": "export const factor = 2;\n",
+      "lib/calc.mjs": "export const compute = (n) => n + 1;\n",
+    };
+    const state = await setup(t, {
+      imageId,
+      sourceFiles,
+      allowedPaths: ["lib/calc.mjs"],
+      changes: [{ path: "lib/calc.mjs", before: "n + 1", after: "n * 2" }],
+      recipeOptions: {
+        buildArgv: ["node", "--test", "checks/smoke.test.mjs"],
+        runArgv: ["node", "app/main.mjs"],
+      },
+      privateCases: [
+        { id: "first", input: { n: 3 }, expected: { answer: 12 } },
+        { id: "second", input: { n: 5 }, expected: { answer: 20 } },
+      ],
+      objective:
+        "Repair the imported calculation without changing project wiring",
+      acceptance: ["The JSON-line project entry applies the configured factor"],
+    });
+    const oracleBytes = await state.artifacts.get(state.oracleRef);
+    const oracle = JSON.parse(Buffer.from(oracleBytes).toString("utf8"));
+    assert.deepEqual(
+      oracle.recipe.sourcePaths,
+      Object.keys(sourceFiles).sort(),
+    );
+    assert.deepEqual(oracle.recipe.buildArgv, [
+      "node",
+      "--test",
+      "checks/smoke.test.mjs",
+    ]);
+    oracleBytes.fill(0);
+    const result = await runProtectedRepositoryOracle(state.request, {
+      imageId,
+      endpoint,
+    });
+    assert.equal(result.verificationRecorded, true);
+    assert.equal(result.promotionEligible, false);
+    assert.equal(Object.hasOwn(result, "status"), false);
+    const row = state.store.inspectCollection(state.plan.collectionId)
+      .assignments[0];
+    assert.equal(
+      row.oracleInvocation.kind,
+      "sealed-call-bound-repository-invocation-claim",
+    );
+    const verdictBytes = await state.artifacts.get({
+      sha256: row.oracleVerdict.verificationSha256,
+      bytes: row.oracleVerdict.verificationBytes,
+    });
+    const verdict = JSON.parse(Buffer.from(verdictBytes).toString("utf8"));
+    verdictBytes.fill(0);
+    assert.equal(verdict.status, "pass");
+    assert.equal(verdict.baselineFailed, 2);
+    assert.equal(verdict.passed, 2);
+    assert.ok(
+      verdict.caseResults.every(
+        (item) =>
+          item.baselineStatus === "completed" &&
+          item.candidateStatus === "completed",
+      ),
+    );
+    const bundleBytes = await state.artifacts.get(verdict.observationBundle);
+    const bundle = JSON.parse(Buffer.from(bundleBytes).toString("utf8"));
+    bundleBytes.fill(0);
+    assert.deepEqual(
+      bundle.records.map((record) => record.baseline.value),
+      [{ answer: 8 }, { answer: 12 }],
+    );
+    assert.deepEqual(
+      bundle.records.map((record) => record.candidate.value),
+      [{ answer: 12 }, { answer: 20 }],
+    );
+    assert.equal(
+      JSON.stringify(bundle).includes("PRIVATE_EXPECTED_CANARY"),
+      false,
     );
   },
 );
