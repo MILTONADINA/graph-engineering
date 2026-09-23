@@ -5,6 +5,7 @@ import { assertPublication, isAllowedPath } from "../policy.js";
 import { checked, command } from "../util.js";
 import { checkedGit, managedGit } from "./git.js";
 import { workspaceFingerprint } from "./workspace.js";
+import { isAwsDescriptorPath } from "../template-runtime-aws.js";
 
 export async function publishRun(
   root: string,
@@ -39,6 +40,41 @@ export async function publishRun(
   ]);
   if (currentBranch !== run.branch)
     throw new Error("Execution workspace is no longer on its run branch");
+  const publicationInventory = await managedGit(run.workspace, [
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+  ]);
+  if (publicationInventory.code !== 0)
+    throw new Error("Cannot inspect publication inventory");
+  if (
+    publicationInventory.stdout
+      .split("\0")
+      .filter(Boolean)
+      .some(isAwsDescriptorPath)
+  )
+    throw new Error(
+      "Private AWS descriptor cannot be published; remove it from the publication workspace",
+    );
+  // A deleted file can still travel in the history pushed with this branch.
+  // Ask Git for only the first reachable matching commit, not a history dump.
+  const descriptorHistory = await managedGit(run.workspace, [
+    "log",
+    "--full-history",
+    "-1",
+    "--format=%H",
+    "HEAD",
+    "--",
+    ":(glob,icase)**/deploy/ecs-express-create-service.json",
+  ]);
+  if (descriptorHistory.code !== 0)
+    throw new Error("Cannot inspect private AWS descriptor history");
+  if (descriptorHistory.stdout.trim())
+    throw new Error(
+      "Private AWS descriptor cannot be published; branch history contains it",
+    );
   let repository: string | undefined;
   if (config.policy.publication === "draft-pr") {
     if (!config.github)

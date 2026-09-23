@@ -57,6 +57,16 @@ export function isAllowedPath(
   // Conservatively protect aliases even on case-sensitive machines; projects
   // routinely move to default case-insensitive macOS/Windows filesystems.
   const segments = clean.split("/");
+  // This locally generated deployment request carries account, IAM, VPC and
+  // secret-reference ARNs. A broad exportPaths allowlist must not expose it.
+  // Keep it writable/readable for local proposals and verification.
+  if (
+    forExport &&
+    segments.length >= 2 &&
+    segments.at(-2)?.toLowerCase() === "deploy" &&
+    segments.at(-1)?.toLowerCase() === "ecs-express-create-service.json"
+  )
+    return false;
   const prefixes = segments.map((_, index) =>
     segments.slice(0, index + 1).join("/"),
   );

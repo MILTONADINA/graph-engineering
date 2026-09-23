@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-23T21:41:02.067Z",
+  "generatedAt": "2026-09-23T22:39:35.410Z",
   "templateCount": 55,
   "templates": [
     {
@@ -1259,20 +1259,34 @@
     },
     {
       "id": "devops.aws",
-      "name": "AWS Deployment (ECS / App Runner / Lambda)",
-      "version": "0.1.0",
+      "name": "AWS ECS Express Mode Descriptor",
+      "version": "1.0.0",
       "category": "devops",
       "subcategory": "aws",
-      "status": "planned",
-      "description": "Planned. Deploys the devops.docker image to an AWS compute target (ECS Fargate, App Runner, or Lambda via a container image) — not yet implemented. A future implementation should reuse devops.docker's image unmodified and add only the target-specific deploy manifest (task definition, apprunner.yaml, or Lambda container config), not a parallel Dockerfile.",
+      "status": "implemented",
+      "description": "Offline-only, reviewed CreateExpressGatewayService request JSON for an existing digest-pinned private ECR image built from devops.docker. It records explicit IAM roles, VPC IDs, container port and ARN-only secret references; generation makes no AWS call and does not create or deploy any resource.",
       "tags": [
         "devops",
         "aws",
         "docker",
-        "ci"
+        "ci",
+        "role"
       ],
-      "inputs": [],
-      "outputs": [],
+      "inputs": [
+        "serviceName",
+        "imageUri",
+        "port",
+        "executionRoleArn",
+        "infrastructureRoleArn",
+        "taskRoleArn",
+        "subnetIds",
+        "securityGroupIds",
+        "secrets",
+        "acknowledgeUnverifiedAwsPrerequisites"
+      ],
+      "outputs": [
+        "files"
+      ],
       "dependsOn": [
         {
           "id": "devops.docker",
@@ -1281,9 +1295,9 @@
       ],
       "environment": [],
       "testing": {
-        "strategy": "none",
-        "location": "",
-        "command": ""
+        "strategy": "unit",
+        "location": "packages/engine/tests/template-runtime-aws.test.ts",
+        "command": "npm test -- tests/template-runtime-aws.test.ts"
       },
       "compatibleNodes": [
         "devops.docker",
@@ -1298,7 +1312,7 @@
       "category": "devops",
       "subcategory": "deployment",
       "status": "planned",
-      "description": "Planned. A higher-level composition node analogous to api.crud — given a target (docker/serverless/vm), invokes devops.docker + devops.github-actions + a target-specific node (e.g. devops.aws, also planned) in the right order and reconciles their combined output into one deployment.schema.json. Not yet implemented; devops.docker and devops.github-actions are usable independently in the meantime.",
+      "description": "Planned. A higher-level composition node analogous to api.crud — given a target (docker/serverless/vm), invokes devops.docker + devops.github-actions + a target-specific node (e.g. the offline devops.aws ECS Express descriptor) in the right order and reconciles their combined output into one deployment.schema.json. Not yet implemented; devops.docker, devops.github-actions and devops.aws are usable independently in the meantime.",
       "tags": [
         "devops",
         "deployment",
