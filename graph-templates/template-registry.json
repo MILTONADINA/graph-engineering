@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-23T21:09:28.808Z",
+  "generatedAt": "2026-09-23T21:41:02.067Z",
   "templateCount": 55,
   "templates": [
     {
@@ -148,37 +148,75 @@
     },
     {
       "id": "api.search",
-      "name": "Full-Text / Fuzzy Search",
-      "version": "0.1.0",
+      "name": "PostgreSQL Full-Text Search",
+      "version": "1.0.0",
       "category": "api",
       "subcategory": "search",
-      "status": "planned",
-      "description": "Genuinely distinct future capability (Postgres tsvector/pg_trgm full-text or fuzzy search across one or more entities) — not implemented; not faked as a thin wrapper over api.crud's exact-match filtering, which it is not a substitute for. Planned: a search index column/migration, a query-parsing node analogous to backend.pagination, and a ranked-results response shape distinct from api.schema.json's plain route list.",
+      "status": "implemented",
+      "description": "Adds a PostgreSQL English full-text GIN expression index declaration and a bounded authMiddleware-gated ranked search endpoint for one existing reviewed Drizzle table. Query text and pagination are bound PostgreSQL parameters; no user-supplied identifier or sort expression reaches SQL. The index still requires a separately generated, reviewed and applied migration.",
       "tags": [
         "api",
         "search",
-        "crud",
+        "pg",
+        "drizzle-orm",
+        "express",
+        "vitest",
+        "supertest",
+        "auth",
         "postgres",
+        "drizzle",
         "pagination",
-        "filtering",
         "migration"
       ],
-      "inputs": [],
-      "outputs": [],
+      "inputs": [
+        "entityName",
+        "tableName",
+        "searchFields"
+      ],
+      "outputs": [
+        "files",
+        "routes",
+        "exports",
+        "searchFields",
+        "indexName",
+        "migrationRequired"
+      ],
       "dependsOn": [
         {
           "id": "database.neon-postgres.connection",
           "relationship": "requires"
+        },
+        {
+          "id": "backend.repository",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.middleware",
+          "relationship": "requires"
+        },
+        {
+          "id": "authentication.jwt",
+          "relationship": "requires"
+        },
+        {
+          "id": "database.migrations",
+          "relationship": "extends"
         }
       ],
       "environment": [],
       "testing": {
-        "strategy": "unit",
-        "location": "n/a",
-        "command": "n/a"
+        "strategy": "integration",
+        "location": "tests/{{input.entityNameCamel}}Search.test.ts",
+        "command": "npm test -- Search"
       },
       "compatibleNodes": [
-        "database.neon-postgres.connection"
+        "database.neon-postgres.connection",
+        "backend.repository",
+        "backend.middleware",
+        "authentication.jwt",
+        "documentation.api",
+        "testing.api",
+        "database.migrations"
       ],
       "path": "api/search"
     },
@@ -216,34 +254,55 @@
     },
     {
       "id": "api.webhooks",
-      "name": "Inbound Webhook Receiver",
-      "version": "0.1.0",
+      "name": "Fixed-Profile Inbound HMAC Webhook",
+      "version": "1.0.0",
       "category": "api",
       "subcategory": "webhooks",
-      "status": "planned",
-      "description": "Genuinely distinct future capability — an inbound webhook route needs signature verification (e.g. HMAC against a provider secret), raw-body parsing (before express.json() consumes the stream, which most webhook signature schemes require), and idempotency-key deduplication, none of which api.crud provides or should be stretched to provide. Planned: a provider-agnostic verifyAndParseWebhook(secret, rawBody, signatureHeader) helper plus a route scaffold, aligned with integrations.webhooks (integrations/ category, also planned).",
+      "status": "implemented",
+      "description": "Generates one bounded generic HMAC-SHA256 inbound endpoint. The signature covers a strict timestamp, delivery ID, and exact raw JSON bytes before an application-owned durable atomic inbox accepts the delivery. This profile does not claim compatibility with arbitrary third-party webhook schemes or implement the application's event processor.",
       "tags": [
         "api",
         "webhooks",
-        "crud",
+        "express",
+        "supertest",
+        "vitest",
         "webhook"
       ],
       "inputs": [],
-      "outputs": [],
+      "outputs": [
+        "files",
+        "exports",
+        "routes"
+      ],
       "dependsOn": [
         {
           "id": "project.node-express",
           "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
         }
       ],
-      "environment": [],
+      "environment": [
+        {
+          "name": "WEBHOOK_HMAC_SECRET",
+          "required": true,
+          "secret": true,
+          "description": "32 CSPRNG bytes encoded as 64 lowercase hexadecimal characters; never a default or test key.",
+          "usedBy": [
+            "api.webhooks"
+          ]
+        }
+      ],
       "testing": {
         "strategy": "unit",
-        "location": "n/a",
-        "command": "n/a"
+        "location": "tests/webhookRoutes.test.ts",
+        "command": "npm test -- webhookRoutes"
       },
       "compatibleNodes": [
-        "project.node-express"
+        "project.node-express",
+        "backend.error-handler"
       ],
       "path": "api/webhooks"
     },
