@@ -4,6 +4,7 @@
 import { canonicalJson, decodeJson } from "../schema.mjs";
 import {
   applyRepositoryProposal,
+  RepositoryProposalRejectedError,
   repositoryPath,
   repositorySha256,
 } from "./repository.mjs";
@@ -326,7 +327,9 @@ export function deriveRepositoryV2CandidateTree({
       (file) => file.bytes < 1 || file.bytes > MAX_EDITABLE_FILE_BYTES,
     )
   )
-    throw new Error("V2 candidate public editable source exceeds its bound");
+    throw new RepositoryProposalRejectedError(
+      "V2 candidate public editable source exceeds its bound",
+    );
   const changed = new Map(applied.tree.files.map((file) => [file.path, file]));
   const tree = {
     kind: "sealed-repository-execution-tree",
@@ -337,6 +340,19 @@ export function deriveRepositoryV2CandidateTree({
       return { ...entry, bytes: file.bytes, sha256: file.sha256 };
     }),
   };
+  if (
+    tree.entries.reduce(
+      (total, entry) => total + (entry.type === "file" ? entry.bytes : 0),
+      0,
+    ) > MAX_TOTAL_BYTES
+  )
+    throw new RepositoryProposalRejectedError(
+      "V2 candidate execution tree exceeds its total byte bound",
+    );
+  if (Buffer.byteLength(canonicalJson(tree), "utf8") > MAX_MANIFEST_BYTES)
+    throw new RepositoryProposalRejectedError(
+      "V2 candidate execution manifest exceeds its byte bound",
+    );
   const manifestBytes = repositoryV2TreeBytes(tree.entries);
   const changedFiles = applied.files.filter(
     (file, index) => file.source !== source[index].source,

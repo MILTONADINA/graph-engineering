@@ -340,6 +340,20 @@ This API neither authenticates the source/Docker/provider provenance nor
 accepts arbitrary secret-bearing repository mounts. Its native fake-loopback
 test is not a live Qwen measurement or held-out engineering evidence.
 
+For an operator-reviewed **v2 declared safe execution tree**, use the opt-in
+`runOneShotLocalRepositoryV2Attempt()` entry point in
+`local-repository-v2-attempt.mjs`. Retain the bridge handle with
+`executionScopeReference`, and pass that exact reference alongside the v1
+inputs. Before reserving an assignment, the runner rechecks the whole
+snapshot inventory, scope, editable public source, private recipe, and pinned
+image, and heuristically screens retained runtime bytes for recognizable
+secrets. Its one local-model call can only edit declared public source; the
+private oracle stages runtime-only binary/empty files from the retained
+snapshot. Publicly non-executable proposals settle without a private test;
+uncertain storage, transport, or oracle execution still needs fenced recovery.
+This does **not** authenticate the operator's safe-scope declaration or grant
+held-out/promotion authority.
+
 The [private digest-oracle boundary](oracle-runtime/README.md) re-reads the
 frozen public packet and one settled local model response, verifies the exact
 request hash, and derives the proposal with the same strict parser as the

@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { canonicalJson } from "../schema.mjs";
+import { RepositoryProposalRejectedError } from "./repository.mjs";
 import {
   assertRepositoryV2RecipeScope,
   deriveRepositoryV2CandidateTree,
@@ -323,6 +324,17 @@ test("v2 candidate derives the complete tree from retained public text, never ru
       }),
     /exactly once/,
   );
+  assert.throws(
+    () =>
+      deriveRepositoryV2CandidateTree({
+        scope,
+        baselineTree,
+        publicFiles,
+        proposalBytes: proposal("input.n+offset", "x".repeat(100_000)),
+        allowedOutputPaths: ["src/solver.mjs"],
+      }),
+    RepositoryProposalRejectedError,
+  );
   assert.throws(() =>
     deriveRepositoryV2CandidateTree({
       scope,
@@ -387,6 +399,49 @@ test("v2 candidate derives the complete tree from retained public text, never ru
           }),
         /runtime-only file entered the public packet/,
       );
+});
+
+test("v2 candidate growth beyond a saturated declared tree is a public proposal rejection", () => {
+  const runtimeFiles = Array.from({ length: 8 }, (_, index) => ({
+    path: `runtime/data/part${index}.bin`,
+    type: "file",
+    mode: 0o644,
+    bytes: index === 7 ? 32_000_000 - sourceBytes.length : 32_000_000,
+    sha256: "c".repeat(64),
+    class: "operator-declared-runtime",
+  }));
+  const saturatedScope = {
+    ...scope,
+    entries: [
+      { path: "runtime", type: "directory", mode: 0o755 },
+      { path: "runtime/data", type: "directory", mode: 0o755 },
+      ...runtimeFiles,
+      { path: "src", type: "directory", mode: 0o755 },
+      scope.entries.at(-1),
+    ],
+  };
+  const saturatedTree = {
+    ...baselineTree,
+    entries: saturatedScope.entries.map(({ class: _class, ...entry }) => entry),
+  };
+  assert.equal(
+    saturatedTree.entries.reduce(
+      (total, entry) => total + (entry.type === "file" ? entry.bytes : 0),
+      0,
+    ),
+    256_000_000,
+  );
+  assert.throws(
+    () =>
+      deriveRepositoryV2CandidateTree({
+        scope: saturatedScope,
+        baselineTree: saturatedTree,
+        publicFiles,
+        proposalBytes: proposal("input.n+offset", "input.n+offset+1"),
+        allowedOutputPaths: ["src/solver.mjs"],
+      }),
+    RepositoryProposalRejectedError,
+  );
 });
 
 test("v2 observation is bound to challenge, arm, manifest, recipe and input", () => {
