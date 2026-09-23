@@ -59,7 +59,7 @@ jobs:
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
           docker build -f evaluation/guest-runtime/Dockerfile -t graph-evaluation-guest:local evaluation/guest-runtime
-          node --test evaluation/guest-runtime/integration.test.mjs evaluation/guest-runtime/cloud-graph.test.mjs evaluation/isolated-candidate.test.mjs
+          node --test --test-concurrency=1 evaluation/guest-runtime/integration.test.mjs evaluation/guest-runtime/cloud-graph.test.mjs evaluation/isolated-candidate.test.mjs
         env:
           GRAPH_ENGINE_GUEST_RUNTIME_TESTS: "1"
           GRAPH_ENGINE_GUEST_HISTORY_TESTS: "1"
