@@ -80,9 +80,12 @@ Item 13 still contains buildable work, not only requests for partner labels:
   Publicly non-executable model proposals settle without private-oracle claims;
   transport or oracle uncertainty still requires explicit fenced recovery.
   Neither version authenticates Docker or source provenance or safely mounts
-  arbitrary secret-bearing repositories. A separate current-witness comparison
-  rejects stale or changed checkpoints around aggregate inspection;
-  it cannot authenticate a caller-provided reader. The vault, image, manifest
+  arbitrary secret-bearing repositories. A versioned current-witness comparison
+  rejects stale or changed checkpoints around aggregate inspection; its v2
+  contract also binds the declared source inventory, signed population bundle,
+  selector/auditor trust and an earlier population revision to the first
+  attempt-reservation event, without authenticating the external reader or
+  claimed chronology. The vault, image, manifest
   pin and trust remain operator-selected. A private analysis-only readiness
   join now reruns the signed declared-v2 selection, row review, preflight,
   original-byte aggregate and optional current-witness comparison from their

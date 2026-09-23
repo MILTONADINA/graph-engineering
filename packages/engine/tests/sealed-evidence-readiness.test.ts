@@ -192,7 +192,7 @@ async function scenario() {
   }) => {
     const issuedAt = Date.now();
     return {
-      version: "1.0.0",
+      version: "2.0.0",
       kind: "sealed-governance-current-checkpoint",
       ...query,
       issuedAt: new Date(issuedAt).toISOString(),
@@ -203,6 +203,18 @@ async function scenario() {
         planSha256: inspection.planSha256,
         registrySha256: hashJson(inspection.registry),
         firstEventSha256: inspection.events[0]!.sha256,
+      },
+      population: {
+        revision: 2,
+        sourceInventorySha256: hashJson(sourceInventory),
+        signedManifestSha256: hashJson(populationInput.bundle),
+        populationTrustSha256: hashJson(trust),
+      },
+      firstAttempt: {
+        revision: 3,
+        eventSha256: inspection.events.find(
+          (entry) => entry.event.type === "attempt-reserved",
+        )!.sha256,
       },
       head: {
         revision: 9,
@@ -219,6 +231,10 @@ async function scenario() {
   };
   return { request, checkpoint, identityBlobs, replaceSourceBytes };
 }
+
+type ReadinessCheckpoint = ReturnType<
+  Awaited<ReturnType<typeof scenario>>["checkpoint"]
+>;
 
 type IdentityChunkQuery = {
   role: string;
@@ -529,6 +545,7 @@ it("compares two fresh caller-supplied checkpoints but still withholds authority
   );
   expect(receipt).toMatchObject({
     witnessCompared: true,
+    populationPrecommitCompared: true,
     promotionEligible: false,
     authorityStatus: "sealed-evidence-readiness-only",
   });
@@ -569,6 +586,7 @@ it("brackets detached identity-byte reads with both witness checkpoints", async 
   );
   expect(receipt).toMatchObject({
     witnessCompared: true,
+    populationPrecommitCompared: true,
     identityBytesCompared: true,
     promotionEligible: false,
   });
@@ -631,6 +649,45 @@ it("rejects offline, stale, forked and changing witness checkpoints", async () =
     }),
   ).rejects.toThrow(/changed during aggregate inspection/);
   expect(reads).toBe(2);
+});
+
+it("requires a matching declared population precommit before the private audit", async () => {
+  for (const change of [
+    (current: ReadinessCheckpoint) => {
+      current.population.sourceInventorySha256 = "a".repeat(64);
+    },
+    (current: ReadinessCheckpoint) => {
+      current.population.signedManifestSha256 = "b".repeat(64);
+    },
+    (current: ReadinessCheckpoint) => {
+      current.population.populationTrustSha256 = "c".repeat(64);
+    },
+    (current: ReadinessCheckpoint) => {
+      current.firstAttempt.eventSha256 = "d".repeat(64);
+    },
+    (current: ReadinessCheckpoint) => {
+      current.population.revision = current.firstAttempt.revision;
+    },
+    (current: ReadinessCheckpoint) => {
+      current.version = "1.0.0";
+    },
+  ]) {
+    const { request, checkpoint } = await scenario();
+    await expect(
+      inspectSealedEvidenceReadiness({
+        ...request,
+        witness: {
+          witnessId: "test-witness",
+          readCurrent: async (query) => {
+            const current = checkpoint(query);
+            change(current);
+            return current;
+          },
+        },
+      }),
+    ).rejects.toThrow();
+    expect(request.aggregate.reader).not.toHaveBeenCalled();
+  }
 });
 
 it("compares every detached identity-only byte role but never grants promotion", async () => {

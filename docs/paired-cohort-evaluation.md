@@ -89,7 +89,13 @@ original declared-v2 population manifest and a closed, vault-backed aggregate.
 It reruns the signed selection, full-cohort preflight, held-out row-review and
 original-byte aggregate inspectors from their supplied originals; an optional
 current-witness callback brackets the aggregate and any optional identity-byte
-audit. It rejects changed
+audit. With a witness, readiness requires a version 2 checkpoint that also
+compares the declared source-inventory digest, signed population bundle and
+selector/auditor trust with a population revision before the ledger's first
+attempt-reservation event. The frozen plan digest already commits the selection
+seed. This is a comparison contract for a future independent witness, not proof
+that its callback was authenticated or that those records were anchored before
+the real run. It rejects changed
 registration, plan, registry, assignments, task order, signer-key reuse across
 registries, target identity, signatures, or original-byte pins. A successful
 receipt lists remaining blockers and always has `promotionEligible: false`.

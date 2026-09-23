@@ -339,6 +339,11 @@ export async function inspectSealedEvidenceReadiness(
         aggregatePayload: aggregate.bundle.payload,
         rowTrust: aggregate.rowTrust,
         aggregateTrust: aggregate.aggregateTrust,
+        population: {
+          sourceInventorySha256: selection.sourceInventorySha256,
+          signedManifestSha256: selection.signedManifestSha256,
+          populationTrustSha256: selection.trustSha256,
+        },
       },
       witness.witnessId,
       witness.readCurrent as CurrentSealedWitnessReader,
@@ -505,6 +510,8 @@ export async function inspectSealedEvidenceReadiness(
     assignmentCount: originalAggregate.assignmentCount,
     joinedIdentitiesVerified: true as const,
     witnessCompared: governance !== undefined,
+    populationPrecommitCompared:
+      governance?.populationPrecommitCompared ?? false,
     witnessAuthenticationVerified: false as const,
     identityBytesCompared: identityBytes !== undefined,
     identityByteManifestSha256: identityBytes?.manifestSha256 ?? null,
