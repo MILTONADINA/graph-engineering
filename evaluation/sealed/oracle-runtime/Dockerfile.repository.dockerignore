@@ -1,0 +1,5 @@
+**
+!evaluation/
+!evaluation/sealed/
+!evaluation/sealed/oracle-runtime/
+!evaluation/sealed/oracle-runtime/repository-executor.mjs
