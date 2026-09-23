@@ -1,5 +1,6 @@
 import { z } from "zod";
 import ts from "typescript";
+import { hash } from "./util.js";
 import type {
   AuditedTemplateExtension,
   TemplateArtifact,
@@ -114,6 +115,10 @@ const apiTest = `import {expect,it} from 'vitest';\nimport {apiUrl} from '../lib
 const formTest = `import {expect,it} from 'vitest';\nimport {act,renderHook} from '@testing-library/react';\nimport {useFormState} from '../lib/forms/useFormState';\nit('updates named form fields',()=>{const {result}=renderHook(()=>useFormState({name:''}));act(()=>result.current.setValue('name','Ada'));expect(result.current.values.name).toBe('Ada');});\n`;
 const tableTest = `import {expect,it} from 'vitest';\nimport {render,screen} from '@testing-library/react';\nimport {DataTable} from '../components/DataTable';\nimport type {UseQueryTableResult} from '../lib/tables/useQueryTable';\nit('renders cell content as text, never HTML',()=>{const table:UseQueryTableResult<{name:string}>={rows:[{name:'<img src=x onerror=alert(1)>'}],meta:null,page:1,setPage:()=>{},sortBy:undefined,sortDir:'asc',setSort:()=>{},filters:{},setFilter:()=>{},isLoading:false,error:null,refetch:()=>{}};const {container}=render(<DataTable table={table} columns={[{key:'name',label:'Name'}]} getRowId={()=>'row'}/>);expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeInTheDocument();expect(container.querySelector('img')).toBeNull();});\n`;
 const authTest = `import {expect,it} from 'vitest';\nimport {renderHook} from '@testing-library/react';\nimport {useAuth} from '../lib/auth/AuthContext';\nit('requires an explicit authentication provider',()=>{expect(()=>renderHook(()=>useAuth())).toThrow('AuthProvider');});\n`;
+const dashboardAssetHashes = {
+  source: "fafd16b9fae378fd69d77b390a9a36af7d94f19ccb33e5ace4fe0f70c1fa4dce",
+  test: "f7f3dcdd66f6a14afc6949db96970aa13aaf1b88eb388192dfddcf3b53a73c57",
+};
 async function packages(context: TemplateRenderContext) {
   const parsed = JSON.parse(await context.readTarget("package.json")) as {
     dependencies?: Record<string, string>;
@@ -425,6 +430,65 @@ export const frontendTemplates: Record<string, AuditedTemplateExtension> = {
         {
           exports: ["AuthProvider", "useAuth"],
           routes: ["/login", "/register"],
+        },
+      );
+    },
+  },
+  "frontend.dashboards": {
+    directory: "frontend/dashboards",
+    creates: [
+      { path: "components/Dashboard.tsx", source: "files/Dashboard.tsx" },
+    ],
+    packages: ["react", "vitest"],
+    prerequisites: {
+      "lib/auth/AuthContext.tsx": ["useAuth", "AuthUser"],
+      "lib/forms/useFormState.ts": ["useFormState"],
+      "lib/tables/useQueryTable.ts": ["useQueryTable"],
+      "components/DataTable.tsx": ["DataTable", "Column"],
+    },
+    async render(context) {
+      await client(context);
+      for (const [relative, expected] of [
+        ["lib/auth/AuthContext.tsx", authSource],
+        ["lib/forms/useFormState.ts", formSource],
+        ["components/DataTable.tsx", dataTableSource],
+      ] as const)
+        if ((await context.readTarget(relative)) !== expected)
+          throw new Error(
+            `Edited dashboard dependency ${relative} requires explicit reconciliation`,
+          );
+      const table = await context.readTarget("lib/tables/useQueryTable.ts");
+      const pageSize = table.match(
+        /initialPageSize=([1-9][0-9]{0,2})\):UseQueryTableResult<T>/,
+      )?.[1];
+      if (
+        !pageSize ||
+        Number(pageSize) > 100 ||
+        table !== tableSource(Number(pageSize))
+      )
+        throw new Error(
+          "Edited dashboard table hook requires explicit reconciliation",
+        );
+      const source = await context.readAsset("files/Dashboard.tsx");
+      const test = await context.readAsset("tests/Dashboard.test.tsx");
+      if (
+        hash(source) !== dashboardAssetHashes.source ||
+        hash(test) !== dashboardAssetHashes.test
+      )
+        throw new Error("Reviewed dashboard source or test asset changed");
+      return result(
+        [
+          artifact("components/Dashboard.tsx", source),
+          artifact("tests/Dashboard.test.tsx", test, "test"),
+        ],
+        {
+          exports: [
+            "Dashboard",
+            "DashboardNavItem",
+            "DashboardStat",
+            "DashboardTable",
+            "DashboardProps",
+          ],
         },
       );
     },

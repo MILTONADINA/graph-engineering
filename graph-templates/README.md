@@ -31,7 +31,7 @@ graph-templates/
 ├── authentication/     jwt·password  (+ planned: session, oauth)
 ├── authorization/      rbac·tenant-isolation  (+ planned: permissions, roles)
 ├── api/                 crud  (+ planned: search, webhooks — pagination/filtering/sorting live inside crud + backend/pagination)
-├── frontend/            nextjs·authentication·forms·tables (+ planned: dashboards, react) — no reference-app precedent, built from scratch to compose with the backend nodes' conventions
+├── frontend/            nextjs·authentication·forms·tables·dashboards (+ planned: react) — no reference-app precedent, built from scratch to compose with the backend nodes' conventions
 ├── testing/            unit·integration·api·fixtures·mocks
 ├── devops/             docker·github-actions·environments  (+ planned: aws, deployment)
 ├── documentation/      api·architecture·setup·agent-context
