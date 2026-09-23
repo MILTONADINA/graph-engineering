@@ -22,6 +22,13 @@ const packageRoots = [
   "packages/dashboard",
   "graph-templates/tools/validate-graph",
 ];
+const reservedVerifierStatuses = new Set([78, 125, 126, 127]);
+
+/** Reserve infrastructure statuses for this wrapper and Docker itself. */
+export function childCheckExitCode(status) {
+  if (!Number.isInteger(status) || status < 0 || status > 255) return 1;
+  return reservedVerifierStatuses.has(status) ? 1 : status;
+}
 
 /** Avoid Node 24's native recursive cp path on non-root Docker bind mounts. */
 export function copyDependencyTree(source, destination) {
@@ -119,7 +126,9 @@ export function runVerification(
       return;
     }
     if (result.status !== 0) {
-      process.exitCode = result.status ?? 1;
+      // npm and its tests may print the setup marker or choose a reserved
+      // status themselves. Neither is trusted verifier/Docker provenance.
+      process.exitCode = childCheckExitCode(result.status);
       return;
     }
   }
