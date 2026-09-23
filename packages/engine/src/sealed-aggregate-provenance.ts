@@ -119,6 +119,7 @@ const payloadSchema = z
     collectedAt: timestamp,
   })
   .strict();
+export const sealedAggregatePayloadSchema = payloadSchema;
 const signatureSchema = z
   .object({
     keyId: id,
@@ -1021,7 +1022,7 @@ async function auditManifestOriginalBytes(
   };
 }
 
-function identityOnlyInventory(
+export function identityOnlyInventory(
   inspection: CohortInspection,
   labels: z.infer<typeof cohortLabelSchema>[],
 ) {
