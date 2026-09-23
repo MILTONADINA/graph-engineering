@@ -276,6 +276,30 @@ test("vault wrapper detects a blob changed after the compiled reader finished", 
   assert.equal(reads, finalRead);
 });
 
+test("vault wrapper detects a changed inspection during the final byte audit", async (t) => {
+  const {
+    verificationNowMs,
+    artifactsDirectory: _directory,
+    ...request
+  } = await signedVault(t);
+  const inspect = request.store.inspectCollection.bind(request.store);
+  let inspectionCalls = 0;
+  request.store.inspectCollection = (collectionId) => {
+    const inspection = inspect(collectionId);
+    if (++inspectionCalls < 4) return inspection;
+    const changed = structuredClone(inspection);
+    changed.plan.population = "Changed during the final byte audit";
+    return changed;
+  };
+  await assert.rejects(
+    inspectVaultSealedAggregateProvenance(request, {
+      nowMs: verificationNowMs,
+    }),
+    /Closed collection changed during final original-byte audit/,
+  );
+  assert.equal(inspectionCalls, 5);
+});
+
 test("vault wrapper audits >2 MB of real originals before compiled-engine validation", async (t) => {
   const { request } = await completeVault(t);
   const audit = await auditOriginalBytes(request);

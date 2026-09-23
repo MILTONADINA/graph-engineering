@@ -131,5 +131,14 @@ export async function inspectVaultSealedAggregateProvenance(
     receipt.artifactSourceAuthenticated !== false
   )
     throw new Error("Vault aggregate audit or authority boundary changed");
+  const final = snapshot(store, collectionId);
+  if (
+    final.inspectionSha256 !== before.inspectionSha256 ||
+    final.closureSha256 !== before.closureSha256 ||
+    final.eventHeadSha256 !== before.eventHeadSha256
+  )
+    throw new Error(
+      "Closed collection changed during final original-byte audit",
+    );
   return receipt;
 }
