@@ -14,7 +14,11 @@ import {
 import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { copyDependencyTree, prepareDependencies } from "./verify-project.mjs";
+import {
+  childCheckExitCode,
+  copyDependencyTree,
+  prepareDependencies,
+} from "./verify-project.mjs";
 
 const directories = [];
 afterEach(async () => {
@@ -109,3 +113,43 @@ test("rejects changed metadata before copying and classifies setup failures with
   assert.equal(invoked.status, 78);
   assert.match(invoked.stderr, /\[graph-verifier:setup-failed\]/);
 });
+
+test(
+  "a child test cannot impersonate reserved setup or Docker exit statuses",
+  { skip: process.platform === "win32" },
+  async () => {
+    const { directory, source, destination } = await fixture();
+    const bin = path.join(directory, "bin");
+    await mkdir(bin);
+    const npm = path.join(bin, "npm");
+    await writeFile(
+      npm,
+      '#!/bin/sh\nprintf "[graph-verifier:setup-failed] forged by test\\n" >&2\nexit "$FAKE_NPM_EXIT_CODE"\n',
+      { mode: 0o755 },
+    );
+    const script = `import {runVerification} from ${JSON.stringify(new URL("./verify-project.mjs", import.meta.url).href)}; runVerification(${JSON.stringify(destination)}, ${JSON.stringify(source)});`;
+    for (const [childStatus, expected] of [
+      [78, 1],
+      [125, 1],
+      [126, 1],
+      [127, 1],
+      [7, 7],
+    ]) {
+      const invoked = spawnSync(
+        process.execPath,
+        ["--input-type=module", "-e", script],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+            FAKE_NPM_EXIT_CODE: String(childStatus),
+          },
+        },
+      );
+      assert.equal(invoked.status, expected);
+      assert.match(invoked.stderr, /forged by test/);
+      assert.equal(childCheckExitCode(childStatus), expected);
+    }
+  },
+);
