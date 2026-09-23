@@ -13,6 +13,7 @@ import {
   exposureRegistrySchema,
   freezeJson,
   hashJson,
+  oracleInvocationClaimSchema,
   publicDispatchClaimSchema,
   reservationSchema,
   validateCollectionPlan,
@@ -30,6 +31,7 @@ export const cohortInspectionSchema = z
             assignment: assignmentSchema,
             reservation: reservationSchema.nullable(),
             publicDispatch: publicDispatchClaimSchema.nullable().optional(),
+            oracleInvocation: oracleInvocationClaimSchema.nullable().optional(),
             receipt: attemptReceiptSchema.nullable(),
             calls: z
               .array(
@@ -135,14 +137,22 @@ export function validateFullCohortLedger(
     callIds = new Set<string>(),
     recordIds = new Set<string>();
   for (const item of inspection.assignments) {
-    const { assignment, reservation, publicDispatch, receipt, calls } = item;
+    const {
+      assignment,
+      reservation,
+      publicDispatch,
+      oracleInvocation,
+      receipt,
+      calls,
+    } = item;
     const task = plan.tasks.find((task) => task.taskId === assignment.taskId)!;
     const config = plan.configurations[assignment.arm];
     if (!reservation) {
       require(publicDispatch == null &&
+        oracleInvocation == null &&
         receipt === null &&
         calls.length ===
-          0, "unreserved assignment contains dispatch, receipts or calls");
+          0, "unreserved assignment contains dispatch, oracle, receipts or calls");
       continue;
     }
     require(!reservationIds.has(
@@ -176,6 +186,7 @@ export function validateFullCohortLedger(
       reservation.reservedAt,
       registered,
     );
+    let publicDispatchEvent: string | undefined;
     if (publicDispatch) {
       require(same(publicDispatch, {
         version: "1.0.0",
@@ -195,11 +206,48 @@ export function validateFullCohortLedger(
         time(publicDispatch.claimedAt) < time(plan.expiresAt) &&
         time(publicDispatch.claimedAt) - time(reservation.reservedAt) <
           config.maxDurationMs, "public dispatch outside frozen attempt deadline");
-      add(
+      publicDispatchEvent = add(
         "public-dispatch-claimed",
         publicDispatch,
         publicDispatch.claimedAt,
         attemptEvent,
+      );
+    }
+    if (oracleInvocation) {
+      require(publicDispatch, "oracle invocation lacks public dispatch");
+      require(same(oracleInvocation, {
+        version: "1.0.0",
+        kind: "sealed-oracle-invocation-claim",
+        reservationId: reservation.reservationId,
+        reservationSha256: hashJson(reservation),
+        collectionId: plan.collectionId,
+        assignmentId: assignment.assignmentId,
+        taskId: task.taskId,
+        taskSha256: hashJson(task),
+        planSha256,
+        publicDispatchSha256: hashJson(publicDispatch),
+        oracleSha256: task.oracleSha256,
+        proposalSha256: oracleInvocation.proposalSha256,
+        imageId: oracleInvocation.imageId,
+        claimedAt: oracleInvocation.claimedAt,
+      }), "oracle invocation differs from frozen attempt");
+      require(![
+        task.oracleSha256,
+        task.publicPacketSha256,
+        task.referenceRepairSha256,
+      ].includes(
+        oracleInvocation.proposalSha256,
+      ), "oracle role used as proposal");
+      require(time(oracleInvocation.claimedAt) >=
+        time(publicDispatch!.claimedAt) &&
+        time(oracleInvocation.claimedAt) < time(plan.expiresAt) &&
+        time(oracleInvocation.claimedAt) - time(reservation.reservedAt) <
+          config.maxDurationMs, "oracle invocation outside frozen attempt deadline");
+      add(
+        "oracle-invocation-claimed",
+        oracleInvocation,
+        oracleInvocation.claimedAt,
+        publicDispatchEvent,
       );
     }
     require(calls.length <=
@@ -283,6 +331,11 @@ export function validateFullCohortLedger(
     require(receipt.publicRequestSha256 === null ||
       receipt.publicRequestSha256 ===
         task.publicPacketSha256, "public packet differs from commitment");
+    if (oracleInvocation)
+      require(time(oracleInvocation.claimedAt) <= time(receipt.finishedAt) &&
+        (receipt.status !== "completed" ||
+          receipt.proposalSha256 ===
+            oracleInvocation.proposalSha256), "attempt settlement conflicts with oracle invocation");
     require(receipt.status !== "completed" ||
       (calls.length &&
         receipt.publicRequestSha256 &&
@@ -442,6 +495,13 @@ export function validateFullCohortLedger(
             `attempt-settled:${hashJson(item.receipt)}`,
           )!, "public dispatch claim follows attempt settlement");
     }
+    if (item.oracleInvocation && item.receipt)
+      require(positions.get(
+        `oracle-invocation-claimed:${hashJson(item.oracleInvocation)}`,
+      )! <
+        positions.get(
+          `attempt-settled:${hashJson(item.receipt)}`,
+        )!, "oracle invocation follows attempt settlement");
     for (const [callIndex, call] of item.calls.entries()) {
       const position = positions.get(
         `call-reserved:${hashJson(call.reservation)}`,

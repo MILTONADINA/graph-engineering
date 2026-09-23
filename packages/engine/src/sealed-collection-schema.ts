@@ -667,6 +667,24 @@ export const publicDispatchClaimSchema = z
     claimedAt: timestamp,
   })
   .strict();
+export const oracleInvocationClaimSchema = z
+  .object({
+    version,
+    kind: z.literal("sealed-oracle-invocation-claim"),
+    reservationId: id,
+    reservationSha256: digestSchema,
+    collectionId: id,
+    assignmentId: id,
+    taskId: id,
+    taskSha256: digestSchema,
+    planSha256: digestSchema,
+    publicDispatchSha256: digestSchema,
+    oracleSha256: digestSchema,
+    proposalSha256: digestSchema,
+    imageId: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    claimedAt: timestamp,
+  })
+  .strict();
 export const callReservationSchema = z
   .object({
     version,
@@ -755,6 +773,7 @@ export const eventSchema = z
       "registered",
       "attempt-reserved",
       "public-dispatch-claimed",
+      "oracle-invocation-claimed",
       "call-reserved",
       "call-settled",
       "attempt-settled",
