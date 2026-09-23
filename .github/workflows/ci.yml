@@ -237,3 +237,26 @@ jobs:
           node --test evaluation/candidate-verifier-infrastructure.test.mjs evaluation/candidate-verifier-setup.test.mjs evaluation/verify-verifier-infrastructure.test.mjs
         env:
           GRAPH_ENGINE_INFRASTRUCTURE_GUEST_TESTS: "1"
+
+  sealed-public-intake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Public-only one-shot Docker intake
+        run: |
+          docker pull node:24-bookworm-slim@sha256:2c87ef9bd3c6a3bd4b472b4bec2ce9d16354b0c574f736c476489d09f560a203
+          docker build --pull=false --network=none \
+            -f evaluation/sealed/worker-runtime/Dockerfile \
+            -t graph-sealed-public-intake:ci evaluation/sealed/worker-runtime
+          GRAPH_SEALED_PUBLIC_INTAKE_NATIVE_TESTS=1 \
+          GRAPH_SEALED_PUBLIC_INTAKE_IMAGE="$(docker image inspect --format '{{.Id}}' graph-sealed-public-intake:ci)" \
+          GRAPH_SEALED_PUBLIC_DOCKER_ENDPOINT=unix:///var/run/docker.sock \
+            node --test evaluation/sealed/tests/worker-sandbox.test.mjs
