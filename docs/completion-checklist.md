@@ -26,6 +26,14 @@ no PR reviews or merges until the implementation is ready.
 | 13  | Representative calibration and held-out evidence           | Nine pinned historical intake tasks and four additional bounded known-history replays are implemented. Sealed bookkeeping, a one-call local model relay, narrow digest, one-file QuickJS, JavaScript module-graph, selected-file repository v1, and declared-safe-tree repository v2 black-box oracles exist. Full private repository snapshot closure, original-byte audit, full-cohort accounting, signed aggregate inspection, and a non-authorizing current-witness comparison exist. The repository aggregate independently joins retained response-derived trees, guest observations, and private counters; native Docker and signed tamper fixtures pass. Native tests use fake responses and synthetic private cases; an opt-in two-arm known-synthetic run additionally reached both private oracles with real local Qwen. Neither is held-out evidence. **Not complete as evidence:** execution beyond a reviewed safe scope, authenticated source/worker/oracle provenance and external witness, independent unseen tasks/labels, and paired measured model costs/outcomes remain required. |
 | 14  | Cross-language tests and operations                        | All 60 synthetic fixtures failed before repair and passed their oracles in 120 offline containers across six languages. 10,000-file benchmark recorded. Migrations, content-aware watch, retained-evidence pruning, and real backup/staged restore validated.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
+Item 13 now also has a [local paired context diagnostic](../evaluation/README.md#opt-in-local-multi-file-context-pair):
+the existing oMLX Qwen received all 19 synthetic source files in one arm and
+three graph-selected files in the other. Both edits passed the same offline
+check; oMLX reported 2,935 versus 602 input tokens. Fixed arm order and
+post-run runner formatting/source-hash drift limit this single observation.
+It is not held-out evidence, a general token-savings claim, or a measured
+paid-cost comparison.
+
 ## Remaining implementation work
 
 Item 13 still contains buildable work, not only requests for partner labels:
