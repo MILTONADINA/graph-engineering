@@ -148,7 +148,7 @@ export async function buildSealedPublicPacket(input: SealedPublicPacketInput) {
     request.acceptance.some(containsSecret)
   )
     throw new Error(
-      "Public packet needs an absolute root and well-formed, secret-free task",
+      "Public packet needs an absolute root and well-formed task without detected secret patterns",
     );
   const canonicalRoot = await realpath(root);
   const names = request.selected.map((item) => item.path.toLowerCase());

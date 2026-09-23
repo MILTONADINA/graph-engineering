@@ -18,6 +18,7 @@ const { buildSealedPublicPacket, assertPublicPacketCommitment } =
     import.meta.url,
   );
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
+const SHA = /^[a-f0-9]{64}$/;
 
 function fields(input, expected, label) {
   if (
@@ -47,6 +48,47 @@ function identifier(value, label) {
   if (typeof value !== "string" || !ID.test(value))
     throw new Error(`Invalid ${label}`);
   return value;
+}
+
+function rejectKnownOracleLeak(packet, privateBytes, oracleSha256) {
+  const exposed = [];
+  const collect = (value) => {
+    if (typeof value === "string") exposed.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === "object")
+      Object.values(value).forEach(collect);
+  };
+  collect(packet);
+  const markers = new Set([oracleSha256]);
+  if (privateBytes.length >= 16 && privateBytes.length <= 100_000) {
+    markers.add(privateBytes.toString("hex"));
+    markers.add(privateBytes.toString("base64"));
+    markers.add(privateBytes.toString("base64url"));
+  }
+  let oracleText;
+  try {
+    oracleText = new TextDecoder("utf-8", { fatal: true }).decode(privateBytes);
+  } catch {
+    // A binary oracle still has its digest and common encodings screened.
+  }
+  if (oracleText !== undefined) {
+    const text = oracleText;
+    if (text) markers.add(text);
+    for (const match of text.matchAll(/\b[a-f0-9]{64}\b/gi)) {
+      if (markers.size > 128)
+        throw new Error("Private oracle has too many digest markers to screen");
+      const digest = match[0];
+      markers.add(digest);
+      markers.add(digest.toUpperCase());
+      markers.add(Buffer.from(digest).toString("base64"));
+      markers.add(Buffer.from(digest).toString("base64url"));
+      markers.add(Buffer.from(digest).toString("hex"));
+    }
+  }
+  for (const value of exposed)
+    for (const marker of markers)
+      if (marker && value.includes(marker))
+        throw new Error("Public packet contains private oracle material");
 }
 
 export class SealedPublicPacketBridge {
@@ -82,9 +124,9 @@ export class SealedPublicPacketBridge {
 
   /** Retain only fresh, explicitly exported source/docs matching the plan. */
   async retain(input) {
-    const { collectionId, taskId, packetInput } = fields(
+    const { collectionId, taskId, packetInput, oracleReference } = fields(
       input,
-      ["collectionId", "taskId", "packetInput"],
+      ["collectionId", "taskId", "packetInput", "oracleReference"],
       "Public packet retention",
     );
     identifier(collectionId, "collection ID");
@@ -109,7 +151,35 @@ export class SealedPublicPacketBridge {
     // through the project export policy. No artifact is written on a mismatch.
     const before = this.#openTask(collectionId, taskId);
     const prepared = await buildSealedPublicPacket(request);
+    // Reject all uncommitted candidate packets before reading private bytes:
+    // otherwise the error becomes a chosen-string oracle for their contents.
     assertPublicPacketCommitment(prepared, before.task);
+    const oracle = fields(
+      oracleReference,
+      ["sha256", "bytes"],
+      "Private oracle reference",
+    );
+    if (
+      typeof oracle.sha256 !== "string" ||
+      !SHA.test(oracle.sha256) ||
+      oracle.sha256 !== before.task.oracleSha256 ||
+      !Number.isSafeInteger(oracle.bytes) ||
+      oracle.bytes < 1 ||
+      oracle.bytes > 2_000_000
+    )
+      throw new Error("Private oracle reference differs from frozen task");
+    const returnedBytes = await this.#artifacts.get(oracle);
+    const oracleBytes = Buffer.from(returnedBytes);
+    try {
+      rejectKnownOracleLeak(
+        prepared.packet,
+        oracleBytes,
+        before.task.oracleSha256,
+      );
+    } finally {
+      oracleBytes.fill(0);
+      returnedBytes.fill(0);
+    }
     const artifact = await this.#artifacts.put(prepared.bytes);
     if (artifact.sha256 !== before.task.publicPacketSha256)
       throw new Error("Retained public bytes differ from frozen commitment");
