@@ -71,6 +71,14 @@ const aggregatePayloadSchema = z
   })
   .strict();
 
+const populationSchema = z
+  .object({
+    sourceInventorySha256: digestSchema,
+    signedManifestSha256: digestSchema,
+    populationTrustSha256: digestSchema,
+  })
+  .strict();
+
 const requestSchema = z
   .object({
     inspection: z.unknown(),
@@ -78,6 +86,7 @@ const requestSchema = z
     aggregatePayload: aggregatePayloadSchema,
     rowTrust: reviewTrustSchema,
     aggregateTrust: aggregateTrustSchema,
+    population: populationSchema.optional(),
   })
   .strict();
 
@@ -115,7 +124,7 @@ export interface CurrentSealedWitnessReader {
   ): Promise<unknown>;
 }
 
-const checkpointSchema = z
+const checkpointSchemaV1 = z
   .object({
     version: z.literal("1.0.0"),
     kind: z.literal("sealed-governance-current-checkpoint"),
@@ -152,7 +161,19 @@ const checkpointSchema = z
   })
   .strict();
 
-type Checkpoint = z.infer<typeof checkpointSchema>;
+const checkpointSchemaV2 = checkpointSchemaV1.extend({
+  version: z.literal("2.0.0"),
+  population: populationSchema.extend({ revision }).strict(),
+  firstAttempt: z
+    .object({
+      revision,
+      eventSha256: digestSchema,
+    })
+    .strict(),
+});
+
+type Checkpoint =
+  z.infer<typeof checkpointSchemaV1> | z.infer<typeof checkpointSchemaV2>;
 
 function comparable(checkpoint: Checkpoint) {
   const {
@@ -192,6 +213,11 @@ export async function inspectSealedCurrentGovernance(
   if (!closure?.complete || inspection.events.length < 2)
     throw new Error("Current governance requires a complete closed collection");
   const firstEventSha256 = inspection.events[0]!.sha256;
+  const firstAttemptEventSha256 = inspection.events.find(
+    (entry) => entry.event.type === "attempt-reserved",
+  )?.sha256;
+  if (request.population && !firstAttemptEventSha256)
+    throw new Error("Population comparison requires a first attempt event");
   const eventHeadSha256 = inspection.events.at(-1)!.sha256;
   const closureSha256 = hashJson(closure);
   const rowTrustSha256 = hashJson(request.rowTrust);
@@ -220,9 +246,10 @@ export async function inspectSealedCurrentGovernance(
       collectionId: payload.collectionId,
       challenge: randomBytes(32).toString("hex"),
     });
-    const current = checkpointSchema.parse(
-      decodeJson(await readCurrent(query)),
-    );
+    const response = decodeJson(await readCurrent(query));
+    const current = request.population
+      ? checkpointSchemaV2.parse(response)
+      : checkpointSchemaV1.parse(response);
     const nowMs = Date.now();
     const issuedAt = Date.parse(current.issuedAt);
     const expiresAt = Date.parse(current.expiresAt);
@@ -250,6 +277,23 @@ export async function inspectSealedCurrentGovernance(
     )
       throw new Error(
         "Current governance checkpoint is stale or differs from the collection",
+      );
+    if (
+      request.population &&
+      (current.version !== "2.0.0" ||
+        current.population.sourceInventorySha256 !==
+          request.population.sourceInventorySha256 ||
+        current.population.signedManifestSha256 !==
+          request.population.signedManifestSha256 ||
+        current.population.populationTrustSha256 !==
+          request.population.populationTrustSha256 ||
+        current.firstAttempt.eventSha256 !== firstAttemptEventSha256 ||
+        current.registration.revision >= current.firstAttempt.revision ||
+        current.population.revision >= current.firstAttempt.revision ||
+        current.firstAttempt.revision > current.head.revision)
+    )
+      throw new Error(
+        "Current governance population precommit or first attempt differs from the collection",
       );
     return current;
   };
@@ -280,7 +324,17 @@ export async function inspectSealedCurrentGovernance(
     rowTrustSha256,
     aggregateTrustSha256,
     aggregatePayloadSha256,
+    populationPrecommitCompared: request.population !== undefined,
+    ...(request.population
+      ? {
+          sourceInventorySha256: request.population.sourceInventorySha256,
+          signedManifestSha256: request.population.signedManifestSha256,
+          populationTrustSha256: request.population.populationTrustSha256,
+          firstAttemptEventSha256: firstAttemptEventSha256!,
+        }
+      : {}),
     witnessAuthenticationVerified: false as const,
+    populationIndependenceVerified: false as const,
     operatorApprovalVerified: false as const,
     antiRollbackVerified: false as const,
     promotionEligible: false as const,
