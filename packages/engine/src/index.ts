@@ -20,6 +20,18 @@ export {
   meetsPromotionMetrics,
 } from "./decisions.js";
 export { decideBatch } from "./decision-batch.js";
+export {
+  freezeCohortCalibration,
+  evaluateFullCohort,
+  type FrozenCohortThresholds,
+  type FullCohortEvaluation,
+  type FullCohortEvaluationInput,
+} from "./full-cohort-evaluation.js";
+export {
+  validateFullCohortLedger,
+  type CohortInspection,
+  type CohortPins,
+} from "./full-cohort-ledger.js";
 export { backupProject, restoreProject } from "./operations.js";
 export { runDag, validateDag } from "./execution/dag.js";
 export {

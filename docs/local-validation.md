@@ -4,6 +4,18 @@ These are development observations, not production calibration or a claimed
 percentage reduction in model cost. Private run databases retain detailed
 events and failures. No paid model calls were authorized or made.
 
+## Complete-cohort accounting and crash consistency
+
+The durable collection schema/store passed 21 tests, including competing Node
+processes, process death immediately after reservation, frozen assignment order,
+spend-overrun recovery, complete closure inventories and private-state checks.
+The independent full-cohort evaluator passed 36 focused tests and typechecking,
+including actual store inspection compatibility, unknown-cost/crash/null-confidence
+accounting, original-call deduplication and adversarial event/provenance edits.
+These fixtures are synthetic bookkeeping checks, not unseen tasks, independently
+signed evidence, actual model charges or a promotion approval. The protected
+collector and legitimate authority issuer remain unfinished.
+
 ## Isolated private-mount candidate replay
 
 The expanded guest suite passed 24/24 tests without skips. The mount receipt

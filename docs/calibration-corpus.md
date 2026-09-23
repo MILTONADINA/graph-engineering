@@ -326,6 +326,15 @@ with zero or invented probabilities; such observations remain raw evidence and
 cannot pass this scored-label workflow. The schema is shared with the existing
 engine `evaluation-labels` command rather than maintaining a second label format.
 
+## Account for a complete paired population
+
+The separate [paired-cohort analysis API](paired-cohort-evaluation.md) reconciles
+the complete frozen assignment/call ledger, including missing outcomes and null
+confidence, before calculating costs and failures. Its durable collection store
+enforces one-time ordered attempts and conservative call reservations. These
+are implemented bookkeeping and analysis components, not a sealed transport,
+independent review, real measurement or production promotion importer.
+
 ## Independent attestation
 
 Maintain a private, independently reviewed trust file:

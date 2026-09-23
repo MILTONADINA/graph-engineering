@@ -41,7 +41,10 @@ Item 13 still contains buildable work, not only requests for partner labels:
   their worker runs as evidence.
 - Implement separately governed sealed held-out collection/execution: frozen
   candidate configuration, protected oracle access and durable one-time run
-  records. Existing known-history tasks cannot be relabeled as unseen.
+  records. The shared strict schema, durable one-time ledger and complete-cohort
+  accounting are now implemented and tested, but protected worker/oracle transport
+  and original signed provenance are not yet connected. Existing known-history
+  tasks cannot be relabeled as unseen.
 - Connect verified independent attestations to promotion-bound imports. The
   unsigned label importer is now analysis-only and cannot authorize routing;
   `evaluate --promote` rejects without writing evidence. Original signature
@@ -49,6 +52,10 @@ Item 13 still contains buildable work, not only requests for partner labels:
   signed aggregate provenance, complete outcomes, sealed held-out receipts and
   operator-approved project/policy trust. Permanently disabling promotion would
   not complete that requested capability.
+
+The [paired-cohort accounting API](paired-cohort-evaluation.md) preserves every
+assigned task and original call independently of confidence-filtered rows;
+its unsigned analysis results cannot activate production routing.
 
 These gaps are detailed in [the calibration workflow](calibration-corpus.md).
 Completing the tooling still cannot supply independent reviewers, unseen tasks,
