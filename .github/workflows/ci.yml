@@ -88,6 +88,12 @@ jobs:
         if: runner.os == 'Windows'
         timeout-minutes: 20
         run: node create-graph-app/scripts/smoke-generated-apps.js
+        env:
+          # Hosted Windows' default TEMP may use an 8.3 alias (RUNNER~1),
+          # while Vite resolves the long path and then misses its own test file.
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TMPDIR: ${{ runner.temp }}
       - name: Historical clean-workspace build proof
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |

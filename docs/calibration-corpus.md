@@ -171,8 +171,11 @@ also runs the current `create-graph-app/scripts/smoke-generated-apps.js` on
 native Windows. That separate check generates frontend, backend and full-stack
 projects, installs each project's dependencies, and runs its build and tests.
 It is a current-scaffolder integration check, not execution of an arbitrary
-candidate or a re-run of the exact historical scripts. Its native result is
-pending the first CI run with this new step.
+candidate or a re-run of the exact historical scripts. Its first native CI
+attempt installed and built the frontend, but Vitest could not reload a test
+through the hosted runner's `RUNNER~1` temporary-path alias. The step now sets
+`TEMP`/`TMP`/`TMPDIR` to the runner's canonical temp directory; a green native
+result remains pending.
 
 The original corpus remains immutable: its readiness fields describe the pinned
 intake snapshot, while this workflow and the current executable registry
