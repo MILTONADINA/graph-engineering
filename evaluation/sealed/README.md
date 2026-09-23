@@ -80,6 +80,34 @@ or domains. The two legitimate arms within one collection remain permitted.
 Call count and conservative reserved budget limits are independent of how many
 decision questions share a call. Plan/configuration hashes bind every attempt.
 
+### Paid-call session cap
+
+Before any paid attempt, a trusted operator can register one immutable
+`sealed-spending-authorization` across its named collections with
+`registerSpendingAuthorization(auth, { expectedAuthorizationSha256,
+expectedApprovalEvidenceSha256 })`. Registration must precede all attempts in
+those collections. The separately supplied digests bind the session/project,
+exact plan hashes, provider kind/origin/model snapshot, pricing identity, time
+window and total USD cap. `inspectSpendingAuthorization(id)` returns its
+remaining _reserved_ headroom and unresolved/overrun counts.
+
+Every OpenAI, Anthropic and Jev call requires that matching authorization—even
+if its configured endpoint is loopback. Only `local` and `laya` at canonical
+loopback origins can use the local no-API-charge path. Paid providers also need
+frozen pricing, a versioned model identity and a finite positive reservation.
+Reservations use exact micro-USD units and one immediate SQLite transaction
+across all mapped collections, so simultaneous calls cannot each spend the
+same remaining headroom. Unknown or ambiguous usage retains the full
+reservation; known cost/reported/charged overruns stop subsequent dispatch.
+There is no automatic retry or budget reset.
+
+This is a **ledger gate, not approval verification or a provider billing cap**.
+The approval-evidence digest is unsigned unless an independently governed
+operator verifies its source. The store makes no model request. A provider may
+charge more than a reservation, and no software can undo that charge. Paid
+provider selection and a user-specified budget are still required before any
+real paid testing.
+
 There are no APIs to delete, reset, retry, replace or reopen a plan/attempt.
 Event rows reject updates/deletes, receipts settle once, and closures are final.
 Assignments follow their frozen ordinal sequentially; later reservations cannot
