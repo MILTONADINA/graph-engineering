@@ -156,9 +156,13 @@ export class ArtifactStore {
   async #checkDirectory() {
     const info = await lstat(this.#directory);
     privateOwned(info, true);
+    // Windows can render the same directory through different long/short-name
+    // spellings in sync and async realpath. The file identity remains the
+    // replacement guard there; Unix also requires an exact canonical path.
+    const resolved = await realpath(this.#directory);
     if (
       !sameFile(info, this.#identity) ||
-      (await realpath(this.#directory)) !== this.#directory
+      (process.platform !== "win32" && resolved !== this.#directory)
     )
       throw new Error("Artifact directory identity changed");
   }
