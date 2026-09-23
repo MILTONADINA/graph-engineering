@@ -42,7 +42,7 @@ import {
 } from "./execution/docker.js";
 import { publishRun } from "./execution/publish.js";
 import { checkedGit } from "./execution/git.js";
-import { routePlan, WORKFLOWS } from "./planning.js";
+import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
 import {
   renderTemplateProposal,
   templateRuntimeCapability,
@@ -542,10 +542,7 @@ export class GraphEngine {
         requiredChecks: run.plan.verification.map((_, i) => String(i)),
         focusedChecks: [],
         availableChecks: run.plan.verification.map((_, i) => String(i)),
-        securityReviewRequired:
-          /\b(auth|credential|security|permission|token|crypto)\b/i.test(
-            run.plan.objective,
-          ),
+        securityReviewRequired: requiresSecurityReview(run.plan.objective),
         architectureReviewRequired: /\b(architecture|migration|schema)\b/i.test(
           run.plan.objective,
         ),
