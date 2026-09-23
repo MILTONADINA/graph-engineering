@@ -12,7 +12,7 @@ Bare mode is deliberately API-key based: this adapter does not reuse subscriptio
 
 ## Codex App Server
 
-This adapter is a restricted-read worker, not a claim that the native runtime exposes zero tools. It checks the installed binary's generated protocol schema for restricted read roots before enabling execution. Ordinary read-only mode without restricted roots is rejected. Codex 0.155.1 inspected during development lacked that schema capability and is therefore reported unavailable on this machine.
+This adapter is a restricted-read worker, not a claim that the native runtime exposes zero tools. It checks the installed binary's generated protocol schema for restricted read roots before enabling execution. Ordinary read-only mode without restricted roots is rejected. Codex 0.156.0 inspected on this machine still lacks that schema capability and is therefore reported unavailable for managed proposals.
 
 For compatible binaries, the adapter disables execution, hooks, apps, plugins, agents, browser/computer access, and configured MCP servers. It verifies effective feature flags and model/effort availability before starting an ephemeral thread. The turn uses `outputSchema`, no network access for sandboxed tools, and read access limited to scratch plus native platform defaults. Approval requests are declined. The client never invokes App Server filesystem, process, shell-command, or configuration-write APIs. Nonempty instruction sources, incompatible managed settings, relaxed sandbox responses, and unexpected tool activity fail the run.
 
@@ -24,8 +24,8 @@ Cursor is reported unavailable for managed proposals. The SDK offers an empty bu
 
 All installed workers reject local-only policies and hard monetary caps. Use API workers when precise provider limits are required. Claude's output setting applies per response; Codex usage limits are observed asynchronously and can overshoot before interruption. Missing token or cost telemetry stays `null`. No paid native prompt was used to test this implementation; protocol and failure handling are tested with mocked native transports.
 
-## Local capability recheck — 2026-09-22 UTC
+## Local capability recheck — 2026-09-23 UTC
 
-Read-only version/help/schema discovery on the development Mac reported Codex `0.155.1`, Claude Code `2.1.278`, and no Cursor `agent` executable. Codex remains unavailable for managed proposals because its generated App Server schema lacks restricted `readOnly.access`/`readableRoots`. This is a capability blocker, not a completed live integration. The [current App Server documentation](https://learn.chatgpt.com/docs/app-server) explicitly distinguishes unrestricted default read access from restricted roots.
+Read-only version/help/schema discovery on the development Mac reported Codex `0.156.0`, Claude Code `2.1.280`, and no Cursor `agent` executable. Codex remains unavailable for managed proposals because its generated App Server schema lacks restricted `readOnly.access`/`readableRoots`. This is a capability blocker, not a completed live integration. The [App Server documentation](https://learn.chatgpt.com/docs/app-server) distinguishes unrestricted default read access from restricted roots.
 
 Claude satisfies the local CLI control gate, but API-key authentication and paid inference were not tested. Cursor remains unavailable pending installation and verification of the required controls. No client upgrade, credential extraction, global configuration change, or paid prompt was performed during this recheck. MCP client access is separate from managed worker availability.
