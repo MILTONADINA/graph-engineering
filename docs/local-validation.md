@@ -561,5 +561,35 @@ model endpoint was a fake loopback server, not a fresh Qwen or paid-provider
 inference call. A previous fork run for the immediately preceding stack failed
 only because a Windows test fixture attempted to remove an open SQLite file;
 that cleanup order was corrected and its subsequent Windows job passed. The
-new call-bound/aggregate changes require their own fork CI confirmation after
-push; no result from an older run certifies them.
+call-bound/aggregate checkpoint `fb2b7d1` subsequently passed all nine fork
+jobs, including Windows, both native sealed jobs and the long Linux x64 matrix
+([run 35819382189](https://github.com/MILTONADINA/graph-engineering/actions/runs/35819382189)).
+
+## Vault-backed aggregate development checkpoint — 2026-09-23 UTC
+
+A separate private wrapper now joins an actual complete closed `SealedStore`
+snapshot, pinned manifest and `ArtifactStore` originals to the compiled
+aggregate inspector. It audits before and after inspection, checks the exact
+ledger snapshot again, and reads at most one bounded original blob at a time.
+The native Node suite passed all six checks with fresh engine build and real
+local stores, including a positive two-arm, purpose-separated signed synthetic
+receipt with 14 original blobs totaling more than 2 MB. It also rejected a
+changed ledger, wrong or incomplete manifest, corrupt original, and a blob
+corrupted after the core reader returned. The engine aggregate suite passed
+14 focused tests, including call-bound reread and byte-wipe cases. The full
+workspace check passed 425 engine tests with 47 explicit opt-in skips, 59
+scaffolder tests, nine dashboard tests, all typechecks and builds. The sealed
+suite passed 94 tests with four native opt-in skips; those Docker-backed relay
+and oracle tests were exercised separately in the prior checkpoint. Formatting
+passed. This newest vault slice needs its own fork CI confirmation after push.
+
+The fixture signs only invented data with ephemeral test keys. Its positive
+receipt says `artifactSourceAuthenticated: false`, `antiRollbackVerified:
+false` and `promotionEligible: false`. The manifest/trust pins are supplied by
+the caller rather than an independently approved registry; local storage can
+be rolled back by its operator. The receipt itself contains private metadata
+(counts, sizes and digest) and is not allowed into the cloud source/docs MCP
+path. The existing sealed schema adapter requires installed `tsx` and source
+files even though the new aggregate engine module is imported from built JS.
+No live Qwen, paid provider, independent unseen task or partner signature was
+used to make this synthetic check pass.
