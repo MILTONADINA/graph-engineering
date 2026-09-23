@@ -1,6 +1,9 @@
 // Private collector-side inspection only. Signatures do not make a caller's
 // artifact bytes, signer registry, protected execution, or approval authentic.
+// Returned counts and digests are private collection metadata, not cloud/MCP
+// export material, even though no raw private oracle or verdict bytes escape.
 import { createHash, createPublicKey, verify } from "node:crypto";
+import { types } from "node:util";
 import { z } from "zod";
 import { reviewTrustSchema } from "./evaluation-attestations.js";
 import {
@@ -27,11 +30,43 @@ const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
 const artifactRole = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,400}$/);
 const actor = z.string().min(1).max(200);
 const timestamp = z.string().datetime();
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const byteLengthOf = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype,
+  "byteLength",
+)!.get!;
+const byteOffsetOf = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype,
+  "byteOffset",
+)!.get!;
+const bufferOf = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype,
+  "buffer",
+)!.get!;
 const artifactSchema = z
   .object({
     role: artifactRole,
     sha256: digestSchema,
     bytesBase64: z.string().max(2_000_000),
+  })
+  .strict();
+const originalByteManifestSchema = z
+  .object({
+    version: z.literal("1.0.0"),
+    kind: z.literal("sealed-original-byte-manifest"),
+    collectionId: id,
+    planSha256: digestSchema,
+    entries: z
+      .array(
+        z
+          .object({
+            role: artifactRole,
+            sha256: digestSchema,
+            bytes: z.number().int().min(0).max(2_000_000),
+          })
+          .strict(),
+      )
+      .max(10_000),
   })
   .strict();
 const aggregateTrustSchema = z
@@ -121,6 +156,20 @@ const inputSchema = z
       .strict(),
   })
   .strict();
+const manifestInputSchema = inputSchema.omit({ originalArtifacts: true });
+type OriginalArtifact = z.infer<typeof artifactSchema>;
+type OriginalManifest = z.infer<typeof originalByteManifestSchema>;
+type ArtifactReader = (reference: {
+  role: string;
+  sha256: string;
+  bytes: number;
+}) => Promise<Uint8Array>;
+type OriginalEvidence = {
+  manifest: OriginalManifest;
+  totalBytes: number;
+  read: (role: string) => Promise<Buffer>;
+  limitations: string[];
+};
 
 const sha256 = (bytes: Buffer) =>
   createHash("sha256").update(bytes).digest("hex");
@@ -172,7 +221,7 @@ function originalReferences(inspection: CohortInspection) {
 
 function auditOriginalBytes(
   inspection: CohortInspection,
-  artifacts: z.infer<typeof artifactSchema>[],
+  artifacts: OriginalArtifact[],
 ) {
   const expected = originalReferences(inspection);
   if (!expected.size || artifacts.length !== expected.size)
@@ -246,6 +295,111 @@ function auditOriginalBytes(
   };
 }
 
+/** The reader transfers a fresh byte array; this function wipes it on all paths. */
+async function readAndCheckOriginal(
+  reference: OriginalManifest["entries"][number],
+  reader: ArtifactReader,
+): Promise<Buffer> {
+  const supplied = await reader(reference);
+  if (
+    types.isProxy(supplied) ||
+    !types.isUint8Array(supplied) ||
+    ![Uint8Array.prototype, Buffer.prototype].includes(
+      Object.getPrototypeOf(supplied),
+    )
+  )
+    throw new Error("Original-byte reader returned an invalid byte array");
+  const length = byteLengthOf.call(supplied),
+    offset = byteOffsetOf.call(supplied),
+    buffer = bufferOf.call(supplied);
+  if (types.isSharedArrayBuffer(buffer))
+    throw new Error("Original-byte reader returned shared bytes");
+  if (length !== reference.bytes || length > 2_000_000) {
+    Uint8Array.prototype.fill.call(supplied, 0);
+    throw new Error("Original-byte reader exceeded its pinned byte bounds");
+  }
+  let bytes: Buffer | undefined;
+  try {
+    bytes = Buffer.from(new Uint8Array(buffer, offset, length));
+    if (bytes.length !== reference.bytes || sha256(bytes) !== reference.sha256)
+      throw new Error("Original-byte artifact differs from commitment");
+    return bytes;
+  } catch (error) {
+    bytes?.fill(0);
+    throw error;
+  } finally {
+    Uint8Array.prototype.fill.call(supplied, 0);
+  }
+}
+
+/** Validate all roles while retaining at most one original blob at a time. */
+async function auditManifestOriginalBytes(
+  inspection: CohortInspection,
+  manifest: OriginalManifest,
+  reader: ArtifactReader,
+): Promise<OriginalEvidence> {
+  if (
+    manifest.collectionId !== inspection.plan.collectionId ||
+    manifest.planSha256 !== inspection.planSha256
+  )
+    throw new Error("Original-byte manifest collection or plan differs");
+  const expected = [...originalReferences(inspection)].sort(
+    ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0),
+  );
+  if (!expected.length || manifest.entries.length !== expected.length)
+    throw new Error("Original-byte manifest inventory is incomplete");
+  const refs = new Map<string, OriginalManifest["entries"][number]>();
+  const distinct = new Map<string, number>();
+  let totalBytes = 0;
+  for (let index = 0; index < expected.length; index++) {
+    const [role, digest] = expected[index]!;
+    const entry = manifest.entries[index]!;
+    if (entry.role !== role || entry.sha256 !== digest)
+      throw new Error("Original-byte manifest role or digest differs");
+    const prior = distinct.get(entry.sha256);
+    if (prior !== undefined && prior !== entry.bytes)
+      throw new Error("Original-byte digest has conflicting lengths");
+    distinct.set(entry.sha256, entry.bytes);
+    refs.set(role, entry);
+    if (!Number.isSafeInteger(totalBytes + entry.bytes))
+      throw new Error("Original-byte inventory exceeds safe bounds");
+    totalBytes += entry.bytes;
+    const bytes = await readAndCheckOriginal(entry, reader);
+    bytes.fill(0);
+  }
+  for (const item of inspection.assignments) {
+    const task = inspection.plan.tasks.find(
+      (task) => task.taskId === item.assignment.taskId,
+    )!;
+    if (
+      item.publicDispatch &&
+      item.publicDispatch.publicPacketBytes !==
+        refs.get(`task/${task.taskId}/public-packet`)?.bytes
+    )
+      throw new Error("Public dispatch size differs from original packet");
+    if (
+      item.oracleVerdict &&
+      item.oracleVerdict.verificationBytes !==
+        refs.get(`oracle/v1/${item.assignment.assignmentId}/private-verdict`)
+          ?.bytes
+    )
+      throw new Error("Oracle verdict size differs from original bytes");
+  }
+  return {
+    manifest,
+    totalBytes,
+    read: async (role) => {
+      const reference = refs.get(role);
+      if (!reference) throw new Error("Uncommitted original artifact role");
+      return readAndCheckOriginal(reference, reader);
+    },
+    limitations: [
+      "Vault readers and independently selected pins are local inputs; current trust approval and external anti-rollback are unverified.",
+      "Vault-backed inspection bounds each original blob to 2 MB, not the number of cohort bytes or the collector ledger input.",
+    ],
+  };
+}
+
 function identityOnlyInventory(
   inspection: CohortInspection,
   labels: z.infer<typeof cohortLabelSchema>[],
@@ -285,7 +439,7 @@ function identityOnlyInventory(
 /** Re-derive, in the private collector, the bytes a call-bound oracle saw. */
 async function checkCallBoundOriginals(
   inspection: CohortInspection,
-  artifacts: z.infer<typeof artifactSchema>[],
+  read: OriginalEvidence["read"],
 ) {
   const [packetModule, proposalModule, requestModule] = await Promise.all([
     import(
@@ -313,9 +467,6 @@ async function checkCallBoundOriginals(
     typeof requestModule.buildLocalModelRequest !== "function"
   )
     throw new Error("Private collector proposal parser is unavailable");
-  const originals = new Map(
-    artifacts.map((artifact) => [artifact.role, artifact.bytesBase64]),
-  );
   let checked = 0;
   for (const item of inspection.assignments) {
     const claim = item.oracleInvocation;
@@ -327,32 +478,16 @@ async function checkCallBoundOriginals(
       (call) => call.reservation.callId === claim.callId,
     )!;
     const role = `oracle/v1/${item.assignment.assignmentId}`;
-    const publicBytes = Buffer.from(
-      originals.get(`task/${task.taskId}/public-packet`)!,
-      "base64",
-    );
-    const responseBytes = Buffer.from(
-      originals.get(`call/${call.reservation.callId}/response`)!,
-      "base64",
-    );
-    const requestBytes = Buffer.from(
-      originals.get(`call/${call.reservation.callId}/request`)!,
-      "base64",
-    );
-    const proposalBytes = Buffer.from(
-      originals.get(`${role}/derived-proposal`)!,
-      "base64",
-    );
-    const oracleBytes = Buffer.from(
-      originals.get(`task/${task.taskId}/private-oracle`)!,
-      "base64",
-    );
-    const verdictBytes = item.oracleVerdict
-      ? Buffer.from(originals.get(`${role}/private-verdict`)!, "base64")
-      : null;
+    let publicBytes: Buffer | undefined;
+    let responseBytes: Buffer | undefined;
+    let requestBytes: Buffer | undefined;
+    let proposalBytes: Buffer | undefined;
+    let oracleBytes: Buffer | undefined;
+    let verdictBytes: Buffer | undefined;
     let parsedProposal: Buffer | undefined;
     let expectedRequest: Buffer | undefined;
     try {
+      publicBytes = await read(`task/${task.taskId}/public-packet`);
       packetModule.inspectPublicPacket(publicBytes);
       const packet = JSON.parse(publicBytes.toString("utf8"));
       if (
@@ -373,11 +508,19 @@ async function checkCallBoundOriginals(
         call.reservation.requestedModel,
         provider.maxOutputTokens,
       );
+      publicBytes.fill(0);
+      publicBytes = undefined;
+      requestBytes = await read(`call/${call.reservation.callId}/request`);
       if (
         !Buffer.isBuffer(expectedRequest) ||
         !expectedRequest.equals(requestBytes)
       )
         throw new Error("Call-bound request differs from frozen public packet");
+      requestBytes.fill(0);
+      requestBytes = undefined;
+      expectedRequest.fill(0);
+      expectedRequest = undefined;
+      responseBytes = await read(`call/${call.reservation.callId}/response`);
       const parsed = proposalModule.parseRetainedLocalProposal(
         responseBytes,
         task,
@@ -388,6 +531,9 @@ async function checkCallBoundOriginals(
         throw new Error("Retained model response has no exact proposal bytes");
       const exactProposal: Buffer = parsed.proposalBytes;
       parsedProposal = exactProposal;
+      responseBytes.fill(0);
+      responseBytes = undefined;
+      proposalBytes = await read(`${role}/derived-proposal`);
       if (
         !exactProposal.equals(proposalBytes) ||
         sha256(exactProposal) !== claim.proposalSha256 ||
@@ -397,7 +543,13 @@ async function checkCallBoundOriginals(
         throw new Error(
           "Call-bound oracle proposal differs from retained model response",
         );
-      if (verdictBytes) {
+      proposalBytes.fill(0);
+      proposalBytes = undefined;
+      parsedProposal.fill(0);
+      parsedProposal = undefined;
+      if (item.oracleVerdict) {
+        oracleBytes = await read(`task/${task.taskId}/private-oracle`);
+        verdictBytes = await read(`${role}/private-verdict`);
         let oracle: ReturnType<typeof decodeJson>;
         let verdict: ReturnType<typeof decodeJson>;
         try {
@@ -466,11 +618,11 @@ async function checkCallBoundOriginals(
     } finally {
       parsedProposal?.fill(0);
       expectedRequest?.fill(0);
-      publicBytes.fill(0);
-      requestBytes.fill(0);
-      responseBytes.fill(0);
-      proposalBytes.fill(0);
-      oracleBytes.fill(0);
+      publicBytes?.fill(0);
+      requestBytes?.fill(0);
+      responseBytes?.fill(0);
+      proposalBytes?.fill(0);
+      oracleBytes?.fill(0);
       verdictBytes?.fill(0);
     }
   }
@@ -503,20 +655,11 @@ function assignmentOutcomeInventory(inspection: CohortInspection) {
     }));
 }
 
-/**
- * Verify original collector/reviewer signatures over a fully joined aggregate.
- * This MUST run only inside a private collector: `originalArtifacts` includes
- * private oracle bytes. Inputs/pins are caller-supplied, not an authenticated
- * vault/current-trust witness. This bounded embedded-byte API accepts at most
- * 2 MB for the entire encoded input; production cohorts need a separate
- * authenticated streaming/vault-reference path. No bytes, grant, or promotion
- * authority escape.
- */
-export async function inspectPrivateSealedAggregateProvenance(
-  input: unknown,
-  options: { nowMs?: number } = {},
+async function inspectAggregateWithOriginalEvidence(
+  value: z.infer<typeof manifestInputSchema>,
+  evidence: (inspection: CohortInspection) => Promise<OriginalEvidence>,
+  options: { nowMs?: number },
 ) {
-  const value = inputSchema.parse(decodeJson(input));
   const parsedOptions = z
     .object({ nowMs: z.number().finite().optional() })
     .strict()
@@ -570,14 +713,13 @@ export async function inspectPrivateSealedAggregateProvenance(
   if (trustSha256 !== value.aggregateTrustPin.expectedAggregateTrustSha256)
     throw new Error("Aggregate trust differs from its separate pin");
   const labels = z.array(cohortLabelSchema).max(100_000).parse(cohort.labels);
-  const { manifest, totalBytes } = auditOriginalBytes(
-    inspection,
-    value.originalArtifacts,
-  );
-  const callBoundJoinsChecked = await checkCallBoundOriginals(
-    inspection,
-    value.originalArtifacts,
-  );
+  const {
+    manifest,
+    totalBytes,
+    read,
+    limitations: sourceLimitations,
+  } = await evidence(inspection);
+  const callBoundJoinsChecked = await checkCallBoundOriginals(inspection, read);
   const rowTrust = reviewTrustSchema.parse(value.rowTrust);
   const rowBundles = z
     .array(
@@ -774,12 +916,78 @@ export async function inspectPrivateSealedAggregateProvenance(
     promotionEligible: false as const,
     authorityStatus: "signed-aggregate-inspection-only" as const,
     limitations: [
-      "Artifact bytes and trust pins are caller-supplied; no authenticated vault, current trust approval, or anti-rollback witness is established.",
+      ...sourceLimitations,
       "Configuration, model, runtime, and label-evidence digests are signed identities only; their raw bytes were not audited.",
       "Canonical JSON digests bind the ledger and evaluation values, not their original serialization bytes.",
       "Protected model/oracle execution, independent population selection, and provider billing remain unverified.",
       "The private digest-verdict nonce has no independent persisted nonce witness in this aggregate; only its canonical shape is checked.",
-      "This bounded 2 MB embedded-byte inspection is not a cohort-scale vault audit; large collections require authenticated streaming or vault references.",
     ],
   });
+}
+
+/**
+ * Verify original collector/reviewer signatures over a fully joined aggregate.
+ * This embedded-byte compatibility entry point is capped at 2 MB including all
+ * originals. It is private analysis only and never issues authority.
+ */
+export async function inspectPrivateSealedAggregateProvenance(
+  input: unknown,
+  options: { nowMs?: number } = {},
+) {
+  const value = inputSchema.parse(decodeJson(input));
+  return inspectAggregateWithOriginalEvidence(
+    value,
+    async (inspection) => {
+      const { manifest, totalBytes } = auditOriginalBytes(
+        inspection,
+        value.originalArtifacts,
+      );
+      const originals = new Map(
+        value.originalArtifacts.map((item) => [item.role, item.bytesBase64]),
+      );
+      return {
+        manifest,
+        totalBytes,
+        read: async (role) => {
+          const bytes = originals.get(role);
+          if (bytes === undefined)
+            throw new Error("Missing embedded original artifact");
+          return Buffer.from(bytes, "base64");
+        },
+        limitations: [
+          "Artifact bytes and trust pins are caller-supplied; no authenticated vault, current trust approval, or anti-rollback witness is established.",
+          "This bounded 2 MB embedded-byte inspection is not a cohort-scale vault audit.",
+        ],
+      };
+    },
+    options,
+  );
+}
+
+/**
+ * Inspect a pinned manifest through an ephemeral byte reader. The caller must
+ * supply a separately pinned manifest and a private reader; this exported
+ * analysis API cannot authenticate the reader, trust registry or population.
+ * Every returned byte array is wiped after its hash and content joins.
+ */
+export async function inspectPrivateSealedAggregateFromManifest(
+  input: unknown,
+  manifestInput: unknown,
+  expectedManifestSha256: unknown,
+  reader: ArtifactReader,
+  options: { nowMs?: number } = {},
+) {
+  const value = manifestInputSchema.parse(decodeJson(input));
+  const manifest = originalByteManifestSchema.parse(decodeJson(manifestInput));
+  if (
+    typeof reader !== "function" ||
+    !digestSchema.safeParse(expectedManifestSha256).success ||
+    hashJson(manifest) !== expectedManifestSha256
+  )
+    throw new Error("Original-byte manifest lacks its separate pin or reader");
+  return inspectAggregateWithOriginalEvidence(
+    value,
+    (inspection) => auditManifestOriginalBytes(inspection, manifest, reader),
+    options,
+  );
 }
