@@ -1,8 +1,12 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { expect, it, vi } from "vitest";
 import type { CohortInspection } from "../src/full-cohort-ledger.js";
 import { identityOnlyInventory } from "../src/sealed-aggregate-provenance.js";
 import { inspectPrivateSealedIdentityOriginalBytes } from "../src/sealed-identity-byte-audit.js";
+import { withPrivateSealedIdentityFileReader } from "../src/sealed-identity-file-reader.js";
 import { authorizesPromotion } from "../src/promotion-authority.js";
 import { inspectSealedEvidenceReadiness } from "../src/sealed-evidence-readiness.js";
 import { inspectSealedDeclaredInventorySelection } from "../src/sealed-population-manifest.js";
@@ -19,6 +23,7 @@ const sha256 = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 const sha256Bytes = (value: Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
+const unixIt = process.platform === "win32" ? it.skip : it;
 
 async function scenario() {
   const template = await declaredSelectionAggregateFixture();
@@ -730,6 +735,66 @@ it("compares every detached identity-only byte role but never grants promotion",
     }),
   ).toBe(false);
 });
+
+unixIt(
+  "joins private file-backed identity bytes through the real readiness audit",
+  async () => {
+    const value = await scenario();
+    const identityBytes = identityBytesFor(value);
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "graph-readiness-files-"),
+    );
+    await chmod(directory, 0o700);
+    try {
+      const bindings = [];
+      for (const [index, entry] of identityBytes.manifest.entries.entries()) {
+        const bytes = value.identityBlobs.get(entry.sha256)!;
+        const filename = path.join(directory, `role-${index}`);
+        await writeFile(filename, bytes, { mode: 0o600 });
+        bindings.push({ role: entry.role, path: filename });
+      }
+      const receipt = await withPrivateSealedIdentityFileReader(
+        identityBytes.manifest,
+        identityBytes.manifestSha256,
+        bindings,
+        (readChunk) =>
+          inspectSealedEvidenceReadiness({
+            ...value.request,
+            identityBytes: { ...identityBytes, readChunk },
+          }),
+      );
+      expect(receipt).toMatchObject({
+        identityBytesCompared: true,
+        identityReaderAuthenticated: false,
+        promotionEligible: false,
+      });
+      expect(JSON.stringify(receipt)).not.toContain(directory);
+      const corruptIndex = identityBytes.manifest.entries.findIndex(
+        (entry) => entry.bytes > 0,
+      );
+      expect(corruptIndex).toBeGreaterThanOrEqual(0);
+      await writeFile(
+        bindings[corruptIndex]!.path,
+        Buffer.alloc(identityBytes.manifest.entries[corruptIndex]!.bytes, 0x7f),
+        { mode: 0o600 },
+      );
+      await expect(
+        withPrivateSealedIdentityFileReader(
+          identityBytes.manifest,
+          identityBytes.manifestSha256,
+          bindings,
+          (readChunk) =>
+            inspectSealedEvidenceReadiness({
+              ...value.request,
+              identityBytes: { ...identityBytes, readChunk },
+            }),
+        ),
+      ).rejects.toThrow(/original differs from its commitment/);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it("includes exposure evidence/artifacts and a non-null pricing blob in the raw-byte inventory", async () => {
   const value = await scenario();

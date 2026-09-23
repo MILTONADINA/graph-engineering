@@ -94,7 +94,9 @@ Item 13 still contains buildable work, not only requests for partner labels:
   authority. An optional private indexed-chunk audit now checks declared raw
   SHA-256 preimages for source, exposure, configuration, local-model/runtime
   and label-evidence commitments against a separate pinned manifest; it does
-  not authenticate their origin, retention, or use by a worker.
+  not authenticate their origin, retention, or use by a worker. A private Unix
+  file adapter can stream pinned blobs larger than the small artifact vault's
+  per-file limit, but it supplies no source or execution provenance.
   Execution beyond a reviewed safe scope, authentic source/worker/oracle
   transport and an independently controlled append-only witness are still
   needed for real held-out claims. Existing known-history tasks cannot be
