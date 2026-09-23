@@ -6,27 +6,29 @@ review workflow, not completed calibration**. No expected decision labels,
 partner signatures, promotion approvals, or unseen held-out results are supplied.
 Task category, complexity, and risk are explicitly proposed classifications.
 
-| Case                                 | Proposed stratum / complexity               | Recorded repair | Current readiness                                                             |
-| ------------------------------------ | ------------------------------------------- | --------------- | ----------------------------------------------------------------------------- |
-| `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing   |
-| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing           |
-| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | Intake only                                                                   |
-| `retry-state-visibility`             | State consistency / localized               | `5703aba`       | Intake only                                                                   |
-| `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | Intake only                                                                   |
-| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier plus native Linux private-mount permission proof  |
-| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing  |
-| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance |
-| `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | Intake only                                                                   |
+| Case                                 | Proposed stratum / complexity               | Recorded repair | Current readiness                                                                                                            |
+| ------------------------------------ | ------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing                                                  |
+| `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing                                                          |
+| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | [Isolated known-history replay](../evaluation/isolated-cloud-graph-fixture-validation.json); no paired model calls           |
+| `retry-state-visibility`             | State consistency / localized               | `5703aba`       | [Pinned historical replay](../evaluation/retry-visibility-runtime/fixture-validation.json); no arbitrary-candidate isolation |
+| `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | [Isolated service/virtual-setup replay](../evaluation/infrastructure-runtime/fixture-validation.json); no held-out runs      |
+| `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier plus native Linux private-mount permission proof                                                 |
+| `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native generated-app evidence missing                                                 |
+| `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance                                                |
+| `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | [Isolated full-module replay](../evaluation/template-invocation-runtime/fixture-validation.json); no paired model calls      |
 
 Each manifest case records full base/repair commit IDs, exact paths, Git blob
 IDs, regular-file modes, SHA256 source hashes, objective, acceptance criteria,
-scope limitations, and missing work. For the four still-unimplemented replays,
-`replay.adapterPath` and `replay.harnessPath` identify **planned, not existing**
-files under `evaluation/replays/<case>/`; `requiredAdapter` and `requiredHarness`
-describe the concrete work. Two additional adapters run exact trusted history
-with controlled external interfaces; their status is `fixture-adapter-available`,
-not a measured worker success or arbitrary-patch verifier. Listing a case never
-establishes that its defect has been reproduced or that a model can solve it.
+scope limitations, and missing work at the time the corpus was pinned. For the
+four cases above, `replay.adapterPath` and `replay.harnessPath` still name the
+original **planned, non-existent** `evaluation/replays/<case>/` paths. Their
+subsequent executable replays and receipts are linked in this table, at different
+paths. The pinned intake manifest is not rewritten to claim later evidence.
+Two other adapters run exact trusted history with controlled external interfaces;
+their manifest status is `fixture-adapter-available`, not a measured worker
+success or arbitrary-patch verifier. Listing a case or replaying its known repair
+does not establish that a model can solve it.
 
 ## Validate the additional historical fixtures
 
