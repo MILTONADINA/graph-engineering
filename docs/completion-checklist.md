@@ -12,7 +12,7 @@ no PR reviews or merges until the implementation is ready.
 | #   | Deliverable                                                | Status / completion evidence                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | --- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Partner review and merge into `dev`                        | Deferred by owner until all implementation is ready. Existing upstream PR remains unchanged.                                                                                                                                                                                                                                                                                                                                                                               |
-| 2   | Fork branch protections and safe Git workflow              | Verified on fork `main` and `dev`: six required checks, one review, admin enforcement, linear history, no force pushes/deletions. Fork-only local push guard and feature-stack CI enabled.                                                                                                                                                                                                                                                                                 |
+| 2   | Fork branch protections and safe Git workflow              | Verified on fork `main` and `dev`: six required checks on `main`, seven on `dev` including historical replays, one review, admin enforcement, linear history, no force pushes/deletions. Fork-only local push guard and feature-stack CI enabled.                                                                                                                                                                                                                          |
 | 3   | Real workers and verification commands                     | Local Qwen configured; repository verification image provisioned with dependency-metadata checks and network-disabled execution. Paid workers await provider/budget selection.                                                                                                                                                                                                                                                                                             |
 | 4   | Local Jina, Laya, and coding model                         | Real Jina offline semantic test passed; pinned Laya served on MPS; existing Qwen endpoint exercised. Tokens/weights/provider settings remain private.                                                                                                                                                                                                                                                                                                                      |
 | 5   | MCP client integration                                     | Real stdio tool discovery and cloud-filtered retrieval passed. Project-local configurations installed. Codex recognizes the server; Claude awaits its normal approval; Cursor connection remains unverified.                                                                                                                                                                                                                                                               |
@@ -44,12 +44,14 @@ Item 13 still contains buildable work, not only requests for partner labels:
 - Implement separately governed sealed held-out collection/execution: frozen
   candidate configuration, protected worker/oracle transport, and original
   signed provenance. The strict schema, durable one-time reservation/call ledger,
-  exact public-byte vault/bridge, post-closure byte audit, paid spending cap and
-  complete-cohort accounting are implemented and tested. The bridge is not a
-  one-time dispatch lease or protected worker sandbox. Existing known-history
-  tasks cannot be relabeled as unseen.
+  exact public-byte vault/bridge, durable at-most-once dispatch claim,
+  post-closure byte audit, paid spending cap and complete-cohort accounting are
+  implemented and tested. A claim is not delivery evidence, an isolated worker,
+  or protected oracle access. Existing known-history tasks cannot be relabeled
+  as unseen.
 - Connect verified independent attestations to promotion-bound imports. The
-  unsigned label importer and full-cohort promotion preflight are analysis-only
+  unsigned label importer, full-cohort preflight and current-identity comparison
+  are analysis-only
   and cannot authorize routing; `evaluate --promote` rejects without writing
   evidence. Original signature verification exists, but the legitimate authority
   issuer must still join signed aggregate provenance, complete outcomes, sealed
