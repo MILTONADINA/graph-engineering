@@ -6,7 +6,7 @@ The human-readable catalog of every graph node in this library. **This file is a
 node tools/generate-registry/index.js . > template-registry.json
 ```
 
-`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 44 implemented, 11 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
+`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 46 implemented, 9 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
 
 ## project
 
@@ -77,8 +77,8 @@ Entity CRUD generation itself lives at `backend.repository`, not a `database.rep
 |---|---|---|
 | I | `api.crud` | Flagship composition node: sequences `backend.repository→service→controller→express` for one entity, then patches `findMany` with allowlist-based filtering/sorting. |
 | P | `api.pagination` / `api.filtering` / `api.sorting` | Not separately implemented — those capabilities live in `backend.pagination` + `api.crud`'s `findMany` patch. Stubs point back here. |
-| P | `api.search` | Full-text/fuzzy search — genuinely distinct, unimplemented. |
-| P | `api.webhooks` | Inbound webhook receiver (signature verification, idempotency keys) — genuinely distinct, unimplemented. |
+| I | `api.search` | Authenticated PostgreSQL English full-text search on one reviewed table, with a generated GIN index declaration, bound query/pagination values, ranked IDs, and emitted tests. Migration application and row/tenant authorization remain separate. |
+| I | `api.webhooks` | Fixed generic HMAC-SHA256 raw-body ingress before JSON parsing; verified delivery goes only to an application-owned durable atomic inbox. Provider compatibility, storage and replay durability require separate review. |
 
 ## testing
 

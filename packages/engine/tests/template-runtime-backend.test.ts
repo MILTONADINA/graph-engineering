@@ -160,8 +160,6 @@ describe("audited backend template composition", () => {
     expect(templateRuntimeCapability("database.transactions").executable).toBe(
       true,
     );
-    for (const id of ["api.webhooks"])
-      expect(templateRuntimeCapability(id).executable).toBe(false);
   });
   it("renders the foundation and two distinct entity chains with exact, idempotent modifications", async () => {
     const workspace = await fixture();

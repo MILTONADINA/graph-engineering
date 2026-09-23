@@ -20,6 +20,8 @@ import type {
   TemplateRenderedArtifacts,
 } from "./template-runtime-extension.js";
 import { crudTemplates } from "./template-runtime-crud.js";
+import { searchTemplates } from "./template-runtime-search.js";
+import { webhookTemplates } from "./template-runtime-webhooks.js";
 import { documentationTemplates } from "./template-runtime-docs.js";
 import { testingTemplates } from "./template-runtime-testing.js";
 import { environmentTemplates } from "./template-runtime-environments.js";
@@ -246,6 +248,8 @@ const supported: Record<string, RuntimeDefinition> = {
 };
 const extensions: Record<string, AuditedTemplateExtension> = {
   ...crudTemplates,
+  ...searchTemplates,
+  ...webhookTemplates,
   ...documentationTemplates,
   ...testingTemplates,
   ...environmentTemplates,
