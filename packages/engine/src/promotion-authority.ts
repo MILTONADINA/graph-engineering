@@ -23,10 +23,15 @@ export interface VerifiedPromotionAuthority {
 export interface PromotionScope {
   projectId: string;
   policyVersion: string;
+  /** Recomputed by a trusted runtime, never copied from the evidence file. */
+  currentIdentity?: PromotionRuntimeIdentity;
 }
-interface VerifiedClaims extends PromotionScope {
+interface VerifiedClaims {
+  projectId: string;
+  policyVersion: string;
   reportHashes: ReadonlySet<string>;
   trustDigest: string;
+  identitySha256: string;
   expiresAt: number;
 }
 const verified = new WeakMap<object, VerifiedClaims>();
@@ -53,6 +58,48 @@ export const promotionPreflightPinsSchema = z
 export type PromotionPreflightPins = z.infer<
   typeof promotionPreflightPinsSchema
 >;
+export type PromotionRuntimeIdentity = PromotionPreflightPins;
+
+const promotionPreflightReceiptSchema = promotionPreflightPinsSchema
+  .extend({
+    kind: z.literal("promotion-import-preflight"),
+    minimumConfidence: z.number().finite().min(0.5).max(1),
+    accountingMetricsSatisfied: z.boolean(),
+    blockers: z.array(z.string()).max(100),
+    promotionEligible: z.literal(false),
+    authorityStatus: z.literal("unsigned-preflight-only"),
+    unverifiedEvidence: z.array(z.string()).max(20),
+  })
+  .strict();
+
+/**
+ * Compare a reviewed preflight target with identities freshly obtained by the
+ * runtime. Both inputs are still caller-supplied: this does not authenticate
+ * current trust, artifact bytes, collection provenance, or issue authority.
+ */
+export function inspectPromotionRuntimeIdentity(
+  preflightInput: unknown,
+  currentInput: unknown,
+) {
+  const preflight = promotionPreflightReceiptSchema.parse(
+    decodeJson(preflightInput),
+  );
+  const current = promotionPreflightPinsSchema.parse(decodeJson(currentInput));
+  const differences = Object.keys(current).filter(
+    (key) =>
+      preflight[key as keyof PromotionPreflightPins] !==
+      current[key as keyof PromotionPreflightPins],
+  );
+  return freezeJson({
+    kind: "promotion-runtime-identity-inspection" as const,
+    preflightSha256: hashJson(preflight),
+    currentIdentitySha256: hashJson(current),
+    identityMatches: differences.length === 0,
+    differences,
+    promotionEligible: false as const,
+    authorityStatus: "unsigned-identity-check-only" as const,
+  });
+}
 
 /**
  * Recompute unsigned full-cohort accounting from detached originals and bind
@@ -176,6 +223,7 @@ export async function inspectPromotionImportPreflight(
     policyVersion: pins.policyVersion,
     collectionId: pins.collectionId,
     planSha256: pins.planSha256,
+    trustPolicySha256: pins.trustPolicySha256,
     evaluationArtifactSha256: pins.evaluationArtifactSha256,
     candidateConfigurationSha256: pins.candidateConfigurationSha256,
     category: pins.category,
@@ -206,7 +254,9 @@ export async function inspectPromotionImportPreflight(
  * versions and exact provider/model identities; verify independent non-revoked
  * actors and a genuinely sealed held-out collection receipt; recompute metrics;
  * then retain only frozen claims in this private map. It must revalidate current
- * trust, policy and artifact identities before granting runtime authority.
+ * trust, policy, provider, collection and artifact identities before granting
+ * runtime authority. `currentIdentity` must come from trusted fresh state, not
+ * a copied grant or caller-selected JSON file.
  *
  * Current signed historical intake explicitly rejects held-out review. Neither
  * that guard nor sample thresholds may be relaxed to manufacture an issuer.
@@ -219,11 +269,24 @@ export function authorizesPromotion(
 ): boolean {
   if (!authority || typeof authority !== "object") return false;
   const claims = verified.get(authority);
+  if (!claims || !scope.currentIdentity) return false;
+  let current: PromotionRuntimeIdentity;
+  try {
+    current = promotionPreflightPinsSchema.parse(
+      decodeJson(scope.currentIdentity),
+    );
+  } catch {
+    return false;
+  }
   return (
-    !!claims &&
     claims.projectId === scope.projectId &&
     claims.policyVersion === scope.policyVersion &&
     /^[a-f0-9]{64}$/.test(claims.trustDigest) &&
+    /^[a-f0-9]{64}$/.test(claims.identitySha256) &&
+    current.projectId === scope.projectId &&
+    current.policyVersion === scope.policyVersion &&
+    current.trustPolicySha256 === claims.trustDigest &&
+    hashJson(current) === claims.identitySha256 &&
     Number.isFinite(claims.expiresAt) &&
     claims.expiresAt > Date.now() &&
     claims.reportHashes.has(hash(evidence))

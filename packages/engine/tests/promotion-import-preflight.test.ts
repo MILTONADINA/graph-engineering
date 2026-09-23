@@ -8,6 +8,7 @@ import type { CohortInspection } from "../src/full-cohort-ledger.js";
 import {
   authorizesPromotion,
   inspectPromotionImportPreflight,
+  inspectPromotionRuntimeIdentity,
 } from "../src/promotion-authority.js";
 import { hashJson } from "../src/sealed-collection-schema.js";
 
@@ -213,6 +214,14 @@ it("recomputes detached accounting but cannot turn local pins or metrics into au
   expect(receipt.blockers).toContain("collection-not-closed");
   expect(receipt.unverifiedEvidence).toHaveLength(4);
   expect(Object.isFrozen(receipt)).toBe(true);
+  const runtime = inspectPromotionRuntimeIdentity(receipt, target);
+  expect(runtime).toMatchObject({
+    identityMatches: true,
+    differences: [],
+    promotionEligible: false,
+    authorityStatus: "unsigned-identity-check-only",
+  });
+  expect(Object.isFrozen(runtime)).toBe(true);
   const idealReport: PromotionEvidence = {
     version: digest("ideal"),
     category: "worker",
@@ -235,6 +244,52 @@ it("recomputes detached accounting but cannot turn local pins or metrics into au
   expect(canPromote(idealReport, { ...target, authority: receipt })).toBe(
     false,
   );
+  expect(
+    canPromote(idealReport, {
+      ...target,
+      currentIdentity: target,
+      authority: receipt,
+    }),
+  ).toBe(false);
+});
+
+it("rechecks every frozen promotion target identity without conferring authority", async () => {
+  const { input, target } = fixture();
+  const receipt = await inspectPromotionImportPreflight(input, target);
+  for (const key of Object.keys(target) as (keyof typeof target)[]) {
+    const changed: Record<string, unknown> = {
+      ...target,
+      [key]: /^[a-f0-9]{64}$/.test(target[key])
+        ? digest(`changed-${key}`)
+        : "changed",
+    };
+    if (key === "providerKind") changed.providerKind = "jev";
+    const result = inspectPromotionRuntimeIdentity(receipt, changed);
+    expect(result.identityMatches).toBe(false);
+    expect(result.differences).toEqual([key]);
+    expect(result.promotionEligible).toBe(false);
+  }
+  expect(() =>
+    inspectPromotionRuntimeIdentity(
+      { ...receipt, authorityStatus: "verified" },
+      target,
+    ),
+  ).toThrow();
+  expect(() =>
+    inspectPromotionRuntimeIdentity(
+      { ...receipt, promotionEligible: true },
+      target,
+    ),
+  ).toThrow();
+  expect(() =>
+    inspectPromotionRuntimeIdentity(receipt, { ...target, extra: true }),
+  ).toThrow();
+  expect(() =>
+    inspectPromotionRuntimeIdentity(receipt, {
+      ...target,
+      providerId: new Proxy({}, {}),
+    }),
+  ).toThrow();
 });
 
 it("rejects a locally repinned forged aggregate and unrelated deployment pins", async () => {
