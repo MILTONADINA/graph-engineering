@@ -485,8 +485,8 @@ function terminalReceipt(
   };
 }
 
-/** One frozen repository assignment, with mode-specific preflight and oracle. */
-async function runOneShotLocalRepositoryCore(input, runtime, mode) {
+/** Check one frozen assignment without reserving, dispatching or running an oracle. */
+async function prepareOneShotLocalRepositoryCore(input, runtime, mode) {
   const inputNames = [
     "store",
     "artifacts",
@@ -562,6 +562,44 @@ async function runOneShotLocalRepositoryCore(input, runtime, mode) {
       ? await preflightV2({ ...preflightInput, scopeRef })
       : await preflightV1(preflightInput);
   signal?.throwIfAborted();
+  return {
+    store,
+    artifacts,
+    bridge,
+    handle,
+    collectionId,
+    assignmentId,
+    baselineRef,
+    scopeRef,
+    oracleRef,
+    providerId,
+    intakeImageId,
+    repositoryImageId,
+    dockerEndpoint,
+    signal,
+    frozen,
+  };
+}
+
+/** One frozen repository assignment, with mode-specific preflight and oracle. */
+async function runOneShotLocalRepositoryCore(input, runtime, mode) {
+  const {
+    store,
+    artifacts,
+    bridge,
+    handle,
+    collectionId,
+    assignmentId,
+    baselineRef,
+    scopeRef,
+    oracleRef,
+    providerId,
+    intakeImageId,
+    repositoryImageId,
+    dockerEndpoint,
+    signal,
+    frozen,
+  } = await prepareOneShotLocalRepositoryCore(input, runtime, mode);
   const reservation = store.reserveAttempt(collectionId, assignmentId);
   try {
     let model;
@@ -679,6 +717,23 @@ async function runOneShotLocalRepositoryCore(input, runtime, mode) {
     error.reservationId = reservation.reservationId;
     throw error;
   }
+}
+
+/** Private collector preflight for a v2 assignment; never consumes its slot. */
+export async function inspectOneShotLocalRepositoryV2Preflight(input, runtime) {
+  const prepared = await prepareOneShotLocalRepositoryCore(
+    input,
+    runtime,
+    "v2",
+  );
+  return Object.freeze({
+    kind: "sealed-local-repository-v2-preflight",
+    collectionId: prepared.collectionId,
+    assignmentId: prepared.assignmentId,
+    taskId: prepared.frozen.task.taskId,
+    planSha256: prepared.frozen.planSha256,
+    promotionEligible: false,
+  });
 }
 
 /**

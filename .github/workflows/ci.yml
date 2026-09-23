@@ -367,4 +367,5 @@ jobs:
               evaluation/sealed/oracle-runtime/repository-v2.test.mjs \
               evaluation/sealed/oracle-runtime/repository-host-v2.test.mjs \
               evaluation/sealed/tests/repository-scope-v2.test.mjs \
-              evaluation/sealed/tests/local-repository-v2-attempt.test.mjs
+              evaluation/sealed/tests/local-repository-v2-attempt.test.mjs \
+              evaluation/sealed/tests/collection-runner.test.mjs

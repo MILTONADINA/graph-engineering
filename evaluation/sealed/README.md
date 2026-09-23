@@ -357,6 +357,24 @@ uncertain storage, transport, or oracle execution still needs fenced recovery.
 This does **not** authenticate the operator's safe-scope declaration or grant
 held-out/promotion authority.
 
+For a frozen v2 collection with more than one assigned arm, the private
+`runOneShotLocalRepositoryV2Cohort()` supervisor in `collection-runner.mjs`
+accepts the trusted store, vault and bridge plus an **ordered, exact list of
+the still-unreserved assignments**. Each entry supplies its retained public
+handle, baseline/scope/oracle references and frozen local provider ID. The
+supervisor preflights all pending entries before the first reservation, then
+uses the same one-shot runner sequentially in the plan's ordinal order. It
+rechecks each assignment immediately before dispatch, never retries an
+ambiguous model/oracle delivery, and closes only when all frozen assignments
+are terminal. A process restart requires fresh in-process public handles;
+terminal entries are skipped, while an open reservation stops the run until a
+trusted operator has fenced transport and explicitly recovered it. A complete
+closure can still contain crashed attempts, unknown outcomes and zero measured
+success; it is not a passing cohort. The returned receipt has
+`promotionEligible: false` and contains no private verdict. This supervisor
+does not authenticate source, model, Docker, reviewers, labels or an external
+witness, and does not run a paid provider.
+
 The [private digest-oracle boundary](oracle-runtime/README.md) re-reads the
 frozen public packet and one settled local model response, verifies the exact
 request hash, and derives the proposal with the same strict parser as the
