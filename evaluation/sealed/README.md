@@ -264,6 +264,30 @@ This path cannot mark a measured attempt successful. It remains unsigned local
 bookkeeping and does not prove worker output provenance, independent review or
 held-out validity.
 
+### Private aggregate inspection
+
+`inspectVaultSealedAggregateProvenance()` in `aggregate-vault.mjs` joins a
+complete closed `SealedStore` snapshot to a separately pinned original-byte
+manifest and an `ArtifactStore`. It verifies every committed blob, passes
+bounded one-blob-at-a-time reads to the compiled engine's signed aggregate
+inspector, then rechecks the ledger snapshot and original bytes before
+returning. The inspector verifies purpose-separated row and aggregate
+signatures and, where present, re-derives call-bound proposals and canonical
+private digest verdicts. A cumulative collection of original blobs may exceed
+2 MB; each blob and the non-blob input remain independently bounded. Build the
+engine before using this local module. The existing sealed schema adapter also
+requires the project's installed `tsx` dependency and source tree at runtime.
+
+The receipt is **private collection metadata**: even counts, sizes and manifest
+hashes should not be sent through the public source/docs MCP path. It returns
+no original bytes, private verdict, or promotion grant, and explicitly reports
+`artifactSourceAuthenticated: false` and `promotionEligible: false`. A pin
+supplied alongside the manifest is not independent approval. The local store
+cannot defeat an administrator who changes or rolls back both it and the vault;
+the pre/post checks only detect changes visible during this inspection. The
+two-arm signed fixture is synthetic; it is not partner review or held-out
+model-performance evidence.
+
 ## Remaining trust boundary
 
 These APIs accept caller-supplied commitments and receipt claims. Hash matching
