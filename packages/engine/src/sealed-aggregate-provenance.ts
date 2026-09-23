@@ -355,12 +355,15 @@ function oracleRolePrefix(item: CohortInspection["assignments"][number]) {
     "sealed-call-bound-repository-invocation-claim"
       ? "oracle/repository-v1"
       : item.oracleInvocation?.kind ===
-          "sealed-call-bound-module-graph-invocation-claim"
-        ? "oracle/module-graph-v1"
+          "sealed-call-bound-repository-v2-invocation-claim"
+        ? "oracle/repository-v2"
         : item.oracleInvocation?.kind ===
-            "sealed-call-bound-engineering-invocation-claim"
-          ? "oracle/engineering-v1"
-          : "oracle/v1";
+            "sealed-call-bound-module-graph-invocation-claim"
+          ? "oracle/module-graph-v1"
+          : item.oracleInvocation?.kind ===
+              "sealed-call-bound-engineering-invocation-claim"
+            ? "oracle/engineering-v1"
+            : "oracle/v1";
   return `${namespace}/${item.assignment.assignmentId}`;
 }
 
@@ -375,6 +378,8 @@ function originalReferences(inspection: CohortInspection) {
   for (const task of inspection.plan.tasks) {
     const prefix = `task/${task.taskId}`;
     add(`${prefix}/baseline`, task.baselineSha256);
+    if (task.executionScopeSha256)
+      add(`${prefix}/execution-scope`, task.executionScopeSha256);
     add(`${prefix}/public-packet`, task.publicPacketSha256);
     add(`${prefix}/private-oracle`, task.oracleSha256);
     add(`${prefix}/reference-repair`, task.referenceRepairSha256);
@@ -405,7 +410,9 @@ function originalReferences(inspection: CohortInspection) {
       item.oracleInvocation?.kind ===
         "sealed-call-bound-module-graph-invocation-claim" ||
       item.oracleInvocation?.kind ===
-        "sealed-call-bound-repository-invocation-claim"
+        "sealed-call-bound-repository-invocation-claim" ||
+      item.oracleInvocation?.kind ===
+        "sealed-call-bound-repository-v2-invocation-claim"
     ) {
       const prefix = oracleRolePrefix(item);
       add(`${prefix}/derived-proposal`, item.oracleInvocation.proposalSha256);
@@ -1401,6 +1408,204 @@ const repositoryVerdictSchema = z
   })
   .strict();
 
+const privateExecutionPart =
+  /^(?:\.env(?:\..*)?|\.npmrc|\.pypirc|\.netrc|\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.config|\.graph|\.codex|\.claude|\.cursor|private(?:-memory)?|privates|(?:secrets?|credentials?|keys?)(?:[._-].*)?|id_(?:rsa|dsa|ecdsa|ed25519)|service[-_]?account(?:[._-].*)?|[^/]*\.(?:pem|key|p12|pfx|kdbx))$/i;
+function repositoryV2Path(value: string): boolean {
+  return (
+    repositoryExecutionPath(value) &&
+    value.split("/").length <= 32 &&
+    value.split("/").every((part) => !privateExecutionPart.test(part))
+  );
+}
+const repositoryV2ScopeEntrySchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      path: z.string(),
+      type: z.literal("directory"),
+      mode: z.literal(0o755),
+    })
+    .strict(),
+  z
+    .object({
+      path: z.string(),
+      type: z.literal("file"),
+      mode: z.union([z.literal(0o644), z.literal(0o755)]),
+      bytes: z.number().int().min(0).max(32_000_000),
+      sha256: digestSchema,
+      class: z.enum(["public-editable", "operator-declared-runtime"]),
+    })
+    .strict(),
+]);
+const repositoryV2ScopeSchema = z
+  .object({
+    kind: z.literal("sealed-repository-execution-scope"),
+    version: z.literal("2.0.0"),
+    baselineSnapshot: snapshotReferenceSchema,
+    entries: z.array(repositoryV2ScopeEntrySchema).min(1).max(8192),
+  })
+  .strict()
+  .superRefine((scope, context) => {
+    let previous = "";
+    let files = 0;
+    let editable = 0;
+    let total = 0;
+    const byPath = new Map<string, string>();
+    const folded = new Set<string>();
+    for (const entry of scope.entries) {
+      if (
+        !repositoryV2Path(entry.path) ||
+        entry.path <= previous ||
+        folded.has(entry.path.toLowerCase())
+      ) {
+        context.addIssue({ code: "custom", message: "Invalid V2 scope path" });
+        return;
+      }
+      previous = entry.path;
+      folded.add(entry.path.toLowerCase());
+      byPath.set(entry.path, entry.type);
+      if (entry.type === "file") {
+        files++;
+        total += entry.bytes;
+        if (entry.class === "public-editable") {
+          editable++;
+          if (entry.bytes < 1 || entry.bytes > 100_000)
+            context.addIssue({
+              code: "custom",
+              message: "V2 editable source exceeds its bound",
+            });
+        }
+      }
+    }
+    if (
+      files < 1 ||
+      files > 4096 ||
+      editable < 1 ||
+      editable > 64 ||
+      total > 256_000_000
+    )
+      context.addIssue({
+        code: "custom",
+        message: "V2 execution scope exceeds bounds",
+      });
+    for (const entry of scope.entries) {
+      const parts = entry.path.split("/");
+      for (let index = 1; index < parts.length; index++) {
+        if (byPath.get(parts.slice(0, index).join("/")) !== "directory")
+          context.addIssue({
+            code: "custom",
+            message: "V2 execution scope omits ancestor directory",
+          });
+      }
+    }
+  });
+const repositoryV2RecipeSchema = z
+  .object({
+    kind: z.literal("sealed-repository-blackbox-recipe"),
+    version: z.literal("2.0.0"),
+    imageId: repositoryImageSchema,
+    scopeSha256: digestSchema,
+    buildArgv: z.array(repositoryArgvPartSchema).max(32),
+    runArgv: z.array(repositoryArgvPartSchema).min(1).max(32),
+    cwd: z.string(),
+    env: z.record(z.string(), z.string()),
+    buildTimeoutMs: z.number().int().min(100).max(60_000),
+    runTimeoutMs: z.number().int().min(100).max(30_000),
+  })
+  .strict()
+  .superRefine((recipe, context) => {
+    if (
+      (recipe.buildArgv.length > 0 &&
+        repositoryShell.test(recipe.buildArgv[0]!)) ||
+      repositoryShell.test(recipe.runArgv[0]!) ||
+      !(recipe.cwd === "." || repositoryV2Path(recipe.cwd)) ||
+      Object.keys(recipe.env).length > 16 ||
+      Object.entries(recipe.env).some(
+        ([name, value]) =>
+          !/^[A-Z][A-Z0-9_]{0,39}$/.test(name) ||
+          repositoryForbiddenEnv.test(name) ||
+          value.length > 256 ||
+          /[\x00-\x1f\x7f]/.test(value),
+      )
+    )
+      context.addIssue({ code: "custom", message: "Invalid frozen V2 recipe" });
+  });
+const repositoryV2OracleSchema = z
+  .object({
+    kind: z.literal("sealed-repository-blackbox-oracle"),
+    version: z.literal("2.0.0"),
+    recipe: repositoryV2RecipeSchema,
+    cases: z
+      .array(
+        z
+          .object({
+            id: repositoryCaseIdSchema,
+            input: z.unknown(),
+            expected: z.unknown(),
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(12),
+  })
+  .strict();
+const repositoryV2ObservationSchema = z
+  .object({
+    kind: z.literal("sealed-repository-blackbox-observation"),
+    version: z.literal("2.0.0"),
+    challenge: challengeSchema,
+    arm: z.enum(["baseline", "candidate"]),
+    caseIndex: z.number().int().min(0).max(11),
+    treeSha256: digestSchema,
+    recipeSha256: digestSchema,
+    inputSha256: digestSchema,
+    stage: z.enum(["build", "run"]),
+    status: z.enum(["build-error", "candidate-error", "completed"]),
+    value: z.unknown(),
+  })
+  .strict()
+  .superRefine((item, context) => {
+    if (!(
+      (item.stage === "build" &&
+        item.status === "build-error" &&
+        item.value === null) ||
+      (item.stage === "run" &&
+        item.status === "candidate-error" &&
+        item.value === null) ||
+      (item.stage === "run" &&
+        item.status === "completed" &&
+        Buffer.byteLength(canonicalJson(item.value)) <= 4096)
+    ))
+      context.addIssue({
+        code: "custom",
+        message: "Invalid V2 guest observation stage or value",
+      });
+  });
+const repositoryV2ObservationBundleSchema = z
+  .object({
+    kind: z.literal("sealed-repository-observation-bundle"),
+    version: z.literal("2.0.0"),
+    claimSha256: digestSchema,
+    caseCount: z.number().int().min(2).max(12),
+    records: z
+      .array(
+        z
+          .object({
+            id: repositoryCaseIdSchema,
+            baseline: repositoryV2ObservationSchema,
+            candidate: repositoryV2ObservationSchema,
+          })
+          .strict(),
+      )
+      .min(2)
+      .max(12),
+  })
+  .strict();
+const repositoryV2VerdictSchema = repositoryVerdictSchema.extend({
+  version: z.literal("2.0.0"),
+  scopeSha256: digestSchema,
+  baselineTreeSha256: digestSchema,
+});
+
 function checkModuleGraphBaseline(
   baseline: z.infer<typeof moduleGraphBaselineSchema>,
 ) {
@@ -1621,6 +1826,187 @@ function deriveRepositoryResult(
       source: changes.get(file.path) ?? file.source,
     })),
   );
+}
+
+type RepositoryV2Scope = z.infer<typeof repositoryV2ScopeSchema>;
+type RepositoryV2Entry = RepositoryV2Scope["entries"][number];
+type RepositoryV2TreeEntry =
+  | { path: string; type: "directory"; mode: 0o755 }
+  | {
+      path: string;
+      type: "file";
+      mode: 0o644 | 0o755;
+      bytes: number;
+      sha256: string;
+    };
+
+function repositoryV2TreeBytes(entries: RepositoryV2TreeEntry[]): Buffer {
+  const value = {
+    kind: "sealed-repository-execution-tree" as const,
+    version: "2.0.0" as const,
+    entries,
+  };
+  const bytes = Buffer.from(canonicalJson(value), "utf8");
+  if (bytes.length < 1 || bytes.length > 2_000_000)
+    throw new Error("Repository V2 tree manifest exceeds original-byte bound");
+  return bytes;
+}
+
+function repositoryV2BaselineEntries(
+  scope: RepositoryV2Scope,
+  snapshotEntries: SnapshotEntry[],
+): RepositoryV2TreeEntry[] {
+  const original = new Map(snapshotEntries.map((entry) => [entry.path, entry]));
+  return scope.entries.map((entry: RepositoryV2Entry) => {
+    const actual = original.get(entry.path);
+    if (
+      !actual ||
+      actual.type !== entry.type ||
+      actual.mode !== entry.mode ||
+      (entry.type === "file" &&
+        (actual.type !== "file" ||
+          actual.bytes !== entry.bytes ||
+          actual.sha256 !== entry.sha256))
+    )
+      throw new Error("Repository V2 execution scope differs from snapshot");
+    return entry.type === "file"
+      ? {
+          path: entry.path,
+          type: "file",
+          mode: entry.mode,
+          bytes: entry.bytes,
+          sha256: entry.sha256,
+        }
+      : { path: entry.path, type: "directory", mode: entry.mode };
+  });
+}
+
+async function readPrivateSnapshotEntries(
+  rootReference: SnapshotReference,
+  readReference: NonNullable<OriginalEvidence["readReference"]>,
+): Promise<SnapshotEntry[]> {
+  const reader: ArtifactReader = ({ sha256, bytes }) =>
+    readReference({ sha256, bytes });
+  const state: SnapshotAuditState = {
+    distinct: new Set(),
+    entryPages: new Set(),
+    entryPageVisits: 0,
+    chunkPageVisits: 0,
+    entries: 0,
+    entryLimit: 0,
+    chunkRefs: 0,
+    chunkRefLimit: 0,
+  };
+  const root = snapshotRootSchema.parse(
+    await readSnapshotJson(rootReference, reader, state),
+  );
+  state.entryLimit = root.inventory.entryCount;
+  state.chunkRefLimit = Math.min(
+    1_000_000,
+    Math.ceil(root.inventory.totalBytes / 1_048_576) + root.inventory.fileCount,
+  );
+  const entries = await readSnapshotEntryTree(root.tree, reader, state);
+  if (entries.length !== root.inventory.entryCount)
+    throw new Error("Repository V2 snapshot inventory changed");
+  return entries;
+}
+
+function deriveRepositoryV2Result(
+  scope: RepositoryV2Scope,
+  baselineEntries: RepositoryV2TreeEntry[],
+  publicFiles: {
+    path: string;
+    kind: string;
+    content: string;
+    sha256: string;
+  }[],
+  editableSources: RepositorySource[],
+  proposalBytes: Buffer,
+  allowedPaths: string[],
+): Buffer {
+  const editable = scope.entries
+    .filter(
+      (entry): entry is Extract<RepositoryV2Entry, { type: "file" }> =>
+        entry.type === "file" && entry.class === "public-editable",
+    )
+    .map((entry) => entry.path);
+  if (
+    editable.length !== allowedPaths.length ||
+    editable.some((name, index) => allowedPaths[index] !== name) ||
+    editable.length !== editableSources.length ||
+    editable.some((name, index) => editableSources[index]?.path !== name)
+  )
+    throw new Error("Repository V2 editable paths differ from frozen task");
+  const published = new Map(publicFiles.map((file) => [file.path, file]));
+  const publicFolded = new Set(
+    publicFiles.map((file) => file.path.toLowerCase()),
+  );
+  for (const entry of scope.entries) {
+    if (
+      entry.type === "file" &&
+      entry.class === "operator-declared-runtime" &&
+      publicFolded.has(entry.path.toLowerCase())
+    )
+      throw new Error("Repository V2 runtime file appeared in public packet");
+  }
+  for (const source of editableSources) {
+    const packetFile = published.get(source.path);
+    const descriptor = scope.entries.find(
+      (entry) => entry.path === source.path,
+    );
+    if (
+      !packetFile ||
+      packetFile.kind !== "source" ||
+      !descriptor ||
+      descriptor.type !== "file" ||
+      descriptor.class !== "public-editable" ||
+      packetFile.content !== source.source ||
+      packetFile.sha256 !== descriptor.sha256 ||
+      Buffer.byteLength(source.source) !== descriptor.bytes
+    )
+      throw new Error("Repository V2 editable source was not public unchanged");
+  }
+  const selectedTreeBytes = deriveRepositoryResult(
+    editableSources,
+    proposalBytes,
+    allowedPaths,
+    editable,
+  );
+  try {
+    const selectedTree = z
+      .object({
+        kind: z.literal("sealed-repository-tree"),
+        version: z.literal("1.0.0"),
+        files: z
+          .array(
+            z
+              .object({
+                path: z.string(),
+                bytes: z.number().int().min(1).max(100_000),
+                mode: z.union([z.literal(0o644), z.literal(0o755)]),
+                sha256: digestSchema,
+              })
+              .strict(),
+          )
+          .length(editable.length),
+      })
+      .strict()
+      .parse(decodeJson(selectedTreeBytes.toString("utf8")));
+    const changed = new Map(
+      selectedTree.files.map((file) => [file.path, file]),
+    );
+    return repositoryV2TreeBytes(
+      baselineEntries.map((entry) => {
+        if (entry.type !== "file") return entry;
+        const file = changed.get(entry.path);
+        return file
+          ? { ...entry, bytes: file.bytes, sha256: file.sha256 }
+          : entry;
+      }),
+    );
+  } finally {
+    selectedTreeBytes.fill(0);
+  }
 }
 
 function parseCanonicalEngineering<T extends z.ZodTypeAny>(
@@ -1954,6 +2340,126 @@ async function checkRepositoryVerdict(
   }
 }
 
+async function checkRepositoryV2Verdict(
+  oracle: z.infer<typeof repositoryV2OracleSchema>,
+  verdictBytes: Buffer,
+  claim: Extract<
+    CohortInspection["assignments"][number]["oracleInvocation"],
+    { kind: "sealed-call-bound-repository-v2-invocation-claim" }
+  >,
+  verdictReference: NonNullable<
+    CohortInspection["assignments"][number]["oracleVerdict"]
+  >,
+  readReference: NonNullable<OriginalEvidence["readReference"]>,
+) {
+  const verdict = parseCanonicalEngineering(
+    verdictBytes,
+    repositoryV2VerdictSchema,
+    8192,
+    "Repository V2 private verdict",
+  );
+  if (
+    verdict.claimSha256 !== hashJson(claim) ||
+    verdict.oracleSha256 !== claim.oracleSha256 ||
+    verdict.baselineSha256 !== claim.baselineSha256 ||
+    verdict.scopeSha256 !== claim.scopeSha256 ||
+    verdict.baselineTreeSha256 !== claim.baselineTreeSha256 ||
+    verdict.recipeSha256 !== claim.recipeSha256 ||
+    verdict.resultSourceSha256 !== claim.resultSourceSha256 ||
+    verdictReference.claimSha256 !== hashJson(claim) ||
+    verdictReference.verificationSha256 !== sha256(verdictBytes) ||
+    verdictReference.verificationBytes !== verdictBytes.length ||
+    verdict.caseCount !== oracle.cases.length ||
+    verdict.caseResults.length !== oracle.cases.length ||
+    verdict.observationBundle.bytes < 1 ||
+    verdict.observationBundle.bytes > 200_000
+  )
+    throw new Error("Repository V2 verdict differs from frozen claim");
+  const bundleBytes = await readReference(verdict.observationBundle);
+  try {
+    const bundle = parseCanonicalEngineering(
+      bundleBytes,
+      repositoryV2ObservationBundleSchema,
+      200_000,
+      "Repository V2 guest observation bundle",
+    );
+    if (
+      bundle.claimSha256 !== hashJson(claim) ||
+      bundle.caseCount !== oracle.cases.length ||
+      bundle.records.length !== oracle.cases.length
+    )
+      throw new Error("Repository V2 observation bundle differs from claim");
+    const ids = new Set<string>();
+    const challenges = new Set<string>();
+    let baselineFailed = 0;
+    let passed = 0;
+    for (const [index, record] of bundle.records.entries()) {
+      const item = oracle.cases[index]!;
+      const result = verdict.caseResults[index]!;
+      const inputSha256 = sha256(Buffer.from(canonicalJson(item.input)));
+      const expectedSha256 = sha256(Buffer.from(canonicalJson(item.expected)));
+      const before = record.baseline;
+      const after = record.candidate;
+      if (
+        ids.has(item.id) ||
+        record.id !== item.id ||
+        result.id !== item.id ||
+        result.inputSha256 !== inputSha256 ||
+        before.arm !== "baseline" ||
+        after.arm !== "candidate" ||
+        before.caseIndex !== index ||
+        after.caseIndex !== index ||
+        before.treeSha256 !== claim.baselineTreeSha256 ||
+        after.treeSha256 !== claim.resultSourceSha256 ||
+        before.recipeSha256 !== claim.recipeSha256 ||
+        after.recipeSha256 !== claim.recipeSha256 ||
+        before.inputSha256 !== inputSha256 ||
+        after.inputSha256 !== inputSha256 ||
+        result.baselineChallenge !== before.challenge ||
+        result.candidateChallenge !== after.challenge ||
+        challenges.has(before.challenge) ||
+        challenges.has(after.challenge) ||
+        before.challenge === after.challenge
+      )
+        throw new Error("Repository V2 guest observation case binding differs");
+      ids.add(item.id);
+      challenges.add(before.challenge);
+      challenges.add(after.challenge);
+      const baselineValueSha256 =
+        before.status === "completed"
+          ? sha256(Buffer.from(canonicalJson(before.value)))
+          : null;
+      const candidateValueSha256 =
+        after.status === "completed"
+          ? sha256(Buffer.from(canonicalJson(after.value)))
+          : null;
+      if (
+        result.baselineStatus !== before.status ||
+        result.baselineValueSha256 !== baselineValueSha256 ||
+        result.candidateStatus !== after.status ||
+        result.candidateValueSha256 !== candidateValueSha256
+      )
+        throw new Error(
+          "Repository V2 verdict case differs from guest originals",
+        );
+      if (baselineValueSha256 !== expectedSha256) baselineFailed++;
+      if (candidateValueSha256 === expectedSha256) passed++;
+    }
+    if (
+      baselineFailed < 1 ||
+      verdict.baselineFailed !== baselineFailed ||
+      verdict.passed !== passed ||
+      verdict.status !== (passed === oracle.cases.length ? "pass" : "fail")
+    )
+      throw new Error(
+        "Repository V2 verdict counters differ from private cases",
+      );
+    return verdict.status;
+  } finally {
+    bundleBytes.fill(0);
+  }
+}
+
 /** Re-derive, in the private collector, the bytes a call-bound oracle saw. */
 async function checkCallBoundOriginals(
   inspection: CohortInspection,
@@ -2161,9 +2667,219 @@ async function checkCallBoundOriginals(
         bytes?.fill(0);
     }
   };
+  const checkRepositoryV2Item = async (
+    item: CohortInspection["assignments"][number],
+    claim: Extract<
+      CohortInspection["assignments"][number]["oracleInvocation"],
+      { kind: "sealed-call-bound-repository-v2-invocation-claim" }
+    >,
+  ) => {
+    if (!readReference || !item.oracleVerdict)
+      throw new Error(
+        "Repository V2 claim needs vault originals and a private verdict",
+      );
+    const task = inspection.plan.tasks.find(
+      (task) => task.taskId === item.assignment.taskId,
+    )!;
+    const call = item.calls.find(
+      (call) => call.reservation.callId === claim.callId,
+    )!;
+    const role = oracleRolePrefix(item);
+    let publicBytes: Buffer | undefined;
+    let requestBytes: Buffer | undefined;
+    let expectedRequest: Buffer | undefined;
+    let responseBytes: Buffer | undefined;
+    let proposalBytes: Buffer | undefined;
+    let exactProposal: Buffer | undefined;
+    let baselineBytes: Buffer | undefined;
+    let scopeBytes: Buffer | undefined;
+    let oracleBytes: Buffer | undefined;
+    let resultBytes: Buffer | undefined;
+    let derivedResult: Buffer | undefined;
+    let baselineTreeBytes: Buffer | undefined;
+    let verdictBytes: Buffer | undefined;
+    try {
+      publicBytes = await read(`task/${task.taskId}/public-packet`);
+      packetModule.inspectPublicPacket(publicBytes);
+      const packet = JSON.parse(publicBytes.toString("utf8"));
+      if (
+        packet.taskId !== task.taskId ||
+        packet.repositoryId !== task.repositoryId ||
+        packet.baselineSha256 !== task.baselineSha256 ||
+        claim.baselineSha256 !== task.baselineSha256 ||
+        claim.scopeSha256 !== task.executionScopeSha256 ||
+        claim.oracleSha256 !== task.oracleSha256
+      )
+        throw new Error("Repository V2 public packet differs from frozen task");
+      const provider = inspection.plan.configurations[
+        item.assignment.arm
+      ].providers.find(
+        (provider) => provider.providerId === call.reservation.providerId,
+      )!;
+      expectedRequest = requestModule.buildLocalModelRequest(
+        publicBytes,
+        call.reservation.requestedModel,
+        provider.maxOutputTokens,
+      );
+      requestBytes = await read(`call/${call.reservation.callId}/request`);
+      if (
+        !Buffer.isBuffer(expectedRequest) ||
+        !expectedRequest.equals(requestBytes)
+      )
+        throw new Error(
+          "Repository V2 call request differs from public packet",
+        );
+      responseBytes = await read(`call/${call.reservation.callId}/response`);
+      const parsed = proposalModule.parseRetainedLocalProposal(
+        responseBytes,
+        task,
+        packet,
+        call.reservation.requestedModel,
+      );
+      exactProposal = parsed.proposalBytes;
+      if (!Buffer.isBuffer(exactProposal))
+        throw new Error("Repository V2 model response lacks proposal bytes");
+      proposalBytes = await read(`${role}/derived-proposal`);
+      if (
+        !exactProposal.equals(proposalBytes) ||
+        sha256(exactProposal) !== claim.proposalSha256 ||
+        (item.receipt?.proposalSha256 != null &&
+          item.receipt.proposalSha256 !== claim.proposalSha256)
+      )
+        throw new Error("Repository V2 proposal differs from model response");
+      baselineBytes = await read(`task/${task.taskId}/baseline`);
+      scopeBytes = await read(`task/${task.taskId}/execution-scope`);
+      const scope = parseCanonicalEngineering(
+        scopeBytes,
+        repositoryV2ScopeSchema,
+        2_000_000,
+        "Repository V2 execution scope",
+      );
+      if (
+        scope.baselineSnapshot.sha256 !== task.baselineSha256 ||
+        scope.baselineSnapshot.bytes !== baselineBytes.length ||
+        sha256(scopeBytes) !== claim.scopeSha256
+      )
+        throw new Error("Repository V2 scope differs from retained baseline");
+      const snapshotEntries = await readPrivateSnapshotEntries(
+        { sha256: task.baselineSha256, bytes: baselineBytes.length },
+        readReference,
+      );
+      const baselineEntries = repositoryV2BaselineEntries(
+        scope,
+        snapshotEntries,
+      );
+      baselineTreeBytes = repositoryV2TreeBytes(baselineEntries);
+      if (sha256(baselineTreeBytes) !== claim.baselineTreeSha256)
+        throw new Error(
+          "Repository V2 baseline tree differs from private scope",
+        );
+      oracleBytes = await read(`task/${task.taskId}/private-oracle`);
+      const oracle = parseCanonicalEngineering(
+        oracleBytes,
+        repositoryV2OracleSchema,
+        100_000,
+        "Repository V2 private oracle",
+      );
+      const caseIds = new Set<string>();
+      for (const testCase of oracle.cases) {
+        if (
+          caseIds.has(testCase.id) ||
+          Buffer.byteLength(canonicalJson(testCase.input)) > 4096 ||
+          Buffer.byteLength(canonicalJson(testCase.expected)) > 4096
+        )
+          throw new Error("Repository V2 private cases exceed frozen bounds");
+        caseIds.add(testCase.id);
+      }
+      const recipeBytes = Buffer.from(canonicalJson(oracle.recipe), "utf8");
+      try {
+        if (
+          recipeBytes.length > 16_384 ||
+          sha256(recipeBytes) !== claim.recipeSha256 ||
+          oracle.recipe.imageId !== claim.imageId ||
+          oracle.recipe.scopeSha256 !== claim.scopeSha256 ||
+          (oracle.recipe.cwd !== "." &&
+            !scope.entries.some(
+              (entry) =>
+                entry.type === "directory" && entry.path === oracle.recipe.cwd,
+            ))
+        )
+          throw new Error("Repository V2 recipe differs from frozen scope");
+      } finally {
+        recipeBytes.fill(0);
+      }
+      const editablePaths = scope.entries
+        .filter(
+          (entry) => entry.type === "file" && entry.class === "public-editable",
+        )
+        .map((entry) => entry.path);
+      const editableSources = await readRepositorySelectedSources(
+        { sha256: task.baselineSha256, bytes: baselineBytes.length },
+        editablePaths,
+        readReference,
+      );
+      derivedResult = deriveRepositoryV2Result(
+        scope,
+        baselineEntries,
+        packet.files,
+        editableSources,
+        exactProposal,
+        task.allowedOutputPaths,
+      );
+      resultBytes = await read(`${role}/result-source`);
+      if (
+        !derivedResult.equals(resultBytes) ||
+        sha256(derivedResult) !== claim.resultSourceSha256 ||
+        (item.receipt?.resultSourceSha256 != null &&
+          item.receipt.resultSourceSha256 !== claim.resultSourceSha256)
+      )
+        throw new Error(
+          "Repository V2 candidate tree differs from original proposal",
+        );
+      verdictBytes = await read(`${role}/private-verdict`);
+      await checkRepositoryV2Verdict(
+        oracle,
+        verdictBytes,
+        claim,
+        item.oracleVerdict,
+        readReference,
+      );
+      if (
+        (item.receipt?.outcome.verificationSha256 != null &&
+          item.receipt.outcome.verificationSha256 !==
+            item.oracleVerdict.verificationSha256) ||
+        item.receipt?.outcome.success === true
+      )
+        throw new Error(
+          "Repository V2 attempt outcome differs from private verdict",
+        );
+    } finally {
+      for (const bytes of [
+        publicBytes,
+        requestBytes,
+        expectedRequest,
+        responseBytes,
+        proposalBytes,
+        exactProposal,
+        baselineBytes,
+        scopeBytes,
+        oracleBytes,
+        resultBytes,
+        derivedResult,
+        baselineTreeBytes,
+        verdictBytes,
+      ])
+        bytes?.fill(0);
+    }
+  };
   let checked = 0;
   for (const item of inspection.assignments) {
     const claim = item.oracleInvocation;
+    if (claim?.kind === "sealed-call-bound-repository-v2-invocation-claim") {
+      await checkRepositoryV2Item(item, claim);
+      checked++;
+      continue;
+    }
     if (claim?.kind === "sealed-call-bound-repository-invocation-claim") {
       await checkRepositoryItem(item, claim);
       checked++;
