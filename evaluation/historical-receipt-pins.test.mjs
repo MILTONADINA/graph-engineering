@@ -91,7 +91,10 @@ for (const fixture of fixtures) {
 test("checked-in cloud-graph replay pins match reviewed host source", async () => {
   const receipt = JSON.parse(
     await readFile(
-      new URL("isolated-cloud-graph-fixture-validation.json", import.meta.url),
+      new URL(
+        "isolated-cloud-graph-fixture-validation-2026-09-23.json",
+        import.meta.url,
+      ),
       "utf8",
     ),
   );

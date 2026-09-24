@@ -10,13 +10,18 @@ Task category, complexity, and risk are explicitly proposed classifications.
 | ------------------------------------ | ------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `zero-api-budget`                    | Configuration validation / localized        | `6d7d67d`       | Existing guarded replay; independent labels and paired measurements missing                                                                                                                        |
 | `unmetered-decision-budget`          | Spend control / localized                   | `545e230`       | Isolated candidate verifier; measured worker outcomes still missing                                                                                                                                |
-| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | [Isolated known-history replay](../evaluation/isolated-cloud-graph-fixture-validation.json); no paired model calls                                                                                 |
+| `cloud-graph-export`                 | Privacy boundary / multi-file               | `fd7081d`       | [Isolated known-history replay](../evaluation/isolated-cloud-graph-fixture-validation-2026-09-23.json); no paired model calls                                                                      |
 | `retry-state-visibility`             | State consistency / localized               | `5703aba`       | [Pinned historical replay](../evaluation/retry-visibility-runtime/fixture-validation.json) plus opt-in arbitrary-source diagnostic; candidate-directed RPC is not independent algorithm provenance |
 | `verifier-infrastructure-stop`       | Failure classification / system integration | `06e1689`       | [Isolated service/virtual-setup replay](../evaluation/infrastructure-runtime/fixture-validation.json); no held-out runs                                                                            |
 | `linux-private-verification-mount`   | Container permissions / system integration  | `fc56768`       | Isolated candidate verifier plus native Linux private-mount permission proof                                                                                                                       |
 | `portable-npm-spawn`                 | Windows process launch / multi-file         | `b6a878d`       | Isolated verifier covers both callers; native Windows launch and current generated-app smoke passed; no arbitrary candidate run                                                                    |
 | `clean-workspace-dependency-order`   | Build/CI / multi-file                       | `b135c37`       | Inert candidate guard plus fresh offline historical typecheck/test acceptance                                                                                                                      |
 | `distinct-template-node-invocations` | Graph-schema validation / multi-file        | `a07076c`       | [Isolated full-module replay](../evaluation/template-invocation-runtime/fixture-validation.json); no paired model calls                                                                            |
+
+The earlier [cloud-graph receipt](../evaluation/isolated-cloud-graph-fixture-validation.json)
+remains unchanged and pins the root dependency lock used for that run. The
+2026-09-23 replay repeats both historical arms against the current host lock;
+it is still a zero-model-call fixture check, not a new measured worker result.
 
 Each manifest case records full base/repair commit IDs, exact paths, Git blob
 IDs, regular-file modes, SHA256 source hashes, objective, acceptance criteria,
