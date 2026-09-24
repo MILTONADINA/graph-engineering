@@ -152,6 +152,20 @@ canonical managed path. The caller must compare this hash to the unique
 successful `publication.started` event before treating candidate bytes as
 the run's output.
 
+After BrightPath independently reviews the exact candidate scope, its bridge
+may call `graph-engine outcome-record <feedback.json> <dual-result.json>`. The
+versioned private feedback names the graph task, bounded task shape, dispatch,
+source, candidate, GE run, reviewed scope and proof hashes, both decision IDs and usage, and the
+accepted or rejected review state. GE compares the supplied dual artifact with
+its retained attempt, decision records and settled calls, requires a successful
+verified GE run, and appends one outcome event per run. Exact replay returns the
+same event; conflicting feedback is refused. BrightPath authenticates its own
+review and proof hashes before calling this command. `graph-engine
+outcome-summary` reports local counts, observed model choices and known decision
+costs from these events. The report can inform later local Laya context, but it
+does not derive a correct decision label, accept a memory, promote routing, or
+authorize BrightPath completion. Hosted Jev receives no history from this path.
+
 Hosted decisions require the separately supplied closed `cloudState` and the
 fixed exportable worker question. Free-form paths, source text, objectives,
 memory, or alternative candidate descriptions are rejected before any call.

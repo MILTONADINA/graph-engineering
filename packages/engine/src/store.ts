@@ -21,6 +21,13 @@ import {
   summarizeInferenceCalls,
   type AccountingSummary,
 } from "./accounting.js";
+import {
+  outcomeFeedbackSchema,
+  outcomeHash,
+  summarizeOutcomes,
+  validateOutcomeFeedback,
+  type OutcomeFeedback,
+} from "./outcome-feedback.js";
 
 type DualConsultState = "in-flight" | "completed" | "uncertain";
 interface DualConsultRow {
@@ -813,6 +820,53 @@ export class RunStore {
   }
   decisions(): DecisionRecord[] {
     return this.all("decisions").reverse() as DecisionRecord[];
+  }
+  /** A reviewed BrightPath outcome is an append-only, idempotent local observation. */
+  recordOutcomeFeedback(input: unknown, consultationBytes: Buffer): RunEvent {
+    return this.db.transaction(() => {
+      const candidate = outcomeFeedbackSchema.parse(input);
+      const attempt = this.dualAttempt(candidate.dispatch_id);
+      if (attempt?.state !== "completed" || !attempt.evidence_json)
+        throw new Error("Outcome feedback requires a completed GE dual attempt");
+      const retained = JSON.parse(attempt.evidence_json) as DualConsultEvidence;
+      const feedback = validateOutcomeFeedback(candidate, consultationBytes, retained,
+        this.run(candidate.run_id));
+      for (const [provider, observation] of Object.entries(retained.observations)) {
+        const call = this.db.prepare("SELECT usage_json FROM inference_calls WHERE project_id=? AND owner_id=? AND id=? AND provider=?")
+          .get(this.projectId, feedback.dispatch_id, observation.callId, provider) as
+          { usage_json: string | null } | undefined;
+        if (!call?.usage_json) throw new Error("Outcome feedback lacks settled decision usage");
+      }
+      for (const record of Object.values(retained.observations).flatMap((item) => item.records)) {
+        const saved = this.db.prepare("SELECT json FROM decisions WHERE project_id=? AND id=?")
+          .get(this.projectId, record.id) as { json: string } | undefined;
+        if (!saved || outcomeHash(JSON.parse(saved.json)) !== outcomeHash(record))
+          throw new Error("Outcome feedback decision differs from retained GE record");
+      }
+      const prior = this.events(feedback.run_id).filter((event) => event.type === "learning.outcome-reviewed");
+      if (prior.length) {
+        if (prior.length !== 1 || outcomeHash(prior[0]!.data.feedback) !== outcomeHash(feedback))
+          throw new Error("GE run already has different reviewed outcome feedback");
+        return prior[0]!;
+      }
+      return this.event(feedback.run_id, "learning.outcome-reviewed", { feedback });
+    }).immediate();
+  }
+  outcomeSummary() {
+    const feedback: OutcomeFeedback[] = [];
+    const consultations: DualConsultEvidence[] = [];
+    for (const run of this.runs()) {
+      const events = this.events(run.id).filter((event) => event.type === "learning.outcome-reviewed");
+      if (events.length > 1) throw new Error("GE run has conflicting outcome feedback");
+      if (!events.length) continue;
+      const item = outcomeFeedbackSchema.parse(events[0]!.data.feedback);
+      const attempt = this.dualAttempt(item.dispatch_id);
+      if (attempt?.state !== "completed" || !attempt.evidence_json)
+        throw new Error("Reviewed outcome lost its dual consultation");
+      feedback.push(item);
+      consultations.push(JSON.parse(attempt.evidence_json) as DualConsultEvidence);
+    }
+    return summarizeOutcomes(feedback, consultations);
   }
   recoverInterrupted(): void {
     for (const run of this.runs())
