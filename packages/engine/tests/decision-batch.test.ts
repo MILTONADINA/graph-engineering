@@ -81,6 +81,15 @@ const hosted = () => ({
     version: "test-reviewed-rate",
   },
 });
+const tokenHosted = () => ({
+  ...hosted(),
+  pricing: {
+    unit: "input-token" as const,
+    usdPerMillionInputTokens: 0.042,
+    inputTokenReserve: 65_536,
+    version: "test-token-price",
+  },
+});
 const response = (answers: object, extra: object = {}) =>
   new Response(JSON.stringify({ model, answers, ...extra }));
 // These synthetic routing tests isolate behavior AFTER authority verification.
@@ -403,6 +412,114 @@ describe("independent question batching", () => {
 });
 
 describe("decision accounting reservations", () => {
+  it("reserves a reviewed token bound and settles from returned billable usage", async () => {
+    const order: string[] = [];
+    const reserve = vi.fn(async () => {
+      order.push("reserve");
+    });
+    const settle = vi.fn(async () => {
+      order.push("settle");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        order.push("fetch");
+        return response(
+          {
+            workflow: { choice: "safe", confidence: 0.7 },
+            effort: { choice: "high", confidence: 0.7 },
+          },
+          { usage: { input_tokens: 120, output_tokens: 12 } },
+        );
+      }),
+    );
+    const input = options();
+    input.providers = [tokenHosted()];
+    input.policy.maxCostUsd = 0.01;
+    input.budget = { reserve, settle };
+    const result = await decideBatch(input);
+    expect(order).toEqual(["reserve", "fetch", "settle"]);
+    expect(reserve.mock.calls[0]?.[0].amountUsd).toBeCloseTo(0.002752512);
+    expect(result.usage[0]).toMatchObject({
+      inputTokens: 120,
+      outputTokens: 12,
+      reportedCostUsd: null,
+      priceVersion: "test-token-price",
+      costUnknown: false,
+    });
+    expect(result.usage[0]?.estimatedCostUsd).toBeCloseTo(0.00000504);
+    expect(result.usage[0]?.chargedUsd).toBeCloseTo(0.00000504);
+  });
+  it("abstains before token-priced dispatch when the complete request exceeds its reserve", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const input = options();
+    input.providers = [
+      {
+        ...tokenHosted(),
+        pricing: { ...tokenHosted().pricing, inputTokenReserve: 16 },
+      },
+    ];
+    input.policy.maxCostUsd = 1;
+    input.budget = { reserve: vi.fn(), settle: vi.fn() };
+    const result = await decideBatch(input);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(input.budget.reserve).not.toHaveBeenCalled();
+    expect(result.records[0]?.evidence.failure).toContain("reservation");
+  });
+  it("keeps the baseline and full reservation when token usage is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response({
+          workflow: { choice: "alternative", confidence: 0.99 },
+          effort: { choice: "low", confidence: 0.99 },
+        }),
+      ),
+    );
+    const input = options();
+    input.providers = [tokenHosted()];
+    input.policy.maxCostUsd = 0.01;
+    input.budget = { reserve: vi.fn(), settle: vi.fn() };
+    const result = await decideBatch(input);
+    expect(result.selections).toEqual({ workflow: "safe", effort: "high" });
+    expect(result.usage[0]).toMatchObject({
+      inputTokens: null,
+      costUnknown: true,
+    });
+    expect(result.usage[0]?.chargedUsd).toBeCloseTo(0.002752512);
+    expect(result.records[0]?.evidence.failure).toContain("input-token usage");
+    expect(input.budget.settle).toHaveBeenCalledTimes(1);
+  });
+  it("rejects token usage above the reviewed reservation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response(
+          {
+            workflow: { choice: "alternative", confidence: 0.99 },
+            effort: { choice: "low", confidence: 0.99 },
+          },
+          { usage: { input_tokens: 2048, output_tokens: 10 } },
+        ),
+      ),
+    );
+    const input = options();
+    input.providers = [
+      {
+        ...tokenHosted(),
+        pricing: { ...tokenHosted().pricing, inputTokenReserve: 1024 },
+      },
+    ];
+    input.policy.maxCostUsd = 0.01;
+    input.budget = { reserve: vi.fn(), settle: vi.fn() };
+    const result = await decideBatch(input);
+    expect(result.selections).toEqual({ workflow: "safe", effort: "high" });
+    expect(result.records[0]?.evidence.failure).toContain("exceeded");
+    expect(result.usage[0]?.chargedUsd).toBeGreaterThan(
+      result.usage[0]?.reservedUsd ?? 0,
+    );
+  });
   it("reserves a reviewed per-question price once before fetching and records missing hosted usage as unknown tokens", async () => {
     const order: string[] = [],
       reserve = vi.fn(async () => {
