@@ -356,6 +356,17 @@ project/policy/model scope, current trust and immutable evidence at runtime.
 No trust keys, labels, policy changes or approvals are generated automatically.
 Synthetic tests exercise these controls, not model quality or measured savings.
 
+`inspectSignedPromotionApproval(cohort, targetPins, keyPin, envelope)` is a
+local, analysis-only signature check. The strict, bounded Ed25519 envelope uses
+the `graph-engineering/promotion-approval/v1` purpose and signs an operator ID,
+approval ID, expiry, every frozen target identity pin, and hashes of the
+recomputed preflight and exact target report. Its public key pin is separately
+supplied by the caller. A matching signature does not establish that the signer
+is an authorized operator, that the pin or clock is independently governed, or
+that current trust and anti-rollback evidence are valid. The frozen receipt
+always has `promotionEligible: false` and cannot populate the runtime grant
+resolver or write `promotions.json`.
+
 Run the sidecar's dependency-free tests with:
 
 ```sh
