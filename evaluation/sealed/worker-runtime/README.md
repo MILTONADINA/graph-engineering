@@ -106,8 +106,9 @@ become provider errors while their raw response remains available for audit.
 A timeout, interrupted request or
 unretained response is conservatively ambiguous and must never be retried.
 The returned observation names request/response/proposal byte references and
-is unsigned, replayable, and `promotionEligible: false`; it does not settle the
-engineering attempt or establish a held-out outcome.
+is `promotionEligible: false`; it does not settle the engineering attempt or
+establish a held-out outcome. Without opt-in signing,
+`signedWorkerDelivery` is `null`.
 
 ```js
 let observation;
@@ -125,9 +126,44 @@ const dispatch = await bridge.dispatch({
     });
   },
 });
-// dispatch is only the durable bridge claim; observation is unsigned local
-// transport bookkeeping. The trusted collector still owns recovery/settlement.
+// dispatch is only the durable bridge claim; observation is local transport
+// bookkeeping. The trusted collector still owns recovery/settlement.
 ```
+
+For an optional private, purpose-separated worker claim, provision an Ed25519
+PKCS#8 PEM key under an existing owner-only `0700` directory. The key must be
+an owner-only `0600` regular file with one link; leaf symlinks are rejected.
+Select and retain its SPKI DER SHA-256 fingerprint separately, then pass:
+
+```js
+workerSigning: {
+  keyPath: "/absolute/private/worker-key.pem",
+  workerId: "worker-id",
+  keyId: "worker-key-id",
+  expectedPublicKeySha256: "<separately pinned lowercase SHA-256>",
+}
+```
+
+Only a completed local call emits `observation.signedWorkerDelivery`, a private
+`{ callId, pin, envelope }` row for the existing post-closure
+`inspectSignedSealedWorkerDelivery()` and whole-cohort inspector. It signs the
+frozen dispatch, provider, call reservation and receipt identities plus the
+retained request/response byte hashes and sizes. Its `deliveredAt` is the
+host-observed time the complete HTTP response body arrived, not independent
+delivery proof. Invalid key options fail
+before call reservation or model POST, though the bridge's one-shot dispatch
+claim has already been consumed. Provider errors and ambiguous calls emit no
+signed row. The private key path and bytes are never returned or logged; do not
+put them in a public packet, MCP response, repository, or CI secret output.
+Windows signing is disabled because this adapter does not inspect Windows ACLs.
+Parent-ancestor trust and hostile same-user filesystem races are not proven.
+The returned public key pin is **not** independent approval: the caller must
+obtain its trusted pin separately. Cohort/readiness callers must compare each
+row's pin fingerprint with that separately retained trust list; those APIs do
+not make an embedded row pin trusted merely by verifying its signature. The
+host still signs its own local claim;
+this does not attest the loaded model, executable, Docker host, key governance,
+or actual worker delivery. Every receipt remains non-authorizing.
 
 The model server itself is **outside the container** and is neither isolated
 nor attested by this adapter. The frozen weights hashes are caller-supplied
@@ -138,9 +174,9 @@ model may retain its own logs. The
 host and Docker daemon remain trusted. A race between the final ledger check
 and HTTP dispatch is not atomic; the supervisor must fence in-flight transport
 before abandoning an attempt. No general protected engineering oracle,
-independent review, signed transport provenance, or promotion authority is
-supplied by this relay. The separate digest verifier covers only one exact-byte
-question.
+independently authenticated transport provenance, independent review, or
+promotion authority is supplied by this relay. The separate digest verifier
+covers only one exact-byte question.
 `local-no-api-charge` means no marginal external API charge, not zero machine
 cost. The adapter performs no paid inference.
 

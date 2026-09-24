@@ -7,12 +7,28 @@ calibration evidence.
 
 Work is stacked in focused commits on the owner's fork, on feature branches.
 No direct pushes to `main`, no AI co-author trailers, and no upstream updates.
-The owner has authorized a PR review and merge of the completed implementation into
+The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
-The table is the implementation checkpoint before the final PR handoff; dated
-updates immediately below it supersede rows 1 and 12 where applicable.
+## Current fork state — 2026-09-24 UTC
+
+Foundation [PR #3](https://github.com/MILTONADINA/graph-engineering/pull/3)
+and platform [PR #2](https://github.com/MILTONADINA/graph-engineering/pull/2)
+were rebase-merged into the owner's fork `dev` at `bcbd691`. All nine required
+checks passed on the PR tip and again on the merged `dev` commit in
+[the post-merge run](https://github.com/MILTONADINA/graph-engineering/actions/runs/35978069125).
+The fork `main` still requires seven checks and one independent approval;
+`dev` requires nine checks and zero GitHub approvals under the owner's chosen
+author-review workflow. Both retain linear history, admin enforcement, and
+force-push/deletion protection. No commit was pushed to either `main` or the
+parent repository. Kevin's review of the resulting fork `dev`, human acceptance
+of the real-task run, and any later upstream synchronization remain separate.
+
+The table is a historical implementation checkpoint before that merge. The
+dated updates and current-state paragraph supersede its older handoff wording.
+
+## Historical implementation checkpoint
 
 | #   | Deliverable                                                | Status / completion evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -78,9 +94,13 @@ closed cohort. The cohort check re-reads pinned original request/response bytes
 and runs inside the readiness audit's optional witness bracket. It reports
 completed calls without a public-dispatch claim rather than treating them as
 proof of packet delivery. Focused tamper tests and the full local check passed.
-There is still no production signer, independent key control, loaded-model
-attestation or oracle provenance; neither verifier grants promotion authority
-or turns these fixtures into held-out evidence.
+An opt-in local worker now emits a signed claim for a completed model call;
+its native fake-loopback fixture verifies the claim against the retained bytes
+after closing both cohort arms. This is a self-governed local key, not an
+independently authenticated worker identity. Loaded-model attestation, oracle
+provenance and separate trusted pin governance are still absent. Neither
+verifier grants promotion authority or turns these fixtures into held-out
+evidence.
 
 An optional pre-run source-inventory signature check now binds a
 caller-pinned Ed25519 source key, declared inventory digest, selected task
@@ -271,9 +291,10 @@ This is an implemented and tested development platform, not a claim of fourteen
 unqualified production approvals. The remaining work has different owners and
 is not all a prerequisite for normal local or MCP-assisted engineering:
 
-- Owner/partner actions: after CI passes, author-review and merge the PR into
-  the fork's `dev` under the owner's chosen zero-approval rule. Kevin then
-  reviews that branch before any separate upstream synchronization. Jev is the
+- Owner/partner actions: the feature PRs are merged into the fork's `dev` after
+  exact-tip and post-merge green CI. Kevin reviews that branch before any
+  separate upstream synchronization; human acceptance of the successful real
+  UTF-8 repair is not inferred from automated checks. Jev is the
   only configured metered decision provider, but it remains disabled until an
   operator selects a numeric session cap and reviewed account-specific price.
 - Client integration evidence: Cursor's separate project MCP still needs an
