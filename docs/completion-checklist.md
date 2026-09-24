@@ -8,6 +8,9 @@ calibration evidence.
 Work is stacked in focused commits on the owner's fork, on feature branches.
 No direct pushes to `main`, no AI co-author trailers, no upstream updates, and
 no PR reviews or merges until the implementation is ready.
+When ready, review and merge this feature stack into
+`MILTONADINA/graph-engineering:dev`; synchronization with
+`NdahayoKevin25/graph-engineering` is a separate later step.
 
 | #   | Deliverable                                                | Status / completion evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -211,13 +214,25 @@ actual labels or measured model outcomes automatically.
 See [local validation](local-validation.md) for measured results and failed-attempt caveats.
 
 This is an implemented and tested development platform, not a claim of fourteen
-unqualified production approvals. Remaining partner/user-controlled steps are
-PR review/merge/upstream synchronization; metered-API provider selection and
-an explicit budget; Cursor's separate project-MCP approval or compatible
-Codex/Cursor managed runtimes; and independently reviewed real-world evaluation
-evidence. See [the Mac runbook](mac-local-runbook.md),
-[native capability report](installed-workers.md), and
-[evaluation gates](decisions.md).
+unqualified production approvals. The remaining work has different owners and
+is not all a prerequisite for normal local or MCP-assisted engineering:
+
+- Owner/partner decisions: review and merge into the fork's `dev`, later upstream
+  synchronization, and (only if wanted) a metered API provider and spending cap.
+- Client integration evidence: Cursor's separate project MCP still needs an
+  observed in-app call. Codex/Cursor managed proposal paths need compatible,
+  independently validated runtimes; the already tested Claude proposal path
+  and MCP use do not depend on those paths.
+- Software and independent evaluation: protected provenance and a trusted
+  promotion issuer still need implementation. Genuine unseen tasks, independent
+  labels/reviews, separately governed signing keys, and an append-only pre-run
+  witness require a controller other than the same agent preparing the run.
+  Self-run real-task pilots are useful but remain non-independent and in shadow
+  mode. The owner previously chose to leave the external witness integration
+  point for later.
+
+See [the Mac runbook](mac-local-runbook.md),
+[native capability report](installed-workers.md), and [evaluation gates](decisions.md).
 
 The planned catalog and remaining implementation boundaries are explicit in the
 [template inventory](dag-and-template-runtime.md#remaining-catalog-inventory)

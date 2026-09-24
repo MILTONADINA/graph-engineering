@@ -72,7 +72,12 @@ should print your npm username, not an auth error.
 }
 ```
 
-The repository is hosted at `NdahayoKevin25/graph-engineering`. Work on feature branches and open reviewed PRs into `dev`; never push development changes to `main`. See [CONTRIBUTING.md](../CONTRIBUTING.md). Publishing to npm is a separate, explicitly authorized release operation.
+The upstream repository is `NdahayoKevin25/graph-engineering`. For this
+implementation stack, open reviewed PRs from feature branches into
+`MILTONADINA/graph-engineering:dev`; synchronize with upstream only as a
+separate later step. Never push development changes to `main`. See
+[CONTRIBUTING.md](../CONTRIBUTING.md). Publishing to npm is a separate,
+explicitly authorized release operation.
 
 ### 3. Run the full pre-publish check yourself, before npm does
 
