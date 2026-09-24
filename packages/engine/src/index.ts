@@ -32,6 +32,10 @@ export {
   type CohortInspection,
   type CohortPins,
 } from "./full-cohort-ledger.js";
+export {
+  inspectSignedPromotionApproval,
+  SIGNED_PROMOTION_APPROVAL_DOMAIN,
+} from "./signed-promotion-approval.js";
 export { backupProject, restoreProject } from "./operations.js";
 export { runDag, validateDag } from "./execution/dag.js";
 export {
