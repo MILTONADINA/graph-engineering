@@ -1,4 +1,4 @@
-# Local validation — 2026-09-22–23 UTC
+# Local validation — 2026-09-22–24 UTC
 
 These are development observations, not production calibration or a claimed
 percentage reduction in model cost. Private run databases retain detailed
@@ -195,6 +195,37 @@ about two seconds, before the 180-second deadline; the adapter withheld raw
 stderr because it may contain context or credentials. It returned no proposal
 or usage, made no patch, and was not retried. This short-packet result does not
 explain the earlier longer native failure or justify a full managed run.
+
+## Fresh cloud-export repair pilots — 2026-09-24 UTC
+
+The ignored local receipts and ledger under `.graph/local/item6-*` record four
+further isolated attempts against the pre-fix cloud-export scanner. The frozen
+assignment-matrix regression produced four failures and 12 passes on the
+baseline; the reviewed control passed all 17 focused tests in the pinned,
+network-disabled Docker verifier. This red/control proof is separate from any
+model-generated repair.
+
+The first existing-Qwen pilot (run `3387a48e`) applied a one-file `policy.ts`
+patch, but its focused check exited 1 and the run failed. Its ledger records
+9,849 local input and 1,241 output tokens with reported $0 metered cost. A
+fresh one-attempt retry (run `02407867`) received the exact scanner and frozen
+regression bytes, then produced an invalid regular expression in `policy.ts`.
+The focused verifier exited before test collection; no behavioral pass or full
+check was credited. That retry reported 5,844 local input and 2,211 output
+tokens with $0 metered cost.
+
+A separate two-attempt-policy Qwen recovery pilot (run `30010537`) stopped on
+its first call when the proposal requested a path outside the two selected
+files. The packet guard rejected it before the engine received a proposal: no
+patch, verification, recovery decision, second call or publication followed.
+Usage is unknown because the wrapper stopped before the engine settled it;
+this did not exercise live feedback recovery. The one-attempt Claude Max
+engine pilot (run `a02f6d57`) passed the same source and verifier preflight,
+but the native CLI exited 1 after about five seconds. It returned no proposal
+or usage and applied no patch. Claude subscription usage and dollar cost remain
+unknown; its withheld stderr does not establish the cause. These pilots made
+no paid API call, downloaded no new Qwen model, and published nothing. They do
+not complete item 6 or establish a successful autonomous cloud-export repair.
 
 An independent non-synthetic replay targeted the security-review routing gap in
 `service.ts`. In detached pre-fix worktree `fce69f6`, the focused regression

@@ -206,6 +206,17 @@ without a proposal or usage; it was not retried. None changed this branch or
 counts as successful repair. Exact evidence is in
 [local validation](local-validation.md).
 
+Fresh 2026-09-24 item 6 pilots also remain unsuccessful. One existing-Qwen
+candidate failed its focused check; a fresh retry produced a regex that failed
+before test collection. A separate Qwen recovery pilot rejected an off-scope
+source request before patching or verification, so its second-attempt feedback
+path remains unproven and its token usage is unknown. A one-attempt Claude Max
+engine run exited natively without a proposal; its usage and dollar cost are
+unknown. The baseline was red and the reviewed control green in the focused
+offline verifier, but no pilot repair passed it. No paid API, new Qwen download
+or publication was involved. Item 6 remains incomplete; see
+[the dated local evidence](local-validation.md#fresh-cloud-export-repair-pilots--2026-09-24-utc).
+
 A separate [security-review routing replay](local-validation.md) reached a
 green focused offline Docker check on a real pre-fix defect (plan
 `71702578-8fc7-46bd-9a51-0f0bf97cd04a`, run
