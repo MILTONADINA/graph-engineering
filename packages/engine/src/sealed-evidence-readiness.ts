@@ -37,7 +37,11 @@ import {
   validateSealedWorkerKeyFingerprintRegistry,
   validateSealedWorkerDeliveryRegistryRows,
 } from "./sealed-worker-delivery.js";
-import { inspectSignedSealedSourceInventory } from "./sealed-source-provenance.js";
+import {
+  inspectSignedSealedSourceInventory,
+  validateSealedSourceAttestationRegistryRow,
+  validateSealedSourceKeyFingerprintRegistry,
+} from "./sealed-source-provenance.js";
 import {
   inspectSignedSealedOracleExecutionCohort,
   validateSealedOracleExecutionRegistryRows,
@@ -71,6 +75,8 @@ export interface SealedEvidenceReadinessInput {
   workerKeyFingerprintRegistry?: unknown;
   /** Caller-pinned pre-run claim; no independent source/key authentication. */
   sourceAttestation?: { pin: unknown; envelope: unknown };
+  /** Optional separate source fingerprint list; caller provenance is unverified. */
+  sourceKeyFingerprintRegistry?: unknown;
   /** Caller-pinned oracle claims; no executable/image/key authentication. */
   oracleExecutions?: unknown;
   /** Optional separate oracle fingerprint list; caller provenance is unverified. */
@@ -285,6 +291,7 @@ export async function inspectSealedEvidenceReadiness(
       "workerDeliveries",
       "workerKeyFingerprintRegistry",
       "sourceAttestation",
+      "sourceKeyFingerprintRegistry",
       "oracleExecutions",
       "oracleKeyFingerprintRegistry",
       "nowMs",
@@ -347,6 +354,30 @@ export async function inspectSealedEvidenceReadiness(
   const manifestSha256 = digestSchema.parse(aggregateFields.manifestSha256);
   const earlier = cohortInspectionSchema.parse(population.inspection);
   const closed = cohortInspectionSchema.parse(cohort.inspection);
+  if (
+    fields.sourceKeyFingerprintRegistry !== undefined &&
+    sourceAttestation === undefined
+  )
+    throw new Error(
+      "Sealed readiness source key fingerprint registry requires attestation",
+    );
+  const sourceKeyFingerprintRegistry =
+    fields.sourceKeyFingerprintRegistry === undefined
+      ? undefined
+      : validateSealedSourceKeyFingerprintRegistry(
+          fields.sourceKeyFingerprintRegistry,
+          {
+            projectId: closed.plan.projectId,
+            collectionId: closed.plan.collectionId,
+            planSha256: closed.planSha256,
+          },
+        );
+  if (sourceKeyFingerprintRegistry)
+    validateSealedSourceAttestationRegistryRow(
+      sourceAttestation!.pin,
+      sourceAttestation!.envelope,
+      sourceKeyFingerprintRegistry,
+    );
   if (
     fields.workerKeyFingerprintRegistry !== undefined &&
     workerDeliveries === undefined
@@ -482,7 +513,12 @@ export async function inspectSealedEvidenceReadiness(
           population.sourceInventory,
           sourceAttestation.pin,
           sourceAttestation.envelope,
-          { nowMs },
+          {
+            nowMs,
+            ...(sourceKeyFingerprintRegistry
+              ? { keyFingerprintRegistry: sourceKeyFingerprintRegistry }
+              : {}),
+          },
         ),
       );
     if (workerDeliveries !== undefined)
@@ -832,6 +868,10 @@ export async function inspectSealedEvidenceReadiness(
     sourceInventorySha256: selection.sourceInventorySha256,
     sourceSignatureCompared: sourceClaim !== undefined,
     sourceSignatureKeyPinSha256: sourceClaim?.keyPinSha256 ?? null,
+    sourceKeyFingerprintRegistryCompared:
+      sourceClaim?.keyFingerprintRegistryCompared ?? false,
+    sourceKeyFingerprintRegistrySha256:
+      sourceClaim?.keyFingerprintRegistrySha256 ?? null,
     signedSourceClaimSha256: sourceClaim?.signedClaimSha256 ?? null,
     sourceEligibilityAuthenticated: false as const,
     signedManifestSha256: selection.signedManifestSha256,
