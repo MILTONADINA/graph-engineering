@@ -126,6 +126,9 @@ export class ContextEngine {
   private ready: Promise<void>;
   private indexing?: Promise<RepositorySnapshot>;
   private embeddingIndexes = new Map<string, Promise<void>>();
+  private exportScopes = new Map<string, Promise<void>>();
+  private exportScopeUsers = new Map<string, number>();
+  private exportEvictions = new Map<string, Promise<void>>();
   private vectorError: string | null = null;
   private watchers = new Set<{ close(): Promise<void> }>();
   readonly projectId: string;
@@ -147,6 +150,107 @@ export class ContextEngine {
   }
   updatePolicy(policy: ProjectPolicy): void {
     Object.assign(this.policy, structuredClone(policy));
+  }
+  private async ensureExportScope(
+    snapshotId: string,
+    policy: ProjectPolicy,
+  ): Promise<string> {
+    const scope = hash(
+      JSON.stringify({
+        version: 1,
+        snapshotId,
+        excludedPaths: policy.excludedPaths,
+        exportPaths: policy.exportPaths,
+        allowPublicTemplateLedger: policy.allowPublicTemplateLedger,
+      }),
+    );
+    const eviction = this.exportEvictions.get(scope);
+    if (eviction) await eviction;
+    let pending = this.exportScopes.get(scope);
+    if (!pending) {
+      pending = (async () => {
+        // The table is connection-local. A failed build never becomes visible
+        // to retrieval, and a new process rebuilds it from its own snapshot.
+        await this.db.exec(
+          "CREATE TEMP TABLE IF NOT EXISTS context_export_eligible (scope TEXT NOT NULL, chunk_id TEXT NOT NULL, PRIMARY KEY(scope,chunk_id))",
+        );
+        let cursor = "";
+        while (true) {
+          const rows = await this.db.all<{
+            id: string;
+            path: string;
+            text: string;
+          }>(
+            "SELECT id,path,text FROM chunks WHERE snapshot_id=? AND id>? ORDER BY id LIMIT 256",
+            [snapshotId, cursor],
+          );
+          if (!rows.length) break;
+          cursor = rows.at(-1)!.id;
+          const statements = rows
+            .filter(
+              (row) =>
+                !this.excluded(row.path, policy) &&
+                isAllowedPath(row.path, policy, true) &&
+                !containsSecret(row.path) &&
+                !containsSecret(row.text),
+            )
+            .map((row) => ({
+              sql: "INSERT OR IGNORE INTO context_export_eligible(scope,chunk_id) VALUES(?,?)",
+              params: [scope, row.id],
+            }));
+          if (statements.length) await this.db.batch(statements);
+        }
+      })().catch(async (error: unknown) => {
+        try {
+          await this.db.run(
+            "DELETE FROM context_export_eligible WHERE scope=?",
+            [scope],
+          );
+        } catch {
+          // Preserve the original build error if the connection also failed.
+        }
+        throw error;
+      });
+      this.exportScopes.set(scope, pending);
+    } else {
+      // Keep recently used scopes while bounding temporary index retention.
+      this.exportScopes.delete(scope);
+      this.exportScopes.set(scope, pending);
+    }
+    this.exportScopeUsers.set(
+      scope,
+      (this.exportScopeUsers.get(scope) ?? 0) + 1,
+    );
+    try {
+      await pending;
+    } catch (error) {
+      const users = this.exportScopeUsers.get(scope)! - 1;
+      if (users > 0) this.exportScopeUsers.set(scope, users);
+      else this.exportScopeUsers.delete(scope);
+      this.exportScopes.delete(scope);
+      throw error;
+    }
+    return scope;
+  }
+  private async releaseExportScope(scope: string): Promise<void> {
+    const users = (this.exportScopeUsers.get(scope) ?? 1) - 1;
+    if (users > 0) this.exportScopeUsers.set(scope, users);
+    else this.exportScopeUsers.delete(scope);
+    for (const candidate of this.exportScopes.keys()) {
+      if (this.exportScopes.size <= 2) break;
+      if (this.exportScopeUsers.has(candidate)) continue;
+      this.exportScopes.delete(candidate);
+      const eviction = this.db.run(
+        "DELETE FROM context_export_eligible WHERE scope=?",
+        [candidate],
+      );
+      this.exportEvictions.set(candidate, eviction);
+      try {
+        await eviction;
+      } finally {
+        this.exportEvictions.delete(candidate);
+      }
+    }
   }
   private async initialize(): Promise<void> {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
@@ -170,21 +274,20 @@ export class ContextEngine {
       throw error;
     }
   }
-  private excluded(path: string): boolean {
+  private excluded(path: string, policy: ProjectPolicy = this.policy): boolean {
     if (!safePath(path)) return true;
     const segments = path.split("/");
     const prefixes = segments.map((_, index) =>
       segments.slice(0, index + 1).join("/"),
     );
-    return [...BUILTIN_EXCLUSIONS, ...this.policy.excludedPaths].some(
-      (pattern) =>
-        prefixes.some((prefix) =>
-          picomatch(pattern, {
-            dot: true,
-            nocase: true,
-            basename: !pattern.includes("/"),
-          })(prefix),
-        ),
+    return [...BUILTIN_EXCLUSIONS, ...policy.excludedPaths].some((pattern) =>
+      prefixes.some((prefix) =>
+        picomatch(pattern, {
+          dot: true,
+          nocase: true,
+          basename: !pattern.includes("/"),
+        })(prefix),
+      ),
     );
   }
   private async git(args: string[]): Promise<string | null> {
@@ -683,9 +786,10 @@ export class ContextEngine {
     symbolId: string,
     snapshotId?: string,
     depth = 1,
-    options: { exportOnly?: boolean } = {},
+    options: { exportOnly?: boolean; policy?: ProjectPolicy } = {},
   ): Promise<GraphEdge[]> {
     const snapshot = await this.snapshot(snapshotId);
+    const policy = options.policy ?? this.policy;
     if (!Number.isInteger(depth) || depth < 1 || depth > 3)
       throw new Error("Graph depth must be between 1 and 3");
     let frontier = [symbolId];
@@ -707,8 +811,8 @@ export class ContextEngine {
     };
     const exportable = (symbol: CodeSymbol | undefined): boolean =>
       !!symbol &&
-      !this.excluded(symbol.source.path) &&
-      isAllowedPath(symbol.source.path, this.policy, true) &&
+      !this.excluded(symbol.source.path, policy) &&
+      isAllowedPath(symbol.source.path, policy, true) &&
       ![symbol.name, symbol.signature, symbol.source.path].some(containsSecret);
     for (
       let hop = 0;
@@ -729,14 +833,14 @@ export class ContextEngine {
         );
         for (const row of rows) {
           const edge = json<GraphEdge>(row);
-          if (this.excluded(edge.source.path)) continue;
+          if (this.excluded(edge.source.path, policy)) continue;
           const mappingSources = edge.resolution?.sources ?? [];
           if (
             options.exportOnly &&
             mappingSources.some(
               (source) =>
-                this.excluded(source.path) ||
-                !isAllowedPath(source.path, this.policy, true) ||
+                this.excluded(source.path, policy) ||
+                !isAllowedPath(source.path, policy, true) ||
                 containsSecret(source.path),
             )
           )
@@ -744,7 +848,8 @@ export class ContextEngine {
           if (
             mappingSources.some(
               (source) =>
-                this.excluded(source.path) || source.snapshotId !== snapshot.id,
+                this.excluded(source.path, policy) ||
+                source.snapshotId !== snapshot.id,
             )
           ) {
             // A hidden configuration cannot establish historical reachability.
@@ -757,7 +862,7 @@ export class ContextEngine {
           }
           if (
             options.exportOnly &&
-            (!isAllowedPath(edge.source.path, this.policy, true) ||
+            (!isAllowedPath(edge.source.path, policy, true) ||
               [edge.target, edge.source.path].some(containsSecret) ||
               !exportable(await readSymbol(edge.from)))
           )
@@ -765,7 +870,7 @@ export class ContextEngine {
           if (edge.to) {
             const target = await readSymbol(edge.to);
             if (options.exportOnly && !exportable(target)) continue;
-            if (!target || this.excluded(target.source.path)) {
+            if (!target || this.excluded(target.source.path, policy)) {
               edge.to = null;
               edge.evidence = "syntactic";
               delete edge.resolution;
@@ -787,8 +892,13 @@ export class ContextEngine {
     snapshotId?: string;
     mandatory?: string[];
     retrieval?: "lexical" | "graph" | "hybrid";
+    exportOnly?: boolean;
   }): Promise<ContextPacket> {
     const retrieval = input.retrieval ?? "hybrid";
+    const exportOnly = input.exportOnly === true;
+    const exportPolicy = exportOnly
+      ? structuredClone(this.policy)
+      : this.policy;
     if (!["lexical", "graph", "hybrid"].includes(retrieval))
       throw new Error("Unknown retrieval mode");
     // Lexical/graph retrieval must not pay embedding-index costs. Hybrid heals
@@ -805,6 +915,12 @@ export class ContextEngine {
       throw new Error("Context budget is outside project policy");
     if (containsSecret(input.query) || input.mandatory?.some(containsSecret))
       throw new Error("Context request contains a credential pattern");
+    const exportableChunk = (chunk: Chunk): boolean =>
+      !this.excluded(chunk.source.path, exportPolicy) &&
+      (!exportOnly ||
+        (isAllowedPath(chunk.source.path, exportPolicy, true) &&
+          !containsSecret(chunk.source.path) &&
+          !containsSecret(chunk.text)));
     const memories = (await this.listMemories()).filter(
       (memory) =>
         memory.status === "accepted" ||
@@ -814,6 +930,21 @@ export class ContextEngine {
     const mandatoryMemories = memories.filter((memory) =>
       ["constraint", "requirement"].includes(memory.kind),
     );
+    if (
+      exportOnly &&
+      mandatoryMemories.some(
+        (memory) =>
+          memory.visibility !== "shared" ||
+          memory.sources.length === 0 ||
+          containsSecret(memory.text) ||
+          memory.sources.some(
+            (source) =>
+              !isAllowedPath(source.path, exportPolicy, true) ||
+              containsSecret(source.path),
+          ),
+      )
+    )
+      throw new Error("Mandatory memory is not exportable to this client");
     const mandatory = [
       ...new Set([
         ...(input.mandatory ?? []),
@@ -834,20 +965,35 @@ export class ContextEngine {
         `Mandatory context needs at least ${used} tokens; budget is ${budget}. Increase the permitted budget or refine the task.`,
       );
     const candidates = new Map<string, ContextItem>();
-    const terms = [
-      ...new Set(input.query.match(/[\p{L}\p{N}_]{2,}/gu) ?? []),
-    ].slice(0, 24);
-    if (terms.length) {
-      const match = terms
-        .map((term) => `"${term.replaceAll('"', '""')}"`)
-        .join(" OR ");
-      const rows = await this.db.all<Payload & { rank: number }>(
-        "SELECT c.payload, bm25(chunks_fts,0,0,4,1) AS rank FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.id AND c.snapshot_id=chunks_fts.snapshot_id WHERE chunks_fts MATCH ? AND chunks_fts.snapshot_id=? ORDER BY rank LIMIT 80",
-        [match, snapshot.id],
-      );
-      rows.forEach((row, index) => {
-        const chunk = json<Chunk>(row);
-        if (!this.excluded(chunk.source.path))
+    const exportScope = exportOnly
+      ? await this.ensureExportScope(snapshot.id, exportPolicy)
+      : null;
+    try {
+      const terms = [
+        ...new Set(input.query.match(/[\p{L}\p{N}_]{2,}/gu) ?? []),
+      ].slice(0, 24);
+      if (terms.length) {
+        const match = terms
+          .map((term) => `"${term.replaceAll('"', '""')}"`)
+          .join(" OR ");
+        const rankTerms = terms.slice(0, 8).map((term) => term.toLowerCase());
+        const publicRank = rankTerms
+          .map(() => "(instr(lower(c.path || ' ' || c.text), ?) > 0)")
+          .join(" + ");
+        const rows = await this.db.all<Payload>(
+          exportOnly
+            ? `SELECT c.payload FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.id AND c.snapshot_id=chunks_fts.snapshot_id JOIN context_export_eligible eligible ON eligible.chunk_id=c.id AND eligible.scope=? WHERE chunks_fts MATCH ? AND chunks_fts.snapshot_id=? ORDER BY (${publicRank}) DESC, length(c.text), c.id LIMIT 80`
+            : "SELECT c.payload FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.id AND c.snapshot_id=chunks_fts.snapshot_id WHERE chunks_fts MATCH ? AND chunks_fts.snapshot_id=? ORDER BY bm25(chunks_fts,0,0,4,1) LIMIT 80",
+          exportOnly
+            ? [exportScope, match, snapshot.id, ...rankTerms]
+            : [match, snapshot.id],
+        );
+        const matching = rows
+          .map((row) => json<Chunk>(row))
+          .filter(exportableChunk);
+        // Cloud ranking sees only eligible chunks and uses per-chunk signals,
+        // never private-corpus BM25 statistics or an unbounded result set.
+        matching.slice(0, 80).forEach((chunk, index) => {
           candidates.set(chunk.id, {
             ...chunk,
             kind: /\.(?:md|txt|rst|adoc)$/i.test(chunk.source.path)
@@ -855,195 +1001,223 @@ export class ContextEngine {
               : "code",
             score: 1 / (60 + index),
           });
-      });
-    }
-    let semantic = false;
-    const warnings = [...snapshot.coverage.errors];
-    for (const memory of mandatoryMemories)
-      if (memory.status === "conflicted")
-        warnings.push(
-          `Mandatory memory ${memory.id} has an unresolved conflict; review is required and its original constraint remains in force.`,
-        );
-    if (retrieval === "hybrid" && !this.vectorError) {
-      await this.ensureSnapshotEmbeddings(snapshot.id);
-      const queryVector = await this.embeddings.embed(input.query);
-      if (queryVector) {
-        const rows = await this.db.all<Payload & { distance: number }>(
-          "SELECT c.payload, vec_distance_cosine(e.vector,?) AS distance FROM chunks c JOIN chunk_embeddings ce ON ce.snapshot_id=c.snapshot_id AND ce.chunk_id=c.id JOIN embeddings e ON e.cache_key=ce.cache_key WHERE c.snapshot_id=? AND e.model=? ORDER BY distance LIMIT 80",
-          [Buffer.from(queryVector.buffer), snapshot.id, EMBEDDING_KEY],
-        );
-        semantic = rows.length > 0;
-        rows.forEach((row, index) => {
-          const chunk = json<Chunk>(row);
-          if (!this.excluded(chunk.source.path))
+        });
+      }
+      let semantic = false;
+      const warnings = [...snapshot.coverage.errors];
+      for (const memory of mandatoryMemories)
+        if (memory.status === "conflicted")
+          warnings.push(
+            `Mandatory memory ${memory.id} has an unresolved conflict; review is required and its original constraint remains in force.`,
+          );
+      if (retrieval === "hybrid" && !this.vectorError) {
+        await this.ensureSnapshotEmbeddings(snapshot.id);
+        const queryVector = await this.embeddings.embed(input.query);
+        if (queryVector) {
+          const rows = await this.db.all<Payload & { distance: number }>(
+            exportOnly
+              ? "SELECT c.payload, vec_distance_cosine(e.vector,?) AS distance FROM chunks c JOIN chunk_embeddings ce ON ce.snapshot_id=c.snapshot_id AND ce.chunk_id=c.id JOIN embeddings e ON e.cache_key=ce.cache_key JOIN context_export_eligible eligible ON eligible.chunk_id=c.id AND eligible.scope=? WHERE c.snapshot_id=? AND e.model=? ORDER BY distance,c.id LIMIT 80"
+              : "SELECT c.payload, vec_distance_cosine(e.vector,?) AS distance FROM chunks c JOIN chunk_embeddings ce ON ce.snapshot_id=c.snapshot_id AND ce.chunk_id=c.id JOIN embeddings e ON e.cache_key=ce.cache_key WHERE c.snapshot_id=? AND e.model=? ORDER BY distance LIMIT 80",
+            exportOnly
+              ? [
+                  Buffer.from(queryVector.buffer),
+                  exportScope,
+                  snapshot.id,
+                  EMBEDDING_KEY,
+                ]
+              : [Buffer.from(queryVector.buffer), snapshot.id, EMBEDDING_KEY],
+          );
+          const matching = rows
+            .map((row) => json<Chunk>(row))
+            .filter(exportableChunk)
+            .slice(0, 80);
+          semantic = matching.length > 0;
+          matching.forEach((chunk, index) => {
             candidates.set(chunk.id, {
               ...chunk,
               kind: "code",
               score: (candidates.get(chunk.id)?.score ?? 0) + 1 / (60 + index),
             });
-        });
-      } else warnings.push(this.embeddings.warning);
-    } else if (retrieval === "hybrid")
-      warnings.push(`Vector extension unavailable: ${this.vectorError}`);
-    if (retrieval !== "hybrid")
-      warnings.push(
-        `Retrieval mode ${retrieval}: semantic search intentionally disabled`,
-      );
-    for (const memory of memories.filter(
-      (memory) => !["constraint", "requirement"].includes(memory.kind),
-    )) {
-      const matches = terms.filter((term) =>
-        memory.text.toLowerCase().includes(term.toLowerCase()),
-      ).length;
-      if (matches)
-        candidates.set(memory.id, {
-          id: memory.id,
-          kind: "memory",
-          text: memory.text,
-          memoryId: memory.id,
-          score: matches / Math.max(terms.length, 1) / 50,
-        });
-    }
-    // An exact repository path in the task is stronger evidence than fuzzy
-    // term overlap. Resolve only paths present in this frozen snapshot, and
-    // preserve all normal exclusions; this is a priority hint, not authority
-    // to read an arbitrary file or bypass the context budget.
-    const pathHints = [
-      ...new Set(
-        (
-          input.query.match(
-            /(?<![A-Za-z0-9_./-])(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+/g,
-          ) ?? []
-        )
-          .map((value) => value.replace(/[.,;:!?]+$/, ""))
-          .filter(
-            (value) =>
-              /\.[A-Za-z0-9]{1,8}$/.test(value) &&
-              isAllowedPath(value, this.policy) &&
-              !this.excluded(value),
-          ),
-      ),
-    ].slice(0, 8);
-    const rankingTerms = terms
-      .filter((term) => term.length >= 4)
-      .map((term) => term.toLowerCase());
-    for (const hintedPath of pathHints) {
-      const rows = await this.db.all<Payload>(
-        "SELECT payload FROM chunks WHERE snapshot_id=? AND path=? ORDER BY rowid LIMIT 64",
-        [snapshot.id, hintedPath],
-      );
-      const ranked = rows
-        .map((row) => {
-          const chunk = json<Chunk>(row);
-          const lower = chunk.text.toLowerCase();
-          const matches = rankingTerms.filter((term) => lower.includes(term));
-          return {
-            chunk,
-            score:
-              1 +
-              matches.length / 100 +
-              1 / (1 + chunk.source.startLine) / 1000,
-          };
-        })
-        .sort(
-          (a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id),
-        )
-        .slice(0, 12);
-      for (const { chunk, score } of ranked)
-        candidates.set(chunk.id, {
-          ...chunk,
-          kind: /\.(?:md|txt|rst|adoc)$/i.test(chunk.source.path)
-            ? "document"
-            : "code",
-          score,
-        });
-    }
-    const topPaths = [
-      ...new Set(
-        [...candidates.values()]
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 5)
-          .flatMap((item) => (item.source ? [item.source.path] : [])),
-      ),
-    ];
-    for (const path of retrieval === "lexical" ? [] : topPaths) {
-      const related = await this.neighbors(
-        hash(`file:${path}`),
-        snapshot.id,
-        1,
-      );
-      for (const edge of related.slice(0, 10)) {
-        const target = edge.to
-          ? await this.db.get<Payload>(
-              "SELECT payload FROM symbols WHERE snapshot_id=? AND id=?",
-              [snapshot.id, edge.to],
-            )
-          : undefined;
-        const path = target
-          ? json<CodeSymbol>(target).source.path
-          : edge.source.path;
-        if (this.excluded(path)) continue;
-        const rows = await this.db.all<Payload>(
-          "SELECT payload FROM chunks WHERE snapshot_id=? AND path=? LIMIT 8",
-          [snapshot.id, path],
+          });
+        } else warnings.push(this.embeddings.warning);
+      } else if (retrieval === "hybrid")
+        warnings.push(`Vector extension unavailable: ${this.vectorError}`);
+      if (retrieval !== "hybrid")
+        warnings.push(
+          `Retrieval mode ${retrieval}: semantic search intentionally disabled`,
         );
-        for (const row of rows) {
-          const chunk = json<Chunk>(row);
-          if (!candidates.has(chunk.id))
-            candidates.set(chunk.id, {
-              ...chunk,
-              kind: "code",
-              score: 1 / 150,
-            });
+      for (const memory of memories.filter(
+        (memory) =>
+          !exportOnly && !["constraint", "requirement"].includes(memory.kind),
+      )) {
+        const matches = terms.filter((term) =>
+          memory.text.toLowerCase().includes(term.toLowerCase()),
+        ).length;
+        if (matches)
+          candidates.set(memory.id, {
+            id: memory.id,
+            kind: "memory",
+            text: memory.text,
+            memoryId: memory.id,
+            score: matches / Math.max(terms.length, 1) / 50,
+          });
+      }
+      // An exact repository path in the task is stronger evidence than fuzzy
+      // term overlap. Resolve only paths present in this frozen snapshot, and
+      // preserve all normal exclusions; this is a priority hint, not authority
+      // to read an arbitrary file or bypass the context budget.
+      const pathHints = [
+        ...new Set(
+          (
+            input.query.match(
+              /(?<![A-Za-z0-9_./-])(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+/g,
+            ) ?? []
+          )
+            .map((value) => value.replace(/[.,;:!?]+$/, ""))
+            .filter(
+              (value) =>
+                /\.[A-Za-z0-9]{1,8}$/.test(value) &&
+                isAllowedPath(value, exportPolicy, exportOnly) &&
+                (!exportOnly || !containsSecret(value)) &&
+                !this.excluded(value, exportPolicy),
+            ),
+        ),
+      ].slice(0, 8);
+      const rankingTerms = terms
+        .filter((term) => term.length >= 4)
+        .map((term) => term.toLowerCase());
+      for (const hintedPath of pathHints) {
+        const rows = await this.db.all<Payload>(
+          "SELECT payload FROM chunks WHERE snapshot_id=? AND path=? ORDER BY rowid LIMIT 64",
+          [snapshot.id, hintedPath],
+        );
+        const ranked = rows
+          .map((row) => {
+            const chunk = json<Chunk>(row);
+            const lower = chunk.text.toLowerCase();
+            const matches = rankingTerms.filter((term) => lower.includes(term));
+            return {
+              chunk,
+              score:
+                1 +
+                matches.length / 100 +
+                1 / (1 + chunk.source.startLine) / 1000,
+            };
+          })
+          .filter(({ chunk }) => exportableChunk(chunk))
+          .sort(
+            (a, b) => b.score - a.score || a.chunk.id.localeCompare(b.chunk.id),
+          )
+          .slice(0, 12);
+        for (const { chunk, score } of ranked)
+          candidates.set(chunk.id, {
+            ...chunk,
+            kind: /\.(?:md|txt|rst|adoc)$/i.test(chunk.source.path)
+              ? "document"
+              : "code",
+            score,
+          });
+      }
+      const topPaths = [
+        ...new Set(
+          [...candidates.values()]
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5)
+            .flatMap((item) => (item.source ? [item.source.path] : [])),
+        ),
+      ];
+      for (const path of retrieval === "lexical" ? [] : topPaths) {
+        const related = await this.neighbors(
+          hash(`file:${path}`),
+          snapshot.id,
+          1,
+          { exportOnly, policy: exportPolicy },
+        );
+        for (const edge of related.slice(0, 10)) {
+          const target = edge.to
+            ? await this.db.get<Payload>(
+                "SELECT payload FROM symbols WHERE snapshot_id=? AND id=?",
+                [snapshot.id, edge.to],
+              )
+            : undefined;
+          const path = target
+            ? json<CodeSymbol>(target).source.path
+            : edge.source.path;
+          if (
+            this.excluded(path, exportPolicy) ||
+            (exportOnly &&
+              (!isAllowedPath(path, exportPolicy, true) ||
+                containsSecret(path)))
+          )
+            continue;
+          const rows = await this.db.all<Payload>(
+            "SELECT payload FROM chunks WHERE snapshot_id=? AND path=? LIMIT 8",
+            [snapshot.id, path],
+          );
+          for (const row of rows) {
+            const chunk = json<Chunk>(row);
+            if (exportableChunk(chunk) && !candidates.has(chunk.id))
+              candidates.set(chunk.id, {
+                ...chunk,
+                kind: "code",
+                score: 1 / 150,
+              });
+          }
         }
       }
-    }
-    const items: ContextItem[] = [];
-    const textHashes = new Set<string>();
-    for (const candidate of [...candidates.values()].sort(
-      (a, b) => b.score - a.score || a.id.localeCompare(b.id),
-    )) {
-      const digest = hash(candidate.text);
-      if (textHashes.has(digest)) continue;
-      const size =
-        estimateTokens(candidate.text) +
-        estimateTokens(candidate.source?.path ?? "") +
-        48;
-      if (used + size > budget) continue;
-      used += size;
-      textHashes.add(digest);
-      items.push(candidate);
-    }
-    if (candidates.size > items.length)
+      const items: ContextItem[] = [];
+      const textHashes = new Set<string>();
+      for (const candidate of [...candidates.values()]
+        .filter(
+          (item) =>
+            !exportOnly ||
+            (item.source !== undefined && exportableChunk(item as Chunk)),
+        )
+        .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))) {
+        const digest = hash(candidate.text);
+        if (textHashes.has(digest)) continue;
+        const size =
+          estimateTokens(candidate.text) +
+          estimateTokens(candidate.source?.path ?? "") +
+          48;
+        if (used + size > budget) continue;
+        used += size;
+        textHashes.add(digest);
+        items.push(candidate);
+      }
+      if (candidates.size > items.length)
+        warnings.push(
+          "Some candidates were omitted by the context budget or deduplication",
+        );
       warnings.push(
-        "Some candidates were omitted by the context budget or deduplication",
+        "Token estimate is a conservative UTF-8 byte bound; provider message framing is budgeted separately",
       );
-    warnings.push(
-      "Token estimate is a conservative UTF-8 byte bound; provider message framing is budgeted separately",
-    );
-    if (input.snapshotId)
-      warnings.push(
-        "Explicit snapshot requested: evidence represents that snapshot, not necessarily current working files",
-      );
-    return {
-      version: SCHEMA_VERSION,
-      projectId: this.projectId,
-      snapshotId: snapshot.id,
-      query: input.query,
-      mandatory,
-      mandatorySources,
-      items,
-      estimatedTokens: used,
-      budgetTokens: budget,
-      coverage: {
-        semantic,
-        graph:
-          retrieval === "lexical"
-            ? "Graph expansion intentionally disabled by lexical retrieval mode."
-            : "Syntax declarations, imports and calls with bounded snapshot-only JS/TS, Python, Go, Java, C# and Rust declaration bindings where resolution metadata is present and a trusted runtime is available. Static bindings are not runtime proofs or full-program typechecks; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Expansion limited to 1 hop, 5 seed files.",
-        warnings,
-      },
-    };
+      if (input.snapshotId)
+        warnings.push(
+          "Explicit snapshot requested: evidence represents that snapshot, not necessarily current working files",
+        );
+      return {
+        version: SCHEMA_VERSION,
+        projectId: this.projectId,
+        snapshotId: snapshot.id,
+        query: input.query,
+        mandatory,
+        mandatorySources,
+        items,
+        estimatedTokens: used,
+        budgetTokens: budget,
+        coverage: {
+          semantic,
+          graph:
+            retrieval === "lexical"
+              ? "Graph expansion intentionally disabled by lexical retrieval mode."
+              : "Syntax declarations, imports and calls with bounded snapshot-only JS/TS, Python, Go, Java, C# and Rust declaration bindings where resolution metadata is present and a trusted runtime is available. Static bindings are not runtime proofs or full-program typechecks; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Expansion limited to 1 hop, 5 seed files.",
+          warnings,
+        },
+      };
+    } finally {
+      if (exportScope) await this.releaseExportScope(exportScope);
+    }
   }
   async listMemories(): Promise<MemoryRecord[]> {
     await this.ready;
