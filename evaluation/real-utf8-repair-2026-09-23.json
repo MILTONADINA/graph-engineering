@@ -30,7 +30,8 @@
   "reviewedBranchSourceSha256": "d4f4f493a1473735395074455623fb249001700ee2bb0626ef43d305573884b9",
   "reviewedChangeFromCandidate": "Declaration-only const cleanup; output decoding and byte-bound behavior unchanged",
   "publication": "none",
-  "humanAccepted": false,
+  "humanAccepted": true,
+  "humanAcceptanceBasis": "Owner reported acceptance after review on 2026-09-24; partner identity and signature are not independently attested.",
   "heldOutEvaluation": false,
   "limitations": [
     "The selected task and regression are known to the local operator, not independently held out.",

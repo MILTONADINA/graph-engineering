@@ -87,17 +87,18 @@ the session used the existing Max subscription with no API key override, and
 no separate API charge was intentionally enabled. The ordinary Claude Code
 project-MCP approval was subsequently completed for this server only; no other
 personal servers were approved. Cursor's Serena plugin is active in this
-workspace as `GRAPH ENGINEERING`, but its separate project `graph-engineering`
-MCP server was discovered in a disconnected state and has not passed a live
-Cursor tool call.
+workspace as `GRAPH ENGINEERING`. The separate project `graph-engineering`
+MCP server was initially discovered disconnected; on 2026-09-24 the owner
+reported that its in-app call now works in this exact workspace. No Cursor
+tool trace was retained in this session.
 
 An additional isolated stdio CLI smoke spawned the actual project MCP command
 with a fresh `GRAPH_ENGINE_DATA_DIR` outside the repository. `tools/list`
 exposed `template_list`, and `tools/call` returned 61 catalog entries,
 including implemented, executable `api.search` and `api.webhooks`. The MCP
 client was closed after the call. This exercised the configured server path
-without touching shared Serena or the default project databases; it did not
-establish a Cursor in-app connection.
+without touching shared Serena or the default project databases. It is
+independent of the later owner-reported Cursor in-app result.
 
 A later one-call test of the managed Claude worker used the same existing Max
 subscription through a new fail-closed adapter path. The request contained
@@ -225,7 +226,8 @@ but the native CLI exited 1 after about five seconds. It returned no proposal
 or usage and applied no patch. Claude subscription usage and dollar cost remain
 unknown; its withheld stderr does not establish the cause. These pilots made
 no paid API call, downloaded no new Qwen model, and published nothing. They do
-not complete item 6 or establish a successful autonomous cloud-export repair.
+not supersede the accepted UTF-8 result or establish a successful autonomous
+cloud-export repair.
 
 An independent non-synthetic replay targeted the security-review routing gap in
 `service.ts`. In detached pre-fix worktree `fce69f6`, the focused regression
@@ -241,7 +243,7 @@ was `none` (`commit: null`, `pullRequest: null`). The candidate merely added an
 OR-pattern for those literal example names; it was not applied to the feature
 branch or human accepted. This is evidence that the managed run and verifier
 can complete a bounded real task, not a production-quality generalized repair,
-a full-suite result, or completion of item 6.
+a full-suite result, or the accepted UTF-8 repair described below.
 
 ## Real UTF-8 subprocess repair — 2026-09-23 UTC
 
@@ -268,8 +270,10 @@ focused Java file then passed, and one full-check retry passed. The Java
 analyzer uses a separate output path, and the intermittent cause remains
 unproven. [The retained public receipt](../evaluation/real-utf8-repair-2026-09-23.json)
 records the candidate and reviewed-source hashes separately. This is a
-successful unassisted real-task repair and focused verification, not human
-acceptance, held-out calibration or proof of a general paid-token saving.
+successful unassisted real-task repair and focused verification. The owner
+reported acceptance after review on 2026-09-24; that human verdict is not an
+independently signed partner review, held-out calibration or proof of a general
+paid-token saving.
 
 The opt-in `evaluation/managed-smoke.mjs` used the existing Qwen endpoint, the
 pinned local Laya checkpoint, and a network-disabled `node:24-alpine` container.

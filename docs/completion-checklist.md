@@ -28,8 +28,9 @@ The fork `main` still requires seven checks and one independent approval;
 `dev` requires nine checks and zero GitHub approvals under the owner's chosen
 author-review workflow. Both retain linear history, admin enforcement, and
 force-push/deletion protection. No commit was pushed to either `main` or the
-parent repository. Kevin's review of the resulting fork `dev`, human acceptance
-of the real-task run, and any later upstream synchronization remain separate.
+parent repository. Kevin's review of the resulting fork `dev` and any later
+upstream synchronization remain separate; the subsequent owner-reported
+acceptance of the UTF-8 real-task run is recorded below.
 
 Subsequent fork-only PRs [#4](https://github.com/MILTONADINA/graph-engineering/pull/4),
 [#5](https://github.com/MILTONADINA/graph-engineering/pull/5) and
@@ -89,9 +90,10 @@ authenticate signer control, create unseen tasks, or enable promotion.
 Item 6 now also has a successful one-attempt, unassisted local Qwen+Laya run on
 a real UTF-8 subprocess-output defect. Its pre-fix regression failed, the
 model's one-file patch passed the unchanged focused offline Docker test, and
-the reviewed branch fix passed the local full check. The run did not publish;
-human/partner acceptance and a fresh autonomous repair of the separate
-cloud-export defect remain outstanding. See the
+the reviewed branch fix passed the local full check. The run did not publish.
+The owner reported acceptance after review on 2026-09-24; this is not an
+independently signed partner or held-out review. A fresh autonomous repair of
+the separate cloud-export defect remains outstanding. See the
 [retained local-run evidence](local-validation.md).
 
 Item 10's `devops.aws` node emits a local ECS Express Mode request only. The
@@ -117,7 +119,9 @@ Cursor's native workspace context is separate from the project MCP filter.
 A tracked `.cursorignore` now excludes local Graph state, Serena data and
 credential-like files from Cursor's own indexing/Agent context. This is
 defense in depth, not proof of an in-editor project-MCP call or a hard boundary
-for Cursor's terminal/MCP tools.
+for Cursor's terminal/MCP tools. The owner subsequently reported a successful
+in-app project-MCP call in this exact workspace; no Cursor tool trace was
+retained in this session.
 
 Item 13 now has analysis-only signed worker-delivery verification for one
 closed-ledger call and, optionally, exact coverage of every completed call in a
@@ -214,7 +218,9 @@ path remains unproven and its token usage is unknown. A one-attempt Claude Max
 engine run exited natively without a proposal; its usage and dollar cost are
 unknown. The baseline was red and the reviewed control green in the focused
 offline verifier, but no pilot repair passed it. No paid API, new Qwen download
-or publication was involved. Item 6 remains incomplete; see
+or publication was involved. The accepted UTF-8 run remains the bounded
+non-synthetic item 6 success; these pilots do not complete the separate
+cloud-export repair. See
 [the dated local evidence](local-validation.md#fresh-cloud-export-repair-pilots--2026-09-24-utc).
 
 A separate [security-review routing replay](local-validation.md) reached a
@@ -222,7 +228,8 @@ green focused offline Docker check on a real pre-fix defect (plan
 `71702578-8fc7-46bd-9a51-0f0bf97cd04a`, run
 `047a7f5d-dd82-4c20-b4ab-2a74d8a45b23`), but Qwen's candidate hardcoded
 the example identifiers. It was neither published nor human accepted and does
-not complete item 6.
+not establish a generalized cloud-export repair or alter the accepted UTF-8
+result.
 
 Item 13 now also has a [local paired context diagnostic](../evaluation/README.md#opt-in-local-multi-file-context-pair):
 the existing oMLX Qwen received all 19 synthetic source files in one arm and
@@ -373,12 +380,14 @@ is not all a prerequisite for normal local or MCP-assisted engineering:
 
 - Owner/partner actions: the feature PRs are merged into the fork's `dev` after
   exact-tip and post-merge green CI. Kevin reviews that branch before any
-  separate upstream synchronization; human acceptance of the successful real
-  UTF-8 repair is not inferred from automated checks. Jev is the
+  separate upstream synchronization. The owner reported acceptance of the real
+  UTF-8 repair after review on 2026-09-24; no independent partner signature is
+  claimed. Jev is the
   only configured metered decision provider, but it remains disabled until an
   operator selects a numeric session cap and reviewed account-specific price.
-- Client integration evidence: Cursor's separate project MCP still needs an
-  observed in-app call. Codex managed proposals require a native binary with
+- Client integration evidence: the owner reports Cursor's separate project MCP
+  works in-app in this workspace; a tool trace was not retained here. Codex
+  managed proposals require a native binary with
   restricted read roots; Cursor's new text-only SDK path needs a user key and
   authorized live validation. The already tested Claude proposal path and MCP
   use do not depend on either managed path.
