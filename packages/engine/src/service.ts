@@ -99,14 +99,20 @@ export class GraphEngine {
       policy: config.policy,
     });
     this.store = new RunStore(this.dataDir, config.projectId);
-    this.store.recoverInterrupted();
   }
   static async open(
     root: string,
     deps: EngineDependencies = {},
   ): Promise<GraphEngine> {
     const absolute = path.resolve(root);
-    return new GraphEngine(absolute, await loadProject(absolute), deps);
+    const engine = new GraphEngine(absolute, await loadProject(absolute), deps);
+    try {
+      await engine.store.recoverInterrupted();
+      return engine;
+    } catch (error) {
+      await engine.close();
+      throw error;
+    }
   }
   async providers(): Promise<ProviderConfig[]> {
     return loadProviders(this.dataDir);
@@ -175,7 +181,9 @@ export class GraphEngine {
     input = fitWorkerContext(input);
     const callId = `worker-${id()}`;
     const started = Date.now();
-    while (!this.store.tryAcquireWorker(callId, input.policy.maxWorkers)) {
+    while (
+      !(await this.store.tryAcquireWorker(callId, input.policy.maxWorkers))
+    ) {
       if (Date.now() - started > input.policy.timeoutSeconds * 1000)
         throw new Error("Worker concurrency wait timed out");
       await delay(50, undefined, { signal: input.signal });

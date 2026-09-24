@@ -15,10 +15,33 @@ import {
   summarizeInferenceCalls,
   type AccountingSummary,
 } from "./accounting.js";
+import {
+  localProcessOwner,
+  localProcessOwnerReady,
+  processOwnerState,
+  type ProcessOwner,
+} from "./process-owner.js";
+
+/**
+ * V3 rows have no instance proof: a live PID is unknown, never proof of ownership.
+ * A recycled live PID may require manual reconciliation after an in-place upgrade.
+ */
+function legacyOwnerState(pid: number | undefined): "dead" | "unknown" {
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0)
+    return "dead";
+  try {
+    process.kill(pid, 0);
+    return "unknown";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH"
+      ? "dead"
+      : "unknown";
+  }
+}
 
 /** Small operational records only. Context DB/index work lives in the context worker. */
 export class RunStore {
-  readonly schemaVersion = 3;
+  readonly schemaVersion = 4;
   private db: Database.Database;
   constructor(
     dataDir: string,
@@ -29,7 +52,7 @@ export class RunStore {
     this.db.pragma("busy_timeout = 5000");
     this.db.pragma("journal_mode = WAL");
     const version = this.db.pragma("user_version", { simple: true }) as number;
-    if (version > 3) {
+    if (version > 4) {
       this.db.close();
       throw new Error(
         "Run database is newer than this engine; refusing a downgrade",
@@ -47,27 +70,72 @@ export class RunStore {
       CREATE TABLE IF NOT EXISTS inference_calls(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,owner_id TEXT NOT NULL,provider TEXT NOT NULL,reserved REAL,usage_json TEXT);
       CREATE INDEX IF NOT EXISTS inference_owner ON inference_calls(project_id,owner_id);
       CREATE TABLE IF NOT EXISTS worker_leases(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,pid INTEGER NOT NULL);
-      PRAGMA user_version = 3;`);
+      CREATE TABLE IF NOT EXISTS owner_proofs(kind TEXT NOT NULL,id TEXT NOT NULL,project_id TEXT NOT NULL,endpoint TEXT NOT NULL,verifier TEXT NOT NULL,PRIMARY KEY(kind,id));
+      PRAGMA user_version = 4;`);
       })
       .immediate();
+    localProcessOwner();
   }
-  tryAcquireWorker(callId: string, limit: number): boolean {
+  async ownerReady(): Promise<void> {
+    await localProcessOwnerReady();
+  }
+  private proof(
+    kind: "run" | "worker",
+    ownerId: string,
+    pid: number,
+  ): ProcessOwner | null {
+    const row = this.db
+      .prepare(
+        "SELECT endpoint,verifier FROM owner_proofs WHERE kind=? AND id=? AND project_id=?",
+      )
+      .get(kind, ownerId, this.projectId) as
+      { endpoint: string; verifier: string } | undefined;
+    return row ? { pid, ...row } : null;
+  }
+  private recordProof(kind: "run" | "worker", ownerId: string): void {
+    const owner = localProcessOwner();
+    this.db
+      .prepare("INSERT OR REPLACE INTO owner_proofs VALUES(?,?,?,?,?)")
+      .run(kind, ownerId, this.projectId, owner.endpoint, owner.verifier);
+  }
+  async tryAcquireWorker(callId: string, limit: number): Promise<boolean> {
+    await this.ownerReady();
+    const leases = this.db
+      .prepare("SELECT id,pid FROM worker_leases WHERE project_id=?")
+      .all(this.projectId) as { id: string; pid: number }[];
+    const stale: { id: string; pid: number; owner: ProcessOwner | null }[] = [];
+    for (const lease of leases) {
+      const owner = this.proof("worker", lease.id, lease.pid);
+      const state = owner
+        ? await processOwnerState(owner)
+        : legacyOwnerState(lease.pid);
+      if (state === "dead") stale.push({ id: lease.id, pid: lease.pid, owner });
+    }
     return this.db
       .transaction(() => {
-        const leases = this.db
-          .prepare("SELECT id,pid FROM worker_leases WHERE project_id=?")
-          .all(this.projectId) as { id: string; pid: number }[];
-        for (const lease of leases) {
-          try {
-            process.kill(lease.pid, 0);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ESRCH")
-              this.db
-                .prepare(
-                  "DELETE FROM worker_leases WHERE id=? AND project_id=?",
-                )
-                .run(lease.id, this.projectId);
-          }
+        for (const lease of stale) {
+          const current = this.db
+            .prepare(
+              "SELECT pid FROM worker_leases WHERE id=? AND project_id=?",
+            )
+            .get(lease.id, this.projectId) as { pid: number } | undefined;
+          if (!current) continue;
+          const proof = this.proof("worker", lease.id, current.pid);
+          if (
+            current.pid !== lease.pid ||
+            proof?.pid !== lease.owner?.pid ||
+            proof?.endpoint !== lease.owner?.endpoint ||
+            proof?.verifier !== lease.owner?.verifier
+          )
+            continue;
+          this.db
+            .prepare("DELETE FROM worker_leases WHERE id=? AND project_id=?")
+            .run(lease.id, this.projectId);
+          this.db
+            .prepare(
+              "DELETE FROM owner_proofs WHERE kind='worker' AND id=? AND project_id=?",
+            )
+            .run(lease.id, this.projectId);
         }
         const count = this.db
           .prepare(
@@ -78,16 +146,26 @@ export class RunStore {
         this.db
           .prepare("INSERT INTO worker_leases VALUES(?,?,?)")
           .run(callId, this.projectId, process.pid);
+        this.recordProof("worker", callId);
         return true;
       })
       .immediate();
   }
   releaseWorker(callId: string): void {
-    this.db
-      .prepare(
-        "DELETE FROM worker_leases WHERE id=? AND project_id=? AND pid=?",
-      )
-      .run(callId, this.projectId, process.pid);
+    this.db.transaction(() => {
+      const owner = this.proof("worker", callId, process.pid);
+      if (!owner || owner.verifier !== localProcessOwner().verifier) return;
+      this.db
+        .prepare(
+          "DELETE FROM worker_leases WHERE id=? AND project_id=? AND pid=?",
+        )
+        .run(callId, this.projectId, process.pid);
+      this.db
+        .prepare(
+          "DELETE FROM owner_proofs WHERE kind='worker' AND id=? AND project_id=?",
+        )
+        .run(callId, this.projectId);
+    })();
   }
   planSnapshotIds(): string[] {
     return [
@@ -269,6 +347,7 @@ export class RunStore {
         this.db
           .prepare("INSERT OR REPLACE INTO run_owners VALUES(?,?)")
           .run(run.id, process.pid);
+        this.recordProof("run", run.id);
       })
       .immediate();
   }
@@ -296,14 +375,18 @@ export class RunStore {
         this.db
           .prepare("INSERT OR REPLACE INTO run_owners VALUES(?,?)")
           .run(run.id, process.pid);
+        this.recordProof("run", run.id);
         return resumed;
       })
       .immediate();
   }
   claim(runId: string): void {
-    this.db
-      .prepare("INSERT OR REPLACE INTO run_owners VALUES(?,?)")
-      .run(runId, process.pid);
+    this.db.transaction(() => {
+      this.db
+        .prepare("INSERT OR REPLACE INTO run_owners VALUES(?,?)")
+        .run(runId, process.pid);
+      this.recordProof("run", runId);
+    })();
   }
   run(id: string): RunRecord {
     return this.one("runs", id);
@@ -367,28 +450,43 @@ export class RunStore {
   decisions(): DecisionRecord[] {
     return this.all("decisions").reverse() as DecisionRecord[];
   }
-  recoverInterrupted(): void {
+  async recoverInterrupted(): Promise<void> {
+    await this.ownerReady();
     for (const run of this.runs())
       if (["planned", "running", "verifying"].includes(run.status)) {
-        const owner = this.db
+        const original = this.db
           .prepare("SELECT pid FROM run_owners WHERE run_id=?")
           .get(run.id) as { pid: number } | undefined;
-        if (owner) {
-          try {
-            process.kill(owner.pid, 0);
-            continue;
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ESRCH") continue;
-          }
-        }
-        this.saveRun({
-          ...run,
-          status: "needs_reconciliation",
-          updatedAt: now(),
-          error:
-            "The previous process stopped during execution. Inspect its workspace and events before retrying.",
-        });
-        this.event(run.id, "recovery.required", {});
+        const owner = original ? this.proof("run", run.id, original.pid) : null;
+        const state = owner
+          ? await processOwnerState(owner)
+          : legacyOwnerState(original?.pid);
+        if (state !== "dead") continue;
+        this.db.transaction(() => {
+          const current = this.db
+            .prepare("SELECT pid FROM run_owners WHERE run_id=?")
+            .get(run.id) as { pid: number } | undefined;
+          const currentOwner = current
+            ? this.proof("run", run.id, current.pid)
+            : null;
+          if (
+            current?.pid !== original?.pid ||
+            currentOwner?.endpoint !== owner?.endpoint ||
+            currentOwner?.verifier !== owner?.verifier
+          )
+            return;
+          const latest = this.run(run.id);
+          if (!["planned", "running", "verifying"].includes(latest.status))
+            return;
+          this.saveRun({
+            ...latest,
+            status: "needs_reconciliation",
+            updatedAt: now(),
+            error:
+              "The previous process stopped during execution. Inspect its workspace and events before retrying.",
+          });
+          this.event(run.id, "recovery.required", {});
+        })();
       }
   }
   /** An aggregate from older engines cannot establish individual worker turns. */
