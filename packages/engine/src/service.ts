@@ -101,7 +101,6 @@ export class GraphEngine {
       policy: config.policy,
     });
     this.store = new RunStore(this.dataDir, config.projectId);
-    this.store.recoverInterrupted();
   }
   static async open(
     root: string,
@@ -111,7 +110,14 @@ export class GraphEngine {
     const config = await loadProject(absolute);
     // Register configured decision keys before any project subprocess starts.
     await decisionProviders(projectDataDir(config.projectId));
-    return new GraphEngine(absolute, config, deps);
+    const engine = new GraphEngine(absolute, config, deps);
+    try {
+      await engine.store.recoverInterrupted();
+      return engine;
+    } catch (error) {
+      await engine.close();
+      throw error;
+    }
   }
   async providers(): Promise<ProviderConfig[]> {
     return loadProviders(this.dataDir);
@@ -180,7 +186,9 @@ export class GraphEngine {
     input = fitWorkerContext(input);
     const callId = `worker-${id()}`;
     const started = Date.now();
-    while (!this.store.tryAcquireWorker(callId, input.policy.maxWorkers)) {
+    while (
+      !(await this.store.tryAcquireWorker(callId, input.policy.maxWorkers))
+    ) {
       if (
         input.policy.timeoutSeconds !== null &&
         Date.now() - started > input.policy.timeoutSeconds * 1000

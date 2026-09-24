@@ -355,6 +355,25 @@ describe("local context indexing", () => {
     expect(await engine.searchSymbols("renamed", renamed.id)).toHaveLength(1);
   });
 
+  it.runIf(process.platform !== "win32")(
+    "changes snapshot identity when a file's executable mode changes without changing its bytes",
+    async () => {
+      const { engine, root } = await fixture({
+        "run.sh": "#!/bin/sh\nexit 0\n",
+      });
+      const target = join(root, "run.sh");
+      await chmod(target, 0o644);
+      const nonExecutable = await engine.index({ semantic: false });
+      await chmod(target, 0o755);
+      const executable = await engine.index({ semantic: false });
+      expect(executable.id).not.toBe(nonExecutable.id);
+      await chmod(target, 0o644);
+      expect((await engine.index({ semantic: false })).id).toBe(
+        nonExecutable.id,
+      );
+    },
+  );
+
   it("excludes gitignored files, private paths, secrets and external symlinks", async () => {
     const { engine, root, directory } = await fixture({
       ".gitignore": "ignored/\n",
@@ -562,6 +581,31 @@ describe("local context indexing", () => {
       snapshotId: first.id,
     });
     expect(packet.items).toHaveLength(1);
+  });
+
+  it("returns the reactivated current snapshot instead of the newest record", async () => {
+    const { engine, root } = await fixture({
+      "src/state.ts": "export const state = 'first';\n",
+    });
+    expect(await engine.currentSnapshot()).toBeNull();
+    const first = await engine.index({ semantic: false });
+    await writeFile(
+      join(root, "src/state.ts"),
+      "export const state = 'second';\n",
+    );
+    const second = await engine.index({ semantic: false });
+    expect(second.id).not.toBe(first.id);
+    await writeFile(
+      join(root, "src/state.ts"),
+      "export const state = 'first';\n",
+    );
+    const reactivated = await engine.index({ semantic: false });
+    expect(reactivated.id).toBe(first.id);
+    expect((await engine.listSnapshots())[0]?.id).toBe(second.id);
+    expect(await engine.currentSnapshot()).toMatchObject({
+      id: first.id,
+      createdAt: first.createdAt,
+    });
   });
 
   it("applies tightened exclusion policy even to historical retrieval", async () => {

@@ -374,7 +374,7 @@ describe("managed execution", () => {
     });
     const run = await engine.start(plan.id);
     const other = new RunStore(data, config.projectId);
-    other.recoverInterrupted();
+    await other.recoverInterrupted();
     expect(other.run(run.id).status).not.toBe("needs_reconciliation");
     other.close();
     engine.cancel(run.id);

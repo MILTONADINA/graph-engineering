@@ -90,6 +90,7 @@ describe("project archive lifecycle", () => {
     await writeFile(join(dataDir, ".env"), "excluded environment");
     store.reserveCall("plan-1", "unsettled-call", "local", null, null);
     const manifest = await backupProject(fixtureData);
+    expect(manifest.schema.runs).toBe(5);
     expect(manifest.files.map((file) => file.path)).toEqual(
       expect.arrayContaining([
         "context.sqlite",
