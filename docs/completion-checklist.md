@@ -43,11 +43,15 @@ not call AWS or establish image provenance, IAM permissions, VPC readiness,
 runtime health or deployment acceptance; eight other catalog IDs remain
 planned, including three aliases of already implemented API capabilities.
 
-Item 13 now has an analysis-only signed worker-delivery verifier that checks a
-caller-pinned Ed25519 claim against one closed-ledger call and the exact
-original request/response bytes. It has no production signer, independent key
-control, loaded-model attestation or oracle provenance and grants no promotion
-authority. It is an integration point, not held-out evidence.
+Item 13 now has analysis-only signed worker-delivery verification for one
+closed-ledger call and, optionally, exact coverage of every completed call in a
+closed cohort. The cohort check re-reads pinned original request/response bytes
+and runs inside the readiness audit's optional witness bracket. It reports
+completed calls without a public-dispatch claim rather than treating them as
+proof of packet delivery. Focused tamper tests and the full local check passed.
+There is still no production signer, independent key control, loaded-model
+attestation or oracle provenance; neither verifier grants promotion authority
+or turns these fixtures into held-out evidence.
 
 The non-synthetic replay of the cloud-export defect did **not** complete item 6:
 an isolated pre-fix regression failed as expected, but two Qwen runs stopped on
