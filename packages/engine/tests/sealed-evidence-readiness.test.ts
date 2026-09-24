@@ -12,7 +12,10 @@ import type { CohortInspection } from "../src/full-cohort-ledger.js";
 import { identityOnlyInventory } from "../src/sealed-aggregate-provenance.js";
 import { inspectPrivateSealedIdentityOriginalBytes } from "../src/sealed-identity-byte-audit.js";
 import { withPrivateSealedIdentityFileReader } from "../src/sealed-identity-file-reader.js";
-import { authorizesPromotion } from "../src/promotion-authority.js";
+import {
+  authorizesPromotion,
+  inspectPromotionImportPreflight,
+} from "../src/promotion-authority.js";
 import { inspectSealedEvidenceReadiness } from "../src/sealed-evidence-readiness.js";
 import { inspectSealedDeclaredInventorySelection } from "../src/sealed-population-manifest.js";
 import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
@@ -1328,6 +1331,14 @@ it("rejects a separately pinned worker manifest with missing or extra roles", as
 it("joins matching signed declared selection and original-byte aggregate without granting authority", async () => {
   const { request } = await scenario();
   const receipt = await inspectSealedEvidenceReadiness(request);
+  const preflight = await inspectPromotionImportPreflight(
+    request.aggregate.input.cohort,
+    request.aggregate.input.preflightPins,
+  );
+  expect(receipt.promotionPreflightSha256).toBe(hashJson(preflight));
+  expect(receipt.advisoryCohortProjectionSha256).toBe(
+    preflight.advisoryCohortProjectionSha256,
+  );
   expect(receipt).toMatchObject({
     projectId: request.aggregate.input.bundle.payload.projectId,
     collectionId: request.aggregate.input.bundle.payload.collectionId,
