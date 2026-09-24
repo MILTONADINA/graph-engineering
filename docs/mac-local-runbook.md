@@ -147,6 +147,9 @@ a strict per-request boundary: Agent can still read/search files or include
 open-file context. For selected-source cloud use, avoid those native context
 paths, use the reviewed project MCP packet, and inspect tool calls and
 attachments before approving inference.
+The exact tracked `.env.example*` placeholders remain visible for template
+work; never put live credentials in them. Keep local values in excluded `.env`
+files.
 
 A fresh Git clone does not contain ignored provider/decision/MCP settings,
 tokens, models, or databases. Recreate these explicitly; the Cursor MCP
