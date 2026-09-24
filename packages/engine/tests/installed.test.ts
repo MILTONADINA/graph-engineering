@@ -26,8 +26,9 @@ const proposal = {
 };
 const flags =
   "--bare --tools --disallowedTools --strict-mcp-config --mcp-config --setting-sources --settings --disable-slash-commands --no-session-persistence --system-prompt --json-schema --output-format --restricted --safe-mode";
-let restrictedCodex = true;
+let codexSchemaMode: "restricted" | "full" | "decoy" = "restricted";
 let nativeResult: any;
+let cursorRunnerResult: any;
 let nativeExit = 0;
 let transportMode:
   | "normal"
@@ -49,7 +50,11 @@ function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
       kind,
       model: "fixture-model",
       efforts: ["low"],
-      ...(kind === "claude" ? { apiKeyEnv: "ANTHROPIC_API_KEY" } : {}),
+      ...(kind === "claude"
+        ? { apiKeyEnv: "ANTHROPIC_API_KEY" }
+        : kind === "cursor"
+          ? { apiKeyEnv: "CURSOR_API_KEY" }
+          : {}),
     },
     effort: "low",
     policy: {
@@ -63,6 +68,7 @@ function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
         "claude.ai",
         "api.openai.com",
         "chatgpt.com",
+        "api2.cursor.sh",
       ],
     },
     objective: "Fix the boolean",
@@ -110,9 +116,10 @@ function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
 
 beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-native-api-key");
+  vi.stubEnv("CURSOR_API_KEY", "test-cursor-user-key");
   vi.stubEnv("USER", "test-user");
   vi.stubEnv("UNRELATED_PRIVATE_CREDENTIAL", "should-not-be-inherited");
-  restrictedCodex = true;
+  codexSchemaMode = "restricted";
   nativeExit = 0;
   rpcRequests = [];
   nativeCalls = [];
@@ -130,6 +137,17 @@ beforeEach(() => {
     structured_output: proposal,
     usage: { input_tokens: 80, output_tokens: 50, cache_read_input_tokens: 15 },
     total_cost_usd: 0.012,
+  };
+  cursorRunnerResult = {
+    proposal,
+    model: "fixture-model",
+    usage: {
+      inputTokens: 80,
+      outputTokens: 50,
+      cachedTokens: 15,
+      costUsd: null,
+      estimated: false,
+    },
   };
   mocks.command
     .mockReset()
@@ -179,7 +197,7 @@ beforeEach(() => {
                     {
                       properties: {
                         type: { enum: ["readOnly"] },
-                        ...(restrictedCodex
+                        ...(codexSchemaMode === "restricted"
                           ? {
                               access: {
                                 oneOf: [
@@ -187,12 +205,29 @@ beforeEach(() => {
                                     properties: {
                                       type: { const: "restricted" },
                                       readableRoots: { type: "array" },
+                                      includePlatformDefaults: {
+                                        type: "boolean",
+                                      },
                                     },
                                   },
                                 ],
                               },
                             }
-                          : {}),
+                          : codexSchemaMode === "decoy"
+                            ? {
+                                access: {
+                                  description:
+                                    "Future restricted access with readableRoots",
+                                  oneOf: [
+                                    {
+                                      properties: {
+                                        type: { const: "fullAccess" },
+                                      },
+                                    },
+                                  ],
+                                },
+                              }
+                            : {}),
                       },
                     },
                   ],
@@ -226,6 +261,17 @@ beforeEach(() => {
               .join("\n"),
             stderr: "",
           };
+        if (
+          executable === process.execPath &&
+          argv[0]?.endsWith("cursor-runner.js")
+        ) {
+          nativeCalls.push({ executable, argv, options });
+          return {
+            code: nativeExit,
+            stdout: JSON.stringify(cursorRunnerResult),
+            stderr: "sensitive cursor diagnostics",
+          };
+        }
         nativeCalls.push({ executable, argv, options });
         return {
           code: nativeExit,
@@ -380,26 +426,107 @@ describe("installed capability discovery", () => {
       authentication: "native-login",
     });
     expect(capabilities.find((c) => c.kind === "cursor")).toMatchObject({
-      available: false,
+      installed: true,
+      version: "1.0.32",
+      available: true,
+      authentication: "api-key",
+      mode: "proposal-only",
     });
     expect(nativeCalls).toEqual([]);
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
   it("does not mistake full read-only access for restricted read access", async () => {
-    restrictedCodex = false;
+    codexSchemaMode = "full";
     const capabilities = await discoverInstalledWorkers();
     expect(capabilities.find((c) => c.kind === "codex")).toMatchObject({
       available: false,
       reason: expect.stringContaining("readableRoots"),
     });
   });
+  it("does not accept capability words in an unrelated schema description", async () => {
+    codexSchemaMode = "decoy";
+    const capabilities = await discoverInstalledWorkers();
+    expect(capabilities.find((c) => c.kind === "codex")).toMatchObject({
+      available: false,
+      reason: expect.stringContaining("readableRoots"),
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
   it("handles missing native executables without installing anything", async () => {
     mocks.command.mockRejectedValue(new Error("ENOENT"));
+    const capabilities = await discoverInstalledWorkers();
     expect(
-      (await discoverInstalledWorkers()).every(
-        (c) => !c.installed && !c.available,
-      ),
+      capabilities
+        .filter((c) => c.kind !== "cursor")
+        .every((c) => !c.installed && !c.available),
     ).toBe(true);
+    expect(capabilities.find((c) => c.kind === "cursor")?.installed).toBe(true);
+  });
+});
+
+describe("Cursor SDK text-only proposals", () => {
+  it("launches a sanitized scratch runner with only exportable context and an explicit user key", async () => {
+    const request = input("cursor");
+    delete request.effort;
+    const result = await invokeInstalledWorker(request, "/a/real/repository");
+    expect(result.proposal).toEqual(proposal);
+    expect(result.usage).toEqual(cursorRunnerResult.usage);
+    const run = nativeCalls[0];
+    const packet = JSON.parse(run.options.input);
+    expect(run.executable).toBe(process.execPath);
+    expect(run.argv[0]).toMatch(/cursor-runner\.js$/);
+    expect(run.argv).not.toContain(request.objective);
+    expect(run.options.cwd).not.toBe("/a/real/repository");
+    expect(packet.workspace).toBe(run.options.cwd);
+    expect(packet.prompt).toContain("return false");
+    expect(packet.prompt).not.toContain("PRIVATE_CONTEXT_CANARY");
+    expect(packet.prompt).not.toContain("/a/real/repository");
+    expect(run.options.env.CURSOR_API_KEY).toBe("test-cursor-user-key");
+    expect(run.options.env.UNRELATED_PRIVATE_CREDENTIAL).toBeUndefined();
+    expect(run.options.env.CURSOR_BACKEND_URL).toBeUndefined();
+    expect(run.options.env.HOME).toBeUndefined();
+    expect(run.options.env.USERPROFILE).toBeUndefined();
+    expect(run.options.env.XDG_CONFIG_HOME).toBeUndefined();
+    await expect(access(run.options.cwd)).rejects.toThrow();
+  });
+
+  it("requires an explicit key and an allowed Cursor host before launching", async () => {
+    const request = input("cursor");
+    delete request.effort;
+    vi.stubEnv("CURSOR_API_KEY", "");
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "no browser login or paid call",
+    );
+    vi.stubEnv("CURSOR_API_KEY", "test-cursor-user-key");
+    request.policy.allowedHosts = [];
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "Project policy denies endpoint",
+    );
+    expect(nativeCalls).toEqual([]);
+  });
+
+  it("rejects endpoint overrides and unsupported effort rather than ignoring controls", async () => {
+    const request = input("cursor");
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "reasoning effort",
+    );
+    delete request.effort;
+    request.provider.endpoint = "https://api2.cursor.sh";
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "endpoint overrides",
+    );
+    expect(nativeCalls).toEqual([]);
+  });
+
+  it("rejects invalid native proposals and withholds native diagnostics", async () => {
+    const request = input("cursor");
+    delete request.effort;
+    cursorRunnerResult.proposal = { summary: "missing fields" };
+    await expect(invokeInstalledWorker(request)).rejects.toThrow();
+    nativeExit = 1;
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "native diagnostics are withheld",
+    );
   });
 });
 
@@ -614,7 +741,7 @@ describe("Codex restricted-read proposals", () => {
     await expect(access(nativeCalls[0].options.cwd)).rejects.toThrow();
   });
   it("refuses native protocols that silently ignore restricted-access fields", async () => {
-    restrictedCodex = false;
+    codexSchemaMode = "full";
     await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
       "readableRoots",
     );
