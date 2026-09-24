@@ -476,10 +476,15 @@ export class RunStore {
         throw new Error("Dual consultation is missing retained call usage");
       const saved = this.db
         .prepare("SELECT json FROM decisions WHERE project_id=? AND id=?")
-        .get(this.projectId, item.records[0]!.id) as { json: string } | undefined;
-      if (!saved ||
-          outcomeHash(JSON.parse(saved.json)) !== outcomeHash(item.records[0]))
-        throw new Error("Dual consultation decision differs from its retained record");
+        .get(this.projectId, item.records[0]!.id) as
+        { json: string } | undefined;
+      if (
+        !saved ||
+        outcomeHash(JSON.parse(saved.json)) !== outcomeHash(item.records[0])
+      )
+        throw new Error(
+          "Dual consultation decision differs from its retained record",
+        );
     }
     if (callIds.size !== 2)
       throw new Error("Dual consultation calls are not independent");
@@ -905,111 +910,217 @@ export class RunStore {
   }
   /** Preserve an external review claim after verifying GE's dual, scope, run and check binding. */
   recordOutcomeFeedback(input: unknown, consultationBytes: Buffer): RunEvent {
-    return this.db.transaction(() => {
-      const candidate = outcomeFeedbackSchema.parse(input);
-      const attempt = this.dualAttempt(candidate.dispatch_id);
-      if (attempt?.state !== "completed" || !attempt.evidence_json)
-        throw new Error("Outcome feedback requires a completed GE dual attempt");
-      const retained = JSON.parse(attempt.evidence_json) as DualConsultEvidence;
-      const run = this.run(candidate.run_id);
-      this.assertBoundDualRun(run);
-      const feedback = validateOutcomeFeedback(candidate, consultationBytes, retained, run);
-      const events = this.events(run.id);
-      const published = events.filter((event) => event.type === "publication.started");
-      if (published.length !== 1 ||
+    return this.db
+      .transaction(() => {
+        const candidate = outcomeFeedbackSchema.parse(input);
+        const attempt = this.dualAttempt(candidate.dispatch_id);
+        if (attempt?.state !== "completed" || !attempt.evidence_json)
+          throw new Error(
+            "Outcome feedback requires a completed GE dual attempt",
+          );
+        const retained = JSON.parse(
+          attempt.evidence_json,
+        ) as DualConsultEvidence;
+        const run = this.run(candidate.run_id);
+        this.assertBoundDualRun(run);
+        const feedback = validateOutcomeFeedback(
+          candidate,
+          consultationBytes,
+          retained,
+          run,
+        );
+        const events = this.events(run.id);
+        const published = events.filter(
+          (event) => event.type === "publication.started",
+        );
+        if (
+          published.length !== 1 ||
           published[0]!.data.mode !== "none" ||
-          published[0]!.data.snapshotHash !== feedback.workspace_snapshot_sha256 ||
-          events.filter((event) => event.type === "publication.completed").length !== 1 ||
-          events.filter((event) => event.type === "run.succeeded").length !== 1)
-        throw new Error("Feedback snapshot is not the retained verified GE run");
-      for (const [provider, observation] of Object.entries(retained.observations)) {
-        const call = this.db.prepare("SELECT usage_json FROM inference_calls WHERE project_id=? AND owner_id=? AND id=? AND provider=?")
-          .get(this.projectId, feedback.dispatch_id, observation.callId, provider) as
-          { usage_json: string | null } | undefined;
-        if (!call?.usage_json) throw new Error("Outcome feedback lacks settled decision usage");
-        const settled = JSON.parse(call.usage_json) as Record<string, unknown>;
-        const reported = observation.usage;
-        if (!reported || reported.callId !== observation.callId ||
-            reported.provider !== provider || reported.outcome !== "completed" ||
+          published[0]!.data.snapshotHash !==
+            feedback.workspace_snapshot_sha256 ||
+          events.filter((event) => event.type === "publication.completed")
+            .length !== 1 ||
+          events.filter((event) => event.type === "run.succeeded").length !== 1
+        )
+          throw new Error(
+            "Feedback snapshot is not the retained verified GE run",
+          );
+        for (const [provider, observation] of Object.entries(
+          retained.observations,
+        )) {
+          const call = this.db
+            .prepare(
+              "SELECT usage_json FROM inference_calls WHERE project_id=? AND owner_id=? AND id=? AND provider=?",
+            )
+            .get(
+              this.projectId,
+              feedback.dispatch_id,
+              observation.callId,
+              provider,
+            ) as { usage_json: string | null } | undefined;
+          if (!call?.usage_json)
+            throw new Error("Outcome feedback lacks settled decision usage");
+          const settled = JSON.parse(call.usage_json) as Record<
+            string,
+            unknown
+          >;
+          const reported = observation.usage;
+          if (
+            !reported ||
+            reported.callId !== observation.callId ||
+            reported.provider !== provider ||
+            reported.outcome !== "completed" ||
             settled.inputTokens !== reported.inputTokens ||
             settled.outputTokens !== reported.outputTokens ||
             settled.cachedTokens !== 0 ||
             settled.costUsd !== reported.chargedUsd ||
-            settled.estimated !== (reported.reportedCostUsd === null))
-          throw new Error("Settled decision usage differs from the retained observation");
-      }
-      for (const record of Object.values(retained.observations).flatMap((item) => item.records)) {
-        const saved = this.db.prepare("SELECT json FROM decisions WHERE project_id=? AND id=?")
-          .get(this.projectId, record.id) as { json: string } | undefined;
-        if (!saved || outcomeHash(JSON.parse(saved.json)) !== outcomeHash(record))
-          throw new Error("Outcome feedback decision differs from retained GE record");
-      }
-      const prior = this.events(feedback.run_id).filter((event) => event.type === "learning.external-claim-unverified");
-      if (prior.length) {
-        if (prior.length !== 1 || outcomeHash(prior[0]!.data.feedback) !== outcomeHash(feedback))
-          throw new Error("GE run already has different reviewed outcome feedback");
-        return prior[0]!;
-      }
-      return this.event(feedback.run_id, "learning.external-claim-unverified", {
-        status: "UNVERIFIED_EXTERNAL_CLAIM", feedback,
-      });
-    }).immediate();
+            settled.estimated !== (reported.reportedCostUsd === null)
+          )
+            throw new Error(
+              "Settled decision usage differs from the retained observation",
+            );
+        }
+        for (const record of Object.values(retained.observations).flatMap(
+          (item) => item.records,
+        )) {
+          const saved = this.db
+            .prepare("SELECT json FROM decisions WHERE project_id=? AND id=?")
+            .get(this.projectId, record.id) as { json: string } | undefined;
+          if (
+            !saved ||
+            outcomeHash(JSON.parse(saved.json)) !== outcomeHash(record)
+          )
+            throw new Error(
+              "Outcome feedback decision differs from retained GE record",
+            );
+        }
+        const prior = this.events(feedback.run_id).filter(
+          (event) => event.type === "learning.external-claim-unverified",
+        );
+        if (prior.length) {
+          if (
+            prior.length !== 1 ||
+            outcomeHash(prior[0]!.data.feedback) !== outcomeHash(feedback)
+          )
+            throw new Error(
+              "GE run already has different reviewed outcome feedback",
+            );
+          return prior[0]!;
+        }
+        return this.event(
+          feedback.run_id,
+          "learning.external-claim-unverified",
+          {
+            status: "UNVERIFIED_EXTERNAL_CLAIM",
+            feedback,
+          },
+        );
+      })
+      .immediate();
   }
   outcomeSummary() {
     let unverifiedClaims = 0;
-    const groups = new Map<string, {
-      provider: "laya" | "jev"; model: string; choice: "proceed";
-      observed: number; automatedPassed: number; failed: number; cancelled: number;
-      knownDecisionCostUsd: number; unknownDecisionCost: number;
-    }>();
+    const groups = new Map<
+      string,
+      {
+        provider: "laya" | "jev";
+        model: string;
+        choice: "proceed";
+        observed: number;
+        automatedPassed: number;
+        failed: number;
+        cancelled: number;
+        knownDecisionCostUsd: number;
+        unknownDecisionCost: number;
+      }
+    >();
     let observedRuns = 0;
     for (const run of this.runs()) {
-      const events = this.events(run.id).filter((event) => event.type === "learning.external-claim-unverified");
-      if (events.length > 1) throw new Error("GE run has conflicting outcome feedback");
+      const events = this.events(run.id).filter(
+        (event) => event.type === "learning.external-claim-unverified",
+      );
+      if (events.length > 1)
+        throw new Error("GE run has conflicting outcome feedback");
       if (events.length) {
         if (events[0]!.data.status !== "UNVERIFIED_EXTERNAL_CLAIM")
           throw new Error("Outcome claim has invalid verification state");
         outcomeFeedbackSchema.parse(events[0]!.data.feedback);
         unverifiedClaims++;
       }
-      if (!run.plan?.dualPreflight ||
-          !["succeeded", "failed", "cancelled"].includes(run.status)) continue;
+      if (
+        !run.plan?.dualPreflight ||
+        !["succeeded", "failed", "cancelled"].includes(run.status)
+      )
+        continue;
       this.assertBoundDualRun(run);
       const attempt = this.dualAttempt(run.plan.dualPreflight.ownerId);
-      if (!attempt?.evidence_json) throw new Error("Observed run lacks its dual consultation");
+      if (!attempt?.evidence_json)
+        throw new Error("Observed run lacks its dual consultation");
       const dual = JSON.parse(attempt.evidence_json) as DualConsultEvidence;
       const runEvents = this.events(run.id);
       if (run.status === "succeeded") {
-        const published = runEvents.filter((event) => event.type === "publication.started");
-        if (run.plan.publication !== "none" ||
-            run.completion?.automatedChecksPassed !== true ||
-            run.completion.humanAcceptance !== "pending" ||
-            published.length !== 1 || published[0]!.data.mode !== "none" ||
-            !/^[a-f0-9]{64}$/.test(String(published[0]!.data.snapshotHash)) ||
-            runEvents.filter((event) => event.type === "publication.completed").length !== 1 ||
-            runEvents.filter((event) => event.type === "run.succeeded").length !== 1)
-          throw new Error("Observed success lacks the retained verified snapshot");
+        const published = runEvents.filter(
+          (event) => event.type === "publication.started",
+        );
+        if (
+          run.plan.publication !== "none" ||
+          run.completion?.automatedChecksPassed !== true ||
+          run.completion.humanAcceptance !== "pending" ||
+          published.length !== 1 ||
+          published[0]!.data.mode !== "none" ||
+          !/^[a-f0-9]{64}$/.test(String(published[0]!.data.snapshotHash)) ||
+          runEvents.filter((event) => event.type === "publication.completed")
+            .length !== 1 ||
+          runEvents.filter((event) => event.type === "run.succeeded").length !==
+            1
+        )
+          throw new Error(
+            "Observed success lacks the retained verified snapshot",
+          );
       } else {
-        const stopped = runEvents.filter((event) => event.type === "run.stopped");
+        const stopped = runEvents.filter(
+          (event) => event.type === "run.stopped",
+        );
         if (!stopped.length || stopped.at(-1)!.data.status !== run.status)
           throw new Error("Observed failure lacks its terminal run event");
       }
       observedRuns++;
       for (const provider of ["laya", "jev"] as const) {
         const item = dual.observations[provider];
-        const key = JSON.stringify([provider, item.configuredModel, item.choices.dispatch]);
+        const key = JSON.stringify([
+          provider,
+          item.configuredModel,
+          item.choices.dispatch,
+        ]);
         const group = groups.get(key) ?? {
-          provider, model: item.configuredModel, choice: "proceed" as const,
-          observed: 0, automatedPassed: 0, failed: 0, cancelled: 0,
-          knownDecisionCostUsd: 0, unknownDecisionCost: 0,
+          provider,
+          model: item.configuredModel,
+          choice: "proceed" as const,
+          observed: 0,
+          automatedPassed: 0,
+          failed: 0,
+          cancelled: 0,
+          knownDecisionCostUsd: 0,
+          unknownDecisionCost: 0,
         };
-        const settled = this.db.prepare(
-          "SELECT usage_json FROM inference_calls WHERE project_id=? AND owner_id=? AND id=? AND provider=?",
-        ).get(this.projectId, run.plan.dualPreflight.ownerId, item.callId, provider) as
-          { usage_json: string | null } | undefined;
-        if (!settled?.usage_json) throw new Error("Observed run lacks settled decision usage");
+        const settled = this.db
+          .prepare(
+            "SELECT usage_json FROM inference_calls WHERE project_id=? AND owner_id=? AND id=? AND provider=?",
+          )
+          .get(
+            this.projectId,
+            run.plan.dualPreflight.ownerId,
+            item.callId,
+            provider,
+          ) as { usage_json: string | null } | undefined;
+        if (!settled?.usage_json)
+          throw new Error("Observed run lacks settled decision usage");
         const usage = JSON.parse(settled.usage_json) as Usage;
-        if (usage.estimated || usage.costUsd === null || !Number.isFinite(usage.costUsd))
+        if (
+          usage.estimated ||
+          usage.costUsd === null ||
+          !Number.isFinite(usage.costUsd)
+        )
           group.unknownDecisionCost++;
         else group.knownDecisionCostUsd += usage.costUsd;
         group.observed++;
@@ -1019,12 +1130,21 @@ export class RunStore {
         groups.set(key, group);
       }
     }
-    return { version: "1.0.0" as const, kind: "advisory-ge-run-observations" as const,
-      observedRuns, unverifiedClaims,
+    return {
+      version: "1.0.0" as const,
+      kind: "advisory-ge-run-observations" as const,
+      observedRuns,
+      unverifiedClaims,
       groups: [...groups.values()].sort((left, right) =>
-        JSON.stringify([left.provider, left.model]).localeCompare(JSON.stringify([right.provider, right.model]))),
-      localDecisionContextEligible: true as const, routingEligible: false as const,
-      promotionEligible: false as const, completionAuthority: false as const };
+        JSON.stringify([left.provider, left.model]).localeCompare(
+          JSON.stringify([right.provider, right.model]),
+        ),
+      ),
+      localDecisionContextEligible: true as const,
+      routingEligible: false as const,
+      promotionEligible: false as const,
+      completionAuthority: false as const,
+    };
   }
   async recoverInterrupted(): Promise<void> {
     await this.ownerReady();

@@ -997,7 +997,8 @@ async function invokeCursorWorker(input: WorkerInput): Promise<WorkerResult> {
           maxOutputTokens: policy.maxOutputTokens,
         }),
         signal,
-        timeoutMs: policy.timeoutSeconds * 1000,
+        timeoutMs:
+          policy.timeoutSeconds === null ? null : policy.timeoutSeconds * 1000,
         maxBytes: 2_000_000,
       },
     );
