@@ -166,11 +166,13 @@ pass. It does not attest the executable, loaded image, host, signer control or
 protected execution, and cannot enable promotion.
 
 Promotion preflight now projects an unsigned analysis receipt only from a
-recomputed full cohort when both arms have measured API costs. It keeps the
+recomputed full cohort when both arms have measured API costs and all paired
+task outcomes are known. It keeps the
 target route's decision metrics separate from **whole-cohort** costs, policy
 violation assignment counts and additional failed tasks; those global totals
 must not be mistaken for route-specific `PromotionEvidence`. Unknown or
-estimated cost yields no projection. Readiness binds the exact preflight and
+estimated cost, or an unknown paired outcome, yields no projection. Readiness
+binds the exact preflight and
 projection hashes, which check consistency, not signer authenticity. These
 receipts neither write a promotion file nor issue a runtime grant; independent
 source, reviewer, worker, oracle, billing and witness control remain absent.

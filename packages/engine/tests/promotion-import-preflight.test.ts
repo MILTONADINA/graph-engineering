@@ -240,7 +240,10 @@ function fixture(trust = trustFixture()) {
   };
 }
 
-function signedMeasurementFixture(trust = trustFixture()) {
+function signedMeasurementFixture(
+  trust = trustFixture(),
+  candidateSuccess: boolean | null = true,
+) {
   const base = fixture(trust);
   const inspection = base.input.inspection;
   const { plan } = inspection;
@@ -316,7 +319,10 @@ function signedMeasurementFixture(trust = trustFixture()) {
       kind: "sealed-attempt-receipt" as const,
       reservationId: reservation.reservationId,
       reservationSha256: hashJson(reservation),
-      status: "completed" as const,
+      status:
+        assignment.arm === "candidate" && candidateSuccess === null
+          ? ("infrastructure-error" as const)
+          : ("completed" as const),
       finishedAt: at,
       publicRequestSha256: task.publicPacketSha256,
       proposalSha256: digest(`proposal-${assignment.assignmentId}`),
@@ -324,10 +330,16 @@ function signedMeasurementFixture(trust = trustFixture()) {
       observations: assignment.arm === "candidate" ? [observation] : [],
       callReceiptSha256s: [hashJson(callReceipt)],
       outcome: {
-        success: true,
+        success: assignment.arm === "candidate" ? candidateSuccess : true,
         policyViolation: false,
-        verificationSha256: digest(`verification-${assignment.assignmentId}`),
-        runtimeSha256: digest("runtime"),
+        verificationSha256:
+          assignment.arm === "candidate" && candidateSuccess === null
+            ? null
+            : digest(`verification-${assignment.assignmentId}`),
+        runtimeSha256:
+          assignment.arm === "candidate" && candidateSuccess === null
+            ? null
+            : digest("runtime"),
       },
       usage: { ...usage, basis: "aggregate" as const },
       limitations: ["Synthetic signed-row fixture; no protected execution."],
@@ -859,6 +871,18 @@ it("keeps route metrics separate from measured whole-cohort accounting", async (
   expect(authorizesPromotion(coforged, {} as PromotionEvidence, target)).toBe(
     false,
   );
+});
+
+it("withholds cohort projection when task outcomes are unknown despite measured costs", async () => {
+  const { input, target } = signedMeasurementFixture(trustFixture(), null);
+  expect(input.evaluation.accounting.unknownOutcomePairs).toBe(1);
+  expect(input.evaluation.accounting.baseline.measuredApiCostUsd).toBe(0);
+  expect(input.evaluation.accounting.candidate.measuredApiCostUsd).toBe(0);
+  const receipt = await inspectPromotionImportPreflight(input, target);
+  expect(receipt.blockers).toContain("unknown-task-outcomes");
+  expect(receipt.advisoryCohortProjection).toBeNull();
+  expect(receipt.advisoryCohortProjectionSha256).toBeNull();
+  expect(receipt.promotionEligible).toBe(false);
 });
 
 it("keeps legacy advisory-free preflight receipts readable without authority", async () => {
