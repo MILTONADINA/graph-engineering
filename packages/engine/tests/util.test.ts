@@ -4,6 +4,7 @@ import { command } from "../src/util.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
@@ -14,6 +15,20 @@ describe("bounded command transport", () => {
         timeoutMs: 10000,
       }),
     ).resolves.toEqual({ code: 0, stdout: "ok", stderr: "" });
+  });
+
+  it("does not inherit the Jev bearer key into any subprocess", async () => {
+    vi.stubEnv("GRAPH_JEV_API_KEY", "JEV_CANARY_NOT_A_REAL_KEY");
+    const argv = [
+      "-e",
+      "process.stdout.write(String(process.env.GRAPH_JEV_API_KEY === undefined))",
+    ];
+    const inherited = await command(process.execPath, argv);
+    const explicit = await command(process.execPath, argv, {
+      env: { ...process.env },
+    });
+    expect(inherited.stdout).toBe("true");
+    expect(explicit.stdout).toBe("true");
   });
 
   it("preserves UTF-8 code points split across subprocess output chunks", async () => {
