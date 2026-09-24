@@ -68,6 +68,28 @@ const CODEX_DISABLED_FEATURES = [
   "skill_mcp_dependency_install",
 ];
 const CURSOR_SDK_PIN = "1.0.32";
+const CODEX_PROPOSAL_ITEMS = new Set([
+  "userMessage",
+  "agentMessage",
+  "reasoning",
+]);
+const CODEX_PROPOSAL_ITEM_DELTAS = new Set([
+  "item/agentMessage/delta",
+  "item/reasoning/summaryTextDelta",
+  "item/reasoning/summaryPartAdded",
+  "item/reasoning/textDelta",
+]);
+const CODEX_PROPOSAL_NOTIFICATIONS = new Set([
+  "thread/started",
+  "thread/status/changed",
+  "turn/started",
+  "turn/completed",
+  "thread/tokenUsage/updated",
+  "model/safetyBuffering/updated",
+  "item/started",
+  "item/completed",
+  ...CODEX_PROPOSAL_ITEM_DELTAS,
+]);
 
 /** Treat generated protocol schemas as capabilities only when the fields have
  * the expected JSON Schema structure. Descriptions and unrelated definitions
@@ -469,8 +491,23 @@ class CodexConnection {
   private hardStop: ReturnType<typeof setTimeout> | undefined;
   private done: Promise<void>;
   private abort: () => void;
-  onNotification: (method: string, params: any) => void = () => {};
+  private startupNotifications: Array<{ method: string; params: any }> = [];
+  onNotification: (method: string, params: any) => void = (method, params) => {
+    if (method !== "thread/started" && method !== "thread/status/changed") {
+      this.stop(
+        new Error(
+          `Codex emitted a notification outside the proposal workflow: ${method}`,
+        ),
+      );
+      return;
+    }
+    this.startupNotifications.push({ method, params });
+  };
   onFailure: (error: Error) => void = () => {};
+
+  takeStartupNotifications(): Array<{ method: string; params: any }> {
+    return this.startupNotifications.splice(0);
+  }
 
   constructor(
     cwd: string,
@@ -557,6 +594,11 @@ class CodexConnection {
                   "This proposal worker does not authorize tool, permission, or input requests",
               },
             });
+          this.stop(
+            new Error(
+              `Codex requested an action outside the proposal workflow: ${String(message.method)}`,
+            ),
+          );
           return;
         }
         if (message.id !== undefined) {
@@ -776,7 +818,40 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
     void completion.catch(() => {});
     rpc.onFailure = rejectCompletion;
     rpc.onNotification = (method, params) => {
-      if (params?.threadId && params.threadId !== threadId) return;
+      if (method === "thread/started") {
+        if (params?.thread?.id !== threadId)
+          rpc.stop(new Error("Codex started an unexpected proposal thread"));
+        return;
+      }
+      if (method === "thread/status/changed") {
+        const status = params?.status;
+        if (
+          params?.threadId !== threadId ||
+          !(
+            status?.type === "idle" ||
+            (status?.type === "active" &&
+              Array.isArray(status.activeFlags) &&
+              status.activeFlags.length === 0)
+          )
+        )
+          rpc.stop(
+            new Error("Codex reported an unsafe proposal thread status"),
+          );
+        return;
+      }
+      if (params?.threadId && params.threadId !== threadId) {
+        rpc.stop(new Error("Codex emitted an event for another thread"));
+        return;
+      }
+      if (method === "turn/diff/updated" && params?.diff === "") return;
+      if (!CODEX_PROPOSAL_NOTIFICATIONS.has(method)) {
+        rpc.stop(
+          new Error(
+            `Codex emitted a notification outside the proposal workflow: ${method}`,
+          ),
+        );
+        return;
+      }
       if (method === "thread/tokenUsage/updated") {
         const counts = params.tokenUsage?.total;
         usage = {
@@ -799,22 +874,14 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
       )
         finalText = params.item.text;
       if (
-        method === "item/started" &&
-        [
-          "commandExecution",
-          "fileChange",
-          "mcpToolCall",
-          "dynamicToolCall",
-          "collabAgentToolCall",
-        ].includes(params.item?.type)
+        (method === "item/started" || method === "item/completed") &&
+        !CODEX_PROPOSAL_ITEMS.has(params.item?.type)
       )
         rpc.stop(
           new Error(
-            "Codex attempted a tool operation outside the proposal workflow",
+            `Codex emitted an item outside the proposal workflow: ${String(params.item?.type)}`,
           ),
         );
-      if (method === "hook/started")
-        rpc.stop(new Error("Codex ran a hook incompatible with this worker"));
       if (method === "turn/completed") {
         if (params.turn?.status === "completed") resolveCompletion();
         else
@@ -823,6 +890,8 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
           );
       }
     };
+    for (const event of rpc.takeStartupNotifications())
+      rpc.onNotification(event.method, event.params);
     await rpc.request("turn/start", {
       threadId,
       cwd: temporary,

@@ -34,12 +34,23 @@ let transportMode:
   | "normal"
   | "wrong-sandbox"
   | "tool"
+  | "unexpected-item"
+  | "unexpected-completed"
+  | "unexpected-event"
+  | "rerouted"
   | "pending"
   | "feature-enabled"
-  | "approval" = "normal";
+  | "preturn-activity"
+  | "wrong-thread-start"
+  | "approval-thread-status"
+  | "approval"
+  | "input-request" = "normal";
 let rpcRequests: any[] = [];
 let nativeCalls: any[] = [];
 let child: any;
+let unexpectedItemType = "webSearch";
+let unexpectedEventMethod = "item/commandExecution/outputDelta";
+let unexpectedEventParams: Record<string, unknown> = {};
 let nativeAuth: Record<string, unknown>;
 let nativeDoctor: string;
 
@@ -132,6 +143,9 @@ beforeEach(() => {
   nativeDoctor =
     "Managed settings (remote): not fetched — requires an Enterprise or Team subscription\nOrganization policy: not applicable to Pro and Max accounts\n";
   transportMode = "normal";
+  unexpectedItemType = "webSearch";
+  unexpectedEventMethod = "item/commandExecution/outputDelta";
+  unexpectedEventParams = {};
   nativeResult = {
     type: "result",
     subtype: "success",
@@ -334,7 +348,7 @@ beforeEach(() => {
                 ],
                 nextCursor: null,
               };
-            if (request.method === "thread/start")
+            if (request.method === "thread/start") {
               result = {
                 thread: { id: "thread-fixture" },
                 sandbox: {
@@ -348,6 +362,38 @@ beforeEach(() => {
                 instructionSources: [],
                 model: "fixture-model",
               };
+              emit({
+                method:
+                  transportMode === "preturn-activity"
+                    ? "process/outputDelta"
+                    : "thread/started",
+                params:
+                  transportMode === "preturn-activity"
+                    ? { stream: "stdout", deltaBase64: "dG9vbA==" }
+                    : {
+                        thread: {
+                          id:
+                            transportMode === "wrong-thread-start"
+                              ? "another-thread"
+                              : "thread-fixture",
+                        },
+                      },
+              });
+              if (transportMode !== "preturn-activity")
+                emit({
+                  method: "thread/status/changed",
+                  params: {
+                    threadId: "thread-fixture",
+                    status:
+                      transportMode === "approval-thread-status"
+                        ? {
+                            type: "active",
+                            activeFlags: ["waitingOnApproval"],
+                          }
+                        : { type: "idle" },
+                  },
+                });
+            }
             if (request.id !== undefined && request.method)
               emit({ id: request.id, result });
             if (request.method === "turn/start") {
@@ -362,10 +408,53 @@ beforeEach(() => {
                 });
                 return;
               }
+              if (
+                transportMode === "unexpected-item" ||
+                transportMode === "unexpected-completed"
+              ) {
+                emit({
+                  method:
+                    transportMode === "unexpected-item"
+                      ? "item/started"
+                      : "item/completed",
+                  params: {
+                    threadId: "thread-fixture",
+                    item: { type: unexpectedItemType },
+                  },
+                });
+                return;
+              }
+              if (transportMode === "unexpected-event") {
+                emit({
+                  method: unexpectedEventMethod,
+                  params: {
+                    threadId: "thread-fixture",
+                    ...unexpectedEventParams,
+                  },
+                });
+                return;
+              }
+              if (transportMode === "rerouted") {
+                emit({
+                  method: "model/rerouted",
+                  params: {
+                    threadId: "thread-fixture",
+                    fromModel: "fixture-model",
+                    toModel: "other-model",
+                  },
+                });
+                return;
+              }
               if (transportMode === "approval")
                 emit({
                   id: 999,
                   method: "item/commandExecution/requestApproval",
+                  params: { threadId: "thread-fixture" },
+                });
+              if (transportMode === "input-request")
+                emit({
+                  id: 998,
+                  method: "tool/requestUserInput",
                   params: { threadId: "thread-fixture" },
                 });
               emit({
@@ -380,6 +469,49 @@ beforeEach(() => {
                     },
                   },
                 },
+              });
+              emit({
+                method: "item/started",
+                params: {
+                  threadId: "thread-fixture",
+                  item: { type: "userMessage" },
+                },
+              });
+              emit({
+                method: "item/completed",
+                params: {
+                  threadId: "thread-fixture",
+                  item: { type: "userMessage" },
+                },
+              });
+              emit({
+                method: "item/started",
+                params: {
+                  threadId: "thread-fixture",
+                  item: { type: "reasoning" },
+                },
+              });
+              emit({
+                method: "item/reasoning/textDelta",
+                params: { threadId: "thread-fixture", delta: "thinking" },
+              });
+              emit({
+                method: "item/completed",
+                params: {
+                  threadId: "thread-fixture",
+                  item: { type: "reasoning" },
+                },
+              });
+              emit({
+                method: "item/started",
+                params: {
+                  threadId: "thread-fixture",
+                  item: { type: "agentMessage" },
+                },
+              });
+              emit({
+                method: "item/agentMessage/delta",
+                params: { threadId: "thread-fixture", delta: "proposal" },
               });
               emit({
                 method: "item/completed",
@@ -770,21 +902,106 @@ describe("Codex restricted-read proposals", () => {
     );
     expect(rpcRequests.some((r) => r.method === "thread/start")).toBe(false);
   });
+  it("aborts on pre-turn activity before requesting a paid turn", async () => {
+    transportMode = "preturn-activity";
+    await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+      "outside the proposal workflow",
+    );
+    expect(rpcRequests.some((r) => r.method === "turn/start")).toBe(false);
+    expect(child.kill).toHaveBeenCalled();
+  });
+  it("validates an early thread-start event against the returned thread", async () => {
+    transportMode = "wrong-thread-start";
+    await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+      "unexpected proposal thread",
+    );
+    expect(rpcRequests.some((r) => r.method === "turn/start")).toBe(false);
+    expect(child.kill).toHaveBeenCalled();
+  });
+  it("refuses a thread waiting on approval before requesting a turn", async () => {
+    transportMode = "approval-thread-status";
+    await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+      "unsafe proposal thread status",
+    );
+    expect(rpcRequests.some((r) => r.method === "turn/start")).toBe(false);
+    expect(child.kill).toHaveBeenCalled();
+  });
   it("never accepts tool execution as a patch proposal", async () => {
     transportMode = "tool";
     await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
-      "tool operation",
+      "outside the proposal workflow",
     );
     expect(child.kill).toHaveBeenCalled();
   });
-  it("declines server-side approval requests without invoking an executor", async () => {
+  it.each(["collabToolCall", "webSearch", "imageView", "futureToolCall"])(
+    "rejects unexpected %s items before accepting a proposal",
+    async (itemType) => {
+      transportMode = "unexpected-item";
+      unexpectedItemType = itemType;
+      await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+        "outside the proposal workflow",
+      );
+      expect(child.kill).toHaveBeenCalled();
+    },
+  );
+  it("rejects an unexpected completion even without a start event", async () => {
+    transportMode = "unexpected-completed";
+    unexpectedItemType = "fileChange";
+    await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+      "outside the proposal workflow",
+    );
+    expect(child.kill).toHaveBeenCalled();
+  });
+  it.each([
+    ["item/commandExecution/outputDelta", {}],
+    ["item/fileChange/outputDelta", {}],
+    ["item/futureTool/delta", {}],
+    ["turn/diff/updated", { diff: "diff --git a/file b/file" }],
+    ["process/outputDelta", { threadId: null }],
+    ["mcpServer/startupStatus/updated", { threadId: null }],
+    ["hook/started", {}],
+    ["future/activity", {}],
+  ])(
+    "rejects %s without relying on an item lifecycle",
+    async (method, params) => {
+      transportMode = "unexpected-event";
+      unexpectedEventMethod = method;
+      unexpectedEventParams = params;
+      await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+        "outside the proposal workflow",
+      );
+      expect(child.kill).toHaveBeenCalled();
+    },
+  );
+  it("rejects model rerouting even if a structured proposal could follow", async () => {
+    transportMode = "rerouted";
+    await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+      "rerouted",
+    );
+    expect(child.kill).toHaveBeenCalled();
+  });
+  it("declines and aborts server-side approval requests without invoking an executor", async () => {
     transportMode = "approval";
-    await invokeInstalledWorker(input("codex"));
+    await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+      "requested an action outside the proposal workflow",
+    );
     expect(rpcRequests.find((r) => r.id === 999)).toEqual({
       id: 999,
       result: { decision: "decline" },
     });
     expect(nativeCalls).toHaveLength(1);
+    expect(child.kill).toHaveBeenCalled();
+  });
+  it("refuses any other server request before accepting a proposal", async () => {
+    transportMode = "input-request";
+    await expect(invokeInstalledWorker(input("codex"))).rejects.toThrow(
+      "requested an action outside the proposal workflow",
+    );
+    expect(rpcRequests.find((r) => r.id === 998)).toMatchObject({
+      id: 998,
+      error: { code: -32601 },
+    });
+    expect(child.kill).toHaveBeenCalled();
   });
   it("cancels a stalled native turn and cleans scratch state", async () => {
     transportMode = "pending";
