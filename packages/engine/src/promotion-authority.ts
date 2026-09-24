@@ -651,7 +651,8 @@ export async function inspectPromotionImportPreflight(
   const { baseline, candidate: candidateAccounting } = evaluation.accounting;
   const advisoryCohortProjection =
     baseline.measuredApiCostUsd === null ||
-    candidateAccounting.measuredApiCostUsd === null
+    candidateAccounting.measuredApiCostUsd === null ||
+    evaluation.accounting.unknownOutcomePairs > 0
       ? null
       : advisoryCohortProjectionSchema.parse({
           evaluationArtifactSha256: pins.evaluationArtifactSha256,
