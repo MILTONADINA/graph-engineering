@@ -33,12 +33,12 @@ updates immediately below it supersede rows 1 and 12 where applicable.
 
 ## Final PR handoff update — 2026-09-24
 
-Kevin was invited as a collaborator on the owner's fork so that his GitHub
-review can satisfy the protected `dev` branch's required independent approval.
-The invitation must be accepted and the approval submitted on the actual PR;
-verbal approval does not satisfy GitHub's rule. The branch still requires all
-nine checks and a review after the last push. No `main`, upstream or `dev`
-commit was changed by the invitation.
+Kevin was invited as a collaborator on the owner's fork. The owner subsequently
+chose author review and merge into the fork's `dev` after the nine required
+checks, with zero required GitHub approvals on `dev`. Kevin will review the
+resulting `dev` branch before any later upstream synchronization. The branch's
+other protections remain in place. No `main`, upstream or `dev` commit was
+changed by the invitation.
 
 Jev is configured through an ignored, private key-source pointer and an opt-in
 launcher. The key itself remains in a private file and is not printed or
@@ -271,9 +271,9 @@ This is an implemented and tested development platform, not a claim of fourteen
 unqualified production approvals. The remaining work has different owners and
 is not all a prerequisite for normal local or MCP-assisted engineering:
 
-- Owner/partner actions: Kevin accepts the fork invitation and submits an
-  approving review on the final PR, after which the protected-branch merge can
-  proceed. Upstream synchronization is a separate later decision. Jev is the
+- Owner/partner actions: after CI passes, author-review and merge the PR into
+  the fork's `dev` under the owner's chosen zero-approval rule. Kevin then
+  reviews that branch before any separate upstream synchronization. Jev is the
   only configured metered decision provider, but it remains disabled until an
   operator selects a numeric session cap and reviewed account-specific price.
 - Client integration evidence: Cursor's separate project MCP still needs an
