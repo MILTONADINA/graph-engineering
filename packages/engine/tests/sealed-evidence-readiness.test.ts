@@ -1,4 +1,9 @@
-import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  sign,
+  type KeyObject,
+} from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +21,8 @@ import {
   inspectSignedSealedWorkerDeliveryCohort,
   SIGNED_WORKER_DELIVERY_DOMAIN,
 } from "../src/sealed-worker-delivery.js";
+import { SIGNED_SOURCE_INVENTORY_DOMAIN } from "../src/sealed-source-provenance.js";
+import { SIGNED_ORACLE_EXECUTION_DOMAIN } from "../src/sealed-oracle-execution.js";
 import {
   declaredSelectionAggregateFixture,
   nowMs,
@@ -30,8 +37,8 @@ const sha256Bytes = (value: Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 const unixIt = process.platform === "win32" ? it.skip : it;
 
-async function scenario() {
-  const template = await declaredSelectionAggregateFixture();
+async function scenario(callBoundOracle = false) {
+  const template = await declaredSelectionAggregateFixture(callBoundOracle);
   const { originalArtifacts, ...aggregateInput } = template.input;
   const inspection = structuredClone(aggregateInput.cohort.inspection);
   const populationInspection: CohortInspection = {
@@ -239,7 +246,13 @@ async function scenario() {
       },
     };
   };
-  return { request, checkpoint, identityBlobs, replaceSourceBytes };
+  return {
+    request,
+    checkpoint,
+    identityBlobs,
+    replaceSourceBytes,
+    selectorKeys: selector,
+  };
 }
 
 type ReadinessCheckpoint = ReturnType<
@@ -431,6 +444,217 @@ function signedWorkerDeliveries(
       }),
   );
 }
+
+function signedSourceAttestation(
+  request: Awaited<ReturnType<typeof scenario>>["request"],
+  keys?: { publicKey: KeyObject; privateKey: KeyObject },
+) {
+  const inspection = request.aggregate.input.cohort.inspection;
+  const source = request.population.input.sourceInventory;
+  const { publicKey, privateKey } = keys ?? generateKeyPairSync("ed25519");
+  const pin = {
+    version: "1.0.0" as const,
+    kind: "sealed-source-key-pin" as const,
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    sourceAuthorityId: source.sourceAuthorityId,
+    keyId: "fixture-source-key",
+    publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+    publicKeySha256: createHash("sha256")
+      .update(publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex"),
+  };
+  const unsigned = {
+    version: "1.0.0" as const,
+    kind: "signed-sealed-source-inventory" as const,
+    sourceAuthorityId: source.sourceAuthorityId,
+    keyId: pin.keyId,
+    payload: {
+      version: "1.0.0" as const,
+      kind: "sealed-source-inventory-claim" as const,
+      projectId: pin.projectId,
+      collectionId: pin.collectionId,
+      planSha256: inspection.planSha256,
+      sourceInventorySha256: hashJson(source),
+      signedAt: "2026-01-01T00:00:00.000Z",
+    },
+  };
+  return {
+    pin,
+    envelope: {
+      ...unsigned,
+      signature: sign(
+        null,
+        Buffer.from(SIGNED_SOURCE_INVENTORY_DOMAIN + canonicalJson(unsigned)),
+        privateKey,
+      ).toString("base64"),
+    },
+  };
+}
+
+function signedOracleExecutions(
+  request: Awaited<ReturnType<typeof scenario>>["request"],
+) {
+  const inspection = request.aggregate.input.cohort.inspection;
+  const keyPair = generateKeyPairSync("ed25519");
+  const pin = {
+    version: "1.0.0" as const,
+    kind: "sealed-oracle-executor-key-pin" as const,
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    oracleExecutorId: "fixture-oracle-executor",
+    keyId: "fixture-oracle-key",
+    publicKeyPem: keyPair.publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString(),
+    publicKeySha256: createHash("sha256")
+      .update(keyPair.publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex"),
+  };
+  return inspection.assignments
+    .filter((item) => item.oracleVerdict)
+    .map((item) => {
+      const invocation = item.oracleInvocation!;
+      const verdict = item.oracleVerdict!;
+      const task = inspection.plan.tasks.find(
+        (candidate) => candidate.taskId === item.assignment.taskId,
+      )!;
+      const unsigned = {
+        version: "1.0.0" as const,
+        kind: "signed-sealed-oracle-execution" as const,
+        oracleExecutorId: pin.oracleExecutorId,
+        keyId: pin.keyId,
+        payload: {
+          version: "1.0.0" as const,
+          kind: "sealed-oracle-execution" as const,
+          projectId: pin.projectId,
+          collectionId: pin.collectionId,
+          planSha256: inspection.planSha256,
+          assignmentId: item.assignment.assignmentId,
+          reservationId: item.reservation!.reservationId,
+          taskSha256: hashJson(task),
+          publicDispatchSha256: hashJson(item.publicDispatch),
+          oracleInvocationSha256: hashJson(invocation),
+          oracleVerdictSha256: hashJson(verdict),
+          oracleSha256: invocation.oracleSha256,
+          proposalSha256: invocation.proposalSha256,
+          imageId: invocation.imageId,
+          verificationSha256: verdict.verificationSha256,
+          verificationBytes: verdict.verificationBytes,
+          executedAt: verdict.recordedAt,
+        },
+      };
+      return {
+        assignmentId: item.assignment.assignmentId,
+        pin,
+        envelope: {
+          ...unsigned,
+          signature: sign(
+            null,
+            Buffer.from(
+              SIGNED_ORACLE_EXECUTION_DOMAIN + canonicalJson(unsigned),
+            ),
+            keyPair.privateKey,
+          ).toString("base64"),
+        },
+      };
+    });
+}
+
+it("joins complete signed oracle verdicts without authenticating execution", async () => {
+  const { request } = await scenario(true);
+  const oracleExecutions = signedOracleExecutions(request);
+  expect(oracleExecutions).toHaveLength(1);
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    oracleExecutions,
+  });
+  expect(receipt).toMatchObject({
+    oracleExecutionCoverageCompared: true,
+    verifiedOracleVerdictCount: 1,
+    oracleExecutionAuthenticated: false,
+    promotionEligible: false,
+  });
+  expect(receipt.oracleExecutionInventorySha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(receipt.blockers).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/do not authenticate executor governance/),
+    ]),
+  );
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      oracleExecutions: [],
+    }),
+  ).rejects.toThrow(/coverage/);
+});
+
+it("freezes optional signed claims before an external witness callback can mutate caller data", async () => {
+  const { request, checkpoint } = await scenario(true);
+  const workerDeliveries = signedWorkerDeliveries(request);
+  const oracleExecutions = signedOracleExecutions(request);
+  let reads = 0;
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    workerDeliveries,
+    oracleExecutions,
+    witness: {
+      witnessId: "test-witness",
+      readCurrent: async (query) => {
+        if (++reads === 1) {
+          workerDeliveries[0]!.envelope.signature =
+            Buffer.alloc(64).toString("base64");
+          oracleExecutions[0]!.envelope.signature =
+            Buffer.alloc(64).toString("base64");
+        }
+        return checkpoint(query);
+      },
+    },
+  });
+  expect(reads).toBe(2);
+  expect(receipt).toMatchObject({
+    workerDeliveryCoverageCompared: true,
+    oracleExecutionCoverageCompared: true,
+    witnessAuthenticationVerified: false,
+    promotionEligible: false,
+  });
+});
+
+it("joins a pinned pre-run source claim without treating it as independent provenance", async () => {
+  const { request } = await scenario();
+  const sourceAttestation = signedSourceAttestation(request);
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    sourceAttestation,
+  });
+  expect(receipt).toMatchObject({
+    sourceSignatureCompared: true,
+    sourceEligibilityAuthenticated: false,
+    promotionEligible: false,
+  });
+  expect(receipt.sourceSignatureKeyPinSha256).toBe(
+    hashJson(sourceAttestation.pin),
+  );
+  expect(receipt.blockers).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/does not authenticate source ownership/),
+    ]),
+  );
+  sourceAttestation.envelope.payload.sourceInventorySha256 = "f".repeat(64);
+  await expect(
+    inspectSealedEvidenceReadiness({ ...request, sourceAttestation }),
+  ).rejects.toThrow(/Source attestation identity/);
+});
+
+it("rejects source key reuse with a population signer", async () => {
+  const { request, selectorKeys } = await scenario();
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      sourceAttestation: signedSourceAttestation(request, selectorKeys),
+    }),
+  ).rejects.toThrow(/reuses a source key/);
+});
 
 it("joins whole-cohort signed worker deliveries inside the readiness audit without authority", async () => {
   const { request } = await scenario();
