@@ -8,18 +8,24 @@ import path from "node:path";
 import { gitFiles } from "./workspace.js";
 import { isAllowedPath, safePath } from "../policy.js";
 
-export async function dockerAvailable(): Promise<boolean> {
-  try {
-    return (
-      (
-        await command("docker", ["info", "--format", "{{.ServerVersion}}"], {
-          timeoutMs: 5000,
-        })
-      ).code === 0
-    );
-  } catch {
-    return false;
+export async function dockerAvailable(
+  probe: typeof command = command,
+): Promise<boolean> {
+  for (const timeoutMs of [5_000, 15_000]) {
+    try {
+      if (
+        (
+          await probe("docker", ["info", "--format", "{{.ServerVersion}}"], {
+            timeoutMs,
+          })
+        ).code === 0
+      )
+        return true;
+    } catch {
+      // The daemon can become ready after the first probe times out.
+    }
   }
+  return false;
 }
 export interface VerificationResult {
   argv: string[];
