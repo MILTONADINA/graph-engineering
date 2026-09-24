@@ -79,6 +79,13 @@ it("defaults cloud context to lexical retrieval and requires explicit hybrid emb
     path.join(root, "private", "PRIVATE_RETRIEVAL_CANARY.ts"),
     "export function retrievalSignalPrivate() { return false; }",
   );
+  // Private matches must not occupy a global top-80 slot ahead of public
+  // source, even when the private corpus is much larger than the result cap.
+  for (let index = 0; index < 96; index++)
+    await writeFile(
+      path.join(root, "private", `match-${index}.md`),
+      "retrievalSignal",
+    );
   const engine = await GraphEngine.open(root);
   try {
     // A synthetic vector proves the retrieval branch without provisioning or
@@ -140,6 +147,21 @@ it("defaults cloud context to lexical retrieval and requires explicit hybrid emb
       expect(JSON.stringify(hybrid)).not.toContain("PRIVATE_RETRIEVAL_CANARY");
       expect(available).toHaveBeenCalled();
       expect(embed).toHaveBeenCalled();
+      for (let revision = 0; revision < 3; revision++) {
+        await writeFile(
+          path.join(root, "public", "notes.md"),
+          `retrievalSignal is documented here, revision ${revision}.`,
+        );
+        const refreshed = await cloud.client.callTool({
+          name: "context_get",
+          arguments: { query: "retrievalSignal", budgetTokens: 4000 },
+        });
+        expect(refreshed.isError).not.toBe(true);
+      }
+      const retainedScopes = await (engine.context as any).db.all(
+        "SELECT DISTINCT scope FROM context_export_eligible",
+      );
+      expect(retainedScopes.length).toBeLessThanOrEqual(2);
     } finally {
       await cloud.client.close();
       await cloud.server.close();
@@ -329,7 +351,7 @@ it("cloud graph traversal cannot expose resolved private targets or bridge throu
     "public/entry.ts":
       "import { bridge } from '../private/bridge'; import { direct } from './direct'; export function entry() { bridge(); direct(); }",
     "private/bridge.ts":
-      "import { leaf } from '../public/leaf'; export function bridge() { leaf(); }",
+      "// PRIVATE_BRIDGE_QUERY_CANARY\nimport { leaf } from '../public/leaf'; export function bridge() { leaf(); }",
     "public/leaf.ts": "export function leaf() { return 1; }",
     "public/direct.ts": "export function direct() { return 2; }",
   }))
@@ -403,6 +425,20 @@ it("cloud graph traversal cannot expose resolved private targets or bridge throu
               (hiddenSeed.content as { type: string; text: string }[])[0]!.text,
             ),
           ).toEqual([]);
+          for (const retrieval of ["lexical", "graph"] as const) {
+            const query = "PRIVATE_BRIDGE_QUERY_CANARY";
+            const contextResult = await client.callTool({
+              name: "context_get",
+              arguments: { query, retrieval, budgetTokens: 4000 },
+            });
+            expect(contextResult.isError).not.toBe(true);
+            const packet = JSON.parse(
+              (contextResult.content as { type: string; text: string }[])[0]!
+                .text,
+            ) as import("@graph-engineering/contracts").ContextPacket;
+            expect(packet.items).toEqual([]);
+            expect(packet.estimatedTokens).toBe(Buffer.byteLength(query) + 64);
+          }
         }
       } finally {
         await client.close();

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { GraphEngine } from "./service.js";
+import { estimateTokens } from "./context/index.js";
 import { isAllowedPath, containsSecret } from "./policy.js";
 import { listTemplates } from "./templates.js";
 
@@ -49,6 +50,7 @@ export function createMcpServer(
         query: args.query,
         budgetTokens: args.budgetTokens,
         retrieval,
+        exportOnly: options.client === "cloud",
       });
       if (options.client === "cloud") {
         if (
@@ -72,8 +74,26 @@ export function createMcpServer(
           (item) =>
             item.source &&
             isAllowedPath(item.source.path, engine.config.policy, true) &&
+            !containsSecret(item.source.path) &&
             !containsSecret(item.text),
         );
+        // Defense in depth for future retrievers: metadata must describe the
+        // exported packet, not any hidden candidates removed at this boundary.
+        packet.estimatedTokens =
+          estimateTokens(packet.query) +
+          packet.mandatory.reduce(
+            (total, value) => total + estimateTokens(value),
+            0,
+          ) +
+          64 +
+          packet.items.reduce(
+            (total, item) =>
+              total +
+              estimateTokens(item.text) +
+              estimateTokens(item.source?.path ?? "") +
+              48,
+            0,
+          );
         packet.coverage = {
           semantic: packet.coverage.semantic,
           graph:
