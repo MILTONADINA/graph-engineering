@@ -40,6 +40,23 @@ passed. They add local signed worker-delivery receipts, an audited Vite/React
 scaffold and API client, and optional worker-key fingerprint registry checks.
 Neither `main` nor the parent repository was updated.
 
+[PR #7](https://github.com/MILTONADINA/graph-engineering/pull/7),
+[#8](https://github.com/MILTONADINA/graph-engineering/pull/8), and
+[#9](https://github.com/MILTONADINA/graph-engineering/pull/9) merged next,
+bringing fork `dev` to `9611ec5`. They added optional oracle-key registry
+comparison, Cursor private-context exclusions, and fail-closed Codex proposal
+event handling. Later [PR #10](https://github.com/MILTONADINA/graph-engineering/pull/10),
+[#14](https://github.com/MILTONADINA/graph-engineering/pull/14),
+[#12](https://github.com/MILTONADINA/graph-engineering/pull/12), and
+[#11](https://github.com/MILTONADINA/graph-engineering/pull/11) were
+rebase-merged in that order on 2026-09-24, bringing fork `dev` to `3bee02f`.
+Their nine required checks passed on each PR head before merge. These changes
+added analysis-only promotion projections, bounded Docker availability retries,
+signed promotion-approval inspection without grants, and optional source-key
+registry comparison. The
+[post-merge `dev` run](https://github.com/MILTONADINA/graph-engineering/actions/runs/36025914101)
+for `3bee02f` also passed all nine required checks.
+
 The table is a historical implementation checkpoint before those merges. The
 dated updates and current-state paragraph supersede its older handoff wording.
 
