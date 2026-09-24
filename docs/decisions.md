@@ -36,6 +36,225 @@ Hosted decisions require a separately supplied `cloudState` and an explicit
 descriptions, and state all need export review. The presence of a Jev provider
 does not grant permission to upload arbitrary local state. Oversized or
 secret-bearing requests abstain; no text is silently truncated at dispatch.
+`consultBothDecisions` and `graph-engine dual-consult <request.json>` are a
+separate prerequisite for a caller that requires **both** local Laya and hosted
+Jev before each worker task. They make two independent single-provider calls;
+no cascade, shadow fallback, or model promotion can satisfy the missing call.
+Both responses must report the exact configured model, answer every requested
+question with a permitted choice and numeric confidence, and have distinct
+retained call IDs. A missing/invalid response throws `DualConsultUnavailable`
+(API) or exits nonzero (CLI). This consultation is advisory: even two valid
+`proceed` choices confer no authority to dispatch, approve, publish, or skip
+verification. The caller must enforce its own worker prerequisite and all
+other task gates. The consultation waits for a response or caller cancellation;
+it has no fixed 10-second cutoff or automatic retry.
+
+The CLI loads the project policy and exactly one Laya and one Jev entry from
+its private `decisions.json`. This mandatory path pins Jev to the reviewed
+direct `https://api.typesafe.ai/v1/systemone` endpoint; query strings and
+fragments are rejected for both providers. The request file is a reviewed
+compact JSON object. `cloudState` accepts only the fixed fields shown here;
+`securityReviewRequired` may also be supplied as a boolean. The single
+worker question and its candidate descriptions are fixed by the engine for
+the default V1 protocol:
+
+```json
+{
+  "ownerId": "handoff-GRAPH-42",
+  "binding": {
+    "taskId": "GRAPH-42",
+    "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "state": {
+    "taskBinding": {
+      "taskId": "GRAPH-42",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "complexity": 2
+  },
+  "cloudState": {
+    "taskBinding": {
+      "taskId": "GRAPH-42",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "writePathCount": 2,
+    "acceptanceCount": 1,
+    "sourceDirty": false,
+    "textOnlyCoverage": false
+  },
+  "questions": [
+    {
+      "id": "dispatch",
+      "category": "worker",
+      "candidates": {
+        "proceed": "Proceed with selected scoped task",
+        "pause": "Pause for more evidence"
+      },
+      "baseline": "pause",
+      "exportable": true
+    }
+  ]
+}
+```
+
+The opt-in V2 protocol adds two advisory Choice questions to that mandatory
+dispatch question. Set `consultationVersion: "2.0.0"`, retain the V1 binding
+and fields, and add these required, bounded `cloudState` fields:
+
+```json
+{
+  "taskClass": "engineering",
+  "changeKind": "bug-fix",
+  "languageFamilies": ["typescript"],
+  "reviewedTaskSummary": "Tighten the selected task's bounded verification path.",
+  "exportReviewSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "workerProfile": {
+    "provider": "qwen",
+    "model": "qwen-local",
+    "efforts": []
+  }
+}
+```
+
+`taskClass` is `engineering` or `product`; `changeKind` is `feature`,
+`bug-fix`, `refactor`, `investigate`, or `other`. `languageFamilies` contains
+one to seven distinct values from `typescript`, `javascript`, `python`,
+`dart`, `sql`, `documentation`, and `other`. The reviewed summary is 12–240
+characters. The worker profile names only a configured, independently
+reviewed worker and its configured efforts; an empty effort list is valid.
+The caller must independently approve the exact exported state and fixed
+questions, retain that review, and bind `exportReviewSha256` to it. The digest
+is a claim supplied by the caller; GE checks its shape but cannot authenticate
+the external review. Raw source, paths, worker briefs, and unreviewed free
+text are outside this export contract. The local Laya state must carry the
+same task class, change kind, language families, reviewed summary, and worker
+profile so both decisions have useful context.
+
+Append the following exact questions after the unchanged V1 `dispatch`
+question. The engine rejects reordered, altered, or additional questions:
+
+```json
+[
+  {
+    "id": "context_profile",
+    "category": "retrieval-scope",
+    "candidates": {
+      "lexical": "Use bounded exact and lexical retrieval",
+      "graph": "Expand bounded indexed relationships from lexical seeds",
+      "hybrid": "Combine available lexical, graph and local semantic retrieval"
+    },
+    "baseline": "hybrid",
+    "exportable": true
+  },
+  {
+    "id": "worker_suitability",
+    "category": "worker-suitability",
+    "candidates": {
+      "current_worker": "The reviewed current worker is suitable for this task",
+      "specialist_review": "Ask for an independently reviewed specialist worker",
+      "insufficient_context": "The exported metadata is insufficient to judge worker suitability"
+    },
+    "baseline": "insufficient_context",
+    "exportable": true
+  }
+]
+```
+
+Each provider receives all three questions in one metered call, yielding
+three retained records per provider. Both `dispatch` answers must be `proceed`
+before the existing plan/worker preflight passes. `context_profile` and
+`worker_suitability` are observations only: they do not alter retrieval,
+select a different model or effort, or authorize a specialist without a
+separate reviewed profile and policy. The preflight object and its
+`version: "1.0.0"` remain unchanged. A V2 feedback packet uses
+`schema_version: 2` and names all six distinct decision IDs; V1 feedback
+continues to use version 1 and two IDs. Both remain unverified external
+claims, with memory acceptance and routing promotion false. An omitted
+`consultationVersion` preserves the V1 request hash and replay behavior.
+
+The caller must derive `taskId` and `sourceSha256` from the selected graph
+task and verify that binding again against the result immediately before
+dispatch. It must review `cloudState`, the binding, and every question for
+hosted export. The CLI echoes `ownerId` and the binding and emits `ready`,
+`policyVersion`, `requestHash`,
+and separate `observations.laya` / `observations.jev` with the requested
+endpoints, observed models, choices, call IDs, records, and usage. The provider
+name is bound to the reviewed request endpoint; the wire response itself
+reports the model but no separate provider name. It saves both decision records and a
+task-bound event in the project's private run database; the budget ledger
+stores settled charges or unresolved reservations under `ownerId`. Choose a
+stable unique handoff/dispatch identity for `ownerId`. The CLI durably binds
+it to the exact task/source, policy version and canonical request hash before
+either call. A completed exact replay returns the retained evidence without
+another paid call. An in-flight or uncertain owner blocks a new call; inspect
+it with read-only `graph-engine dual-consult-status <ownerId>` before explicit
+reconciliation and a new owner. A changed request under the same owner is
+rejected. Exported observations are drafts until independently labeled and
+reviewed through the evaluation workflow.
+
+After managed execution, `graph-engine run-receipt <runId>` reads only the
+persisted run database and returns `{ "run": RunRecord, "events": RunEvent[] }`.
+The embedded `run.plan` carries its plan ID, source snapshot ID and policy
+hash; `run` also carries status, workspace, branch, completion and usage.
+Events are ordered by retained sequence. A missing run fails nonzero. This
+command does not open the engine or run interruption recovery.
+
+Projects with `policy.requireDualBeforeWorker: true` require a retained pair
+before worker planning and dispatch. The BrightPath bridge supplies
+`--dual-preflight <private.json>` to `plan` with the exact closed object:
+
+```json
+{
+  "ownerId": "GRAPH-42/handoff-1/1",
+  "requestHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "binding": {
+    "taskId": "GRAPH-42",
+    "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "scopeSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
+```
+
+The engine adds `version: "1.0.0"` to `plan.dualPreflight`, checks that both
+retained models validly selected `proceed` under the current policy, and
+claims the owner for one plan. `run <planId> --scope-sha256 <same digest>`
+rechecks the pair and claims it for one run before worker dispatch. A resumed
+run also requires the digest and rechecks the retained claim. The run receipt
+contains the same metadata in `run.dualPreflight` and `run.plan.dualPreflight`.
+The scope digest is opaque to Graph Engineering: the BrightPath bridge derives
+and verifies it from its selected task, exact paths and acceptance anchor.
+It is never sent to Jev. The dual choices do not approve the scope.
+
+`workspace-fingerprint <runId>` recomputes Graph Engineering's current
+path-policy-aware `snapshotHash` from the workspace in the retained run receipt.
+It returns `{runId,workspace,snapshotHash}` without opening the engine or
+running recovery. It refuses policy drift or a workspace outside the run's
+canonical managed path. The caller must compare this hash to the unique
+successful `publication.started` event before treating candidate bytes as
+the run's output.
+
+After BrightPath independently reviews a candidate scope, its bridge may call
+`graph-engine outcome-record <feedback.json> <dual-result.json>`. The private
+feedback names task, source, candidate, scope, proof and review hashes, every
+decision ID and provider usage, and the reported outcome. GE compares the dual artifact
+with its retained attempt, decisions and settled usage. It requires the exact
+dual owner, task/source binding, opaque scope digest, claimed plan and run,
+successful automated checks, and the unique verified snapshot event. The CLI
+also recomputes the current managed workspace fingerprint. BrightPath must
+authenticate its own scope and completion review before calling; GE cannot
+derive their authority from the supplied hashes. The event remains an
+`UNVERIFIED_EXTERNAL_CLAIM` and cannot label model answers or authorize
+completion. `outcome-summary` separately aggregates GE's own dual-bound run
+results and settled decision costs into bounded local decision context. These
+are automated-run observations, not BrightPath accepted outcomes. They never
+accept memory or promote routing, and are not exported to Jev.
+
+Hosted decisions require the separately supplied closed `cloudState` and the
+fixed exportable questions for the selected protocol. Free-form paths, source
+text, objectives, memory, or alternative candidate descriptions are rejected
+before any call.
+Oversized or secret-bearing requests abstain; no text is silently truncated at
+dispatch.
 
 ## Laya sidecar
 

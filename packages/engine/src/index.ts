@@ -24,8 +24,11 @@ export {
   consultBothDecisions,
   DualConsultUnavailable,
   dualOwnerSchema,
+  dualConsultVersionSchema,
   dualCloudStateSchema,
+  dualV2CloudStateSchema,
   dualWorkerQuestionSchema,
+  dualV2QuestionsSchema,
   dualPlanPreflightRequestSchema,
   dualPlanPreflightSchema,
   taskBindingSchema,
@@ -33,6 +36,7 @@ export {
   type DualConsultAttemptMeta,
   type DualConsultEvidence,
   type DualConsultOptions,
+  type DualConsultVersion,
   type TaskBinding,
 } from "./decision-dual.js";
 export {

@@ -162,6 +162,116 @@ it("retains both records and priced usage, then replays the exact successful own
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
+it("retains six V2 decisions from two calls and blocks changed reviewed metadata on replay", async () => {
+  const data = await fixture();
+  const request = {
+    ...data.request,
+    consultationVersion: "2.0.0",
+    state: {
+      ...data.request.state,
+      taskClass: "engineering",
+      changeKind: "bug-fix",
+      languageFamilies: ["typescript"],
+      reviewedTaskSummary: "Tighten a bounded verification path.",
+      workerProfile: { provider: "qwen", model: "qwen-local", efforts: [] },
+    },
+    cloudState: {
+      ...data.request.cloudState,
+      taskClass: "engineering",
+      changeKind: "bug-fix",
+      languageFamilies: ["typescript"],
+      reviewedTaskSummary: "Tighten a bounded verification path.",
+      exportReviewSha256: "b".repeat(64),
+      workerProfile: { provider: "qwen", model: "qwen-local", efforts: [] },
+    },
+    questions: [
+      ...data.request.questions,
+      {
+        id: "context_profile",
+        category: "retrieval-scope",
+        candidates: {
+          lexical: "Use bounded exact and lexical retrieval",
+          graph: "Expand bounded indexed relationships from lexical seeds",
+          hybrid:
+            "Combine available lexical, graph and local semantic retrieval",
+        },
+        baseline: "hybrid",
+        exportable: true,
+      },
+      {
+        id: "worker_suitability",
+        category: "worker-suitability",
+        candidates: {
+          current_worker:
+            "The reviewed current worker is suitable for this task",
+          specialist_review:
+            "Ask for an independently reviewed specialist worker",
+          insufficient_context:
+            "The exported metadata is insufficient to judge worker suitability",
+        },
+        baseline: "insufficient_context",
+        exportable: true,
+      },
+    ],
+  };
+  await writeJson(data.requestFile, request);
+  const fetch = vi.fn(async (url: string) => {
+    const hosted = url.startsWith("https:");
+    const choice = (
+      selected: string,
+      probabilities: Record<string, number>,
+    ) => ({
+      ...(hosted ? { type: "choice" } : {}),
+      choice: selected,
+      confidence: 0.8,
+      probabilities,
+    });
+    return new Response(
+      JSON.stringify({
+        model: hosted ? "jev-1.13.0" : "laya-pinned",
+        answers: {
+          dispatch: choice("proceed", { proceed: 0.8, pause: 0.2 }),
+          context_profile: choice("hybrid", {
+            lexical: 0.1,
+            graph: 0.1,
+            hybrid: 0.8,
+          }),
+          worker_suitability: choice("insufficient_context", {
+            current_worker: 0.1,
+            specialist_review: 0.1,
+            insufficient_context: 0.8,
+          }),
+        },
+        ...(hosted ? { usage: { input_tokens: 500, output_tokens: 40 } } : {}),
+      }),
+    );
+  });
+  vi.stubGlobal("fetch", fetch);
+  const evidence = await runDualConsultCli(data.directory, data.requestFile);
+  expect(evidence.version).toBe("2.0.0");
+  expect(evidence.ready).toBe(true);
+  expect(evidence.observations.laya.usage?.questionCount).toBe(3);
+  expect(evidence.observations.jev.usage?.questionCount).toBe(3);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  const store = new RunStore(data.dataDir, data.project.projectId);
+  try {
+    expect(store.decisions()).toHaveLength(6);
+  } finally {
+    store.close();
+  }
+  expect(await runDualConsultCli(data.directory, data.requestFile)).toEqual(
+    evidence,
+  );
+  expect(fetch).toHaveBeenCalledTimes(2);
+  request.cloudState.reviewedTaskSummary = "A different approved task summary.";
+  request.state.reviewedTaskSummary = request.cloudState.reviewedTaskSummary;
+  await writeJson(data.requestFile, request);
+  await expect(
+    runDualConsultCli(data.directory, data.requestFile),
+  ).rejects.toThrow(/different task\/source, policy or request/);
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
 it("blocks a second caller while the first owner attempt is in flight", async () => {
   const data = await fixture();
   let release!: () => void;

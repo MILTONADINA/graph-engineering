@@ -17,6 +17,7 @@ import type {
   DualConsultEvidence,
   TaskBinding,
 } from "./decision-dual.js";
+import { dualQuestionIds } from "./decision-dual.js";
 import {
   summarizeInferenceCalls,
   type AccountingSummary,
@@ -439,6 +440,7 @@ export class RunStore {
       throw new Error("A matching completed dual consultation is required");
     const evidence = JSON.parse(row.evidence_json) as DualConsultEvidence;
     if (
+      !["1.0.0", "2.0.0"].includes(evidence.version) ||
       !evidence.ready ||
       evidence.projectId !== this.projectId ||
       evidence.ownerId !== preflight.ownerId ||
@@ -451,6 +453,17 @@ export class RunStore {
         "Retained dual evidence does not match the selected task",
       );
     const callIds = new Set<string>();
+    const decisionIds = new Set<string>();
+    const questionIds = dualQuestionIds(evidence.version);
+    const choicesByQuestion: Record<string, readonly string[]> = {
+      dispatch: ["proceed", "pause"],
+      context_profile: ["lexical", "graph", "hybrid"],
+      worker_suitability: [
+        "current_worker",
+        "specialist_review",
+        "insufficient_context",
+      ],
+    };
     for (const provider of ["laya", "jev"] as const) {
       const item = evidence.observations[provider];
       if (
@@ -460,11 +473,20 @@ export class RunStore {
         item.observedModel !== item.configuredModel ||
         item.choices.dispatch !== "proceed" ||
         item.usage?.callId !== item.callId ||
+        item.usage.provider !== provider ||
+        item.usage.model !== item.configuredModel ||
+        item.usage.questionCount !== questionIds.length ||
         item.usage.outcome !== "completed" ||
-        item.records.length !== 1 ||
-        item.records[0]?.selected !== "proceed"
+        item.records.length !== questionIds.length ||
+        Object.keys(item.choices).length !== questionIds.length ||
+        questionIds.some(
+          (questionId) =>
+            !choicesByQuestion[questionId]!.includes(item.choices[questionId]!),
+        )
       )
-        throw new Error("Both retained models must validly select proceed");
+        throw new Error(
+          "Both retained models must validly select proceed and answer every question",
+        );
       callIds.add(item.callId);
       const call = this.db
         .prepare(
@@ -474,17 +496,38 @@ export class RunStore {
         { usage_json: string | null } | undefined;
       if (!call?.usage_json)
         throw new Error("Dual consultation is missing retained call usage");
-      const saved = this.db
-        .prepare("SELECT json FROM decisions WHERE project_id=? AND id=?")
-        .get(this.projectId, item.records[0]!.id) as
-        { json: string } | undefined;
-      if (
-        !saved ||
-        outcomeHash(JSON.parse(saved.json)) !== outcomeHash(item.records[0])
-      )
-        throw new Error(
-          "Dual consultation decision differs from its retained record",
+      for (const questionId of questionIds) {
+        const records = item.records.filter(
+          (record) => record.evidence.questionId === questionId,
         );
+        const record = records[0];
+        if (
+          records.length !== 1 ||
+          !record ||
+          decisionIds.has(record.id) ||
+          record.projectId !== this.projectId ||
+          record.provider !== provider ||
+          record.modelVersion !== item.configuredModel ||
+          record.policyVersion !== policyHash ||
+          record.mode !== "shadow" ||
+          record.evidence.callId !== item.callId ||
+          record.selected !== item.choices[questionId]
+        )
+          throw new Error(
+            "Dual consultation has incomplete or mismatched decision records",
+          );
+        decisionIds.add(record.id);
+        const saved = this.db
+          .prepare("SELECT json FROM decisions WHERE project_id=? AND id=?")
+          .get(this.projectId, record.id) as { json: string } | undefined;
+        if (
+          !saved ||
+          outcomeHash(JSON.parse(saved.json)) !== outcomeHash(record)
+        )
+          throw new Error(
+            "Dual consultation decision differs from its retained record",
+          );
+      }
     }
     if (callIds.size !== 2)
       throw new Error("Dual consultation calls are not independent");
@@ -719,12 +762,16 @@ export class RunStore {
                 for (const record of observation.records) {
                   const saved = this.db
                     .prepare(
-                      "SELECT 1 FROM decisions WHERE project_id=? AND id=?",
+                      "SELECT json FROM decisions WHERE project_id=? AND id=?",
                     )
-                    .get(this.projectId, record.id);
-                  if (!saved)
+                    .get(this.projectId, record.id) as
+                    { json: string } | undefined;
+                  if (
+                    !saved ||
+                    outcomeHash(JSON.parse(saved.json)) !== outcomeHash(record)
+                  )
                     throw new Error(
-                      "Completed decision is missing a retained record",
+                      "Completed decision differs from its retained record",
                     );
                 }
               }

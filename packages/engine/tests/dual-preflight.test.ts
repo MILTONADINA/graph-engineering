@@ -27,7 +27,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 
-async function fixture(keepDecisionProviders = false) {
+async function fixture(keepDecisionProviders = false, v2 = false) {
   const directory = await mkdtemp(path.join(tmpdir(), "graph-dual-preflight-"));
   roots.push(directory);
   const root = path.join(directory, "repo");
@@ -89,15 +89,39 @@ async function fixture(keepDecisionProviders = false) {
   const ownerId = "GRAPH-42/handoff-1/1";
   const requestFile = path.join(directory, "private-data", "dual-request.json");
   await writeJson(requestFile, {
+    ...(v2 ? { consultationVersion: "2.0.0" } : {}),
     ownerId,
     binding,
-    state: { taskBinding: binding },
+    state: {
+      taskBinding: binding,
+      ...(v2
+        ? {
+            taskClass: "engineering",
+            changeKind: "bug-fix",
+            languageFamilies: ["typescript"],
+            reviewedTaskSummary:
+              "Tighten the selected task's bounded verification path.",
+            workerProfile: { provider: "local", model: "fixture", efforts: [] },
+          }
+        : {}),
+    },
     cloudState: {
       taskBinding: binding,
       writePathCount: 1,
       acceptanceCount: 1,
       sourceDirty: false,
       textOnlyCoverage: true,
+      ...(v2
+        ? {
+            taskClass: "engineering",
+            changeKind: "bug-fix",
+            languageFamilies: ["typescript"],
+            reviewedTaskSummary:
+              "Tighten the selected task's bounded verification path.",
+            exportReviewSha256: "d".repeat(64),
+            workerProfile: { provider: "local", model: "fixture", efforts: [] },
+          }
+        : {}),
     },
     questions: [
       {
@@ -110,6 +134,37 @@ async function fixture(keepDecisionProviders = false) {
         baseline: "pause",
         exportable: true,
       },
+      ...(v2
+        ? [
+            {
+              id: "context_profile",
+              category: "retrieval-scope",
+              candidates: {
+                lexical: "Use bounded exact and lexical retrieval",
+                graph:
+                  "Expand bounded indexed relationships from lexical seeds",
+                hybrid:
+                  "Combine available lexical, graph and local semantic retrieval",
+              },
+              baseline: "hybrid",
+              exportable: true,
+            },
+            {
+              id: "worker_suitability",
+              category: "worker-suitability",
+              candidates: {
+                current_worker:
+                  "The reviewed current worker is suitable for this task",
+                specialist_review:
+                  "Ask for an independently reviewed specialist worker",
+                insufficient_context:
+                  "The exported metadata is insufficient to judge worker suitability",
+              },
+              baseline: "insufficient_context",
+              exportable: true,
+            },
+          ]
+        : []),
     ],
   });
   const hostedBodies: string[] = [];
@@ -118,16 +173,35 @@ async function fixture(keepDecisionProviders = false) {
     if (url.startsWith("https:")) hostedBodies.push(body);
     if (!body.includes('"dispatch"'))
       return new Response("planning unavailable", { status: 503 });
+    const hosted = url.startsWith("https:");
+    const choice = (
+      selected: string,
+      probabilities: Record<string, number>,
+    ) => ({
+      ...(hosted ? { type: "choice" } : {}),
+      choice: selected,
+      confidence: 0.9,
+      probabilities,
+    });
     return new Response(
       JSON.stringify({
-        model: url.startsWith("http:") ? "laya-pinned" : "jev-1.13.0",
+        model: hosted ? "jev-1.13.0" : "laya-pinned",
         answers: {
-          dispatch: {
-            ...(!url.startsWith("http:") ? { type: "choice" } : {}),
-            choice: "proceed",
-            confidence: 0.9,
-            probabilities: { proceed: 0.9, pause: 0.1 },
-          },
+          dispatch: choice("proceed", { proceed: 0.9, pause: 0.1 }),
+          ...(v2
+            ? {
+                context_profile: choice("hybrid", {
+                  lexical: 0.05,
+                  graph: 0.05,
+                  hybrid: 0.9,
+                }),
+                worker_suitability: choice("insufficient_context", {
+                  current_worker: 0.05,
+                  specialist_review: 0.05,
+                  insufficient_context: 0.9,
+                }),
+              }
+            : {}),
         },
         usage: { input_tokens: 334, output_tokens: 31 },
       }),
@@ -221,6 +295,44 @@ it("keeps ordinary projects free of the dual requirement", async () => {
   const plan = await data.engine.createPlan(planInput());
   expect(plan.dualPreflight).toBeUndefined();
   expect(data.fetch).not.toHaveBeenCalled();
+});
+
+it("requires all six retained V2 decisions before a worker can launch", async () => {
+  const data = await fixture(false, true);
+  const evidence = await data.consult();
+  expect(evidence.version).toBe("2.0.0");
+  expect(evidence.observations.laya.records).toHaveLength(3);
+  expect(evidence.observations.jev.records).toHaveLength(3);
+  const preflight = {
+    ownerId: data.ownerId,
+    requestHash: evidence.requestHash,
+    binding: data.binding,
+    scopeSha256: data.scopeSha256,
+  };
+  const db = new Database(path.join(data.dataDir, "runs.sqlite"));
+  const original = db
+    .prepare("SELECT evidence_json FROM dual_consult_attempts WHERE owner_id=?")
+    .get(data.ownerId) as { evidence_json: string };
+  const altered = JSON.parse(original.evidence_json);
+  altered.observations.jev.choices.context_profile = "lexical";
+  db.prepare(
+    "UPDATE dual_consult_attempts SET evidence_json=? WHERE owner_id=?",
+  ).run(JSON.stringify(altered), data.ownerId);
+  await expect(data.engine.createPlan(planInput(preflight))).rejects.toThrow(
+    /mismatched decision records/,
+  );
+  expect(data.workers).not.toHaveBeenCalled();
+  db.prepare(
+    "UPDATE dual_consult_attempts SET evidence_json=? WHERE owner_id=?",
+  ).run(original.evidence_json, data.ownerId);
+  db.close();
+  const plan = await data.engine.createPlan(planInput(preflight));
+  expect(plan.dualPreflight).toEqual({ version: "1.0.0", ...preflight });
+  const run = await data.engine.start(plan.id, data.scopeSha256);
+  await data.engine.wait(run.id);
+  expect(data.workers).toHaveBeenCalledTimes(1);
+  expect(data.hostedBodies).toHaveLength(1);
+  expect(data.hostedBodies[0]).not.toContain("work.txt");
 });
 
 it("claims one successful dual for one plan and run, with exact scope at launch", async () => {

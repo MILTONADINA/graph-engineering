@@ -13,6 +13,7 @@ import { readJson } from "./util.js";
 
 const requestSchema = z
   .object({
+    consultationVersion: z.literal("2.0.0").optional(),
     ownerId: dualOwnerSchema,
     binding: taskBindingSchema,
     state: z.record(z.unknown()),
@@ -69,6 +70,7 @@ export async function runDualConsultCli(root: string, requestFile: string) {
     try {
       evidence = await consultBothDecisions({
         projectId: project.projectId,
+        consultationVersion: request.consultationVersion,
         ownerId: request.ownerId,
         binding: request.binding,
         state: request.state,
