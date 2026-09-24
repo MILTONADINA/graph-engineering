@@ -26,10 +26,11 @@ export function ContextPage({
   project: ProjectResponse;
   indexed: () => void;
 }) {
-  const snapshots = useResource<RepositorySnapshot[]>(api, "/api/snapshots");
-  const latest = snapshots.data
-    ?.slice()
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const snapshot = useResource<RepositorySnapshot>(
+    api,
+    "/api/snapshots/current",
+  );
+  const latest = snapshot.data;
   const [query, setQuery] = useState("");
   const [budget, setBudget] = useState(
     Math.min(8000, project.config.policy.maxContextTokens),
@@ -45,7 +46,7 @@ export function ContextPage({
     try {
       await api<RepositorySnapshot>("/api/index", {});
       setPacket(null);
-      snapshots.reload();
+      snapshot.reload();
       indexed();
     } catch (cause) {
       setError(getError(cause));
@@ -104,8 +105,8 @@ export function ContextPage({
         Find the code, knowledge, and connections that matter to your next move.
       </PageHeading>
       <ErrorNotice
-        message={error ?? snapshots.error}
-        retry={snapshots.error ? snapshots.reload : undefined}
+        message={error ?? snapshot.error}
+        retry={snapshot.error ? snapshot.reload : undefined}
       />
       <div className="metric-grid">
         <div className="metric">
@@ -191,7 +192,7 @@ export function ContextPage({
                 </Button>
               </div>
             </form>
-            {!latest && !snapshots.loading && (
+            {!latest && !snapshot.loading && (
               <p className="inline-hint">
                 Create your first index to search this workspace.
               </p>

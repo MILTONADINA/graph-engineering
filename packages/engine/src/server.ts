@@ -52,6 +52,7 @@ export function createServer(
     },
   }));
   app.get("/api/snapshots", () => engine.context.listSnapshots());
+  app.get("/api/snapshots/current", () => engine.context.currentSnapshot());
   app.post("/api/index", async () => {
     await engine.refresh();
     return engine.context.index();
