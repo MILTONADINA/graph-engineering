@@ -57,6 +57,16 @@ registry comparison. The
 [post-merge `dev` run](https://github.com/MILTONADINA/graph-engineering/actions/runs/36025914101)
 for `3bee02f` also passed all nine required checks.
 
+[PR #13](https://github.com/MILTONADINA/graph-engineering/pull/13) then merged
+the remaining reviewed implementation/documentation stack into the fork's
+`dev`. The final `dev` head for this phase was
+`cf4245848cab24181b104d5cc3eb36f19a32a9f7`; its
+[post-merge CI run](https://github.com/MILTONADINA/graph-engineering/actions/runs/36030395799)
+passed all nine required jobs. This supersedes the earlier references to
+Vite/React and partner review/merge as pending implementation. Kevin's review
+of the integrated fork branch and any parent-repository sync are still later,
+separate actions.
+
 The table is a historical implementation checkpoint before those merges. The
 dated updates and current-state paragraph supersede its older handoff wording.
 

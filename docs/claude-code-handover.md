@@ -3,8 +3,38 @@
 This is a continuation brief for the **Graph Engineering repository in this
 workspace only**. Read it together with the linked source documents; it is not
 a new authorization to publish, spend money, enable autonomous decisions, or
-touch another project. The user asked for this handover and for work to stop
-after it is written.
+touch another project.
+
+## Continuation update — 2026-09-24
+
+After the initial handover, the owner explicitly asked work to continue and
+approved pursuing the remaining code-side integrations. Jev's spending limit
+is **a per-user setting**, not a budget to bake into this open-source project;
+the owner has not set a limit for metered calls in this session. This does not
+block local development, tests, or implementing configurable provider support.
+It does mean no metered Jev call should be launched in this session. Approval
+to build the held-out workflow does not itself create independently controlled
+unseen tasks, reviewer signatures, signer custody, or a pre-run witness. Record
+new implementation and validation milestones in this section as work proceeds;
+keep unsupported production claims out of the status table below.
+
+On this local continuation branch, sealed-readiness inspection now optionally
+joins a signed operator-approval claim to the exact frozen cohort, target,
+preflight and report. It rejects signer actor/key reuse across the independent
+roles and still reports `operatorAuthorityVerified: false` and
+`promotionEligible: false`. Its focused engine tests passed. This is a
+code-side consistency improvement, **not** a trusted approval issuer.
+
+The same branch adds an [in-memory reference witness](reference-witness-protocol.md)
+for the existing signed v2 checkpoint protocol. It freezes registration,
+population and trust before the first attempt, checks a bounded event chain,
+and signs fresh current checkpoints. Its three focused tests and engine
+typecheck passed. A same-key restart can still sign a shorter history; the
+full-ledger comparator rejects that rollback, but the reference witness itself
+is neither durable nor independently governed. It does **not** establish
+anti-rollback authority or enable promotion. The combined changed-file check
+passed all 45 focused tests, engine typecheck and Prettier. Inspect the Git
+branch and PR state separately before treating these commits as integrated.
 
 ## Where the work stands
 
@@ -20,11 +50,12 @@ after it is written.
   passed all nine required jobs. The implementation PR stack through #14 was
   rebase-merged into the fork's `dev`; do not reopen or repeat that work merely
   because an older checklist paragraph still calls it pending.
-- This handover is on the separate local branch
-  `chore/claude-code-handover-20260924`, based on that `dev` commit. Inspect
-  `git status` and the branch tip before continuing; do not assume this docs
-  branch was pushed or merged. Keep future implementation on focused branches
-  based on the current fork `dev` and use PRs into that branch.
+- This handover started as a separate docs commit and the subsequent code-side
+  continuation was assembled on `feat/sealed-evidence-continuation-20260924`,
+  based on that `dev` commit. Inspect `git status`, the branch tip and PR state
+  before continuing; this document alone does not prove a branch was pushed
+  or merged. Keep future implementation on focused branches based on the
+  current fork `dev` and use PRs into that branch.
 - `.serena/` was already untracked at handover. It is user/session data. Do not
   stage, alter, delete, or use it as a reason to clean the worktree. Ignore
   unrelated workspaces, linked worktrees, and global agent configuration.
@@ -242,7 +273,7 @@ model. In particular:
    local `$0` external-API cost is not zero hardware cost. Never turn an
    analysis-only receipt into a runtime permission without the trust chain.
 
-The previous agent intentionally stops after this handover. Claude Code should
-start with a fresh status inspection and the linked primary documents, then
-continue with bounded code-side work under the stated authorizations. It must
-not claim all fourteen items have unconditional production sign-off.
+At any agent transition, start with a fresh status inspection and the linked
+primary documents, then continue with bounded code-side work under the stated
+authorizations. Do not claim all fourteen items have unconditional production
+sign-off.
