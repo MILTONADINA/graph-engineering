@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { lstat, chmod } from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -11,14 +11,112 @@ import type {
 } from "@graph-engineering/contracts";
 import { id, now } from "./util.js";
 import { redact } from "./policy.js";
+import type {
+  DualConsultAttemptMeta,
+  DualConsultEvidence,
+  TaskBinding,
+} from "./decision-dual.js";
 import {
   summarizeInferenceCalls,
   type AccountingSummary,
 } from "./accounting.js";
 
+type DualConsultState = "in-flight" | "completed" | "uncertain";
+interface DualConsultRow {
+  owner_id: string;
+  task_id: string;
+  source_sha256: string;
+  policy_hash: string;
+  request_hash: string;
+  state: DualConsultState;
+  evidence_json: string | null;
+  failure: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface DualConsultStatus {
+  ownerId: string;
+  binding: TaskBinding;
+  policyVersion: string;
+  requestHash: string;
+  state: DualConsultState;
+  evidence: DualConsultEvidence | null;
+  failure: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+function dualStatus(row: DualConsultRow): DualConsultStatus {
+  return {
+    ownerId: row.owner_id,
+    binding: { taskId: row.task_id, sourceSha256: row.source_sha256 },
+    policyVersion: row.policy_hash,
+    requestHash: row.request_hash,
+    state: row.state,
+    evidence: row.evidence_json ? JSON.parse(row.evidence_json) : null,
+    failure: row.failure,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Open the retained attempt without creating a database or making a model call. */
+export function readDualConsultStatus(
+  dataDir: string,
+  projectId: string,
+  ownerId: string,
+): DualConsultStatus | null {
+  const file = path.join(dataDir, "runs.sqlite");
+  if (!existsSync(file)) return null;
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    const table = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='dual_consult_attempts'",
+      )
+      .get();
+    if (!table) return null;
+    const row = db
+      .prepare(
+        "SELECT * FROM dual_consult_attempts WHERE project_id=? AND owner_id=?",
+      )
+      .get(projectId, ownerId) as DualConsultRow | undefined;
+    return row ? dualStatus(row) : null;
+  } finally {
+    db.close();
+  }
+}
+
+/** Read a persisted managed-run receipt without opening or recovering the engine. */
+export function readRunReceipt(
+  dataDir: string,
+  projectId: string,
+  runId: string,
+): { run: RunRecord; events: RunEvent[] } {
+  const file = path.join(dataDir, "runs.sqlite");
+  if (!existsSync(file)) throw new Error("Run receipt database does not exist");
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    return db.transaction(() => {
+      const row = db
+        .prepare("SELECT json FROM runs WHERE project_id=? AND id=?")
+        .get(projectId, runId) as { json: string } | undefined;
+      if (!row) throw new Error("Run receipt does not exist for this project");
+      const events = db
+        .prepare(
+          "SELECT json FROM run_events WHERE project_id=? AND run_id=? ORDER BY seq",
+        )
+        .all(projectId, runId)
+        .map((item) => JSON.parse((item as { json: string }).json) as RunEvent);
+      return { run: JSON.parse(row.json) as RunRecord, events };
+    })();
+  } finally {
+    db.close();
+  }
+}
+
 /** Small operational records only. Context DB/index work lives in the context worker. */
 export class RunStore {
-  readonly schemaVersion = 3;
+  readonly schemaVersion = 4;
   private db: Database.Database;
   constructor(
     dataDir: string,
@@ -29,7 +127,7 @@ export class RunStore {
     this.db.pragma("busy_timeout = 5000");
     this.db.pragma("journal_mode = WAL");
     const version = this.db.pragma("user_version", { simple: true }) as number;
-    if (version > 3) {
+    if (version > 4) {
       this.db.close();
       throw new Error(
         "Run database is newer than this engine; refusing a downgrade",
@@ -46,8 +144,9 @@ export class RunStore {
       CREATE TABLE IF NOT EXISTS run_owners(run_id TEXT PRIMARY KEY,pid INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS inference_calls(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,owner_id TEXT NOT NULL,provider TEXT NOT NULL,reserved REAL,usage_json TEXT);
       CREATE INDEX IF NOT EXISTS inference_owner ON inference_calls(project_id,owner_id);
+      CREATE TABLE IF NOT EXISTS dual_consult_attempts(project_id TEXT NOT NULL,owner_id TEXT NOT NULL,task_id TEXT NOT NULL,source_sha256 TEXT NOT NULL,policy_hash TEXT NOT NULL,request_hash TEXT NOT NULL,state TEXT NOT NULL,evidence_json TEXT,failure TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(project_id,owner_id));
       CREATE TABLE IF NOT EXISTS worker_leases(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,pid INTEGER NOT NULL);
-      PRAGMA user_version = 3;`);
+      PRAGMA user_version = 4;`);
       })
       .immediate();
   }
@@ -319,39 +418,201 @@ export class RunStore {
       .all(this.projectId, runId)
       .map((r) => JSON.parse((r as { json: string }).json));
   }
-  /** Atomically keep one task/source binding for a decision ledger owner. */
-  bindDecisionOwner(
-    ownerId: string,
-    binding: { taskId: string; sourceSha256: string },
-  ): void {
+  private dualAttempt(ownerId: string): DualConsultRow | undefined {
+    return this.db
+      .prepare(
+        "SELECT * FROM dual_consult_attempts WHERE project_id=? AND owner_id=?",
+      )
+      .get(this.projectId, ownerId) as DualConsultRow | undefined;
+  }
+  /** One owner may dispatch one exact request; completed evidence is replayable. */
+  beginDualConsultAttempt(
+    meta: DualConsultAttemptMeta,
+  ): DualConsultEvidence | null {
+    return this.db
+      .transaction(() => {
+        if (meta.projectId !== this.projectId)
+          throw new Error("Decision attempt project mismatch");
+        const prior = this.dualAttempt(meta.ownerId);
+        if (prior) {
+          if (
+            prior.task_id !== meta.binding.taskId ||
+            prior.source_sha256 !== meta.binding.sourceSha256 ||
+            prior.policy_hash !== meta.policyVersion ||
+            prior.request_hash !== meta.requestHash
+          )
+            throw new Error(
+              "Decision ledger owner is bound to a different task/source, policy or request",
+            );
+          if (prior.state === "completed" && prior.evidence_json) {
+            const evidence = JSON.parse(
+              prior.evidence_json,
+            ) as DualConsultEvidence;
+            if (evidence.ready) {
+              for (const [provider, observation] of Object.entries(
+                evidence.observations,
+              )) {
+                if (
+                  !observation.valid ||
+                  !observation.callId ||
+                  observation.usage?.callId !== observation.callId
+                )
+                  throw new Error("Completed decision evidence is incomplete");
+                const call = this.db
+                  .prepare(
+                    "SELECT usage_json FROM inference_calls WHERE project_id=? AND owner_id=? AND id=? AND provider=?",
+                  )
+                  .get(
+                    this.projectId,
+                    meta.ownerId,
+                    observation.callId,
+                    provider,
+                  ) as { usage_json: string | null } | undefined;
+                if (!call?.usage_json)
+                  throw new Error(
+                    "Completed decision is missing retained call usage",
+                  );
+                for (const record of observation.records) {
+                  const saved = this.db
+                    .prepare(
+                      "SELECT 1 FROM decisions WHERE project_id=? AND id=?",
+                    )
+                    .get(this.projectId, record.id);
+                  if (!saved)
+                    throw new Error(
+                      "Completed decision is missing a retained record",
+                    );
+                }
+              }
+              return evidence;
+            }
+          }
+          throw new Error(
+            "Decision attempt is in-flight or uncertain; reconcile before using a new owner",
+          );
+        }
+        const calls = this.db
+          .prepare(
+            "SELECT count(*) AS count FROM inference_calls WHERE project_id=? AND owner_id=?",
+          )
+          .get(this.projectId, meta.ownerId) as { count: number };
+        if (calls.count || this.events(meta.ownerId).length)
+          throw new Error("Decision ledger owner has unbound prior history");
+        const at = now();
+        this.db
+          .prepare(
+            "INSERT INTO dual_consult_attempts VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+          )
+          .run(
+            this.projectId,
+            meta.ownerId,
+            meta.binding.taskId,
+            meta.binding.sourceSha256,
+            meta.policyVersion,
+            meta.requestHash,
+            "in-flight",
+            null,
+            null,
+            at,
+            at,
+          );
+        return null;
+      })
+      .immediate();
+  }
+  /** Persist all observations and the terminal state in one transaction. */
+  finishDualConsultAttempt(evidence: DualConsultEvidence): void {
     this.db
       .transaction(() => {
-        const history = this.events(ownerId);
-        const bound = history.filter(
-          (event) => event.type === "decision.owner-binding",
-        );
+        const row = this.dualAttempt(evidence.ownerId);
         if (
-          bound.some((event) => {
-            const prior = event.data.binding as typeof binding | undefined;
-            return (
-              prior?.taskId !== binding.taskId ||
-              prior?.sourceSha256 !== binding.sourceSha256
-            );
-          })
+          !row ||
+          row.state !== "in-flight" ||
+          row.request_hash !== evidence.requestHash ||
+          row.policy_hash !== evidence.policyVersion ||
+          row.task_id !== evidence.binding.taskId ||
+          row.source_sha256 !== evidence.binding.sourceSha256 ||
+          evidence.projectId !== this.projectId
         )
           throw new Error(
-            "Decision ledger owner is bound to a different task/source",
+            "Decision attempt changed before evidence was retained",
           );
-        if (!bound.length) {
-          const calls = this.db
-            .prepare(
-              "SELECT count(*) AS count FROM inference_calls WHERE project_id=? AND owner_id=?",
+        if (
+          evidence.ready !==
+            (evidence.observations.laya.valid &&
+              evidence.observations.jev.valid) ||
+          (evidence.ready &&
+            (!evidence.observations.laya.callId ||
+              !evidence.observations.jev.callId ||
+              evidence.observations.laya.callId ===
+                evidence.observations.jev.callId))
+        )
+          throw new Error(
+            "Decision evidence readiness does not match its observations",
+          );
+        for (const observation of Object.values(evidence.observations))
+          for (const record of observation.records) {
+            if (
+              record.projectId !== this.projectId ||
+              record.policyVersion !== evidence.policyVersion
             )
-            .get(this.projectId, ownerId) as { count: number };
-          if (history.length || calls.count)
-            throw new Error("Decision ledger owner has unbound prior history");
-          this.event(ownerId, "decision.owner-binding", { binding });
-        }
+              throw new Error(
+                "Decision record does not match the retained attempt",
+              );
+            this.decision(record);
+          }
+        this.event(evidence.ownerId, "decision.dual-consult", {
+          binding: evidence.binding,
+          requestHash: evidence.requestHash,
+          policyVersion: evidence.policyVersion,
+          ready: evidence.ready,
+          observations: Object.fromEntries(
+            Object.entries(evidence.observations).map(([provider, item]) => [
+              provider,
+              {
+                callId: item.callId,
+                observedModel: item.observedModel,
+                choices: item.choices,
+                valid: item.valid,
+                failure: item.failure,
+              },
+            ]),
+          ),
+        });
+        const failure = evidence.ready
+          ? null
+          : Object.values(evidence.observations)
+              .flatMap((item) => (item.failure ? [item.failure] : []))
+              .join("; ");
+        this.db
+          .prepare(
+            "UPDATE dual_consult_attempts SET state=?,evidence_json=?,failure=?,updated_at=? WHERE project_id=? AND owner_id=?",
+          )
+          .run(
+            evidence.ready ? "completed" : "uncertain",
+            JSON.stringify(evidence),
+            failure,
+            now(),
+            this.projectId,
+            evidence.ownerId,
+          );
+      })
+      .immediate();
+  }
+  markDualConsultUncertain(meta: DualConsultAttemptMeta, reason: string): void {
+    this.db
+      .transaction(() => {
+        const row = this.dualAttempt(meta.ownerId);
+        if (!row || row.request_hash !== meta.requestHash)
+          throw new Error(
+            "Decision attempt identity changed during failure recording",
+          );
+        if (row.state !== "in-flight") return;
+        this.db
+          .prepare(
+            "UPDATE dual_consult_attempts SET state='uncertain',failure=?,updated_at=? WHERE project_id=? AND owner_id=?",
+          )
+          .run(redact(reason), now(), this.projectId, meta.ownerId);
       })
       .immediate();
   }

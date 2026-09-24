@@ -3,20 +3,17 @@ import { z } from "zod";
 import {
   consultBothDecisions,
   DualConsultUnavailable,
+  dualOwnerSchema,
   taskBindingSchema,
 } from "./decision-dual.js";
 import { decisionProviders } from "./decisions.js";
 import { loadProject, projectDataDir } from "./project.js";
-import { RunStore } from "./store.js";
+import { readDualConsultStatus, RunStore } from "./store.js";
 import { readJson } from "./util.js";
 
 const requestSchema = z
   .object({
-    ownerId: z
-      .string()
-      .min(1)
-      .max(200)
-      .regex(/^[A-Za-z0-9_.:/-]+$/),
+    ownerId: dualOwnerSchema,
     binding: taskBindingSchema,
     state: z.record(z.unknown()),
     cloudState: z.record(z.unknown()),
@@ -42,7 +39,6 @@ export async function runDualConsultCli(root: string, requestFile: string) {
     );
   const store = new RunStore(dataDir, project.projectId);
   try {
-    store.bindDecisionOwner(request.ownerId, request.binding);
     const budget = {
       reserve: async ({
         callId,
@@ -73,6 +69,7 @@ export async function runDualConsultCli(root: string, requestFile: string) {
     try {
       evidence = await consultBothDecisions({
         projectId: project.projectId,
+        ownerId: request.ownerId,
         binding: request.binding,
         state: request.state,
         cloudState: request.cloudState,
@@ -84,32 +81,28 @@ export async function runDualConsultCli(root: string, requestFile: string) {
           jev: providers.find((provider) => provider.id === "jev")!,
         },
         budget,
+        attempt: {
+          begin: (meta) => store.beginDualConsultAttempt(meta),
+          finish: (result) => store.finishDualConsultAttempt(result),
+          fail: (meta, reason) => store.markDualConsultUncertain(meta, reason),
+        },
       });
     } catch (error) {
       if (!(error instanceof DualConsultUnavailable)) throw error;
       evidence = error.evidence;
     }
-    for (const observation of Object.values(evidence.observations))
-      for (const record of observation.records) store.decision(record);
-    store.event(request.ownerId, "decision.dual-consult", {
-      binding: evidence.binding,
-      policyVersion: evidence.policyVersion,
-      ready: evidence.ready,
-      observations: Object.fromEntries(
-        Object.entries(evidence.observations).map(([provider, observation]) => [
-          provider,
-          {
-            callId: observation.callId,
-            observedModel: observation.observedModel,
-            choices: observation.choices,
-            valid: observation.valid,
-            failure: observation.failure,
-          },
-        ]),
-      ),
-    });
     return evidence;
   } finally {
     store.close();
   }
+}
+
+/** Lost stdout can be recovered without opening provider config or making a call. */
+export async function runDualConsultStatusCli(root: string, ownerId: string) {
+  const project = await loadProject(root);
+  return readDualConsultStatus(
+    projectDataDir(project.projectId),
+    project.projectId,
+    dualOwnerSchema.parse(ownerId),
+  );
 }

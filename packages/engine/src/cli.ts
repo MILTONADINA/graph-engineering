@@ -29,7 +29,11 @@ import {
   exportEvaluationDraft,
   importEvaluationLabels,
 } from "./decision-evaluation.js";
-import { runDualConsultCli } from "./decision-dual-cli.js";
+import {
+  runDualConsultCli,
+  runDualConsultStatusCli,
+} from "./decision-dual-cli.js";
+import { readRunReceipt } from "./store.js";
 
 const cli = new Command()
   .name("graph-engine")
@@ -344,6 +348,19 @@ cli.command("inspect <runId>").action((runId) =>
   })),
 );
 cli
+  .command("run-receipt <runId>")
+  .description("Read retained run and events without triggering recovery")
+  .action(async (runId) => {
+    const project = await loadProject(root());
+    print(
+      readRunReceipt(
+        projectDataDir(project.projectId),
+        project.projectId,
+        runId,
+      ),
+    );
+  });
+cli
   .command("cancel <runId>")
   .action((runId) => withEngine(async (engine) => engine.cancel(runId)));
 cli
@@ -415,6 +432,14 @@ cli
     print(evidence);
     if (!evidence.ready) process.exitCode = 1;
   });
+cli
+  .command("dual-consult-status <ownerId>")
+  .description(
+    "Read a retained dual-consult attempt without contacting providers",
+  )
+  .action(async (ownerId) =>
+    print(await runDualConsultStatusCli(root(), ownerId)),
+  );
 cli
   .command("evaluation-export <mapping> <output>")
   .requiredOption("--dataset <id>")

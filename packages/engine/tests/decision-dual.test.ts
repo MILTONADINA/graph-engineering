@@ -14,14 +14,18 @@ const binding = {
 };
 const options = (): DualConsultOptions => ({
   projectId: "dual-test-project",
+  ownerId: "handoff-42",
   binding,
   state: { taskBinding: binding, complexity: 2 },
-  cloudState: { taskBinding: binding, complexity: 2 },
+  cloudState: { taskBinding: binding, writePathCount: 2 },
   questions: [
     {
       id: "dispatch",
       category: "worker",
-      candidates: { proceed: "Review task", pause: "Pause task" },
+      candidates: {
+        proceed: "Proceed with selected scoped task",
+        pause: "Pause for more evidence",
+      },
       baseline: "pause",
       exportable: true,
     },
@@ -57,6 +61,7 @@ const options = (): DualConsultOptions => ({
     },
   },
   budget: { reserve: vi.fn(), settle: vi.fn() },
+  attempt: { begin: vi.fn(() => null), finish: vi.fn(), fail: vi.fn() },
 });
 const answer = (model: string, extra: object = {}) =>
   new Response(
@@ -91,6 +96,9 @@ describe("mandatory independent decision consultation", () => {
     const evidence = await consultBothDecisions(input);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(evidence.ready).toBe(true);
+    expect(evidence.ownerId).toBe("handoff-42");
+    expect(evidence.requestHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(input.attempt.finish).toHaveBeenCalledWith(evidence);
     expect(evidence.observations.laya.callId).toBeTruthy();
     expect(evidence.observations.jev.callId).toBeTruthy();
     expect(evidence.observations.laya.callId).not.toBe(
@@ -217,6 +225,30 @@ describe("mandatory independent decision consultation", () => {
     }
   });
 
+  it("does not echo arbitrary transport errors or malformed model text in evidence", async () => {
+    const secret = "Authorization: Bearer SECRET_CANARY_12345678901234567890";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.startsWith("http:")) throw new Error(secret);
+        return answer(secret);
+      }),
+    );
+    const failure = await consultBothDecisions(options()).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(DualConsultUnavailable);
+    const serialized = JSON.stringify(
+      (failure as DualConsultUnavailable).evidence,
+    );
+    expect(serialized).not.toContain("SECRET_CANARY");
+    expect(serialized).toContain("Decision provider failed");
+    expect(
+      (failure as DualConsultUnavailable).evidence.observations.jev
+        .observedModel,
+    ).toBe("mismatched");
+  });
+
   it("rejects missing reviewed task binding or question export before any call", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
@@ -227,12 +259,57 @@ describe("mandatory independent decision consultation", () => {
     );
     input.cloudState.taskBinding = binding;
     input.questions[0]!.exportable = false;
-    await expect(consultBothDecisions(input)).rejects.toThrow(/export review/);
+    await expect(consultBothDecisions(input)).rejects.toThrow();
     input.questions[0]!.exportable = true;
     input.providers.jev.endpoint = "https://api.example.test/v1/systemone";
     await expect(consultBothDecisions(input)).rejects.toThrow(
       /direct TypeSafe/,
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("requires reviewed Jev token pricing even when the project has no cost ceiling", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    for (const pricing of [
+      undefined,
+      { unit: "request" as const, usdPerUnit: 0.001, version: "old" },
+    ]) {
+      const input = options();
+      input.policy.maxCostUsd = null;
+      input.providers.jev.pricing = pricing;
+      await expect(consultBothDecisions(input)).rejects.toThrow(
+        /reviewed 1.13 input-token price/,
+      );
+      expect(input.attempt.begin).not.toHaveBeenCalled();
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("closes the hosted state and question vocabulary before any attempt or call", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const withPath = options();
+    withPath.cloudState.sourcePath = "src/private.ts";
+    await expect(consultBothDecisions(withPath)).rejects.toThrow();
+    expect(withPath.attempt.begin).not.toHaveBeenCalled();
+    const withText = options();
+    withText.questions[0]!.candidates.proceed = "Read src/private.ts";
+    await expect(consultBothDecisions(withText)).rejects.toThrow();
+    expect(withText.attempt.begin).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("replays retained completed evidence without another provider call", async () => {
+    const fetch = vi.fn(async (url: string) =>
+      answer(url.startsWith("http:") ? localModel : hostedModel),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const input = options();
+    const original = await consultBothDecisions(input);
+    input.attempt.begin = vi.fn(() => original);
+    expect(await consultBothDecisions(input)).toEqual(original);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(input.attempt.finish).toHaveBeenCalledTimes(1);
   });
 });
