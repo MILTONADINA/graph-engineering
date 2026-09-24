@@ -36,6 +36,20 @@ anti-rollback authority or enable promotion. The combined changed-file check
 passed all 45 focused tests, engine typecheck and Prettier. Inspect the Git
 branch and PR state separately before treating these commits as integrated.
 
+The integration is now verified: [fork PR #16](https://github.com/MILTONADINA/graph-engineering/pull/16)
+was rebase-merged into the fork's `dev` at
+`02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`. The
+[PR checks](https://github.com/MILTONADINA/graph-engineering/actions/runs/36044756710)
+and [post-merge `dev` checks](https://github.com/MILTONADINA/graph-engineering/actions/runs/36047979004)
+ended with all nine required jobs green. The first PR attempt's Windows job
+hit a newly published AWS SDK tarball 404 during an unchanged unlocked
+generated-app install; one failed-job retry at the same commit passed, with no
+source change. Local `dev` was fast-forwarded to the merge commit. No `main`,
+parent-repository, production-key provisioning, paid-Jev, or AWS deployment
+action occurred.
+This final status note is on a separate local docs branch
+`chore/pr16-handover-20260924`; it was not pushed directly to protected `dev`.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.
