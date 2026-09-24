@@ -29,6 +29,8 @@ export const dualOwnerSchema = z
   .min(1)
   .max(200)
   .regex(/^[A-Za-z0-9_.:/-]+$/);
+export const dualConsultVersionSchema = z.enum(["1.0.0", "2.0.0"]);
+export type DualConsultVersion = z.infer<typeof dualConsultVersionSchema>;
 export const dualPlanPreflightRequestSchema = z
   .object({
     ownerId: dualOwnerSchema,
@@ -64,6 +66,120 @@ export const dualWorkerQuestionSchema = z
     exportable: z.literal(true),
   })
   .strict();
+const contextProfileQuestionSchema = z
+  .object({
+    id: z.literal("context_profile"),
+    category: z.literal("retrieval-scope"),
+    candidates: z
+      .object({
+        lexical: z.literal("Use bounded exact and lexical retrieval"),
+        graph: z.literal(
+          "Expand bounded indexed relationships from lexical seeds",
+        ),
+        hybrid: z.literal(
+          "Combine available lexical, graph and local semantic retrieval",
+        ),
+      })
+      .strict(),
+    baseline: z.literal("hybrid"),
+    exportable: z.literal(true),
+  })
+  .strict();
+const workerSuitabilityQuestionSchema = z
+  .object({
+    id: z.literal("worker_suitability"),
+    category: z.literal("worker-suitability"),
+    candidates: z
+      .object({
+        current_worker: z.literal(
+          "The reviewed current worker is suitable for this task",
+        ),
+        specialist_review: z.literal(
+          "Ask for an independently reviewed specialist worker",
+        ),
+        insufficient_context: z.literal(
+          "The exported metadata is insufficient to judge worker suitability",
+        ),
+      })
+      .strict(),
+    baseline: z.literal("insufficient_context"),
+    exportable: z.literal(true),
+  })
+  .strict();
+export const dualV2QuestionsSchema = z.tuple([
+  dualWorkerQuestionSchema,
+  contextProfileQuestionSchema,
+  workerSuitabilityQuestionSchema,
+]);
+export const dualV2CloudStateSchema = dualCloudStateSchema
+  .extend({
+    taskClass: z.enum(["engineering", "product"]),
+    changeKind: z.enum([
+      "feature",
+      "bug-fix",
+      "refactor",
+      "investigate",
+      "other",
+    ]),
+    languageFamilies: z
+      .array(
+        z.enum([
+          "typescript",
+          "javascript",
+          "python",
+          "dart",
+          "sql",
+          "documentation",
+          "other",
+        ]),
+      )
+      .min(1)
+      .max(7)
+      .refine((value) => new Set(value).size === value.length),
+    reviewedTaskSummary: z
+      .string()
+      .min(12)
+      .max(240)
+      .refine((value) => value.trim() === value),
+    exportReviewSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    workerProfile: z
+      .object({
+        provider: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
+        model: z.string().regex(/^[a-zA-Z0-9_.:+/-]{1,160}$/),
+        efforts: z.array(z.string().regex(/^[a-zA-Z0-9_-]{1,40}$/)).max(8),
+      })
+      .strict(),
+  })
+  .strict();
+export const dualQuestionIds = (
+  version: DualConsultVersion,
+): readonly string[] =>
+  version === "2.0.0"
+    ? ["dispatch", "context_profile", "worker_suitability"]
+    : ["dispatch"];
+
+function completeObservation(
+  observation: DualConsultObservation,
+  questions: DualConsultOptions["questions"],
+): boolean {
+  return (
+    observation.valid &&
+    observation.records.length === questions.length &&
+    observation.usage?.questionCount === questions.length &&
+    Object.keys(observation.choices).length === questions.length &&
+    questions.every((question) => {
+      const records = observation.records.filter(
+        (record) => record.evidence.questionId === question.id,
+      );
+      return (
+        records.length === 1 &&
+        records[0]?.selected === observation.choices[question.id] &&
+        typeof records[0]?.selected === "string" &&
+        Object.hasOwn(question.candidates, records[0].selected)
+      );
+    })
+  );
+}
 
 export interface DualConsultAttemptMeta {
   projectId: string;
@@ -93,6 +209,8 @@ export interface DualConsultOptions extends Omit<
   | "requestTimeoutMs"
   | "strictResponse"
 > {
+  /** V1 is the default for historical callers; V2 requires a reviewed export. */
+  consultationVersion?: DualConsultVersion;
   ownerId: string;
   binding: TaskBinding;
   /** Both states must carry this exact task/source binding. */
@@ -115,7 +233,7 @@ export interface DualConsultObservation {
   failure: string | null;
 }
 export interface DualConsultEvidence {
-  version: "1.0.0";
+  version: DualConsultVersion;
   projectId: string;
   ownerId: string;
   binding: TaskBinding;
@@ -305,6 +423,9 @@ function observation(
 export async function consultBothDecisions(
   options: DualConsultOptions,
 ): Promise<DualConsultEvidence> {
+  const consultationVersion = dualConsultVersionSchema.parse(
+    options.consultationVersion ?? "1.0.0",
+  );
   const ownerId = dualOwnerSchema.parse(options.ownerId);
   const binding = taskBindingSchema.parse(options.binding);
   const providers = {
@@ -344,16 +465,38 @@ export async function consultBothDecisions(
   )
     throw new Error("Dual consultation requires a durable attempt ledger");
   const state = structuredClone(options.state);
-  const cloudState = dualCloudStateSchema.parse(
-    structuredClone(options.cloudState),
-  );
-  const questions = z
-    .array(dualWorkerQuestionSchema)
-    .length(1)
-    .parse(structuredClone(options.questions));
+  const cloudState = (
+    consultationVersion === "2.0.0"
+      ? dualV2CloudStateSchema
+      : dualCloudStateSchema
+  ).parse(structuredClone(options.cloudState));
+  const questions = (
+    consultationVersion === "2.0.0"
+      ? dualV2QuestionsSchema
+      : z.array(dualWorkerQuestionSchema).length(1)
+  ).parse(structuredClone(options.questions));
   if (!bound(state, binding) || !bound(cloudState, binding))
     throw new Error(
       "Both decision states must carry the exact task/source binding",
+    );
+  if (
+    consultationVersion === "2.0.0" &&
+    (
+      [
+        "taskClass",
+        "changeKind",
+        "languageFamilies",
+        "reviewedTaskSummary",
+        "workerProfile",
+      ] as const
+    ).some(
+      (key) =>
+        JSON.stringify(canonical(state[key])) !==
+        JSON.stringify(canonical((cloudState as Record<string, unknown>)[key])),
+    )
+  )
+    throw new Error(
+      "Both V2 decision states must carry the same reviewed task metadata",
     );
   const policy = structuredClone(options.policy);
   const policyVersion = hash(policy);
@@ -367,6 +510,7 @@ export async function consultBothDecisions(
       questions,
       policy,
       providers,
+      ...(consultationVersion === "2.0.0" ? { consultationVersion } : {}),
     }),
   );
   const meta: DualConsultAttemptMeta = {
@@ -380,14 +524,15 @@ export async function consultBothDecisions(
   if (replay) {
     if (
       !replay.ready ||
+      replay.version !== consultationVersion ||
       replay.projectId !== options.projectId ||
       replay.ownerId !== ownerId ||
       replay.binding.taskId !== binding.taskId ||
       replay.binding.sourceSha256 !== binding.sourceSha256 ||
       replay.requestHash !== requestHash ||
       replay.policyVersion !== policyVersion ||
-      !replay.observations.laya.valid ||
-      !replay.observations.jev.valid ||
+      !completeObservation(replay.observations.laya, questions) ||
+      !completeObservation(replay.observations.jev, questions) ||
       !replay.observations.laya.callId ||
       !replay.observations.jev.callId ||
       replay.observations.laya.callId === replay.observations.jev.callId
@@ -434,7 +579,7 @@ export async function consultBothDecisions(
       jev.failure = "Decision calls did not have distinct identities";
     }
     const evidence: DualConsultEvidence = {
-      version: "1.0.0",
+      version: consultationVersion,
       projectId: options.projectId,
       ownerId,
       binding,

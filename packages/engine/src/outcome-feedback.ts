@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { RunRecord } from "@graph-engineering/contracts";
 import { z } from "zod";
-import type { DualConsultEvidence } from "./decision-dual.js";
+import { dualQuestionIds, type DualConsultEvidence } from "./decision-dual.js";
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const identity = z
@@ -11,7 +11,7 @@ const identity = z
   .regex(/^[A-Za-z0-9_.:/-]+$/);
 export const outcomeFeedbackSchema = z
   .object({
-    schema_version: z.literal(1),
+    schema_version: z.union([z.literal(1), z.literal(2)]),
     task: identity,
     task_kind: z.enum(["engineering", "product"]),
     context: z
@@ -49,13 +49,24 @@ export const outcomeFeedbackSchema = z
         current_source_sha256: digest,
       })
       .strict(),
-    decision_ids: z.array(identity).length(2),
+    decision_ids: z.array(identity).min(2).max(6),
     decision_usage: z.object({ laya: z.unknown(), jev: z.unknown() }).strict(),
     memory_accepted: z.literal(false),
     routing_promoted: z.literal(false),
   })
   .strict()
   .superRefine((value, context) => {
+    if (value.decision_ids.length !== (value.schema_version === 2 ? 6 : 2))
+      context.addIssue({
+        code: "custom",
+        message:
+          "Feedback must name every decision in its consultation version",
+      });
+    if (new Set(value.decision_ids).size !== value.decision_ids.length)
+      context.addIssue({
+        code: "custom",
+        message: "Feedback decision IDs must be distinct",
+      });
     if (
       value.outcome.state === "CURRENT_ENGINEERING_COMPLETION" &&
       (!value.completion_proof_sha256 ||
@@ -110,6 +121,7 @@ export function validateOutcomeFeedback(
   if (outcomeHash(supplied) !== outcomeHash(retained))
     throw new Error("Consultation differs from the GE decision ledger");
   if (
+    feedback.schema_version !== (retained.version === "2.0.0" ? 2 : 1) ||
     !retained.ready ||
     retained.ownerId !== feedback.dispatch_id ||
     retained.binding.taskId !== feedback.task ||
@@ -119,12 +131,20 @@ export function validateOutcomeFeedback(
   )
     throw new Error("Feedback is not bound to a completed dual consultation");
   const observations = retained.observations;
-  const decisionIds = [
-    observations.laya.records[0]?.id,
-    observations.jev.records[0]?.id,
-  ];
+  const questions = dualQuestionIds(retained.version);
+  const decisionIds = (["laya", "jev"] as const).flatMap((provider) =>
+    questions.map(
+      (questionId) =>
+        observations[provider].records.find(
+          (record) => record.evidence.questionId === questionId,
+        )?.id,
+    ),
+  );
   if (
+    observations.laya.records.length !== questions.length ||
+    observations.jev.records.length !== questions.length ||
     decisionIds.some((id) => !id) ||
+    new Set(decisionIds).size !== decisionIds.length ||
     outcomeHash(decisionIds.slice().sort()) !==
       outcomeHash(feedback.decision_ids.slice().sort()) ||
     outcomeHash(feedback.decision_usage) !==

@@ -87,6 +87,136 @@ afterEach(() => {
 });
 
 describe("mandatory independent decision consultation", () => {
+  it("batches three closed V2 choices once per provider and replays the exact reviewed export", async () => {
+    const input = options();
+    input.consultationVersion = "2.0.0";
+    input.cloudState = {
+      taskBinding: binding,
+      writePathCount: 2,
+      acceptanceCount: 1,
+      sourceDirty: false,
+      textOnlyCoverage: true,
+      taskClass: "engineering",
+      changeKind: "bug-fix",
+      languageFamilies: ["typescript"],
+      reviewedTaskSummary:
+        "Tighten the selected task's bounded verification path.",
+      exportReviewSha256: "b".repeat(64),
+      workerProfile: { provider: "qwen", model: "qwen-local", efforts: [] },
+    };
+    input.state = {
+      ...input.state,
+      taskClass: input.cloudState.taskClass,
+      changeKind: input.cloudState.changeKind,
+      languageFamilies: input.cloudState.languageFamilies,
+      reviewedTaskSummary: input.cloudState.reviewedTaskSummary,
+      workerProfile: input.cloudState.workerProfile,
+    };
+    input.questions = [
+      ...input.questions,
+      {
+        id: "context_profile",
+        category: "retrieval-scope",
+        candidates: {
+          lexical: "Use bounded exact and lexical retrieval",
+          graph: "Expand bounded indexed relationships from lexical seeds",
+          hybrid:
+            "Combine available lexical, graph and local semantic retrieval",
+        },
+        baseline: "hybrid",
+        exportable: true,
+      },
+      {
+        id: "worker_suitability",
+        category: "worker-suitability",
+        candidates: {
+          current_worker:
+            "The reviewed current worker is suitable for this task",
+          specialist_review:
+            "Ask for an independently reviewed specialist worker",
+          insufficient_context:
+            "The exported metadata is insufficient to judge worker suitability",
+        },
+        baseline: "insufficient_context",
+        exportable: true,
+      },
+    ];
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+      const hosted = url.startsWith("https:");
+      const choice = (
+        selected: string,
+        probabilities: Record<string, number>,
+      ) => ({
+        ...(hosted ? { type: "choice" } : {}),
+        choice: selected,
+        confidence: 0.8,
+        probabilities,
+      });
+      return new Response(
+        JSON.stringify({
+          model: hosted ? hostedModel : localModel,
+          answers: {
+            dispatch: choice("proceed", { proceed: 0.8, pause: 0.2 }),
+            context_profile: choice("graph", {
+              lexical: 0.1,
+              graph: 0.8,
+              hybrid: 0.1,
+            }),
+            worker_suitability: choice("insufficient_context", {
+              current_worker: 0.1,
+              specialist_review: 0.1,
+              insufficient_context: 0.8,
+            }),
+          },
+          ...(hosted
+            ? { usage: { input_tokens: 500, output_tokens: 40 } }
+            : {}),
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const evidence = await consultBothDecisions(input);
+    expect(evidence.version).toBe("2.0.0");
+    expect(evidence.ready).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(evidence.observations.laya.records).toHaveLength(3);
+    expect(evidence.observations.jev.records).toHaveLength(3);
+    expect(evidence.observations.jev.choices).toEqual({
+      dispatch: "proceed",
+      context_profile: "graph",
+      worker_suitability: "insufficient_context",
+    });
+    const hosted = fetch.mock.calls.find(([url]) => url.startsWith("https:"))!;
+    const body = JSON.parse(String(hosted[1]?.body));
+    expect(Object.keys(body.questions)).toEqual([
+      "dispatch",
+      "context_profile",
+      "worker_suitability",
+    ]);
+    expect(JSON.parse(body.state)).toEqual(input.cloudState);
+    expect(JSON.stringify(body)).not.toMatch(
+      /writePaths|sourceText|workerBrief/,
+    );
+    input.attempt.begin = vi.fn(() => evidence);
+    expect(await consultBothDecisions(input)).toEqual(evidence);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    input.cloudState.reviewedTaskSummary =
+      "A different reviewed task summary and export.";
+    await expect(consultBothDecisions(input)).rejects.toThrow(
+      /same reviewed task metadata/,
+    );
+    input.state.reviewedTaskSummary = input.cloudState.reviewedTaskSummary;
+    await expect(consultBothDecisions(input)).rejects.toThrow(
+      /mismatched replay/,
+    );
+    input.cloudState.writePaths = ["unreviewed-path"];
+    await expect(consultBothDecisions(input)).rejects.toThrow();
+    delete input.cloudState.writePaths;
+    input.questions[1]!.candidates.graph = "Read arbitrary source paths";
+    await expect(consultBothDecisions(input)).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("requires two observed models, two call IDs and typed choices without promotion authority", async () => {
     const fetch = vi.fn(async (url: string) =>
       answer(url.startsWith("http:") ? localModel : hostedModel),

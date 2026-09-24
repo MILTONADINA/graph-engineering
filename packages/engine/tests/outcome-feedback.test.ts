@@ -6,6 +6,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { ExecutionPlan, RunRecord } from "@graph-engineering/contracts";
 import type { DualConsultEvidence } from "../src/decision-dual.js";
+import { validateOutcomeFeedback } from "../src/outcome-feedback.js";
 import { RunStore } from "../src/store.js";
 
 it("retains one external claim without routing and rejects settled-usage mismatch", () => {
@@ -264,6 +265,79 @@ it("retains one external claim without routing and rejects settled-usage mismatc
       promotionEligible: false,
       completionAuthority: false,
     });
+    const v2 = structuredClone(dual);
+    v2.version = "2.0.0";
+    for (const provider of ["laya", "jev"] as const) {
+      const item = v2.observations[provider];
+      const dispatch = item.records[0]!;
+      item.records.push(
+        {
+          ...dispatch,
+          id: `${provider}-context-decision`,
+          category: "retrieval-scope",
+          candidates: ["lexical", "graph", "hybrid"],
+          selected: "hybrid",
+          baseline: "hybrid",
+          evidence: { ...dispatch.evidence, questionId: "context_profile" },
+        },
+        {
+          ...dispatch,
+          id: `${provider}-suitability-decision`,
+          category: "worker-suitability",
+          candidates: [
+            "current_worker",
+            "specialist_review",
+            "insufficient_context",
+          ],
+          selected: "insufficient_context",
+          baseline: "insufficient_context",
+          evidence: { ...dispatch.evidence, questionId: "worker_suitability" },
+        },
+      );
+      item.choices.context_profile = "hybrid";
+      item.choices.worker_suitability = "insufficient_context";
+      item.usage!.questionCount = 3;
+    }
+    const v2Bytes = Buffer.from(JSON.stringify(v2));
+    const v2Feedback = {
+      ...feedback,
+      schema_version: 2,
+      dual_consultation_sha256: createHash("sha256")
+        .update(v2Bytes)
+        .digest("hex"),
+      decision_ids: (["laya", "jev"] as const).flatMap((provider) =>
+        v2.observations[provider].records.map((record) => record.id),
+      ),
+      decision_usage: {
+        laya: v2.observations.laya.usage,
+        jev: v2.observations.jev.usage,
+      },
+    };
+    expect(validateOutcomeFeedback(v2Feedback, v2Bytes, v2, run)).toEqual(
+      v2Feedback,
+    );
+    expect(() =>
+      validateOutcomeFeedback(
+        { ...v2Feedback, decision_ids: v2Feedback.decision_ids.slice(0, -1) },
+        v2Bytes,
+        v2,
+        run,
+      ),
+    ).toThrow(/every decision/);
+    expect(() =>
+      validateOutcomeFeedback(
+        {
+          ...v2Feedback,
+          decision_ids: [
+            ...v2Feedback.decision_ids.slice(0, -1),
+            "other-decision",
+          ],
+        },
+        v2Bytes,
+        v2,
+        run,
+      ),
+    ).toThrow(/decision IDs/);
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });
