@@ -1,11 +1,12 @@
 # Local development handoff
 
-This checkout is configured for Milton's fork and local inference. Keep work on
-`feat/engineering-platform` (or a new feature branch based on `dev`), never
-`main`. When ready, PR review and merges target
-`MILTONADINA/graph-engineering:dev`; synchronization with Kevin's repository is
-a separate later partner action. Commits use the configured human identity,
-without AI co-author trailers.
+This checkout is configured for Milton's fork and local inference. Create a
+focused feature branch from the current fork `dev`; the older
+`feat/engineering-platform` branch is historical, not a continuation target.
+Never work directly on `main` or protected `dev`. When ready, PR review and
+merges target `MILTONADINA/graph-engineering:dev`; synchronization with Kevin's
+repository is a separate later partner action. Commits use the configured
+human identity, without AI co-author trailers.
 
 ## Initial AI integrations
 

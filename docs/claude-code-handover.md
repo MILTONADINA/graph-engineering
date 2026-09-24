@@ -48,11 +48,12 @@ generated-app install; one failed-job retry at the same commit passed, with no
 source change. Local `dev` was fast-forwarded to the merge commit. No `main`,
 parent-repository, production-key provisioning, paid-Jev, or AWS deployment
 action occurred.
-This handover update is on the **pushed** docs branch
-`chore/pr16-handover-20260924` (`fork/chore/pr16-handover-20260924`). It is
-**not yet PR-merged** into protected `dev`; inspect its current tip before
-editing or opening its docs-only PR. At this snapshot local `dev` and
-`fork/dev` are both `02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`.
+This handover update was prepared on the pushed docs branch
+`chore/pr16-handover-20260924` (`fork/chore/pr16-handover-20260924`). It enters
+protected `dev` only through its docs PR. Before continuing, inspect the
+current branch, PR and `dev` tip rather than treating this snapshot as live
+status. At preparation time local `dev` and `fork/dev` were both
+`02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`.
 
 ## Where the work stands
 
@@ -183,6 +184,14 @@ instructions. Preserve the distinction between a **product goal**, an
    `main` or Kevin's parent repo; Kevin reviews integrated fork `dev` before a
    separately agreed upstream sync. No AI co-author trailer. Keep shared
    Serena/global config and other project work untouched.
+8. **Open-source release governance.** The intent is for Graph Engineering to
+   be open source, not merely a public fork. This checkout has an MIT
+   [license for `create-graph-app`](../create-graph-app/LICENSE) but no tracked
+   project-root `LICENSE`; do not infer that the package license covers the
+   whole repository. The owner and Kevin need to select and document the
+   project-wide license and attribution before representing the entire graph
+   platform as licensed open source. See [GitHub's repository licensing
+   guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository).
 
 The initial AI integrations have **different roles and evidence**:
 
@@ -377,11 +386,11 @@ model. In particular:
 ## Git and test discipline for Claude Code
 
 1. Inspect `pwd`, `git status --short --branch`, `git log -1`, `git remote -v`,
-   and this handover branch. The handover branch was pushed to `fork` but is
-   not on `dev`; confirm its latest tip and PR state rather than assuming the
-   snapshot SHA applies to this docs commit. Preserve `.serena/` and every
-   ignored private path. If publishing this document, make a docs-only PR
-   from its branch into the fork's `dev`; do not commit directly on `dev`.
+   and this handover's PR state. This document was prepared on a pushed docs
+   branch; verify whether that PR is now merged rather than assuming its
+   preparation snapshot still applies. Preserve `.serena/` and every ignored
+   private path. If the docs PR is still open, finish that PR into fork `dev`;
+   do not commit directly on `dev`.
 2. For subsequent changes, fetch/fast-forward the fork `dev`, then create a
    focused `feat/`, `fix/`, or `chore/` branch. Push only to `fork`; PRs target
    `MILTONADINA/graph-engineering:dev`. The owner explicitly authorized the
@@ -436,11 +445,11 @@ needs a Markdown formatting/link check, not the full engine suite.
 
 The remaining work separates into three authorities:
 
-| Who can act                 | What can be done now                                                                                                                                                                          | What still needs outside evidence                                                                                          |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Claude on the owner's fork  | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                   | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
-| Owner/operator              | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes and choose an independently governed witness/key service. | No per-user cap or external service is implicitly selected by the open-source defaults.                                    |
-| Kevin/independent reviewers | Inspect integrated fork `dev` and later coordinate any upstream sync; independently select/label/review held-out work and control the separated trust roles.                                  | Author self-review or synthetic signed fixtures cannot substitute for independent governance.                              |
+| Who can act                 | What can be done now                                                                                                                                                                                                         | What still needs outside evidence                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Claude on the owner's fork  | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                                                  | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
+| Owner/operator              | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes; agree with Kevin on the project license and independently governed witness/key service. | No per-user cap, repository-wide license or external service is implicitly selected by the current defaults.               |
+| Kevin/independent reviewers | Inspect integrated fork `dev` and later coordinate any upstream sync; independently select/label/review held-out work and control the separated trust roles.                                                                 | Author self-review or synthetic signed fixtures cannot substitute for independent governance.                              |
 
 At any agent transition, start with a fresh status inspection and the linked
 primary documents, then continue with bounded code-side work under the stated
