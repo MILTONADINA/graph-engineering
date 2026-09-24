@@ -5,6 +5,7 @@ import type {
   ContextPacket,
   ExecutionPlan,
   ExecutionStep,
+  DualPlanPreflight,
   ProjectConfig,
   ProviderConfig,
   RunRecord,
@@ -54,6 +55,7 @@ import {
   type DagCheckpoint,
 } from "./execution/dag.js";
 import type { DecisionBudget, DecisionBatchResult } from "./decision-batch.js";
+import { dualPlanPreflightSchema } from "./decision-dual.js";
 import {
   routeRetrieval,
   selectContext,
@@ -231,8 +233,34 @@ export class GraphEngine {
     providerId?: string;
     effort?: string;
     steps?: ExecutionStep[];
+    dualPreflight?: Omit<DualPlanPreflight, "version">;
   }): Promise<ExecutionPlan> {
     await this.refresh();
+    const hasWorker =
+      !input.steps || input.steps.some((step) => step.kind === "worker");
+    const dualPreflight = input.dualPreflight
+      ? dualPlanPreflightSchema.parse({
+          version: "1.0.0",
+          ...input.dualPreflight,
+        })
+      : undefined;
+    if (
+      this.config.policy.requireDualBeforeWorker &&
+      hasWorker &&
+      !dualPreflight
+    )
+      throw new Error(
+        "A retained dual preflight is required before worker planning",
+      );
+    if (dualPreflight && !hasWorker)
+      throw new Error(
+        "Dual preflight cannot be attached to a template-only plan",
+      );
+    if (dualPreflight)
+      this.store.assertAvailableDualPreflight(
+        dualPreflight,
+        hash(this.config.policy),
+      );
     if (
       !input.objective.trim() ||
       input.acceptance.length === 0 ||
@@ -261,6 +289,7 @@ export class GraphEngine {
           steps: validated,
           verification: structuredClone(this.config.verification),
           publication: this.config.policy.publication,
+          ...(dualPreflight ? { dualPreflight } : {}),
         };
         this.store.savePlan(plan);
         return plan;
@@ -378,6 +407,7 @@ export class GraphEngine {
       },
       verification: structuredClone(this.config.verification),
       publication: this.config.policy.publication,
+      ...(dualPreflight ? { dualPreflight } : {}),
     };
     for (const step of plan.steps) {
       if (step.kind === "worker") {
@@ -393,11 +423,27 @@ export class GraphEngine {
     this.store.savePlan(plan);
     return plan;
   }
-  async start(planId: string): Promise<RunRecord> {
+  async start(planId: string, scopeSha256?: string): Promise<RunRecord> {
     await this.refresh();
     const plan = this.store.plan(planId);
     if (plan.policyHash !== hash(this.config.policy))
       throw new Error("Policy changed since planning; create a new plan");
+    const hasWorker = plan.steps.some((step) => step.kind === "worker");
+    if (
+      this.config.policy.requireDualBeforeWorker &&
+      hasWorker &&
+      !plan.dualPreflight
+    )
+      throw new Error(
+        "A retained dual preflight is required before worker dispatch",
+      );
+    if (plan.dualPreflight) {
+      dualPlanPreflightSchema.parse(plan.dualPreflight);
+      if (scopeSha256 !== plan.dualPreflight.scopeSha256)
+        throw new Error("Selected scope digest does not match the plan");
+      this.store.assertBoundDualPlan(plan);
+    } else if (scopeSha256)
+      throw new Error("Selected scope digest has no dual preflight plan");
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
     if (plan.verification.length === 0)
@@ -417,6 +463,7 @@ export class GraphEngine {
     const run: RunRecord = {
       id: id(),
       plan,
+      ...(plan.dualPreflight ? { dualPreflight: plan.dualPreflight } : {}),
       status: "planned",
       createdAt: now(),
       updatedAt: now(),
@@ -459,7 +506,11 @@ export class GraphEngine {
     this.store.event(runId, "cancel.requested", {});
     return this.store.run(runId);
   }
-  async resume(runId: string, reconciled = false): Promise<RunRecord> {
+  async resume(
+    runId: string,
+    reconciled = false,
+    scopeSha256?: string,
+  ): Promise<RunRecord> {
     if (this.active.has(runId)) throw new Error("Run is already active");
     const run = this.store.run(runId);
     if (!["failed", "cancelled", "needs_reconciliation"].includes(run.status))
@@ -474,6 +525,20 @@ export class GraphEngine {
     await this.refresh();
     if (hash(this.config.policy) !== run.plan.policyHash)
       throw new Error("Policy changed; create a fresh plan");
+    if (
+      this.config.policy.requireDualBeforeWorker &&
+      run.plan.steps.some((step) => step.kind === "worker") &&
+      !run.plan.dualPreflight
+    )
+      throw new Error(
+        "A retained dual preflight is required before worker resume",
+      );
+    if (run.plan.dualPreflight) {
+      if (scopeSha256 !== run.plan.dualPreflight.scopeSha256)
+        throw new Error("Selected scope digest does not match the run");
+      this.store.assertBoundDualRun(run);
+    } else if (scopeSha256)
+      throw new Error("Selected scope digest has no dual preflight run");
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
     if (run.plan.verification.length === 0)
@@ -495,6 +560,17 @@ export class GraphEngine {
     this.launch(reserved, true);
     return this.store.run(runId);
   }
+  private assertWorkerPreflight(run: RunRecord): void {
+    if (
+      this.config.policy.requireDualBeforeWorker &&
+      run.plan.steps.some((step) => step.kind === "worker") &&
+      !run.plan.dualPreflight
+    )
+      throw new Error(
+        "A retained dual preflight is required before worker dispatch",
+      );
+    if (run.plan.dualPreflight) this.store.assertBoundDualRun(run);
+  }
   private async execute(
     run: RunRecord,
     signal: AbortSignal,
@@ -506,6 +582,7 @@ export class GraphEngine {
       this.store.saveRun(run);
     };
     try {
+      this.assertWorkerPreflight(run);
       const priorEvents = this.store.events(run.id);
       delete run.error;
       save("running");
@@ -796,6 +873,7 @@ export class GraphEngine {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
                 throw new Error("Policy changed during DAG execution");
+              this.assertWorkerPreflight(run);
               const result = await this.invokeWorker(
                 {
                   provider,
@@ -1000,6 +1078,7 @@ export class GraphEngine {
                 throw new Error(
                   "The next call exceeds the configured estimated cost budget",
                 );
+              this.assertWorkerPreflight(run);
               this.store.event(
                 run.id,
                 "worker.dispatched",

@@ -4,6 +4,7 @@ import { lstat, chmod } from "node:fs/promises";
 import path from "node:path";
 import type {
   DecisionRecord,
+  DualPlanPreflight,
   ExecutionPlan,
   RunEvent,
   RunRecord,
@@ -139,7 +140,7 @@ export function readRunReceipt(
 
 /** Small operational records only. Context DB/index work lives in the context worker. */
 export class RunStore {
-  readonly schemaVersion = 4;
+  readonly schemaVersion = 5;
   private db: Database.Database;
   constructor(
     dataDir: string,
@@ -150,7 +151,7 @@ export class RunStore {
     this.db.pragma("busy_timeout = 5000");
     this.db.pragma("journal_mode = WAL");
     const version = this.db.pragma("user_version", { simple: true }) as number;
-    if (version > 4) {
+    if (version > 5) {
       this.db.close();
       throw new Error(
         "Run database is newer than this engine; refusing a downgrade",
@@ -168,9 +169,10 @@ export class RunStore {
       CREATE TABLE IF NOT EXISTS inference_calls(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,owner_id TEXT NOT NULL,provider TEXT NOT NULL,reserved REAL,usage_json TEXT);
       CREATE INDEX IF NOT EXISTS inference_owner ON inference_calls(project_id,owner_id);
       CREATE TABLE IF NOT EXISTS dual_consult_attempts(project_id TEXT NOT NULL,owner_id TEXT NOT NULL,task_id TEXT NOT NULL,source_sha256 TEXT NOT NULL,policy_hash TEXT NOT NULL,request_hash TEXT NOT NULL,state TEXT NOT NULL,evidence_json TEXT,failure TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(project_id,owner_id));
+      CREATE TABLE IF NOT EXISTS dual_worker_claims(project_id TEXT NOT NULL,owner_id TEXT NOT NULL,plan_id TEXT NOT NULL,run_id TEXT,scope_sha256 TEXT NOT NULL,PRIMARY KEY(project_id,owner_id),UNIQUE(project_id,plan_id),UNIQUE(project_id,run_id));
       CREATE TABLE IF NOT EXISTS worker_leases(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,pid INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_proofs(kind TEXT NOT NULL,id TEXT NOT NULL,project_id TEXT NOT NULL,endpoint TEXT NOT NULL,verifier TEXT NOT NULL,PRIMARY KEY(kind,id));
-      PRAGMA user_version = 4;`);
+      PRAGMA user_version = 5;`);
       })
       .immediate();
     localProcessOwner();
@@ -417,10 +419,134 @@ export class RunStore {
     }
     return total;
   }
+  /** Verify a completed, metered, task-bound pair without starting a new attempt. */
+  assertDualPreflight(preflight: DualPlanPreflight, policyHash: string): void {
+    const row = this.dualAttempt(preflight.ownerId);
+    if (
+      !row ||
+      row.state !== "completed" ||
+      row.request_hash !== preflight.requestHash ||
+      row.policy_hash !== policyHash ||
+      row.task_id !== preflight.binding.taskId ||
+      row.source_sha256 !== preflight.binding.sourceSha256 ||
+      !row.evidence_json
+    )
+      throw new Error("A matching completed dual consultation is required");
+    const evidence = JSON.parse(row.evidence_json) as DualConsultEvidence;
+    if (
+      !evidence.ready ||
+      evidence.projectId !== this.projectId ||
+      evidence.ownerId !== preflight.ownerId ||
+      evidence.requestHash !== preflight.requestHash ||
+      evidence.policyVersion !== policyHash ||
+      evidence.binding.taskId !== preflight.binding.taskId ||
+      evidence.binding.sourceSha256 !== preflight.binding.sourceSha256
+    )
+      throw new Error(
+        "Retained dual evidence does not match the selected task",
+      );
+    const callIds = new Set<string>();
+    for (const provider of ["laya", "jev"] as const) {
+      const item = evidence.observations[provider];
+      if (
+        !item?.valid ||
+        item.provider !== provider ||
+        !item.callId ||
+        item.observedModel !== item.configuredModel ||
+        item.choices.dispatch !== "proceed" ||
+        item.usage?.callId !== item.callId ||
+        item.usage.outcome !== "completed" ||
+        item.records.length !== 1 ||
+        item.records[0]?.selected !== "proceed"
+      )
+        throw new Error("Both retained models must validly select proceed");
+      callIds.add(item.callId);
+      const call = this.db
+        .prepare(
+          "SELECT usage_json FROM inference_calls WHERE project_id=? AND owner_id=? AND id=? AND provider=?",
+        )
+        .get(this.projectId, preflight.ownerId, item.callId, provider) as
+        { usage_json: string | null } | undefined;
+      if (!call?.usage_json)
+        throw new Error("Dual consultation is missing retained call usage");
+      const saved = this.db
+        .prepare("SELECT 1 FROM decisions WHERE project_id=? AND id=?")
+        .get(this.projectId, item.records[0]!.id);
+      if (!saved)
+        throw new Error("Dual consultation is missing a retained decision");
+    }
+    if (callIds.size !== 2)
+      throw new Error("Dual consultation calls are not independent");
+  }
+  assertAvailableDualPreflight(
+    preflight: DualPlanPreflight,
+    policyHash: string,
+  ): void {
+    this.assertDualPreflight(preflight, policyHash);
+    const claimed = this.db
+      .prepare(
+        "SELECT 1 FROM dual_worker_claims WHERE project_id=? AND owner_id=?",
+      )
+      .get(this.projectId, preflight.ownerId);
+    if (claimed)
+      throw new Error("Dual consultation is already claimed by another plan");
+  }
+  assertBoundDualPlan(plan: ExecutionPlan): void {
+    const preflight = plan.dualPreflight;
+    if (!preflight) throw new Error("Plan is missing dual preflight metadata");
+    this.assertDualPreflight(preflight, plan.policyHash);
+    const claim = this.db
+      .prepare(
+        "SELECT plan_id,scope_sha256 FROM dual_worker_claims WHERE project_id=? AND owner_id=?",
+      )
+      .get(this.projectId, preflight.ownerId) as
+      { plan_id: string; scope_sha256: string } | undefined;
+    if (
+      claim?.plan_id !== plan.id ||
+      claim.scope_sha256 !== preflight.scopeSha256
+    )
+      throw new Error(
+        "Dual consultation is not claimed by this plan and scope",
+      );
+  }
+  /** Called again at each worker dispatch, including resumed runs. */
+  assertBoundDualRun(run: RunRecord): void {
+    this.assertBoundDualPlan(run.plan);
+    const preflight = run.plan.dualPreflight!;
+    if (
+      !run.dualPreflight ||
+      JSON.stringify(run.dualPreflight) !== JSON.stringify(preflight)
+    )
+      throw new Error("Run dual preflight differs from its plan");
+    const claim = this.db
+      .prepare(
+        "SELECT run_id FROM dual_worker_claims WHERE project_id=? AND owner_id=?",
+      )
+      .get(this.projectId, preflight.ownerId) as
+      { run_id: string | null } | undefined;
+    if (claim?.run_id !== run.id)
+      throw new Error("Dual consultation is not claimed by this run");
+  }
   savePlan(plan: ExecutionPlan): void {
     this.db
-      .prepare("INSERT INTO plans VALUES(?,?,?)")
-      .run(plan.id, this.projectId, JSON.stringify(plan));
+      .transaction(() => {
+        if (plan.dualPreflight) {
+          this.assertDualPreflight(plan.dualPreflight, plan.policyHash);
+          this.db
+            .prepare("INSERT INTO dual_worker_claims VALUES(?,?,?,?,?)")
+            .run(
+              this.projectId,
+              plan.dualPreflight.ownerId,
+              plan.id,
+              null,
+              plan.dualPreflight.scopeSha256,
+            );
+        }
+        this.db
+          .prepare("INSERT INTO plans VALUES(?,?,?)")
+          .run(plan.id, this.projectId, JSON.stringify(plan));
+      })
+      .immediate();
   }
   plan(id: string): ExecutionPlan {
     return this.one("plans", id);
@@ -442,6 +568,29 @@ export class RunStore {
           throw new Error(
             "A plan can start only one run; resume that run or create a fresh plan",
           );
+        if (run.plan.dualPreflight) {
+          this.assertBoundDualPlan(run.plan);
+          if (
+            !run.dualPreflight ||
+            JSON.stringify(run.dualPreflight) !==
+              JSON.stringify(run.plan.dualPreflight)
+          )
+            throw new Error("Run dual preflight differs from its plan");
+          const claim = this.db
+            .prepare(
+              "UPDATE dual_worker_claims SET run_id=? WHERE project_id=? AND owner_id=? AND plan_id=? AND run_id IS NULL",
+            )
+            .run(
+              run.id,
+              this.projectId,
+              run.plan.dualPreflight.ownerId,
+              run.plan.id,
+            );
+          if (claim.changes !== 1)
+            throw new Error(
+              "Dual consultation was already used by another run",
+            );
+        }
         this.saveRun(run);
         this.db
           .prepare("INSERT OR REPLACE INTO run_owners VALUES(?,?)")
@@ -454,6 +603,7 @@ export class RunStore {
     return this.db
       .transaction(() => {
         const run = this.run(runId);
+        if (run.plan.dualPreflight) this.assertBoundDualRun(run);
         if (
           !["failed", "cancelled", "needs_reconciliation"].includes(run.status)
         )

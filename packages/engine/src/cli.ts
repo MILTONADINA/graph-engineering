@@ -33,6 +33,8 @@ import {
   runDualConsultCli,
   runDualConsultStatusCli,
 } from "./decision-dual-cli.js";
+import { dualPlanPreflightRequestSchema } from "./decision-dual.js";
+import { readWorkspaceFingerprint } from "./workspace-receipt.js";
 import { readRunReceipt } from "./store.js";
 
 const cli = new Command()
@@ -310,6 +312,7 @@ cli
   .requiredOption("--accept <criterion...>", "Acceptance criteria")
   .option("--provider <id>")
   .option("--effort <effort>")
+  .option("--dual-preflight <json>", "Reviewed private dual/task/scope binding")
   .option(
     "--steps <json>",
     "Reviewed dependency DAG steps with per-step providers/templates",
@@ -321,6 +324,13 @@ cli
         acceptance: options.accept,
         providerId: options.provider,
         effort: options.effort,
+        ...(options.dualPreflight
+          ? {
+              dualPreflight: dualPlanPreflightRequestSchema.parse(
+                await readJson(path.resolve(options.dualPreflight)),
+              ),
+            }
+          : {}),
         ...(options.steps
           ? {
               steps: (await readJson(
@@ -331,13 +341,16 @@ cli
       }),
     ),
   );
-cli.command("run <planId>").action((planId) =>
-  withEngine(async (engine) => {
-    const run = await engine.start(planId);
-    process.stderr.write(`Run ${run.id}\n`);
-    return engine.wait(run.id);
-  }),
-);
+cli
+  .command("run <planId>")
+  .option("--scope-sha256 <digest>")
+  .action((planId, options) =>
+    withEngine(async (engine) => {
+      const run = await engine.start(planId, options.scopeSha256);
+      process.stderr.write(`Run ${run.id}\n`);
+      return engine.wait(run.id);
+    }),
+  );
 cli
   .command("runs")
   .action(() => withEngine(async (engine) => engine.store.runs()));
@@ -361,17 +374,28 @@ cli
     );
   });
 cli
+  .command("workspace-fingerprint <runId>")
+  .description("Read the current managed workspace hash without recovery")
+  .action(async (runId) =>
+    print(await readWorkspaceFingerprint(root(), runId)),
+  );
+cli
   .command("cancel <runId>")
   .action((runId) => withEngine(async (engine) => engine.cancel(runId)));
 cli
   .command("resume <runId>")
+  .option("--scope-sha256 <digest>")
   .option(
     "--reconciled",
     "Acknowledge review of the retained workspace and external effects",
   )
   .action((runId, options) =>
     withEngine(async (engine) => {
-      await engine.resume(runId, Boolean(options.reconciled));
+      await engine.resume(
+        runId,
+        Boolean(options.reconciled),
+        options.scopeSha256,
+      );
       return engine.wait(runId);
     }),
   );

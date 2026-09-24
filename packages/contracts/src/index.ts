@@ -34,6 +34,8 @@ export interface ProjectPolicy {
   excludedPaths: string[];
   /** Explicit opt-in for the public root template ledger; never private engine state. */
   allowPublicTemplateLedger?: boolean;
+  /** Require a retained dual consultation before any managed worker dispatch. */
+  requireDualBeforeWorker?: boolean;
   publication: "none" | "commit" | "draft-pr";
   maxWorkers: number;
   maxAttempts: number;
@@ -209,6 +211,14 @@ export interface ExecutionStep {
   templateId?: string;
   inputs?: Record<string, unknown>;
 }
+export interface DualPlanPreflight {
+  version: typeof SCHEMA_VERSION;
+  ownerId: string;
+  requestHash: string;
+  binding: { taskId: string; sourceSha256: string };
+  /** Opaque digest of the caller's exact selected write and acceptance scope. */
+  scopeSha256: string;
+}
 export interface ExecutionPlan {
   version: typeof SCHEMA_VERSION;
   id: string;
@@ -221,6 +231,7 @@ export interface ExecutionPlan {
   steps: ExecutionStep[];
   verification: ProjectConfig["verification"];
   publication: ProjectPolicy["publication"];
+  dualPreflight?: DualPlanPreflight;
   routing?: {
     workflow: string;
     contextBudgetTokens: number;
@@ -247,6 +258,7 @@ export interface RunEvent {
 export interface RunRecord {
   id: string;
   plan: ExecutionPlan;
+  dualPreflight?: DualPlanPreflight;
   status: RunStatus;
   createdAt: string;
   updatedAt: string;
@@ -296,6 +308,7 @@ export const policySchema = {
     exportPaths: strings,
     excludedPaths: strings,
     allowPublicTemplateLedger: { type: "boolean" },
+    requireDualBeforeWorker: { type: "boolean" },
     publication: { enum: ["none", "commit", "draft-pr"] },
     maxWorkers: { type: "integer", minimum: 1, maximum: 8 },
     maxAttempts: { type: "integer", minimum: 1, maximum: 10 },
@@ -303,7 +316,10 @@ export const policySchema = {
     maxOutputTokens: { type: "integer", minimum: 64, maximum: 128000 },
     maxTurns: { type: "integer", minimum: 1, maximum: 100 },
     timeoutSeconds: {
-      anyOf: [{ type: "null" }, { type: "integer", minimum: 1, maximum: 86400 }],
+      anyOf: [
+        { type: "null" },
+        { type: "integer", minimum: 1, maximum: 86400 },
+      ],
     },
     maxCostUsd: {
       anyOf: [{ type: "null" }, { type: "number", minimum: 0 }],
