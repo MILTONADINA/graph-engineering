@@ -1,6 +1,7 @@
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import type { ProviderKind, Usage } from "@graph-engineering/contracts";
@@ -66,8 +67,48 @@ const CODEX_DISABLED_FEATURES = [
   "memories",
   "skill_mcp_dependency_install",
 ];
-const CURSOR_UNAVAILABLE =
-  "Cursor CLI ask mode does not disable all tools. The SDK documents tools: [], but independent hook loading and token-limit enforcement need verification before proposal-only execution is enabled. Use Cursor as an MCP client.";
+const CURSOR_SDK_PIN = "1.0.32";
+
+/** Treat generated protocol schemas as capabilities only when the fields have
+ * the expected JSON Schema structure. Descriptions and unrelated definitions
+ * must not make an unsupported native client appear safe to launch. */
+function supportsRestrictedCodexReads(schema: any): boolean {
+  const definitions = schema?.definitions;
+  if (!definitions || typeof definitions !== "object") return false;
+  const resolve = (entry: any): any => {
+    const reference = entry?.$ref;
+    if (typeof reference !== "string") return entry;
+    if (!reference.startsWith("#/definitions/")) return null;
+    const name = reference.slice("#/definitions/".length);
+    return definitions[name] ?? null;
+  };
+  const variants = (entry: any): any[] => {
+    const resolved = resolve(entry);
+    return Array.isArray(resolved?.oneOf)
+      ? resolved.oneOf.map(resolve)
+      : Array.isArray(resolved?.anyOf)
+        ? resolved.anyOf.map(resolve)
+        : [];
+  };
+  const declares = (entry: any, value: string): boolean => {
+    const resolved = resolve(entry);
+    return (
+      resolved?.const === value ||
+      (Array.isArray(resolved?.enum) && resolved.enum.includes(value))
+    );
+  };
+  const readOnly = variants(definitions.SandboxPolicy).find((option) =>
+    declares(option?.properties?.type, "readOnly"),
+  );
+  return variants(readOnly?.properties?.access).some((option) => {
+    const properties = option?.properties;
+    return (
+      declares(properties?.type, "restricted") &&
+      resolve(properties?.readableRoots)?.type === "array" &&
+      resolve(properties?.includePlatformDefaults)?.type === "boolean"
+    );
+  });
+}
 
 /** Do not pass repository credentials, shell startup hooks, or provider-routing overrides to native clients. */
 function baseEnvironment(): NodeJS.ProcessEnv {
@@ -229,8 +270,26 @@ async function inspect(
   kind: InstalledKind,
   claudeRunEnv?: NodeJS.ProcessEnv,
 ): Promise<InstalledWorkerCapability> {
-  const executable = kind === "cursor" ? "agent" : kind;
-  const rawVersion = await probe(executable, ["--version"]);
+  const executable = kind === "cursor" ? process.execPath : kind;
+  const rawVersion =
+    kind === "cursor"
+      ? await (async () => {
+          try {
+            const entry = fileURLToPath(import.meta.resolve("@cursor/sdk"));
+            const metadata = JSON.parse(
+              await readFile(
+                path.resolve(path.dirname(entry), "../../package.json"),
+                "utf8",
+              ),
+            );
+            return metadata.name === "@cursor/sdk"
+              ? String(metadata.version)
+              : null;
+          } catch {
+            return null;
+          }
+        })()
+      : await probe(executable, ["--version"]);
   const version = rawVersion?.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? null;
   const result: InstalledWorkerCapability = {
     kind,
@@ -248,11 +307,25 @@ async function inspect(
     ],
   };
   if (rawVersion === null) {
-    result.reason = `${executable} is not installed or its read-only version probe failed`;
+    result.reason =
+      kind === "cursor"
+        ? "Cursor SDK is not installed or its package metadata cannot be inspected"
+        : `${executable} is not installed or its read-only version probe failed`;
     return result;
   }
   if (kind === "cursor") {
-    result.reason = CURSOR_UNAVAILABLE;
+    if (version !== CURSOR_SDK_PIN) {
+      result.reason = `Cursor SDK ${version ?? "unknown"} has not passed the ${CURSOR_SDK_PIN} control audit`;
+      return result;
+    }
+    result.available = true;
+    result.authentication = "api-key";
+    result.mode = "proposal-only";
+    result.limits.push(
+      "Text-only local SDK worker in an empty scratch directory; file-based project/user/team/MDM/plugin settings and hooks, MCP, and tools are disabled.",
+      "Requires an explicitly selected Cursor user API key; desktop login is not reused. User keys may be charged to the Cursor plan.",
+      "No hard dollar or token cap is available. Token usage is checked as reported, after it can be incurred; live isolation and billing still require an owner-authorized call.",
+    );
     return result;
   }
   if (kind === "codex") {
@@ -283,18 +356,7 @@ async function inspect(
           "utf8",
         ),
       );
-      const readOnly = schema.definitions?.SandboxPolicy?.oneOf?.find(
-        (option: any) => option.properties?.type?.enum?.includes("readOnly"),
-      );
-      const accessSchema = readOnly?.properties?.access;
-      const access = accessSchema?.$ref
-        ? schema.definitions[accessSchema.$ref.split("/").at(-1)]
-        : accessSchema;
-      if (
-        !access ||
-        !JSON.stringify(access).includes("readableRoots") ||
-        !JSON.stringify(access).includes("restricted")
-      ) {
+      if (!supportsRestrictedCodexReads(schema)) {
         result.reason =
           "Installed Codex protocol does not declare restricted readOnly access/readableRoots. Ordinary read-only mode allows reads outside the scratch directory, so this worker is unavailable.";
         return result;
@@ -799,6 +861,104 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
   }
 }
 
+async function invokeCursorWorker(input: WorkerInput): Promise<WorkerResult> {
+  const { provider, policy, signal } = input;
+  if (provider.endpoint)
+    throw new Error(
+      "Cursor SDK endpoint overrides are not supported; use a metered API worker for a custom endpoint",
+    );
+  if (input.effort)
+    throw new Error(
+      "Cursor SDK proposal mode cannot enforce a selected reasoning effort",
+    );
+  assertEndpoint("https://api2.cursor.sh", policy);
+  if (!provider.apiKeyEnv)
+    throw new Error(
+      "Cursor SDK requires an explicit apiKeyEnv; it does not reuse the desktop login",
+    );
+  const key = process.env[provider.apiKeyEnv];
+  if (!key)
+    throw new Error(
+      `Cursor SDK requires ${provider.apiKeyEnv}; no browser login or paid call is started`,
+    );
+  const packet = contextForProvider(input.context, provider, policy);
+  const budget = Math.min(
+    policy.maxContextTokens,
+    provider.maxContextTokens ?? policy.maxContextTokens,
+  );
+  const prompt = `${WORKER_INSTRUCTIONS}\n\nRequired JSON schema:\n${JSON.stringify(proposalJsonSchema)}\n\nTask packet:\n${JSON.stringify(
+    {
+      task: input.objective,
+      acceptance: input.acceptance,
+      context: packet,
+      feedback: input.feedback ?? null,
+    },
+  )}`;
+  if (Buffer.byteLength(prompt, "utf8") + 256 > budget)
+    throw new Error(
+      "Installed-worker request exceeds configured context budget",
+    );
+
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "graph-cursor-"));
+  const workspace = path.join(temporary, "workspace");
+  try {
+    await mkdir(workspace, { mode: 0o700 });
+    signal?.throwIfAborted();
+    const environment = baseEnvironment();
+    // The explicit key and scratch-local SDK store do not need the user's
+    // home/config environment. Do not expose unrelated account overrides.
+    delete environment.HOME;
+    delete environment.USERPROFILE;
+    delete environment.XDG_CONFIG_HOME;
+    const native = await command(
+      process.execPath,
+      [fileURLToPath(new URL("./cursor-runner.js", import.meta.url))],
+      {
+        cwd: workspace,
+        env: { ...environment, CURSOR_API_KEY: key, NO_OPEN_BROWSER: "1" },
+        input: JSON.stringify({
+          workspace,
+          model: provider.model,
+          prompt,
+          maxInputTokens: budget,
+          maxOutputTokens: policy.maxOutputTokens,
+        }),
+        signal,
+        timeoutMs: policy.timeoutSeconds * 1000,
+        maxBytes: 2_000_000,
+      },
+    );
+    if (native.code !== 0)
+      throw new Error(
+        `Cursor worker exited with code ${native.code}; native diagnostics are withheld because they may contain context or credentials`,
+      );
+    let result: Record<string, any>;
+    try {
+      result = JSON.parse(native.stdout);
+    } catch {
+      throw new Error("Cursor returned invalid worker JSON");
+    }
+    if (!result || typeof result !== "object" || Array.isArray(result))
+      throw new Error("Cursor returned invalid worker result");
+    return {
+      proposal: proposalSchema.parse(result.proposal),
+      model:
+        typeof result.model === "string" && result.model.length > 0
+          ? result.model
+          : provider.model,
+      usage: {
+        inputTokens: finiteCount(result.usage?.inputTokens),
+        outputTokens: finiteCount(result.usage?.outputTokens),
+        cachedTokens: finiteCount(result.usage?.cachedTokens),
+        costUsd: null,
+        estimated: false,
+      },
+    };
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 /**
  * The optional run workspace is deliberately never opened or passed to a native client.
  * Native clients can only propose edits against the explicitly exported context packet.
@@ -827,7 +987,7 @@ export async function invokeInstalledWorker(
     if (!capability.available)
       throw new Error(capability.reason ?? "Installed worker is unavailable");
     if (provider.kind === "codex") return invokeCodexWorker(input);
-    throw new Error("Cursor proposal worker is unavailable");
+    return invokeCursorWorker(input);
   }
   const subscription = provider.apiKeyEnv === undefined;
   if (subscription && provider.endpoint)
