@@ -12,6 +12,7 @@ import {
   inspectPromotionImportPreflight,
   inspectSealedHeldOutReviewSignatures,
 } from "./promotion-authority.js";
+import { inspectSignedPromotionApproval } from "./signed-promotion-approval.js";
 import { inspectPrivateSealedAggregateFromManifest } from "./sealed-aggregate-provenance.js";
 import {
   inspectPrivateSealedIdentityOriginalBytes,
@@ -81,6 +82,8 @@ export interface SealedEvidenceReadinessInput {
   oracleExecutions?: unknown;
   /** Optional separate oracle fingerprint list; caller provenance is unverified. */
   oracleKeyFingerprintRegistry?: unknown;
+  /** Caller-pinned operator signature only; never a promotion grant. */
+  promotionApproval?: { target: unknown; pin: unknown; envelope: unknown };
   /** Testable signature cutoff, not an independently attested clock. */
   nowMs?: number;
 }
@@ -240,6 +243,12 @@ const oraclePinRowsSchema = z
       .passthrough(),
   )
   .max(2_000);
+const approvalPinIdentitySchema = z
+  .object({
+    operatorId: signerId,
+    publicKeySha256: digestSchema,
+  })
+  .passthrough();
 
 /** Caller-pinned signature checks are complete before these role comparisons. */
 function rejectCrossRoleSignerReuse(
@@ -247,6 +256,7 @@ function rejectCrossRoleSignerReuse(
   sourceKey: string | undefined,
   workerDeliveries: unknown,
   oracleExecutions: unknown,
+  promotionApprovalPin: unknown,
 ): void {
   const reservedKeys = new Set(registry.publicKeys);
   if (sourceKey) reservedKeys.add(sourceKey);
@@ -260,6 +270,10 @@ function rejectCrossRoleSignerReuse(
       : oraclePinRowsSchema.parse(oracleExecutions);
   const workerActors = new Set(workers.map((row) => row.pin.workerId));
   const workerKeys = new Set(workers.map((row) => row.pin.publicKeySha256));
+  const approval =
+    promotionApprovalPin === undefined
+      ? undefined
+      : approvalPinIdentitySchema.parse(promotionApprovalPin);
   if (
     [...workerActors].some((actor) => registry.actorIds.has(actor)) ||
     [...workerKeys].some((key) => reservedKeys.has(key)) ||
@@ -269,7 +283,17 @@ function rejectCrossRoleSignerReuse(
         workerActors.has(row.pin.oracleExecutorId) ||
         reservedKeys.has(row.pin.publicKeySha256) ||
         workerKeys.has(row.pin.publicKeySha256),
-    )
+    ) ||
+    (approval !== undefined &&
+      (registry.actorIds.has(approval.operatorId) ||
+        workerActors.has(approval.operatorId) ||
+        reservedKeys.has(approval.publicKeySha256) ||
+        workerKeys.has(approval.publicKeySha256) ||
+        oracles.some(
+          (row) =>
+            row.pin.oracleExecutorId === approval.operatorId ||
+            row.pin.publicKeySha256 === approval.publicKeySha256,
+        )))
   )
     throw new Error("Sealed readiness reuses a cross-role actor or key");
 }
@@ -294,6 +318,7 @@ export async function inspectSealedEvidenceReadiness(
       "sourceKeyFingerprintRegistry",
       "oracleExecutions",
       "oracleKeyFingerprintRegistry",
+      "promotionApproval",
       "nowMs",
     ],
   );
@@ -350,6 +375,17 @@ export async function inspectSealedEvidenceReadiness(
     fields.oracleExecutions === undefined
       ? undefined
       : decodeJson(fields.oracleExecutions);
+  const promotionApprovalFields =
+    fields.promotionApproval === undefined
+      ? undefined
+      : ownData(fields.promotionApproval, ["target", "pin", "envelope"]);
+  const promotionApproval = promotionApprovalFields
+    ? {
+        target: decodeJson(promotionApprovalFields.target),
+        pin: decodeJson(promotionApprovalFields.pin),
+        envelope: decodeJson(promotionApprovalFields.envelope),
+      }
+    : undefined;
   const manifest = decodeJson(aggregateFields.manifest);
   const manifestSha256 = digestSchema.parse(aggregateFields.manifestSha256);
   const earlier = cohortInspectionSchema.parse(population.inspection);
@@ -496,6 +532,9 @@ export async function inspectSealedEvidenceReadiness(
   const auditedOracleExecutions: Awaited<
     ReturnType<typeof inspectSignedSealedOracleExecutionCohort>
   >[] = [];
+  const auditedApprovals: Awaited<
+    ReturnType<typeof inspectSignedPromotionApproval>
+  >[] = [];
   const audit = async () => {
     const receipt = await inspectPrivateSealedAggregateFromManifest(
       aggregate,
@@ -505,6 +544,16 @@ export async function inspectSealedEvidenceReadiness(
       { nowMs },
     );
     auditedAggregates.push(receipt);
+    if (promotionApproval)
+      auditedApprovals.push(
+        await inspectSignedPromotionApproval(
+          cohort,
+          promotionApproval.target,
+          promotionApproval.pin,
+          promotionApproval.envelope,
+          { nowMs },
+        ),
+      );
     if (sourceAttestation)
       auditedSources.push(
         inspectSignedSealedSourceInventory(
@@ -622,7 +671,12 @@ export async function inspectSealedEvidenceReadiness(
     throw new Error(
       "Sealed readiness oracle-execution audit did not complete exactly once",
     );
+  if (auditedApprovals.length !== (promotionApproval ? 1 : 0))
+    throw new Error(
+      "Sealed readiness promotion-approval audit did not complete exactly once",
+    );
   const originalAggregate = auditedAggregates[0]!;
+  const approval = auditedApprovals[0];
   const sourceClaim = auditedSources[0];
   const oracleExecution = auditedOracleExecutions[0];
   if (
@@ -638,6 +692,7 @@ export async function inspectSealedEvidenceReadiness(
     sourceClaim?.sourceKeyFingerprintSha256,
     workerDeliveries,
     oracleExecutions,
+    promotionApproval?.pin,
   );
   const payload = z
     .object({
@@ -723,6 +778,23 @@ export async function inspectSealedEvidenceReadiness(
     preflight.evaluationArtifactSha256,
     payload.evaluationSha256,
   );
+  if (approval) {
+    same("approval project", approval.projectId, preflight.projectId);
+    same("approval policy", approval.policyVersion, preflight.policyVersion);
+    same("approval collection", approval.collectionId, preflight.collectionId);
+    same(
+      "approval target",
+      approval.targetIdentitySha256,
+      hashJson(aggregate.preflightPins),
+    );
+    same("approval preflight", approval.preflightSha256, hashJson(preflight));
+    same("approval report", approval.reportSha256, preflight.reportSha256);
+    same(
+      "approval accounting",
+      approval.accountingMetricsSatisfied,
+      preflight.accountingMetricsSatisfied,
+    );
+  }
   same(
     "original-byte manifest",
     manifestSha256,
@@ -849,6 +921,9 @@ export async function inspectSealedEvidenceReadiness(
       ? "Caller-pinned oracle signatures do not authenticate executor governance, runtime, loaded image or protected execution"
       : "Whole-cohort signed oracle-execution coverage was not supplied",
     "Signer actor identities, current trust and operator approval are not independently governed",
+    approval
+      ? "Caller-pinned operator approval signature does not authenticate operator authority or independent key control"
+      : "No signed promotion approval claim was supplied",
     "Independent unseen reviews and paired measured model outcomes are not established by this join",
     governance
       ? "Current witness callback authenticity and anti-rollback are not verified"
@@ -914,6 +989,10 @@ export async function inspectSealedEvidenceReadiness(
     oracleExecutionInventorySha256:
       oracleExecution?.oracleExecutionInventorySha256 ?? null,
     oracleExecutionAuthenticated: false as const,
+    promotionApprovalSignatureCompared: approval !== undefined,
+    promotionApprovalClaimSha256: approval?.approvalClaimSha256 ?? null,
+    promotionApprovalKeyPinSha256: approval?.keyPinSha256 ?? null,
+    operatorAuthorityVerified: false as const,
     accountingMetricsSatisfied: preflight.accountingMetricsSatisfied,
     blockers,
     promotionEligible: false as const,

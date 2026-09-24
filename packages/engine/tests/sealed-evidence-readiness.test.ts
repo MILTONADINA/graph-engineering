@@ -16,6 +16,7 @@ import {
   authorizesPromotion,
   inspectPromotionImportPreflight,
 } from "../src/promotion-authority.js";
+import { SIGNED_PROMOTION_APPROVAL_DOMAIN } from "../src/signed-promotion-approval.js";
 import { inspectSealedEvidenceReadiness } from "../src/sealed-evidence-readiness.js";
 import { inspectSealedDeclaredInventorySelection } from "../src/sealed-population-manifest.js";
 import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
@@ -451,6 +452,68 @@ function signedWorkerDeliveries(
         };
       }),
   );
+}
+
+async function signedPromotionApproval(
+  request: Awaited<ReturnType<typeof scenario>>["request"],
+  options: {
+    keys?: { publicKey: KeyObject; privateKey: KeyObject };
+    operatorId?: string;
+  } = {},
+) {
+  const target = structuredClone(request.aggregate.input.preflightPins);
+  const preflight = await inspectPromotionImportPreflight(
+    request.aggregate.input.cohort,
+    target,
+  );
+  const keys = options.keys ?? generateKeyPairSync("ed25519");
+  const pin = {
+    version: "1.0.0" as const,
+    kind: "promotion-approval-key-pin" as const,
+    projectId: target.projectId,
+    policyVersion: target.policyVersion,
+    collectionId: target.collectionId,
+    operatorId: options.operatorId ?? "fixture-operator",
+    keyId: "fixture-approval-key",
+    publicKeyPem: keys.publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString(),
+    publicKeySha256: createHash("sha256")
+      .update(keys.publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex"),
+  };
+  const claim = {
+    version: "1.0.0" as const,
+    kind: "promotion-approval-claim" as const,
+    approvalId: "fixture-approval",
+    operatorId: pin.operatorId,
+    target,
+    preflightSha256: hashJson(preflight),
+    reportSha256: preflight.reportSha256!,
+    approvedAt: "2026-01-02T04:00:00.000Z",
+    expiresAt: "2026-01-04T00:00:00.000Z",
+  };
+  const envelope = (payload = claim) => {
+    const unsigned = {
+      version: "1.0.0" as const,
+      kind: "signed-promotion-approval" as const,
+      keyId: pin.keyId,
+      payload,
+    };
+    return {
+      ...unsigned,
+      signature: sign(
+        null,
+        Buffer.from(SIGNED_PROMOTION_APPROVAL_DOMAIN + canonicalJson(unsigned)),
+        keys.privateKey,
+      ).toString("base64"),
+    };
+  };
+  return {
+    approval: { target, pin, envelope: envelope() },
+    claim,
+    signEnvelope: envelope,
+  };
 }
 
 function workerFingerprintRegistry(
@@ -1511,8 +1574,165 @@ it("joins matching signed declared selection and original-byte aggregate without
     authorizesPromotion(receipt, {} as never, {
       projectId: receipt.projectId,
       policyVersion: request.aggregate.input.bundle.payload.policySha256,
+      currentIdentity: request.aggregate.input.preflightPins,
     }),
   ).toBe(false);
+});
+
+it("joins an exact caller-pinned operator signature without issuing promotion authority", async () => {
+  const { request } = await scenario();
+  const promotionApproval = await signedPromotionApproval(request);
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    promotionApproval: promotionApproval.approval,
+  });
+  expect(receipt).toMatchObject({
+    promotionApprovalSignatureCompared: true,
+    promotionApprovalClaimSha256: hashJson(promotionApproval.claim),
+    promotionApprovalKeyPinSha256: hashJson(promotionApproval.approval.pin),
+    operatorAuthorityVerified: false,
+    promotionEligible: false,
+    authorityStatus: "sealed-evidence-readiness-only",
+  });
+  expect(receipt.blockers).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/Caller-pinned operator approval signature/),
+    ]),
+  );
+  expect(
+    authorizesPromotion(receipt, {} as never, {
+      projectId: receipt.projectId,
+      policyVersion: request.aggregate.input.bundle.payload.policySha256,
+    }),
+  ).toBe(false);
+});
+
+it("rejects a signed approval for another report and freezes it before witness callbacks", async () => {
+  const { request, checkpoint } = await scenario();
+  const promotionApproval = await signedPromotionApproval(request);
+  const altered = {
+    ...promotionApproval.approval,
+    envelope: promotionApproval.signEnvelope({
+      ...promotionApproval.claim,
+      reportSha256: "f".repeat(64),
+    }),
+  };
+  await expect(
+    inspectSealedEvidenceReadiness({ ...request, promotionApproval: altered }),
+  ).rejects.toThrow(/recomputed target report/);
+
+  let checkpointReads = 0;
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    promotionApproval: promotionApproval.approval,
+    witness: {
+      witnessId: "test-witness",
+      readCurrent: async (query) => {
+        if (++checkpointReads === 1) {
+          promotionApproval.approval.envelope.signature =
+            Buffer.alloc(64).toString("base64");
+          promotionApproval.approval.pin.publicKeySha256 = "0".repeat(64);
+        }
+        return checkpoint(query);
+      },
+    },
+  });
+  expect(checkpointReads).toBe(2);
+  expect(receipt).toMatchObject({
+    witnessCompared: true,
+    promotionApprovalSignatureCompared: true,
+    operatorAuthorityVerified: false,
+    promotionEligible: false,
+  });
+});
+
+it("rejects operator actor or key reuse across independently named signer roles", async () => {
+  const actor = await scenario();
+  const selectorActor = actor.request.population.trust.keys[0]!.actorId;
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...actor.request,
+      promotionApproval: (
+        await signedPromotionApproval(actor.request, {
+          operatorId: selectorActor,
+        })
+      ).approval,
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const key = await scenario();
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...key.request,
+      promotionApproval: (
+        await signedPromotionApproval(key.request, {
+          keys: key.selectorKeys,
+        })
+      ).approval,
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const worker = await scenario();
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...worker.request,
+      workerDeliveries: signedWorkerDeliveries(worker.request, {
+        workerId: "fixture-operator",
+      }),
+      promotionApproval: (await signedPromotionApproval(worker.request))
+        .approval,
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const source = await scenario();
+  const sourceKeys = generateKeyPairSync("ed25519");
+  const sourceAttestation = signedSourceAttestation(source.request, sourceKeys);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...source.request,
+      sourceAttestation,
+      promotionApproval: (
+        await signedPromotionApproval(source.request, {
+          operatorId: sourceAttestation.pin.sourceAuthorityId,
+        })
+      ).approval,
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...source.request,
+      sourceAttestation,
+      promotionApproval: (
+        await signedPromotionApproval(source.request, { keys: sourceKeys })
+      ).approval,
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const oracle = await scenario(true);
+  const oracleKeys = generateKeyPairSync("ed25519");
+  const oracleExecutions = signedOracleExecutions(oracle.request, {
+    keys: oracleKeys,
+  });
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...oracle.request,
+      oracleExecutions,
+      promotionApproval: (
+        await signedPromotionApproval(oracle.request, {
+          operatorId: oracleExecutions[0]!.pin.oracleExecutorId,
+        })
+      ).approval,
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...oracle.request,
+      oracleExecutions,
+      promotionApproval: (
+        await signedPromotionApproval(oracle.request, { keys: oracleKeys })
+      ).approval,
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
 });
 
 it("rejects population plan, collection, registry, registration and assignment mismatches", async () => {
