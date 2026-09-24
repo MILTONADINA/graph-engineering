@@ -31,6 +31,77 @@ Dependent stages, such as selecting a worker before choosing that worker's
 supported effort, remain separate. Large candidate sets use explicit batches
 of at most 12 and retain mandatory items regardless of classifier output.
 
+`consultBothDecisions` and `graph-engine dual-consult <request.json>` are a
+separate prerequisite for a caller that requires **both** local Laya and hosted
+Jev before each worker task. They make two independent single-provider calls;
+no cascade, shadow fallback, or model promotion can satisfy the missing call.
+Both responses must report the exact configured model, answer every requested
+question with a permitted choice and numeric confidence, and have distinct
+retained call IDs. A missing/invalid response throws `DualConsultUnavailable`
+(API) or exits nonzero (CLI). This consultation is advisory: even two valid
+`proceed` choices confer no authority to dispatch, approve, publish, or skip
+verification. The caller must enforce its own worker prerequisite and all
+other task gates. The consultation waits for a response or caller cancellation;
+it has no fixed 10-second cutoff or automatic retry.
+
+The CLI loads the project policy and exactly one Laya and one Jev entry from
+its private `decisions.json`. This mandatory path pins Jev to the reviewed
+direct `https://api.typesafe.ai/v1/systemone` endpoint; query strings and
+fragments are rejected for both providers. The request file is a reviewed
+compact JSON object:
+
+```json
+{
+  "ownerId": "handoff-GRAPH-42",
+  "binding": {
+    "taskId": "GRAPH-42",
+    "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "state": {
+    "taskBinding": {
+      "taskId": "GRAPH-42",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "complexity": 2
+  },
+  "cloudState": {
+    "taskBinding": {
+      "taskId": "GRAPH-42",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "complexity": 2
+  },
+  "questions": [
+    {
+      "id": "dispatch",
+      "category": "worker",
+      "candidates": {
+        "proceed": "Review this task",
+        "pause": "Pause this task"
+      },
+      "baseline": "pause",
+      "exportable": true
+    }
+  ]
+}
+```
+
+The caller must derive `taskId` and `sourceSha256` from the selected graph
+task and verify that binding again against the result immediately before
+dispatch. It must review `cloudState`, the binding, and every question for
+hosted export. The CLI echoes the binding and emits `ready`, `policyVersion`,
+and separate `observations.laya` / `observations.jev` with the requested
+endpoints, observed models, choices, call IDs, records, and usage. The provider
+name is bound to the reviewed request endpoint; the wire response itself
+reports the model but no separate provider name. It saves both decision records and a
+task-bound event in the project's private run database; the budget ledger
+stores settled charges or unresolved reservations under `ownerId`. Choose a
+stable unique handoff/dispatch identity for `ownerId`. The CLI atomically binds
+it to one `taskId` and `sourceSha256` before either call and rejects later use
+with a different binding; retries of the same task use the same owner so a new
+process cannot reset its cost ceiling. Exported observations are drafts until
+independently labeled and reviewed through the evaluation workflow.
+
 Hosted decisions require a separately supplied `cloudState` and an explicit
 `exportable` flag on every question. Source filenames, memory labels, candidate
 descriptions, and state all need export review. The presence of a Jev provider
@@ -185,12 +256,32 @@ dispatched batch emits one `DecisionCallUsage`, shared by its question records
 through `callId`. Missing input/output tokens and reported costs are `null`,
 not zero. Do not add the same call's cost once for every question.
 
-A reviewed private provider entry may contain `pricing` with `unit` equal to
-`request` or `question`, numeric `usdPerUnit`, and an identifiable price
-`version`. Supply the actual applicable fixed-unit rate from your provider
-agreement; the repository has no default hosted rate. Configured pricing is an
-estimate, kept separate from `reportedCostUsd`. Token-based or otherwise
-unbounded billing is not inferred from text length.
+A reviewed private provider entry may contain fixed `request`/`question`
+pricing (`usdPerUnit`) or Jev input-token pricing with `unit: "input-token"`,
+`usdPerMillionInputTokens`, `maxInputTokens: 64000`, and an identifiable
+`version`. [TypeSafe's Jev 1.13 model reference](https://docs.typesafe.ai/models)
+lists $0.042 per million input tokens, free output tokens, and a 64k total
+request context as checked on 2026-09-23. Pin the model and review the current
+rate for the actual endpoint/account before configuring it; the repository has
+no default hosted rate. A direct TypeSafe entry for that reviewed rate is:
+
+```json
+"pricing": {
+  "unit": "input-token",
+  "usdPerMillionInputTokens": 0.042,
+  "maxInputTokens": 64000,
+  "version": "jev-1.13.0-2026-09-23"
+}
+```
+
+The adapter reserves the **full** 64k input-token envelope before sending a
+token-priced request, then settles from valid provider-reported `input_tokens`.
+It never estimates token use from text length. Missing input usage or an
+ambiguous dispatched failure leaves the reservation open for reconciliation,
+unless the provider separately reports a charge above it; that larger known
+charge is debited. Usage beyond the reviewed envelope or a reported charge
+above the reservation withholds the answer. Existing fixed-unit entries retain
+their prior behavior.
 
 Cost-capped hosted decisions require that reviewed bounded pricing and a
 persistent `DecisionBudget` implementation. Its `reserve` callback must

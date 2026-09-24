@@ -65,6 +65,10 @@ export interface DecisionBatchOptions {
   /** Opaque loader-issued binding; raw caller identity/authority is never accepted. */
   promotionBinding?: PromotionDispatchBinding;
   signal?: AbortSignal;
+  /** Null disables the legacy 10s wall-clock timeout; caller cancellation remains active. */
+  requestTimeoutMs?: number | null;
+  /** Require one answer for every requested question and an exact response model. */
+  strictResponse?: boolean;
   budget?: DecisionBudget;
 }
 export interface DecisionBatchResult {
@@ -101,6 +105,17 @@ const money = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) && value >= 0
     ? value
     : null;
+function reservationCost(
+  provider: DecisionProvider,
+  questionCount: number,
+): number | null {
+  if (provider.id === "laya") return 0;
+  const price = provider.pricing;
+  if (!price) return null;
+  if (price.unit === "input-token")
+    return (price.maxInputTokens * price.usdPerMillionInputTokens) / 1_000_000;
+  return price.usdPerUnit * (price.unit === "question" ? questionCount : 1);
+}
 function strings(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.flatMap(strings);
@@ -259,14 +274,7 @@ export async function decideBatch(
         throw new Error(
           "Compact decision state exceeds the configured model limit; abstaining",
         );
-      const price = provider.pricing;
-      const estimate =
-        provider.id === "laya"
-          ? 0
-          : price
-            ? price.usdPerUnit *
-              (price.unit === "question" ? pending.length : 1)
-            : null;
+      const estimate = reservationCost(provider, pending.length);
       if (policy.maxCostUsd !== null && provider.id === "jev") {
         if (estimate === null || !options.budget)
           throw new Error(
@@ -303,6 +311,13 @@ export async function decideBatch(
         throw new Error(
           "Decision policy changed before dispatch; baseline retained",
         );
+      if (
+        options.requestTimeoutMs !== undefined &&
+        options.requestTimeoutMs !== null &&
+        (!Number.isSafeInteger(options.requestTimeoutMs) ||
+          options.requestTimeoutMs <= 0)
+      )
+        throw new Error("Invalid decision request timeout");
       dispatched = true;
       const response = await fetch(provider.endpoint, {
         method: "POST",
@@ -312,14 +327,51 @@ export async function decideBatch(
           ...(key ? { Authorization: `Bearer ${key}` } : {}),
         },
         body,
-        signal: AbortSignal.any([
-          options.signal ?? new AbortController().signal,
-          AbortSignal.timeout(10000),
-        ]),
+        signal:
+          options.requestTimeoutMs === null
+            ? options.signal
+            : AbortSignal.any([
+                options.signal ?? new AbortController().signal,
+                AbortSignal.timeout(options.requestTimeoutMs ?? 10000),
+              ]),
       });
       if (!response.ok)
         throw new Error(`Decision provider HTTP ${response.status}`);
       result = await readDecisionResponse(response);
+      if (
+        options.strictResponse &&
+        (result.model !== provider.model ||
+          !result.answers ||
+          typeof result.answers !== "object" ||
+          Array.isArray(result.answers) ||
+          Object.keys(result.answers).length !== pending.length ||
+          (provider.id === "jev" &&
+            (!result.usage ||
+              typeof result.usage !== "object" ||
+              Array.isArray(result.usage) ||
+              count(result.usage.input_tokens) === null ||
+              count(result.usage.output_tokens) === null)) ||
+          pending.some((question) => {
+            if (!Object.hasOwn(result!.answers, question.id)) return true;
+            const answer = result!.answers[question.id];
+            return (
+              !answer ||
+              typeof answer !== "object" ||
+              Array.isArray(answer) ||
+              (provider.id === "jev" && answer.type !== "choice") ||
+              typeof answer.confidence !== "number" ||
+              !Number.isFinite(answer.confidence) ||
+              answer.confidence < 0 ||
+              answer.confidence > 1 ||
+              !answer.probabilities ||
+              typeof answer.probabilities !== "object" ||
+              Array.isArray(answer.probabilities)
+            );
+          }))
+      )
+        throw new Error(
+          "Decision response model or typed answer set did not match the request",
+        );
     } catch (error) {
       failure =
         error instanceof Error ? error.message : "Decision provider failed";
@@ -328,45 +380,80 @@ export async function decideBatch(
       const rawUsage =
         result?.usage && typeof result.usage === "object" ? result.usage : {};
       const reportedCostUsd = money(rawUsage.cost_usd ?? result?.cost_usd);
-      const estimatedCostUsd =
-        provider.id === "laya"
-          ? 0
-          : provider.pricing
-            ? provider.pricing.usdPerUnit *
-              (provider.pricing.unit === "question" ? pending.length : 1)
-            : null;
+      const inputTokens = count(rawUsage.input_tokens);
+      const tokenPrice =
+        provider.id === "jev" && provider.pricing?.unit === "input-token"
+          ? provider.pricing
+          : null;
+      const estimatedCostUsd = reservationCost(provider, pending.length);
+      const tokenCostUsd =
+        tokenPrice && inputTokens !== null
+          ? (inputTokens * tokenPrice.usdPerMillionInputTokens) / 1_000_000
+          : null;
+      const reportedOverReservation =
+        tokenPrice !== null &&
+        inputTokens === null &&
+        reportedCostUsd !== null &&
+        reservedUsd !== null &&
+        reportedCostUsd > reservedUsd;
       const chargedUsd =
         provider.id === "laya"
           ? 0
-          : reportedCostUsd === null
-            ? estimatedCostUsd
-            : Math.max(reportedCostUsd, reservedUsd ?? 0);
+          : tokenPrice
+            ? tokenCostUsd === null
+              ? reportedOverReservation
+                ? reportedCostUsd
+                : reservedUsd
+              : Math.max(tokenCostUsd, reportedCostUsd ?? 0)
+            : reportedCostUsd === null
+              ? estimatedCostUsd
+              : Math.max(reportedCostUsd, reservedUsd ?? 0);
+      if (tokenPrice && inputTokens === null) {
+        failure =
+          "Jev input-token usage was not reported; reservation retained";
+        accountingFailure = true;
+      }
+      if (
+        tokenPrice &&
+        inputTokens !== null &&
+        inputTokens > tokenPrice.maxInputTokens
+      ) {
+        failure =
+          "Reported Jev input usage exceeded the reviewed request envelope";
+        accountingFailure = true;
+      }
       callUsage = {
         callId,
         provider: provider.id,
-        model:
-          typeof result?.model === "string" ? result.model : provider.model,
+        model: typeof result?.model === "string" ? result.model : "unreported",
         questionCount: pending.length,
-        inputTokens: count(rawUsage.input_tokens),
+        inputTokens,
         outputTokens: count(rawUsage.output_tokens),
         reportedCostUsd,
         estimatedCostUsd,
         chargedUsd,
         reservedUsd,
         priceVersion: provider.pricing?.version ?? null,
-        costUnknown: chargedUsd === null,
+        costUnknown:
+          chargedUsd === null || (tokenPrice !== null && inputTokens === null),
         outcome: failure ? "failed" : "completed",
       };
       usages.push(callUsage);
       if (
         reservedUsd !== null &&
         reportedCostUsd !== null &&
-        reportedCostUsd > reservedUsd
+        chargedUsd !== null &&
+        chargedUsd > reservedUsd + 1e-12
       ) {
         failure = "Reported decision cost exceeded its configured reservation";
         accountingFailure = true;
       }
-      if (options.budget) {
+      // Keep an unmetered token-priced call reserved. A separately reported
+      // charge above that reserve must instead debit the larger known amount.
+      if (
+        options.budget &&
+        (!(tokenPrice && inputTokens === null) || reportedOverReservation)
+      ) {
         try {
           await options.budget.settle(callUsage);
         } catch {

@@ -29,6 +29,7 @@ import {
   exportEvaluationDraft,
   importEvaluationLabels,
 } from "./decision-evaluation.js";
+import { runDualConsultCli } from "./decision-dual-cli.js";
 
 const cli = new Command()
   .name("graph-engine")
@@ -404,6 +405,16 @@ cli
 cli
   .command("decisions")
   .action(() => withEngine(async (engine) => engine.store.decisions()));
+cli
+  .command("dual-consult <request>")
+  .description(
+    "Require independent Laya and Jev observations before a bound worker task",
+  )
+  .action(async (request) => {
+    const evidence = await runDualConsultCli(root(), request);
+    print(evidence);
+    if (!evidence.ready) process.exitCode = 1;
+  });
 cli
   .command("evaluation-export <mapping> <output>")
   .requiredOption("--dataset <id>")

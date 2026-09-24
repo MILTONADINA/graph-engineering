@@ -21,6 +21,14 @@ export {
 } from "./decisions.js";
 export { decideBatch } from "./decision-batch.js";
 export {
+  consultBothDecisions,
+  DualConsultUnavailable,
+  taskBindingSchema,
+  type DualConsultEvidence,
+  type DualConsultOptions,
+  type TaskBinding,
+} from "./decision-dual.js";
+export {
   freezeCohortCalibration,
   evaluateFullCohort,
   type FrozenCohortThresholds,
