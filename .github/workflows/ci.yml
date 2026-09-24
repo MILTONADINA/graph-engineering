@@ -2,9 +2,9 @@ name: Platform checks
 
 on:
   pull_request:
-    branches: [main, dev]
-  push:
     branches: [main, dev, "feat/**", "fix/**", "chore/**"]
+  push:
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
