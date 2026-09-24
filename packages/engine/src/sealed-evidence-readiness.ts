@@ -33,6 +33,8 @@ import {
   sealedSourceInventorySchema,
 } from "./sealed-population-manifest.js";
 import { inspectSignedSealedWorkerDeliveryCohort } from "./sealed-worker-delivery.js";
+import { inspectSignedSealedSourceInventory } from "./sealed-source-provenance.js";
+import { inspectSignedSealedOracleExecutionCohort } from "./sealed-oracle-execution.js";
 
 type OriginalReader = Parameters<
   typeof inspectPrivateSealedAggregateFromManifest
@@ -57,6 +59,10 @@ export interface SealedEvidenceReadinessInput {
   };
   /** Caller-pinned claims only; no signer, runtime or model authentication. */
   workerDeliveries?: unknown;
+  /** Caller-pinned pre-run claim; no independent source/key authentication. */
+  sourceAttestation?: { pin: unknown; envelope: unknown };
+  /** Caller-pinned oracle claims; no executable/image/key authentication. */
+  oracleExecutions?: unknown;
   /** Testable signature cutoff, not an independently attested clock. */
   nowMs?: number;
 }
@@ -184,6 +190,7 @@ function distinctRegistryActors(
       actorIds.add(key.actorId);
       publicKeys.add(fingerprint);
     }
+  return publicKeys;
 }
 
 /**
@@ -197,7 +204,14 @@ export async function inspectSealedEvidenceReadiness(
   const fields = ownData(
     input,
     ["population", "aggregate"],
-    ["witness", "identityBytes", "workerDeliveries", "nowMs"],
+    [
+      "witness",
+      "identityBytes",
+      "workerDeliveries",
+      "sourceAttestation",
+      "oracleExecutions",
+      "nowMs",
+    ],
   );
   const populationFields = ownData(fields.population, [
     "input",
@@ -234,6 +248,24 @@ export async function inspectSealedEvidenceReadiness(
   ]) as unknown as FullCohortEvaluationInput & { evaluation: unknown };
   const populationTrust = decodeJson(populationFields.trust);
   const populationPins = decodeJson(populationFields.pins);
+  const sourceAttestationFields =
+    fields.sourceAttestation === undefined
+      ? undefined
+      : ownData(fields.sourceAttestation, ["pin", "envelope"]);
+  const sourceAttestation = sourceAttestationFields
+    ? {
+        pin: decodeJson(sourceAttestationFields.pin),
+        envelope: decodeJson(sourceAttestationFields.envelope),
+      }
+    : undefined;
+  const workerDeliveries =
+    fields.workerDeliveries === undefined
+      ? undefined
+      : decodeJson(fields.workerDeliveries);
+  const oracleExecutions =
+    fields.oracleExecutions === undefined
+      ? undefined
+      : decodeJson(fields.oracleExecutions);
   const manifest = decodeJson(aggregateFields.manifest);
   const manifestSha256 = digestSchema.parse(aggregateFields.manifestSha256);
   const earlier = cohortInspectionSchema.parse(population.inspection);
@@ -260,7 +292,7 @@ export async function inspectSealedEvidenceReadiness(
       event.sha256,
       closed.events[index]?.sha256,
     );
-  distinctRegistryActors(
+  const registryKeyFingerprints = distinctRegistryActors(
     populationTrust,
     aggregate.rowTrust,
     aggregate.aggregateTrust,
@@ -304,6 +336,12 @@ export async function inspectSealedEvidenceReadiness(
   const auditedWorkerDeliveries: Awaited<
     ReturnType<typeof inspectSignedSealedWorkerDeliveryCohort>
   >[] = [];
+  const auditedSources: ReturnType<
+    typeof inspectSignedSealedSourceInventory
+  >[] = [];
+  const auditedOracleExecutions: Awaited<
+    ReturnType<typeof inspectSignedSealedOracleExecutionCohort>
+  >[] = [];
   const audit = async () => {
     const receipt = await inspectPrivateSealedAggregateFromManifest(
       aggregate,
@@ -313,7 +351,18 @@ export async function inspectSealedEvidenceReadiness(
       { nowMs },
     );
     auditedAggregates.push(receipt);
-    if (fields.workerDeliveries !== undefined)
+    if (sourceAttestation)
+      auditedSources.push(
+        inspectSignedSealedSourceInventory(
+          cohort.inspection,
+          cohort.pins,
+          population.sourceInventory,
+          sourceAttestation.pin,
+          sourceAttestation.envelope,
+          { nowMs },
+        ),
+      );
+    if (workerDeliveries !== undefined)
       auditedWorkerDeliveries.push(
         await inspectSignedSealedWorkerDeliveryCohort(
           cohort.inspection,
@@ -321,7 +370,19 @@ export async function inspectSealedEvidenceReadiness(
           manifest,
           manifestSha256,
           aggregateFields.reader as OriginalReader,
-          fields.workerDeliveries,
+          workerDeliveries,
+          { nowMs },
+        ),
+      );
+    if (oracleExecutions !== undefined)
+      auditedOracleExecutions.push(
+        await inspectSignedSealedOracleExecutionCohort(
+          cohort.inspection,
+          cohort.pins,
+          manifest,
+          manifestSha256,
+          aggregateFields.reader as OriginalReader,
+          oracleExecutions,
           { nowMs },
         ),
       );
@@ -377,13 +438,31 @@ export async function inspectSealedEvidenceReadiness(
       "Sealed readiness identity-byte audit did not complete exactly once",
     );
   if (
-    auditedWorkerDeliveries.length !==
-    (fields.workerDeliveries !== undefined ? 1 : 0)
+    auditedWorkerDeliveries.length !== (workerDeliveries !== undefined ? 1 : 0)
   )
     throw new Error(
       "Sealed readiness worker-delivery audit did not complete exactly once",
     );
+  if (auditedSources.length !== (sourceAttestation ? 1 : 0))
+    throw new Error(
+      "Sealed readiness source audit did not complete exactly once",
+    );
+  if (
+    auditedOracleExecutions.length !== (oracleExecutions !== undefined ? 1 : 0)
+  )
+    throw new Error(
+      "Sealed readiness oracle-execution audit did not complete exactly once",
+    );
   const originalAggregate = auditedAggregates[0]!;
+  const sourceClaim = auditedSources[0];
+  const oracleExecution = auditedOracleExecutions[0];
+  if (
+    sourceClaim &&
+    registryKeyFingerprints.has(sourceClaim.sourceKeyFingerprintSha256)
+  )
+    throw new Error(
+      "Sealed readiness reuses a source key across independent signer roles",
+    );
   const workerDelivery = auditedWorkerDeliveries[0];
   const payload = z
     .object({
@@ -411,6 +490,29 @@ export async function inspectSealedEvidenceReadiness(
     hashJson(closed.plan.tasks),
   );
   same("task count", selection.selectedTaskCount, closed.plan.tasks.length);
+  if (sourceClaim) {
+    same(
+      "source-signature project",
+      sourceClaim.projectId,
+      selection.projectId,
+    );
+    same(
+      "source-signature collection",
+      sourceClaim.collectionId,
+      selection.collectionId,
+    );
+    same("source-signature plan", sourceClaim.planSha256, selection.planSha256);
+    same(
+      "source-signature inventory",
+      sourceClaim.signedSourceInventorySha256,
+      selection.sourceInventorySha256,
+    );
+    same(
+      "source-signature selected task count",
+      sourceClaim.selectedTaskCount,
+      selection.selectedTaskCount,
+    );
+  }
   same(
     "selected task order",
     hashJson(selection.selectedStableTaskIds),
@@ -478,6 +580,33 @@ export async function inspectSealedEvidenceReadiness(
       originalAggregate.originalByteManifestSha256,
     );
   }
+  if (oracleExecution) {
+    same(
+      "oracle-execution project",
+      oracleExecution.projectId,
+      originalAggregate.projectId,
+    );
+    same(
+      "oracle-execution collection",
+      oracleExecution.collectionId,
+      originalAggregate.collectionId,
+    );
+    same(
+      "oracle-execution plan",
+      oracleExecution.planSha256,
+      originalAggregate.planSha256,
+    );
+    same(
+      "oracle-execution manifest",
+      oracleExecution.originalByteManifestSha256,
+      originalAggregate.originalByteManifestSha256,
+    );
+    same(
+      "oracle-execution verdict count",
+      oracleExecution.verifiedOracleVerdictCount,
+      closed.assignments.filter((item) => item.oracleVerdict).length,
+    );
+  }
   if (governance) {
     same(
       "governance plan",
@@ -528,6 +657,9 @@ export async function inspectSealedEvidenceReadiness(
   const blockers = [
     "Source inventory completeness, eligibility and unseen status are not independently authenticated",
     "Selection seed and pre-run chronology have no independent append-only witness",
+    sourceClaim
+      ? "Caller-pinned source signature does not authenticate source ownership, unseen eligibility or independent key control"
+      : "No signed pre-run source-inventory claim was supplied",
     identityBytes
       ? "Matching raw digest bytes do not authenticate source artifact meaning, model loading, or provider snapshot identity"
       : "Source artifacts and configuration/model/label-evidence identity-only bytes are not audited",
@@ -538,6 +670,9 @@ export async function inspectSealedEvidenceReadiness(
     workerDelivery?.completedCallsWithoutPublicDispatch
       ? "Some completed calls lack a public-dispatch claim; worker delivery does not prove public packet delivery"
       : "Worker-delivery signatures do not prove public packet delivery",
+    oracleExecution
+      ? "Caller-pinned oracle signatures do not authenticate executor governance, runtime, loaded image or protected execution"
+      : "Whole-cohort signed oracle-execution coverage was not supplied",
     "Signer actor identities, current trust and operator approval are not independently governed",
     "Independent unseen reviews and paired measured model outcomes are not established by this join",
     governance
@@ -556,6 +691,10 @@ export async function inspectSealedEvidenceReadiness(
     registrySha256: originalAggregate.registrySha256,
     assignmentInventorySha256: originalAggregate.assignmentInventorySha256,
     sourceInventorySha256: selection.sourceInventorySha256,
+    sourceSignatureCompared: sourceClaim !== undefined,
+    sourceSignatureKeyPinSha256: sourceClaim?.keyPinSha256 ?? null,
+    signedSourceClaimSha256: sourceClaim?.signedClaimSha256 ?? null,
+    sourceEligibilityAuthenticated: false as const,
     signedManifestSha256: selection.signedManifestSha256,
     originalByteManifestSha256: originalAggregate.originalByteManifestSha256,
     aggregatePayloadSha256: originalAggregate.aggregatePayloadSha256,
@@ -578,6 +717,12 @@ export async function inspectSealedEvidenceReadiness(
     workerCompletedCallsWithoutPublicDispatch:
       workerDelivery?.completedCallsWithoutPublicDispatch ?? 0,
     workerModelExecutionAuthenticated: false as const,
+    oracleExecutionCoverageCompared: oracleExecution !== undefined,
+    verifiedOracleVerdictCount:
+      oracleExecution?.verifiedOracleVerdictCount ?? 0,
+    oracleExecutionInventorySha256:
+      oracleExecution?.oracleExecutionInventorySha256 ?? null,
+    oracleExecutionAuthenticated: false as const,
     accountingMetricsSatisfied: preflight.accountingMetricsSatisfied,
     blockers,
     promotionEligible: false as const,

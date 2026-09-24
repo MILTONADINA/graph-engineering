@@ -1528,9 +1528,9 @@ export function moduleGraphFixture(options: ModuleGraphFixtureOptions = {}) {
 }
 
 /** Signed synthetic aggregate with a matching pre-run v2 selection window. */
-export function declaredSelectionAggregateFixture() {
+export function declaredSelectionAggregateFixture(callBoundOracle = false) {
   return fixture(
-    false,
+    callBoundOracle,
     false,
     false,
     false,

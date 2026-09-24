@@ -88,8 +88,9 @@ v2 check is local conditional consistency, not a promotion grant.
 original declared-v2 population manifest and a closed, vault-backed aggregate.
 It reruns the signed selection, full-cohort preflight, held-out row-review and
 original-byte aggregate inspectors from their supplied originals; an optional
-current-witness callback brackets the aggregate and any optional identity-byte
-or caller-pinned whole-cohort signed worker-delivery audit. With a witness,
+current-witness callback brackets the aggregate and any optional identity-byte,
+caller-pinned whole-cohort signed worker-delivery, signed source-inventory,
+or signed oracle-execution audit. With a witness,
 readiness requires a version 2 checkpoint that also
 compares the declared source-inventory digest, signed population bundle and
 selector/auditor trust with a population revision before the ledger's first
@@ -103,6 +104,19 @@ receipt lists remaining blockers and always has `promotionEligible: false`.
 Worker-delivery coverage only checks signatures and retained request/response
 bytes; it does not prove an independently controlled signer, loaded model, or
 public-packet delivery when a call has no public-dispatch claim.
+The optional `sourceAttestation` verifies an Ed25519 signature over the exact
+declared source-inventory digest against a separately supplied public-key pin,
+checks selected task identities, and requires its claimed signing time to
+precede the first attempt. It rejects use of that source key in the other
+signer registries. This is still a caller-pinned claim, not evidence that the
+source owner is independent, that tasks were unseen, or that the time was
+anchored externally. Its private receipt never authorizes promotion.
+The optional `oracleExecutions` audit requires one caller-pinned Ed25519 claim
+for every closed-ledger private verdict. It verifies all signatures and frozen
+invocation/verdict joins before reading any private verdict, then re-reads the
+exact original verdict bytes from the pinned manifest. Coverage does not
+authenticate the oracle executable, loaded image, container host, signer
+control or actual protected execution; its result is analysis-only.
 Neither its input reader nor an optional witness callback is authenticated by
 this API. Without the optional byte audit it does not check source-population
 artifacts or configuration, model and label-evidence bytes. It cannot prove
