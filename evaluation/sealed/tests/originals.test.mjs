@@ -33,7 +33,15 @@ async function stores(t) {
   };
 }
 
-async function completeCollection(t) {
+async function completeCollection(
+  t,
+  {
+    callBoundOracle = false,
+    wrongDispatchBytes = false,
+    wrongVerdictBytes = false,
+    conflictingSecondDispatch = false,
+  } = {},
+) {
   const { store, artifacts, artifactsPath } = await stores(t);
   const { plan, registry } = fixture();
   const contents = new Map();
@@ -56,12 +64,64 @@ async function completeCollection(t) {
       plan.collectionId,
       `${arm}-assignment`,
     );
+    if (callBoundOracle && arm === "baseline")
+      store.claimPublicDispatch(attempt.reservationId, {
+        sha256: task.publicPacketSha256,
+        bytes:
+          contents.get("task/task-fixture/public-packet").bytes +
+          Number(wrongDispatchBytes),
+      });
+    if (callBoundOracle && arm === "candidate" && conflictingSecondDispatch)
+      store.claimPublicDispatch(attempt.reservationId, {
+        sha256: task.publicPacketSha256,
+        bytes: contents.get("task/task-fixture/public-packet").bytes + 1,
+      });
     const callInputValue = callInput(`call-${arm}`);
     callInputValue.requestSha256 = await role(`call/call-${arm}/request`);
+    if (callBoundOracle && arm === "baseline")
+      callInputValue.reservedCostUsd = 0;
     const call = store.reserveCall(attempt.reservationId, callInputValue);
     const callReceipt = settledCall(call);
     callReceipt.responseSha256 = await role(`call/call-${arm}/response`);
+    if (callBoundOracle && arm === "baseline")
+      callReceipt.usage = {
+        inputTokens: 5,
+        outputTokens: 2,
+        costUsd: 0,
+        reportedCostUsd: 0,
+        chargedCostUsd: 0,
+        basis: "local-no-api-charge",
+        pricingSha256: null,
+      };
     const settled = store.completeCall(callReceipt);
+    if (callBoundOracle && arm === "baseline") {
+      const proposalSha256 = await role(
+        "oracle/v1/baseline-assignment/derived-proposal",
+      );
+      const claim = store.claimOracleInvocation(attempt.reservationId, {
+        expectedPlanSha256: hashJson(plan),
+        oracleSha256: task.oracleSha256,
+        proposalSha256,
+        callId: call.callId,
+        expectedCallReceiptSha256: hashJson(settled),
+        expectedResponseSha256: settled.responseSha256,
+        imageId: `sha256:${"a".repeat(64)}`,
+      });
+      const verdictSha256 = await role(
+        "oracle/v1/baseline-assignment/private-verdict",
+      );
+      store.retainOracleVerdict(attempt.reservationId, {
+        claimSha256: hashJson(claim),
+        verificationReference: {
+          sha256: verdictSha256,
+          bytes:
+            contents.get("oracle/v1/baseline-assignment/private-verdict")
+              .bytes + Number(wrongVerdictBytes),
+        },
+      });
+      store.recoverCollection(plan.collectionId, { abandonOutstanding: true });
+      continue;
+    }
     const receipt = settledAttempt(attempt, [settled]);
     receipt.publicRequestSha256 = task.publicPacketSha256;
     receipt.proposalSha256 = await role(`attempt/${arm}-assignment/proposal`);
@@ -97,6 +157,71 @@ async function completeCollection(t) {
     expectedManifestSha256: originalByteManifestSha256(manifest),
   };
 }
+
+test("closed byte audit includes non-successful call-bound proposal and private verdict", async (t) => {
+  const prepared = await completeCollection(t, { callBoundOracle: true });
+  const result = await auditOriginalBytes({
+    ...prepared,
+    collectionId: prepared.manifest.collectionId,
+  });
+  assert.equal(result.committedRoles, 13);
+  assert.equal(result.uniqueBlobs, 13);
+  for (const role of [
+    "oracle/v1/baseline-assignment/derived-proposal",
+    "oracle/v1/baseline-assignment/private-verdict",
+  ]) {
+    const omitted = structuredClone(prepared.manifest);
+    omitted.entries = omitted.entries.filter((entry) => entry.role !== role);
+    await assert.rejects(
+      auditOriginalBytes({
+        ...prepared,
+        collectionId: prepared.manifest.collectionId,
+        manifest: omitted,
+        expectedManifestSha256: originalByteManifestSha256(omitted),
+      }),
+      /omits or adds/,
+    );
+  }
+});
+test("correct manifest and blob cannot mask a wrong ledger public-packet byte count", async (t) => {
+  const prepared = await completeCollection(t, {
+    callBoundOracle: true,
+    wrongDispatchBytes: true,
+  });
+  await assert.rejects(
+    auditOriginalBytes({
+      ...prepared,
+      collectionId: prepared.manifest.collectionId,
+    }),
+    /Recorded byte count differs/,
+  );
+});
+test("correct manifest and blob cannot mask a wrong ledger private-verdict byte count", async (t) => {
+  const prepared = await completeCollection(t, {
+    callBoundOracle: true,
+    wrongVerdictBytes: true,
+  });
+  await assert.rejects(
+    auditOriginalBytes({
+      ...prepared,
+      collectionId: prepared.manifest.collectionId,
+    }),
+    /Recorded byte count differs/,
+  );
+});
+test("two arms cannot record conflicting lengths for one frozen public packet", async (t) => {
+  const prepared = await completeCollection(t, {
+    callBoundOracle: true,
+    conflictingSecondDispatch: true,
+  });
+  await assert.rejects(
+    auditOriginalBytes({
+      ...prepared,
+      collectionId: prepared.manifest.collectionId,
+    }),
+    /Conflicting public dispatch byte counts/,
+  );
+});
 
 test("closed cohort audits exact original bytes without returning the private oracle", async (t) => {
   const prepared = await completeCollection(t);

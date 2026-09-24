@@ -667,6 +667,62 @@ export const publicDispatchClaimSchema = z
     claimedAt: timestamp,
   })
   .strict();
+export const legacyOracleInvocationClaimSchema = z
+  .object({
+    version,
+    kind: z.literal("sealed-oracle-invocation-claim"),
+    reservationId: id,
+    reservationSha256: digestSchema,
+    collectionId: id,
+    assignmentId: id,
+    taskId: id,
+    taskSha256: digestSchema,
+    planSha256: digestSchema,
+    publicDispatchSha256: digestSchema,
+    oracleSha256: digestSchema,
+    proposalSha256: digestSchema,
+    imageId: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    claimedAt: timestamp,
+  })
+  .strict();
+export const callBoundOracleInvocationClaimSchema = z
+  .object({
+    version,
+    kind: z.literal("sealed-call-bound-oracle-invocation-claim"),
+    reservationId: id,
+    reservationSha256: digestSchema,
+    collectionId: id,
+    assignmentId: id,
+    taskId: id,
+    taskSha256: digestSchema,
+    planSha256: digestSchema,
+    publicDispatchSha256: digestSchema,
+    oracleSha256: digestSchema,
+    callId: id,
+    callReservationSha256: digestSchema,
+    callReceiptSha256: digestSchema,
+    responseSha256: digestSchema,
+    proposalDerivation: z.literal("openai-chat-content-utf8-v1"),
+    proposalSha256: digestSchema,
+    imageId: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    claimedAt: timestamp,
+  })
+  .strict();
+export const oracleInvocationClaimSchema = z.discriminatedUnion("kind", [
+  legacyOracleInvocationClaimSchema,
+  callBoundOracleInvocationClaimSchema,
+]);
+export const oracleVerdictRecordSchema = z
+  .object({
+    version,
+    kind: z.literal("sealed-private-oracle-verdict-reference"),
+    reservationId: id,
+    claimSha256: digestSchema,
+    verificationSha256: digestSchema,
+    verificationBytes: z.number().int().min(1).max(4096),
+    recordedAt: timestamp,
+  })
+  .strict();
 export const callReservationSchema = z
   .object({
     version,
@@ -755,6 +811,9 @@ export const eventSchema = z
       "registered",
       "attempt-reserved",
       "public-dispatch-claimed",
+      "oracle-invocation-claimed",
+      "call-bound-oracle-invocation-claimed",
+      "oracle-verdict-retained",
       "call-reserved",
       "call-settled",
       "attempt-settled",

@@ -133,8 +133,19 @@ export async function safePath(
   return target;
 }
 export function containsSecret(text: string): boolean {
-  return /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b|(?:password|api[_-]?key|secret|access[_-]?token)\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_=-]{16,}/i.test(
-    text,
+  const knownKey =
+    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b/i;
+  const assignedCredential =
+    /\b(?:password|api[_-]?key|secret|access[_-]?token)\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_=-]{16,}/i;
+  const namedToken =
+    /\b[A-Z][A-Z0-9_]*_TOKEN\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_-]{16,}={0,2}/;
+  const bearerHeader =
+    /\bauthorization\s*:\s*bearer\s+(?!<|example|placeholder|your[-_]|test[-_])[A-Za-z0-9._~+/-]{16,}={0,2}(?=\s|$|["'])/i;
+  return (
+    knownKey.test(text) ||
+    assignedCredential.test(text) ||
+    namedToken.test(text) ||
+    bearerHeader.test(text)
   );
 }
 export function redact(text: string): string {
@@ -149,6 +160,14 @@ export function redact(text: string): string {
     )
     .replace(
       /((?:password|api[_-]?key|secret|access[_-]?token)\s*[:=]\s*)["']?[^\s"']{12,}["']?/gi,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /(\b[A-Z][A-Z0-9_]*_TOKEN\s*[:=]\s*)["']?[A-Za-z0-9+/_-]{16,}={0,2}["']?/g,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /(\bauthorization\s*:\s*bearer\s+)[A-Za-z0-9._~+/-]{16,}={0,2}/gi,
       "$1[REDACTED]",
     );
 }

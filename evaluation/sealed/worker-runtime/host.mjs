@@ -46,7 +46,12 @@ export function dockerClientEnvironment() {
 }
 
 export function publicIntakeCommand(imageId, name, endpoint) {
-  if (!IMAGE.test(imageId) || !NAME.test(name))
+  if (
+    typeof imageId !== "string" ||
+    !IMAGE.test(imageId) ||
+    typeof name !== "string" ||
+    !NAME.test(name)
+  )
     throw new Error(
       "Exact provisioned image and owned container name required",
     );

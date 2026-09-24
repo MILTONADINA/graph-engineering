@@ -1,8 +1,9 @@
 # Sealed-collection governance foundation
 
 This is **validation, local bookkeeping and retained-byte verification**, not a
-sealed evaluation pipeline. There is no model transport, protected oracle
-integration, signing, key creation, reviewer approval, promotion issuer, or
+sealed evaluation pipeline. A local model relay and narrow offline digest
+verifier exist, but not a general protected engineering-test pipeline. There
+is no signing, key creation, reviewer approval, promotion issuer, or
 user-configuration activation. Every summary and closure remains
 `promotionEligible: false`.
 
@@ -72,14 +73,22 @@ try {
 ```
 
 All writes use immediate SQLite transactions, WAL and explicitly configured
-`synchronous=FULL`. Registration stores the complete assignment inventory before
+`synchronous=FULL`. The store connection also enables `recursive_triggers` so
+`INSERT OR REPLACE` cannot silently bypass its no-update/no-delete triggers.
+This setting cannot constrain a separately opened malicious SQLite connection
+or a storage administrator; the ledger remains unsigned bookkeeping.
+Registration stores the complete assignment inventory before
 any reservation. Constraints prevent repeated collection/task/arm reservations,
 repeated domain/stable-task/arm exposure and duplicate global call IDs. Additional
 checks refuse previously exposed stable tasks/families across renamed collections
 or domains. The two legitimate arms within one collection remain permitted.
-The version 3 ledger adds a one-time public dispatch claim. Existing version 2
-databases migrate in place without changing their plans, reservations, receipts
-or event history. Call count and conservative reserved budget limits are independent of how many
+The version 5 ledger adds a settled-call-bound oracle claim and a private
+verdict-reference event to the earlier one-time public dispatch and legacy
+oracle bookkeeping. Existing version 2, 3 and 4 databases migrate in place
+without changing their plans, reservations, receipts or event history. Version
+4 unbound oracle claims remain readable but are not upgraded to call-bound
+evidence. Call count and
+conservative reserved budget limits are independent of how many
 decision questions share a call. Plan/configuration hashes bind every attempt.
 
 ### Paid-call session cap
@@ -181,13 +190,17 @@ administrator who controls storage.
 
 After a **complete closed** collection, `auditOriginalBytes()` checks every
 committed task baseline/public packet/private oracle/reference repair, original
-call request/response, and attempt proposal/result/verification against a
+call request/response, call-bound derived proposal/private verdict, and attempt
+proposal/result/verification against a
 separately pinned role-to-hash-and-length manifest. It refuses missing, extra,
 reordered or corrupted blobs, and returns only an audit digest/count receipt—
 never private oracle bytes. The manifest SHA must be pinned by an independent
 authority before the audit; self-hashing an untrusted manifest supplies no
 governance. Other hashes, such as a model/runtime identity or policy version,
-may not identify a retained byte blob and are not covered by this audit.
+may not identify a retained byte blob and are not covered by this audit. A
+migrated version 4 unbound oracle claim's proposal hash is identity-only: that
+legacy claim did not bind a retained proposal blob or byte length, so the
+original-byte audit does not count it as verified bytes.
 
 This is a post-closure integrity check. It does not prove the worker was sent
 those bytes, that the private oracle was hidden during execution, or that the
@@ -197,8 +210,12 @@ provenance still have to connect these components.
 ### Public packet handoff boundary
 
 `SealedPublicPacketBridge` joins the fresh source/docs exporter to the frozen
-task commitment and retained-byte vault. Its `retain()` refuses changed source,
-unexportable/private paths, secrets and hash drift before it creates an opaque
+task commitment and retained-byte vault. Its `retain()` requires a
+plan-matching private `oracleReference`; it first checks the frozen public
+packet commitment before reading private oracle bytes, preventing changed
+public input from becoming a chosen-string oracle probe. It then screens
+original oracle bytes and refuses changed source, unexportable/private paths,
+known secret patterns, exact oracle content or common encodings/digests of it before it creates an opaque
 in-process handle. Its `dispatch()` requires that exact handle and an active
 matching attempt reservation, re-verifies the retained bytes, commits an
 immutable `public-dispatch-claimed` ledger event, and then passes only a
@@ -209,6 +226,10 @@ private-memory bytes are never selected by this bridge. It does not settle the
 ledger or claim that a worker actually received the packet. The claim is an
 at-most-once **callback attempt** gate, not a delivery receipt or protected
 worker grant. A direct store claim is likewise bookkeeping, not transport.
+The oracle-content and secret-pattern screens are deliberately conservative;
+they are not complete DLP or protection against a malicious curator who copies
+or re-encodes private knowledge into otherwise permitted source/docs. Packet
+commitments do not authenticate the git baseline or source provenance.
 
 Handles intentionally do not survive collector restart; if an attempt was
 already reserved, a crash must use the ledger's explicit recovery/abandonment
@@ -220,18 +241,36 @@ interrupted retention can leave an unreferenced content-addressed blob. A
 separately isolated worker/oracle transport, original acknowledgments and
 signed provenance are still required for sealed held-out evidence.
 
-An optional [public-packet intake sandbox](worker-runtime/README.md) now sends
+An optional [public-packet intake sandbox](worker-runtime/README.md) sends
 only the bridge-retained packet to a fixed, offline Docker guest and returns a
-content-hash acknowledgment. It is deliberately not a model worker or oracle
-transport. Its unsigned local acknowledgment does not settle the attempt or
-prove delivery of a proposal.
+content-hash acknowledgment. A separate one-call local model relay can submit
+the same committed bytes to a loopback endpoint. Neither unsigned observation
+settles the engineering attempt or proves delivery of a proposal.
+
+The [private digest-oracle boundary](oracle-runtime/README.md) re-reads the
+frozen public packet and one settled local model response, verifies the exact
+request hash, and derives the proposal with the same strict parser as the
+local relay. It then loads the private oracle and derived proposal into a
+fixed, offline Docker verifier. `claimOracleInvocation()` commits one
+immutable reservation-keyed, call-bound row/event **after** that model call
+settles and before guest execution; changing directories cannot reset it
+within the same ledger. No subsequent model call is permitted in the claimed
+attempt. A second valid ledger or rolled-back copy still needs an external
+identity/anti-rollback witness to prevent another claim. The guest performs
+only exact digest comparison, not general engineering tests. Its private,
+nonce-bound verdict is retained in the vault and its reference in the ledger;
+neither the verdict nor its reference is returned to a model-facing worker.
+This path cannot mark a measured attempt successful. It remains unsigned local
+bookkeeping and does not prove worker output provenance, independent review or
+held-out validity.
 
 ## Remaining trust boundary
 
 These APIs accept caller-supplied commitments and receipt claims. Hash matching
-does not establish that a worker sent the recorded request, a verifier ran, the
-oracle stayed private, a provider charged an amount, or independent people
-reviewed it. That requires the separately governed collector/transport/oracle
+does not establish authentic worker output, general private-test execution,
+provider billing, or independent review. The narrow digest guest cannot prove
+that an arbitrary engineering oracle stayed private. Those claims require a
+separately governed collector/transport/oracle
 pipeline, original artifact bytes, signatures and current operator-approved
 trust. The original population, calibration closure and threshold must be
 committed before held-out execution, not fitted after viewing outcomes.
@@ -250,7 +289,8 @@ node --test evaluation/sealed/tests/*.test.mjs
 
 Tests exercise real SQLite transactions, two competing Node processes, a process
 that exits after committing its reservation or one-time dispatch claim,
-recovery/closure completeness, version 2 migration,
+recovery/closure completeness, version 2/3/4 migration and durable call-bound
+oracle claims,
 nullable observations/costs, repeated batched-call references, configuration and
 exposure guards, private-path checks and artifact/event tampering. No provider,
 model, signature, secret, or unseen real task is used.

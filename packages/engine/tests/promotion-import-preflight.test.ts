@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { createPrivateKey, createPublicKey, sign } from "node:crypto";
 import { canPromote, type PromotionEvidence } from "../src/decisions.js";
 import {
   evaluateFullCohort,
@@ -9,12 +10,51 @@ import {
   authorizesPromotion,
   inspectPromotionImportPreflight,
   inspectPromotionRuntimeIdentity,
+  inspectPromotionTrustSnapshot,
+  inspectSealedHeldOutReviewSignatures,
 } from "../src/promotion-authority.js";
-import { hashJson } from "../src/sealed-collection-schema.js";
+import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
 
 const at = "2026-01-02T00:00:00.000Z";
 const digest = (label: string) => hashJson({ fixture: label });
-function fixture() {
+const publicKeys = [
+  "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=\n-----END PUBLIC KEY-----\n",
+  "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAPUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw=\n-----END PUBLIC KEY-----\n",
+];
+// Published RFC 8032 test-vector seeds, used only to exercise verification.
+const testSeeds = [
+  "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+  "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+  "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+];
+const testPrivateKey = (index: number) =>
+  createPrivateKey({
+    key: Buffer.from(
+      `302e020100300506032b657004220420${testSeeds[index]}`,
+      "hex",
+    ),
+    format: "der",
+    type: "pkcs8",
+  });
+const trustFixture = () => ({
+  version: "1.0.0" as const,
+  keys: [
+    {
+      keyId: "review-labeler",
+      actorId: "independent-labeler",
+      roles: ["labeler"],
+      publicKeyPem: publicKeys[0],
+    },
+    {
+      keyId: "review-reviewer",
+      actorId: "independent-reviewer",
+      roles: ["reviewer"],
+      publicKeyPem: publicKeys[1],
+    },
+  ],
+  revokedKeyIds: [],
+});
+function fixture(trust = trustFixture()) {
   const calibration = {
     version: "1.0.0" as const,
     provenance: {
@@ -117,7 +157,7 @@ function fixture() {
     population: "Synthetic project fixture, never unseen task evidence.",
     samplingRule: "One artificial task assigned to both arms in fixed order.",
     exposureRegistrySha256: hashJson(registry),
-    trustPolicySha256: digest("trust"),
+    trustPolicySha256: hashJson(trust),
     calibrationDatasetSha256: hashJson(calibration),
     thresholdsSha256: hashJson(thresholds),
     configurations: {
@@ -181,6 +221,7 @@ function fixture() {
   const evaluation = evaluateFullCohort(input);
   return {
     input: { ...input, evaluation },
+    trust,
     target: {
       projectId: plan.projectId,
       policyVersion: config.policySha256,
@@ -198,6 +239,508 @@ function fixture() {
     },
   };
 }
+
+function signedMeasurementFixture(trust = trustFixture()) {
+  const base = fixture(trust);
+  const inspection = base.input.inspection;
+  const { plan } = inspection;
+  const task = plan.tasks[0]!;
+  for (const item of inspection.assignments) {
+    const { assignment } = item;
+    const reservation = {
+      version: "1.0.0" as const,
+      kind: "sealed-attempt-reservation" as const,
+      reservationId: assignment.assignmentId,
+      collectionId: plan.collectionId,
+      assignmentId: assignment.assignmentId,
+      taskId: task.taskId,
+      stableTaskId: task.stableTaskId,
+      stableFamilyId: task.stableFamilyId,
+      exposureDomain: task.exposureDomain,
+      arm: assignment.arm,
+      ordinal: assignment.ordinal,
+      attemptOrdinal: 1 as const,
+      planSha256: inspection.planSha256,
+      configurationSha256: hashJson(plan.configurations[assignment.arm]),
+      taskSha256: hashJson(task),
+      reservedAt: at,
+    };
+    const callReservation = {
+      version: "1.0.0" as const,
+      kind: "sealed-call-reservation" as const,
+      callId: `call-${assignment.assignmentId}`,
+      reservationId: reservation.reservationId,
+      ordinal: 0,
+      providerId: "laya-worker",
+      requestedModel: "weights-v1",
+      requestSha256: digest(`request-${assignment.assignmentId}`),
+      reservedCostUsd: 0,
+      reservedAt: at,
+    };
+    const usage = {
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 0,
+      reportedCostUsd: 0,
+      chargedCostUsd: 0,
+      basis: "local-no-api-charge" as const,
+      pricingSha256: null,
+    };
+    const callReceipt = {
+      version: "1.0.0" as const,
+      kind: "sealed-call-receipt" as const,
+      callId: callReservation.callId,
+      reservationSha256: hashJson(callReservation),
+      status: "completed" as const,
+      responseSha256: digest(`response-${assignment.assignmentId}`),
+      reportedModel: "weights-v1",
+      usage,
+      finishedAt: at,
+    };
+    const observation = {
+      recordId: "held-observation",
+      caseId: "held-case",
+      category: "worker",
+      providerId: "laya-worker",
+      model: "weights-v1",
+      stateFormatVersion: "worker-v1",
+      stateHash: digest("state"),
+      candidates: ["safe", "unsafe"],
+      selected: "safe",
+      confidence: 1,
+      observedAt: at,
+      callId: callReservation.callId,
+    };
+    const attemptReceipt = {
+      version: "1.0.0" as const,
+      kind: "sealed-attempt-receipt" as const,
+      reservationId: reservation.reservationId,
+      reservationSha256: hashJson(reservation),
+      status: "completed" as const,
+      finishedAt: at,
+      publicRequestSha256: task.publicPacketSha256,
+      proposalSha256: digest(`proposal-${assignment.assignmentId}`),
+      resultSourceSha256: digest(`result-${assignment.assignmentId}`),
+      observations: assignment.arm === "candidate" ? [observation] : [],
+      callReceiptSha256s: [hashJson(callReceipt)],
+      outcome: {
+        success: true,
+        policyViolation: false,
+        verificationSha256: digest(`verification-${assignment.assignmentId}`),
+        runtimeSha256: digest("runtime"),
+      },
+      usage: { ...usage, basis: "aggregate" as const },
+      limitations: ["Synthetic signed-row fixture; no protected execution."],
+    };
+    item.reservation = reservation;
+    item.calls = [{ reservation: callReservation, receipt: callReceipt }];
+    item.receipt = attemptReceipt;
+  }
+  const events: CohortInspection["events"] = [];
+  const append = (
+    type: CohortInspection["events"][number]["event"]["type"],
+    payload: unknown,
+  ) => {
+    const event = {
+      version: "1.0.0" as const,
+      kind: "sealed-ledger-event" as const,
+      collectionId: plan.collectionId,
+      sequence: events.length + 1,
+      type,
+      createdAt: at,
+      previousSha256: events.at(-1)?.sha256 ?? null,
+      payloadSha256: hashJson(payload),
+    };
+    events.push({ event, sha256: hashJson(event) });
+  };
+  append("registered", plan);
+  for (const item of inspection.assignments) {
+    append("attempt-reserved", item.reservation);
+    append("call-reserved", item.calls[0]!.reservation);
+    append("call-settled", item.calls[0]!.receipt);
+    append("attempt-settled", item.receipt);
+  }
+  const closure: NonNullable<CohortInspection["closure"]> = {
+    version: "1.0.0",
+    kind: "sealed-collection-closure",
+    collectionId: plan.collectionId,
+    planSha256: inspection.planSha256,
+    closedAt: at,
+    complete: true,
+    promotionEligible: false,
+    inventory: inspection.assignments.map((item) => ({
+      assignmentId: item.assignment.assignmentId,
+      taskId: item.assignment.taskId,
+      arm: item.assignment.arm,
+      ordinal: item.assignment.ordinal,
+      status: "terminal" as const,
+      reservationSha256: hashJson(item.reservation),
+      receiptSha256: hashJson(item.receipt),
+      callReservationSha256s: item.calls.map((call) =>
+        hashJson(call.reservation),
+      ),
+      callReceiptSha256s: item.calls.map((call) => hashJson(call.receipt)),
+    })),
+    eventHeadSha256: events.at(-1)!.sha256,
+    limitations: ["Synthetic closure, not protected or signed provenance."],
+  };
+  inspection.closure = closure;
+  append("closed", closure);
+  inspection.events = events;
+  const original = inspection.assignments[1]!.receipt!.observations[0]!;
+  const label = {
+    recordId: original.recordId,
+    observationSha256: hashJson(original),
+    expected: "safe",
+    reviewerId: "independent-reviewer",
+    reviewedAt: "2026-01-02T01:30:00.000Z",
+    evidenceSha256s: [digest("review-evidence")],
+  };
+  const input = { ...base.input, labels: [label] };
+  input.evaluation = evaluateFullCohort(input);
+  const target = {
+    ...base.target,
+    evaluationArtifactSha256: hashJson(input.evaluation),
+  };
+  const payload = {
+    version: "1.0.0",
+    kind: "sealed-held-out-label-review",
+    projectId: plan.projectId,
+    collectionId: plan.collectionId,
+    planSha256: inspection.planSha256,
+    assignmentId: inspection.assignments[1]!.assignment.assignmentId,
+    taskId: task.taskId,
+    labelerId: trust.keys[0]!.actorId,
+    producerIds: plan.producerIds,
+    label,
+  };
+  const signed = (
+    index: number,
+    role: "labeler" | "reviewer",
+    keyId: string,
+    signedAt: string,
+  ) => {
+    const envelope = {
+      keyId,
+      role,
+      signedAt,
+      payloadSha256: hashJson(payload),
+    };
+    return {
+      ...envelope,
+      signature: sign(
+        null,
+        Buffer.from(
+          `graph-engineering/sealed-held-out-review/v1\n${canonicalJson(envelope)}`,
+        ),
+        testPrivateKey(index),
+      ).toString("base64"),
+    };
+  };
+  const bundle = {
+    payload,
+    attestations: [
+      signed(0, "labeler", "review-labeler", "2026-01-02T01:00:00.000Z"),
+      signed(1, "reviewer", "review-reviewer", "2026-01-02T02:00:00.000Z"),
+    ],
+  };
+  return { ...base, input, target, bundle };
+}
+
+it("verifies purpose-separated synthetic held-out row signatures but never issues authority", async () => {
+  const { input, target, trust, bundle } = signedMeasurementFixture();
+  const receipt = await inspectSealedHeldOutReviewSignatures(
+    input,
+    target,
+    trust,
+    { expectedTrustSha256: hashJson(trust) },
+    [bundle],
+    { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+  );
+  expect(receipt).toMatchObject({
+    verifiedReviewCount: 1,
+    signatureVerificationPerformed: true,
+    operatorApprovalVerified: false,
+    protectedExecutionVerified: false,
+    antiRollbackVerified: false,
+    promotionEligible: false,
+    authorityStatus: "held-out-row-signatures-only",
+  });
+  expect(Object.isFrozen(receipt)).toBe(true);
+  expect(authorizesPromotion(receipt, {} as PromotionEvidence, target)).toBe(
+    false,
+  );
+});
+
+it("rejects absent, altered or wrong-purpose held-out signatures", async () => {
+  const { input, target, trust, bundle } = signedMeasurementFixture();
+  const verifyBundles = (bundles: unknown) =>
+    inspectSealedHeldOutReviewSignatures(
+      input,
+      target,
+      trust,
+      { expectedTrustSha256: hashJson(trust) },
+      bundles,
+      { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+    );
+  await expect(verifyBundles([])).rejects.toThrow(/inventory is incomplete/);
+  await expect(verifyBundles([bundle, bundle])).rejects.toThrow(
+    /inventory is incomplete/,
+  );
+  const changedLabel = structuredClone(bundle);
+  changedLabel.payload.label.expected = "unsafe";
+  await expect(verifyBundles([changedLabel])).rejects.toThrow(
+    /differs from original cohort/,
+  );
+  const alteredSignature = structuredClone(bundle);
+  alteredSignature.attestations[1]!.signature =
+    alteredSignature.attestations[1]!.signature.replace(/^./, "A");
+  if (
+    alteredSignature.attestations[1]!.signature ===
+    bundle.attestations[1]!.signature
+  )
+    alteredSignature.attestations[1]!.signature =
+      alteredSignature.attestations[1]!.signature.replace(/^./, "B");
+  await expect(verifyBundles([alteredSignature])).rejects.toThrow(
+    /signature or signer mismatch/,
+  );
+  const wrongPurpose = structuredClone(bundle);
+  const reviewer = wrongPurpose.attestations[1]!;
+  const { signature: _signature, ...envelope } = reviewer;
+  reviewer.signature = sign(
+    null,
+    Buffer.from(
+      `graph-engineering/calibration-review/v1\n${canonicalJson(envelope)}`,
+    ),
+    testPrivateKey(1),
+  ).toString("base64");
+  await expect(verifyBundles([wrongPurpose])).rejects.toThrow(
+    /signature or signer mismatch/,
+  );
+  await expect(
+    inspectSealedHeldOutReviewSignatures(
+      input,
+      target,
+      trust,
+      { expectedTrustSha256: digest("unapproved-trust") },
+      [bundle],
+      { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+    ),
+  ).rejects.toThrow(/separately selected/);
+});
+
+it("rejects a revoked signer even when another independent reviewer remains active", async () => {
+  const trust = trustFixture();
+  trust.keys.push({
+    keyId: "backup-reviewer",
+    actorId: "independent-backup",
+    roles: ["reviewer"],
+    publicKeyPem: createPublicKey(testPrivateKey(2))
+      .export({ type: "spki", format: "pem" })
+      .toString(),
+  });
+  trust.revokedKeyIds.push("review-reviewer");
+  const { input, target, bundle } = signedMeasurementFixture(trust);
+  await expect(
+    inspectSealedHeldOutReviewSignatures(
+      input,
+      target,
+      trust,
+      { expectedTrustSha256: hashJson(trust) },
+      [bundle],
+      { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+    ),
+  ).rejects.toThrow(/signature or signer mismatch/);
+});
+
+it("rejects a task producer signing their own held-out label", async () => {
+  const trust = trustFixture();
+  trust.keys[0]!.actorId = "fixture-producer";
+  const { input, target, bundle } = signedMeasurementFixture(trust);
+  await expect(
+    inspectSealedHeldOutReviewSignatures(
+      input,
+      target,
+      trust,
+      { expectedTrustSha256: hashJson(trust) },
+      [bundle],
+      { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+    ),
+  ).rejects.toThrow(/signature or signer mismatch/);
+});
+
+it("rejects task curators and noncanonical signature spellings", async () => {
+  const trust = trustFixture();
+  trust.keys[0]!.actorId = "fixture-curator";
+  const curated = signedMeasurementFixture(trust);
+  await expect(
+    inspectSealedHeldOutReviewSignatures(
+      curated.input,
+      curated.target,
+      trust,
+      { expectedTrustSha256: hashJson(trust) },
+      [curated.bundle],
+      { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+    ),
+  ).rejects.toThrow(/signature or signer mismatch/);
+
+  const independent = signedMeasurementFixture();
+  const altered = structuredClone(independent.bundle);
+  const signature = altered.attestations[1]!.signature;
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const padIndex = signature.length - 3;
+  const originalDigit = alphabet.indexOf(signature[padIndex]!);
+  altered.attestations[1]!.signature =
+    signature.slice(0, padIndex) +
+    alphabet[originalDigit + 1] +
+    signature.slice(padIndex + 1);
+  expect(
+    Buffer.from(altered.attestations[1]!.signature, "base64").equals(
+      Buffer.from(signature, "base64"),
+    ),
+  ).toBe(true);
+  await expect(
+    inspectSealedHeldOutReviewSignatures(
+      independent.input,
+      independent.target,
+      independent.trust,
+      { expectedTrustSha256: hashJson(independent.trust) },
+      [altered],
+      { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+    ),
+  ).rejects.toThrow(/signature or signer mismatch/);
+});
+
+it("accepts trust actor IDs consistently and refuses top-level getters", async () => {
+  const trust = trustFixture();
+  trust.keys[0]!.actorId = "Jane Doe";
+  const signed = signedMeasurementFixture(trust);
+  const verified = await inspectSealedHeldOutReviewSignatures(
+    signed.input,
+    signed.target,
+    trust,
+    { expectedTrustSha256: hashJson(trust) },
+    [signed.bundle],
+    { nowMs: Date.parse("2026-01-03T00:00:00.000Z") },
+  );
+  expect(verified.verifiedReviewCount).toBe(1);
+  let invoked = false;
+  const hostile = { ...signed.input };
+  Object.defineProperty(hostile, "inspection", {
+    enumerable: true,
+    get() {
+      invoked = true;
+      return signed.input.inspection;
+    },
+  });
+  await expect(
+    inspectSealedHeldOutReviewSignatures(
+      hostile,
+      signed.target,
+      trust,
+      { expectedTrustSha256: hashJson(trust) },
+      [signed.bundle],
+    ),
+  ).rejects.toThrow(/accessors/);
+  expect(invoked).toBe(false);
+});
+
+it("checks separately pinned public trust bytes without verifying review or approving promotion", async () => {
+  const { input, target, trust } = fixture();
+  const receipt = await inspectPromotionImportPreflight(input, target);
+  const checked = await inspectPromotionTrustSnapshot(receipt, trust, {
+    expectedTrustSha256: hashJson(trust),
+  });
+  expect(checked).toMatchObject({
+    trustSha256: target.trustPolicySha256,
+    activeLabelerActors: 1,
+    activeReviewerActors: 1,
+    signatureVerificationPerformed: false,
+    operatorApprovalVerified: false,
+    antiRollbackVerified: false,
+    promotionEligible: false,
+    authorityStatus: "pinned-public-trust-only",
+  });
+  expect(Object.isFrozen(checked)).toBe(true);
+  const idealReport: PromotionEvidence = {
+    version: digest("ideal-trust"),
+    category: "worker",
+    provider: "laya",
+    model: "weights-v1",
+    calibrationCount: 50,
+    heldOutCount: 200,
+    taskCount: 60,
+    policyViolations: 0,
+    additionalFailures: 0,
+    baselineCost: 100,
+    candidateCost: 50,
+    calibrationError: 0,
+    minimumConfidence: 0.95,
+    dataOrigin: "recorded",
+    provenanceComplete: true,
+    datasetId: "synthetic-trust-fixture",
+  };
+  expect(canPromote(idealReport, { ...target, authority: checked })).toBe(
+    false,
+  );
+});
+
+it("rejects changed, self-revoked or non-independent public trust registries", async () => {
+  const { input, target, trust } = fixture();
+  const receipt = await inspectPromotionImportPreflight(input, target);
+  const inspect = (value: unknown, pin = hashJson(trust)) =>
+    inspectPromotionTrustSnapshot(receipt, value, {
+      expectedTrustSha256: pin,
+    });
+  await expect(inspect(trust, digest("wrong-pin"))).rejects.toThrow(
+    /separately selected/,
+  );
+  await expect(
+    inspect({ ...trust, keys: [trust.keys[0], trust.keys[0]] }),
+  ).rejects.toThrow();
+  const revoked = { ...trust, revokedKeyIds: ["review-reviewer"] };
+  const revokedFixture = fixture(revoked);
+  await expect(
+    inspectPromotionTrustSnapshot(
+      await inspectPromotionImportPreflight(
+        revokedFixture.input,
+        revokedFixture.target,
+      ),
+      revoked,
+      { expectedTrustSha256: hashJson(revoked) },
+    ),
+  ).rejects.toThrow(/distinct active/);
+  const sameActor = structuredClone(trust);
+  sameActor.keys[1]!.actorId = sameActor.keys[0]!.actorId;
+  const sameActorFixture = fixture(sameActor);
+  await expect(
+    inspectPromotionTrustSnapshot(
+      await inspectPromotionImportPreflight(
+        sameActorFixture.input,
+        sameActorFixture.target,
+      ),
+      sameActor,
+      { expectedTrustSha256: hashJson(sameActor) },
+    ),
+  ).rejects.toThrow(/distinct active/);
+  const sameKey = structuredClone(trust);
+  sameKey.keys[1]!.publicKeyPem = sameKey.keys[0]!.publicKeyPem;
+  const sameKeyFixture = fixture(sameKey);
+  await expect(
+    inspectPromotionTrustSnapshot(
+      await inspectPromotionImportPreflight(
+        sameKeyFixture.input,
+        sameKeyFixture.target,
+      ),
+      sameKey,
+      { expectedTrustSha256: hashJson(sameKey) },
+    ),
+  ).rejects.toThrow(/One public key/);
+  await expect(
+    inspect({ ...trust, revokedKeyIds: ["unknown-key"] }),
+  ).rejects.toThrow();
+});
 
 it("recomputes detached accounting but cannot turn local pins or metrics into authority", async () => {
   const { input, target } = fixture();

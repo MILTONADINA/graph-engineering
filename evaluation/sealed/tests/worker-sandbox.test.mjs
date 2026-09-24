@@ -122,6 +122,16 @@ test("intake rejects secret-bearing direct packets before Docker", async (t) => 
 });
 
 test("fixed Docker command has no mounts, network, host env or candidate argv", () => {
+  let coerced = false;
+  const hostile = {
+    toString() {
+      coerced = true;
+      return imageId;
+    },
+  };
+  assert.throws(() => publicIntakeCommand(hostile, name, endpoint));
+  assert.throws(() => publicIntakeCommand(imageId, hostile, endpoint));
+  assert.equal(coerced, false);
   if (process.platform === "win32") {
     assert.throws(() => localDockerEndpoint(endpoint), /Unix Docker socket/);
     return;
@@ -205,6 +215,7 @@ test(
       collectionId: data.plan.collectionId,
       taskId: packetInput.taskId,
       packetInput,
+      oracleReference: oracle,
     });
     const reservation = store.reserveAttempt(
       data.plan.collectionId,
