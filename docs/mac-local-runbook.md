@@ -7,6 +7,27 @@ This checkout is configured for Milton's fork and local inference. Keep work on
 a separate later partner action. Commits use the configured human identity,
 without AI co-author trailers.
 
+## Initial AI integrations
+
+Cursor, Claude Code, Codex, and the existing oMLX Qwen are the four intended
+starting AIs. An AI using Graph Engineering's MCP context tools is different
+from Graph Engineering launching it as a managed proposal worker. Their current
+verification is deliberately reported separately:
+
+| AI          | Context / worker path                                                                           | Current local evidence                                                                                                             |
+| ----------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| oMLX Qwen   | Graph-managed local worker receives a curated context packet; Qwen is not itself an MCP client. | Live bounded worker call and an unassisted real UTF-8 repair passed; no new model download.                                        |
+| Claude Code | Project MCP client and optional subscription-backed managed proposal worker.                    | Live MCP retrieval and one bounded managed proposal passed; full Claude-managed repair is not claimed.                             |
+| Codex       | Project MCP client; managed App Server worker only when restricted read roots are available.    | Live MCP retrieval passed. Installed `0.156.0` does not meet the managed-worker read-isolation gate.                               |
+| Cursor      | Separate project MCP client; prospective SDK-managed proposal worker.                           | Serena works, but the project MCP has not completed an in-editor call; managed mode is disabled pending SDK and safety validation. |
+
+The default checked-in project policy remains local-only with `qwen` and `laya`
+enabled. That does not disable Claude Code, Codex, or Cursor as MCP clients; it
+does prevent unreviewed native-worker inference through the engine. MCP cloud
+exports remain subject to their separate selected-source/docs filter.
+The four starting AIs are distinct from optional metered OpenAI, Anthropic, or
+TypeSafe Jev API accounts.
+
 ## Start and inspect
 
 ```sh
