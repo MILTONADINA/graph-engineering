@@ -42,6 +42,13 @@ plan. No such key or live proposal call was used here. Output tokens are
 observed after generation and cannot be hard-capped by this SDK path; monetary
 cost is `null`. This remains opt-in and disabled by the default local-only
 provider policy. Cursor's separate MCP-client path does not require this key.
+The audited SDK requires both `api.cursor.com` (model lookup) and
+`api2.cursor.sh` (agent backend) in the project host policy. This preflight
+checks configured first-party origins; it is **not** a process-level network
+firewall, so it cannot guarantee that SDK internals, redirects, or future
+versions never contact another host. Do not use this managed proposal path
+where strict process egress confinement is required; the separate MCP-client
+path remains available.
 See [Cursor SDK](https://cursor.com/docs/sdk/typescript).
 
 `@cursor/sdk` is pinned because its control behavior was inspected. It pulls

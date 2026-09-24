@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type * as CursorSdk from "@cursor/sdk";
 import {
@@ -10,6 +12,7 @@ const proposal = {
   changes: [],
   requests: [],
 };
+const scratchWorkspace = path.resolve(os.tmpdir(), "graph-cursor-fixture");
 
 function fixture(events: Array<Record<string, unknown>> = []) {
   const cancel = vi.fn(async () => {});
@@ -50,7 +53,7 @@ function fixture(events: Array<Record<string, unknown>> = []) {
 
 function request(): CursorRunnerRequest {
   return {
-    workspace: "/tmp/graph-cursor-fixture",
+    workspace: scratchWorkspace,
     model: "fixture-model",
     prompt: "Return a JSON proposal for this selected public source.",
     maxInputTokens: 1024,
@@ -85,7 +88,7 @@ describe("Cursor SDK scratch proposal runner", () => {
         disallowedTools: ["shell", "mcp", "task"],
         mcpServers: {},
         local: expect.objectContaining({
-          cwd: "/tmp/graph-cursor-fixture",
+          cwd: scratchWorkspace,
           settingSources: [],
           sandboxOptions: { enabled: true },
           autoReview: false,
