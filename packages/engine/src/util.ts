@@ -27,6 +27,16 @@ export interface CommandResult {
   stdout: string;
   stderr: string;
 }
+// Decision credentials belong to in-process HTTPS calls, not subprocesses.
+const decisionCredentialEnvNames = new Set([
+  "GRAPH_JEV_API_KEY",
+  "TYPESAFE_API_KEY",
+]);
+export function registerDecisionCredentialEnvNames(
+  names: readonly (string | undefined)[],
+): void {
+  for (const name of names) if (name) decisionCredentialEnvNames.add(name);
+}
 export function command(
   executable: string,
   argv: string[],
@@ -36,6 +46,7 @@ export function command(
     timeoutMs?: number | null;
     input?: string;
     env?: NodeJS.ProcessEnv;
+    workerCredentialEnv?: "ANTHROPIC_API_KEY" | "CURSOR_API_KEY";
     maxBytes?: number;
   } = {},
 ): Promise<CommandResult> {
@@ -47,10 +58,17 @@ export function command(
       options.timeoutMs === null
         ? Infinity
         : performance.now() + (options.timeoutMs ?? 60000);
+    if (
+      options.workerCredentialEnv &&
+      decisionCredentialEnvNames.has(options.workerCredentialEnv)
+    ) {
+      reject(
+        new Error("Worker credential collides with a decision credential"),
+      );
+      return;
+    }
     const environment = { ...(options.env ?? process.env) };
-    // Jev is consumed only by in-process HTTPS dispatch. Never pass its bearer
-    // credential to git, Docker, compilers, or installed coding clients.
-    delete environment.GRAPH_JEV_API_KEY;
+    for (const name of decisionCredentialEnvNames) delete environment[name];
     const child = spawn(executable, argv, {
       cwd: options.cwd,
       env: environment,

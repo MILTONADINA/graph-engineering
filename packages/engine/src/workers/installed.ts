@@ -989,6 +989,7 @@ async function invokeCursorWorker(input: WorkerInput): Promise<WorkerResult> {
       {
         cwd: workspace,
         env: { ...environment, CURSOR_API_KEY: key, NO_OPEN_BROWSER: "1" },
+        workerCredentialEnv: "CURSOR_API_KEY",
         input: JSON.stringify({
           workspace,
           model: provider.model,
@@ -1152,6 +1153,7 @@ export async function invokeInstalledWorker(
     const response = await command(capability.executable, argv, {
       cwd: temporary,
       env,
+      ...(key ? { workerCredentialEnv: "ANTHROPIC_API_KEY" as const } : {}),
       input: prompt,
       signal,
       timeoutMs:
