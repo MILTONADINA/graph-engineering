@@ -3,10 +3,11 @@
 `dev` is the integration branch. Work on focused feature branches and open pull requests against `dev`; never push directly to `main`, `master`, or `dev`.
 
 The current implementation stack is hosted on `MILTONADINA/graph-engineering`.
-Push feature work to the `fork` remote. Reviews, merges into `dev`, and any
-synchronization with `NdahayoKevin25/graph-engineering` are deferred until the
-implementation is ready. Do not update the existing upstream PR while building
-this stack. The fork is not a license to bypass partner review.
+Push feature work to the `fork` remote. PR reviews and merges into
+`MILTONADINA/graph-engineering:dev` are deferred until the implementation is
+ready. Synchronization with `NdahayoKevin25/graph-engineering` is a separate
+later partner action. Do not update the existing upstream PR while building this
+stack. The fork is not a license to bypass partner review.
 
 ```sh
 npm run setup:git -- --push-remote fork
@@ -20,9 +21,9 @@ rewrite history. Remove or change `graph.pushRemote` only after agreeing on the
 later upstream synchronization workflow.
 
 ```sh
-git fetch origin
+git fetch fork
 git switch dev
-git pull --ff-only origin dev
+git pull --ff-only fork dev
 git switch -c feat/short-description
 npm ci
 npm run setup:git
