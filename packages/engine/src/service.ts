@@ -184,7 +184,10 @@ export class GraphEngine {
     while (
       !(await this.store.tryAcquireWorker(callId, input.policy.maxWorkers))
     ) {
-      if (Date.now() - started > input.policy.timeoutSeconds * 1000)
+      if (
+        input.policy.timeoutSeconds !== null &&
+        Date.now() - started > input.policy.timeoutSeconds * 1000
+      )
         throw new Error("Worker concurrency wait timed out");
       await delay(50, undefined, { signal: input.signal });
     }

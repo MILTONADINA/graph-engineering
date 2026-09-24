@@ -40,7 +40,8 @@ export interface ProjectPolicy {
   maxContextTokens: number;
   maxOutputTokens: number;
   maxTurns: number;
-  timeoutSeconds: number;
+  /** Null disables the wall-clock deadline; cancellation and resource limits still apply. */
+  timeoutSeconds: number | null;
   maxCostUsd: number | null;
   decisionMode: "shadow" | "promoted";
   promotedCategories: string[];
@@ -301,7 +302,9 @@ export const policySchema = {
     maxContextTokens: { type: "integer", minimum: 256, maximum: 1000000 },
     maxOutputTokens: { type: "integer", minimum: 64, maximum: 128000 },
     maxTurns: { type: "integer", minimum: 1, maximum: 100 },
-    timeoutSeconds: { type: "integer", minimum: 1, maximum: 86400 },
+    timeoutSeconds: {
+      anyOf: [{ type: "null" }, { type: "integer", minimum: 1, maximum: 86400 }],
+    },
     maxCostUsd: {
       anyOf: [{ type: "null" }, { type: "number", minimum: 0 }],
     },

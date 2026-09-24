@@ -67,4 +67,13 @@ describe("bounded command transport", () => {
       }),
     ).rejects.toThrow("output limit");
   });
+
+  it("allows a command without a wall-clock deadline while preserving output limits", async () => {
+    await expect(
+      command(process.execPath, ["-e", "process.stdout.write('ok')"], {
+        timeoutMs: null,
+        maxBytes: 2,
+      }),
+    ).resolves.toEqual({ code: 0, stdout: "ok", stderr: "" });
+  });
 });
