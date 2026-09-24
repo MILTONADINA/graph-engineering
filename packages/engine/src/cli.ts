@@ -35,7 +35,7 @@ import {
 } from "./decision-dual-cli.js";
 import { dualPlanPreflightRequestSchema } from "./decision-dual.js";
 import { readWorkspaceFingerprint } from "./workspace-receipt.js";
-import { readRunReceipt } from "./store.js";
+import { readRunReceipt, RunStore } from "./store.js";
 
 const cli = new Command()
   .name("graph-engine")
@@ -464,6 +464,32 @@ cli
   .action(async (ownerId) =>
     print(await runDualConsultStatusCli(root(), ownerId)),
   );
+cli
+  .command("outcome-record <feedback> <consultation>")
+  .description("Retain a reviewed task outcome against the exact local dual consultation and run")
+  .action(async (feedback, consultation) => {
+    const project = await loadProject(root());
+    const bytes = await readFile(path.resolve(consultation));
+    if (bytes.length > 2_000_000) throw new Error("Consultation artifact exceeds size limit");
+    const input = await readFile(path.resolve(feedback));
+    if (input.length > 2_000_000) throw new Error("Outcome feedback exceeds size limit");
+    const store = new RunStore(projectDataDir(project.projectId), project.projectId);
+    try {
+      const event = store.recordOutcomeFeedback(JSON.parse(input.toString("utf8")), bytes);
+      print({ eventId: event.id, feedbackCanonicalSha256: event.data.feedback &&
+        (await import("./outcome-feedback.js")).outcomeHash(event.data.feedback),
+        promotionEligible: false, completionAuthority: false });
+    } finally { store.close(); }
+  });
+cli
+  .command("outcome-summary")
+  .description("Report local reviewed outcome counts and known decision costs; advisory only")
+  .action(async () => {
+    const project = await loadProject(root());
+    const store = new RunStore(projectDataDir(project.projectId), project.projectId);
+    try { print(store.outcomeSummary()); }
+    finally { store.close(); }
+  });
 cli
   .command("evaluation-export <mapping> <output>")
   .requiredOption("--dataset <id>")
