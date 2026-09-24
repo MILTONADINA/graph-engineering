@@ -26,6 +26,8 @@ export {
   dualOwnerSchema,
   dualCloudStateSchema,
   dualWorkerQuestionSchema,
+  dualPlanPreflightRequestSchema,
+  dualPlanPreflightSchema,
   taskBindingSchema,
   type DualConsultAttemptLedger,
   type DualConsultAttemptMeta,
@@ -38,6 +40,7 @@ export {
   readRunReceipt,
   type DualConsultStatus,
 } from "./store.js";
+export { readWorkspaceFingerprint } from "./workspace-receipt.js";
 export {
   freezeCohortCalibration,
   evaluateFullCohort,

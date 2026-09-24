@@ -215,7 +215,7 @@ describe("project archive lifecycle", () => {
     legacy.close();
     const migrated = new RunStore(data.dataDir, data.projectId);
     stores.push(migrated);
-    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.schemaVersion).toBe(5);
     expect(migrated.planSnapshotIds()).toEqual([data.snapshot.id]);
     migrated.close();
     const future = new Database(databasePath);

@@ -1,4 +1,7 @@
-import type { DecisionRecord } from "@graph-engineering/contracts";
+import type {
+  DecisionRecord,
+  DualPlanPreflight,
+} from "@graph-engineering/contracts";
 import { z } from "zod";
 import {
   decideBatch,
@@ -26,6 +29,17 @@ export const dualOwnerSchema = z
   .min(1)
   .max(200)
   .regex(/^[A-Za-z0-9_.:/-]+$/);
+export const dualPlanPreflightRequestSchema = z
+  .object({
+    ownerId: dualOwnerSchema,
+    requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+    binding: taskBindingSchema,
+    scopeSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+export const dualPlanPreflightSchema = dualPlanPreflightRequestSchema
+  .extend({ version: z.literal("1.0.0") })
+  .strict() satisfies z.ZodType<DualPlanPreflight>;
 export const dualCloudStateSchema = z
   .object({
     taskBinding: taskBindingSchema,

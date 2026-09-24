@@ -118,6 +118,40 @@ hash; `run` also carries status, workspace, branch, completion and usage.
 Events are ordered by retained sequence. A missing run fails nonzero. This
 command does not open the engine or run interruption recovery.
 
+Projects with `policy.requireDualBeforeWorker: true` require a retained pair
+before worker planning and dispatch. The BrightPath bridge supplies
+`--dual-preflight <private.json>` to `plan` with the exact closed object:
+
+```json
+{
+  "ownerId": "GRAPH-42/handoff-1/1",
+  "requestHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "binding": {
+    "taskId": "GRAPH-42",
+    "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "scopeSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
+```
+
+The engine adds `version: "1.0.0"` to `plan.dualPreflight`, checks that both
+retained models validly selected `proceed` under the current policy, and
+claims the owner for one plan. `run <planId> --scope-sha256 <same digest>`
+rechecks the pair and claims it for one run before worker dispatch. A resumed
+run also requires the digest and rechecks the retained claim. The run receipt
+contains the same metadata in `run.dualPreflight` and `run.plan.dualPreflight`.
+The scope digest is opaque to Graph Engineering: the BrightPath bridge derives
+and verifies it from its selected task, exact paths and acceptance anchor.
+It is never sent to Jev. The dual choices do not approve the scope.
+
+`workspace-fingerprint <runId>` recomputes Graph Engineering's current
+path-policy-aware `snapshotHash` from the workspace in the retained run receipt.
+It returns `{runId,workspace,snapshotHash}` without opening the engine or
+running recovery. It refuses policy drift or a workspace outside the run's
+canonical managed path. The caller must compare this hash to the unique
+successful `publication.started` event before treating candidate bytes as
+the run's output.
+
 Hosted decisions require the separately supplied closed `cloudState` and the
 fixed exportable worker question. Free-form paths, source text, objectives,
 memory, or alternative candidate descriptions are rejected before any call.
