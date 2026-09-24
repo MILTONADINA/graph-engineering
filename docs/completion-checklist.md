@@ -165,6 +165,16 @@ closed ledger and pinned manifest. Focused tamper and readiness-join tests
 pass. It does not attest the executable, loaded image, host, signer control or
 protected execution, and cannot enable promotion.
 
+Promotion preflight now projects an unsigned analysis receipt only from a
+recomputed full cohort when both arms have measured API costs. It keeps the
+target route's decision metrics separate from **whole-cohort** costs, policy
+violation assignment counts and additional failed tasks; those global totals
+must not be mistaken for route-specific `PromotionEvidence`. Unknown or
+estimated cost yields no projection. Readiness binds the exact preflight and
+projection hashes, which check consistency, not signer authenticity. These
+receipts neither write a promotion file nor issue a runtime grant; independent
+source, reviewer, worker, oracle, billing and witness control remain absent.
+
 The non-synthetic replay of the cloud-export defect did **not** complete item 6:
 an isolated pre-fix regression failed as expected, but two Qwen runs stopped on
 source-request errors and a one-turn Claude Max engine run exited nonzero

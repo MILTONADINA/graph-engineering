@@ -95,17 +95,87 @@ export type PromotionPreflightPins = z.infer<
 >;
 export type PromotionRuntimeIdentity = PromotionPreflightPins;
 
+/** Global cost accounting and one route's decision metrics must stay distinct. */
+const advisoryCohortProjectionSchema = z
+  .object({
+    evaluationArtifactSha256: digestSchema,
+    targetRoute: z
+      .object({
+        category: name,
+        providerId: name,
+        providerKind: z.enum(["laya", "jev"]),
+        model: z.string().min(1).max(256),
+      })
+      .strict(),
+    routeDecisionMetrics: z
+      .object({
+        calibrationCount: z.number().int().nonnegative(),
+        heldOutCount: z.number().int().nonnegative(),
+        taskCount: z.number().int().nonnegative(),
+        calibrationError: z.number().finite().min(0).max(1),
+        minimumConfidence: z.number().finite().min(0.5).max(1),
+      })
+      .strict(),
+    wholeCohortAccounting: z
+      .object({
+        baselineMeasuredApiCostUsd: z.number().finite().nonnegative(),
+        candidateMeasuredApiCostUsd: z.number().finite().nonnegative(),
+        baselinePolicyViolationAssignments: z.number().int().nonnegative(),
+        candidatePolicyViolationAssignments: z.number().int().nonnegative(),
+        additionalFailureTasks: z.number().int().nonnegative(),
+      })
+      .strict(),
+    origin: z.literal("unverified"),
+    promotionEligible: z.literal(false),
+  })
+  .strict();
+
 const promotionPreflightReceiptSchema = promotionPreflightPinsSchema
   .extend({
     kind: z.literal("promotion-import-preflight"),
+    expectedModel: z.string().min(1).max(256).optional(),
     minimumConfidence: z.number().finite().min(0.5).max(1),
     accountingMetricsSatisfied: z.boolean(),
+    advisoryCohortProjection: advisoryCohortProjectionSchema
+      .nullable()
+      .optional(),
+    advisoryCohortProjectionSha256: digestSchema.nullable().optional(),
     blockers: z.array(z.string()).max(100),
     promotionEligible: z.literal(false),
     authorityStatus: z.literal("unsigned-preflight-only"),
     unverifiedEvidence: z.array(z.string()).max(20),
   })
-  .strict();
+  .strict()
+  .refine((receipt) => {
+    const { expectedModel, advisoryCohortProjection: projection } = receipt;
+    const digest = receipt.advisoryCohortProjectionSha256;
+    // Older analysis-only receipts had none of these fields. New receipts
+    // must contain the complete internally consistent group.
+    if (
+      expectedModel === undefined &&
+      projection === undefined &&
+      digest === undefined
+    )
+      return true;
+    if (
+      expectedModel === undefined ||
+      projection === undefined ||
+      digest === undefined
+    )
+      return false;
+    return (
+      digest === (projection === null ? null : hashJson(projection)) &&
+      (projection === null ||
+        (projection.evaluationArtifactSha256 ===
+          receipt.evaluationArtifactSha256 &&
+          projection.targetRoute.category === receipt.category &&
+          projection.targetRoute.providerId === receipt.providerId &&
+          projection.targetRoute.providerKind === receipt.providerKind &&
+          projection.targetRoute.model === expectedModel &&
+          projection.routeDecisionMetrics.minimumConfidence ===
+            receipt.minimumConfidence))
+    );
+  }, "Promotion preflight projection digest or target differs from its receipt");
 
 function detachedCohortInput(
   input: FullCohortEvaluationInput & { evaluation: unknown },
@@ -578,6 +648,37 @@ export async function inspectPromotionImportPreflight(
       }
     }
   }
+  const { baseline, candidate: candidateAccounting } = evaluation.accounting;
+  const advisoryCohortProjection =
+    baseline.measuredApiCostUsd === null ||
+    candidateAccounting.measuredApiCostUsd === null
+      ? null
+      : advisoryCohortProjectionSchema.parse({
+          evaluationArtifactSha256: pins.evaluationArtifactSha256,
+          targetRoute: {
+            category: pins.category,
+            providerId: pins.providerId,
+            providerKind: pins.providerKind,
+            model: expectedModel,
+          },
+          routeDecisionMetrics: {
+            calibrationCount: report.calibrationCount,
+            heldOutCount: report.heldOutCount,
+            taskCount: report.taskCount,
+            calibrationError: report.calibrationError,
+            minimumConfidence: report.minimumConfidence,
+          },
+          wholeCohortAccounting: {
+            baselineMeasuredApiCostUsd: baseline.measuredApiCostUsd,
+            candidateMeasuredApiCostUsd: candidateAccounting.measuredApiCostUsd,
+            baselinePolicyViolationAssignments: baseline.policyViolations,
+            candidatePolicyViolationAssignments:
+              candidateAccounting.policyViolations,
+            additionalFailureTasks: evaluation.accounting.additionalFailures,
+          },
+          origin: "unverified",
+          promotionEligible: false,
+        });
   return freezeJson({
     kind: "promotion-import-preflight" as const,
     projectId: pins.projectId,
@@ -592,10 +693,16 @@ export async function inspectPromotionImportPreflight(
     providerId: pins.providerId,
     providerKind: pins.providerKind,
     requestedModel: pins.requestedModel,
+    expectedModel,
     modelIdentitySha256: pins.modelIdentitySha256,
     minimumConfidence: report.minimumConfidence,
     accountingMetricsSatisfied:
       evaluation.metricsEligible && report.decisionMetricsSatisfied,
+    advisoryCohortProjection,
+    advisoryCohortProjectionSha256:
+      advisoryCohortProjection === null
+        ? null
+        : hashJson(advisoryCohortProjection),
     blockers: evaluation.blockers,
     promotionEligible: false as const,
     authorityStatus: "unsigned-preflight-only" as const,

@@ -838,6 +838,8 @@ export async function inspectSealedEvidenceReadiness(
     originalByteManifestSha256: originalAggregate.originalByteManifestSha256,
     aggregatePayloadSha256: originalAggregate.aggregatePayloadSha256,
     evaluationArtifactSha256: preflight.evaluationArtifactSha256,
+    promotionPreflightSha256: hashJson(preflight),
+    advisoryCohortProjectionSha256: preflight.advisoryCohortProjectionSha256,
     verifiedRowReviewCount: originalAggregate.verifiedRowReviewCount,
     assignmentCount: originalAggregate.assignmentCount,
     joinedIdentitiesVerified: true as const,

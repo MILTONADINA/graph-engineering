@@ -755,6 +755,8 @@ it("recomputes detached accounting but cannot turn local pins or metrics into au
     providerId: target.providerId,
   });
   expect(receipt.blockers).toContain("collection-not-closed");
+  expect(receipt.advisoryCohortProjection).toBeNull();
+  expect(receipt.advisoryCohortProjectionSha256).toBeNull();
   expect(receipt.unverifiedEvidence).toHaveLength(4);
   expect(Object.isFrozen(receipt)).toBe(true);
   const runtime = inspectPromotionRuntimeIdentity(receipt, target);
@@ -794,6 +796,95 @@ it("recomputes detached accounting but cannot turn local pins or metrics into au
       authority: receipt,
     }),
   ).toBe(false);
+});
+
+it("keeps route metrics separate from measured whole-cohort accounting", async () => {
+  const { input, target } = signedMeasurementFixture();
+  const receipt = await inspectPromotionImportPreflight(input, target);
+  expect(receipt.expectedModel).toBe("weights-v1");
+  const projection = receipt.advisoryCohortProjection;
+  expect(projection).toMatchObject({
+    evaluationArtifactSha256: target.evaluationArtifactSha256,
+    targetRoute: {
+      category: "worker",
+      providerId: "laya-worker",
+      providerKind: "laya",
+      model: "weights-v1",
+    },
+    routeDecisionMetrics: {
+      calibrationCount: 0,
+      heldOutCount: 0,
+      taskCount: 0,
+      calibrationError: 1,
+      minimumConfidence: 1,
+    },
+    wholeCohortAccounting: {
+      baselineMeasuredApiCostUsd: 0,
+      candidateMeasuredApiCostUsd: 0,
+      baselinePolicyViolationAssignments: 0,
+      candidatePolicyViolationAssignments: 0,
+      additionalFailureTasks: 0,
+    },
+    origin: "unverified",
+    promotionEligible: false,
+  });
+  expect(receipt.advisoryCohortProjectionSha256).toBe(hashJson(projection));
+  expect(receipt.promotionEligible).toBe(false);
+  expect(
+    canPromote(projection as unknown as PromotionEvidence, {
+      ...target,
+      authority: receipt,
+    }),
+  ).toBe(false);
+  const forged = {
+    ...receipt,
+    advisoryCohortProjection: {
+      ...projection!,
+      wholeCohortAccounting: {
+        ...projection!.wholeCohortAccounting,
+        candidateMeasuredApiCostUsd: 42,
+      },
+    },
+  };
+  expect(() => inspectPromotionRuntimeIdentity(forged, target)).toThrow(
+    /projection digest or target/,
+  );
+  const coforged = {
+    ...forged,
+    advisoryCohortProjectionSha256: hashJson(forged.advisoryCohortProjection),
+  };
+  expect(
+    inspectPromotionRuntimeIdentity(coforged, target).identityMatches,
+  ).toBe(true);
+  expect(authorizesPromotion(coforged, {} as PromotionEvidence, target)).toBe(
+    false,
+  );
+});
+
+it("keeps legacy advisory-free preflight receipts readable without authority", async () => {
+  const { input, target } = fixture();
+  const receipt = await inspectPromotionImportPreflight(input, target);
+  const {
+    expectedModel,
+    advisoryCohortProjection,
+    advisoryCohortProjectionSha256,
+    ...legacy
+  } = receipt;
+  expect(expectedModel).toBeDefined();
+  expect(advisoryCohortProjection).toBeNull();
+  expect(advisoryCohortProjectionSha256).toBeNull();
+  expect(
+    inspectPromotionRuntimeIdentity(JSON.stringify(legacy), target),
+  ).toMatchObject({
+    identityMatches: true,
+    promotionEligible: false,
+  });
+  expect(authorizesPromotion(legacy, {} as PromotionEvidence, target)).toBe(
+    false,
+  );
+  expect(() =>
+    inspectPromotionRuntimeIdentity({ ...legacy, expectedModel }, target),
+  ).toThrow(/projection digest or target/);
 });
 
 it("rechecks every frozen promotion target identity without conferring authority", async () => {
