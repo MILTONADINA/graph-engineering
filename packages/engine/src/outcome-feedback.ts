@@ -54,7 +54,7 @@ function canonical(value: unknown): string {
 export const outcomeHash = (value: unknown): string =>
   createHash("sha256").update(canonical(value)).digest("hex");
 
-/** Checks GE's own receipts. BrightPath remains responsible for authenticating its review/proof hashes. */
+/** Checks GE's own receipts only; no GE run-to-dual or BrightPath review proof is established. */
 export function validateOutcomeFeedback(
   input: unknown,
   consultationBytes: Buffer,
@@ -84,39 +84,4 @@ export function validateOutcomeFeedback(
       run.completion?.automatedChecksPassed !== true)
     throw new Error("Feedback requires the retained successful GE run");
   return feedback;
-}
-
-/** Descriptive local history only; outcomes do not label a model answer as correct. */
-export function summarizeOutcomes(feedback: OutcomeFeedback[], consultations: DualConsultEvidence[]) {
-  const rows = feedback.flatMap((item, index) => {
-    const dual = consultations[index]!;
-    return (["laya", "jev"] as const).map((provider) => ({
-      taskKind: item.task_kind,
-      taskShape: `${item.context.write_path_count === 1 ? "one" : "many"}-path/${item.context.acceptance_count === 1 ? "one" : "many"}-acceptance/${item.context.source_dirty ? "dirty" : "clean"}/${item.context.text_only_coverage ? "text" : "syntax"}`,
-      provider,
-      model: dual.observations[provider].configuredModel,
-      choice: dual.observations[provider].choices.dispatch,
-      outcome: item.outcome.state,
-      chargedUsd: dual.observations[provider].usage?.chargedUsd ?? null,
-    }));
-  });
-  const groups = new Map<string, { taskKind: string; taskShape: string; provider: string; model: string; choice: string | null;
-    reviewed: number; completed: number; rejected: number; knownCostUsd: number; unknownCost: number }>();
-  for (const row of rows) {
-    const key = JSON.stringify([row.taskKind, row.taskShape, row.provider, row.model, row.choice]);
-    const group = groups.get(key) ?? { taskKind: row.taskKind, provider: row.provider,
-      taskShape: row.taskShape, model: row.model, choice: row.choice, reviewed: 0, completed: 0, rejected: 0,
-      knownCostUsd: 0, unknownCost: 0 };
-    group.reviewed++;
-    if (row.outcome === "CURRENT_ENGINEERING_COMPLETION") group.completed++;
-    else group.rejected++;
-    if (row.chargedUsd === null) group.unknownCost++;
-    else group.knownCostUsd += row.chargedUsd;
-    groups.set(key, group);
-  }
-  return { version: "1.0.0" as const, kind: "advisory-reviewed-outcomes" as const,
-    reviewedTasks: feedback.length, groups: [...groups.values()].sort((a, b) =>
-      JSON.stringify([a.taskKind, a.taskShape, a.provider, a.model, a.choice]).localeCompare(
-        JSON.stringify([b.taskKind, b.taskShape, b.provider, b.model, b.choice]))),
-    promotionEligible: false as const, completionAuthority: false as const };
 }

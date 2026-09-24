@@ -24,9 +24,7 @@ import {
 import {
   outcomeFeedbackSchema,
   outcomeHash,
-  summarizeOutcomes,
   validateOutcomeFeedback,
-  type OutcomeFeedback,
 } from "./outcome-feedback.js";
 import {
   localProcessOwner,
@@ -904,7 +902,7 @@ export class RunStore {
   decisions(): DecisionRecord[] {
     return this.all("decisions").reverse() as DecisionRecord[];
   }
-  /** A reviewed BrightPath outcome is an append-only, idempotent local observation. */
+  /** Preserve an external claim; GE has no durable run-to-dual proof or BrightPath review authority. */
   recordOutcomeFeedback(input: unknown, consultationBytes: Buffer): RunEvent {
     return this.db.transaction(() => {
       const candidate = outcomeFeedbackSchema.parse(input);
@@ -919,6 +917,16 @@ export class RunStore {
           .get(this.projectId, feedback.dispatch_id, observation.callId, provider) as
           { usage_json: string | null } | undefined;
         if (!call?.usage_json) throw new Error("Outcome feedback lacks settled decision usage");
+        const settled = JSON.parse(call.usage_json) as Record<string, unknown>;
+        const reported = observation.usage;
+        if (!reported || reported.callId !== observation.callId ||
+            reported.provider !== provider || reported.outcome !== "completed" ||
+            settled.inputTokens !== reported.inputTokens ||
+            settled.outputTokens !== reported.outputTokens ||
+            settled.cachedTokens !== 0 ||
+            settled.costUsd !== reported.chargedUsd ||
+            settled.estimated !== (reported.reportedCostUsd === null))
+          throw new Error("Settled decision usage differs from the retained observation");
       }
       for (const record of Object.values(retained.observations).flatMap((item) => item.records)) {
         const saved = this.db.prepare("SELECT json FROM decisions WHERE project_id=? AND id=?")
@@ -926,30 +934,31 @@ export class RunStore {
         if (!saved || outcomeHash(JSON.parse(saved.json)) !== outcomeHash(record))
           throw new Error("Outcome feedback decision differs from retained GE record");
       }
-      const prior = this.events(feedback.run_id).filter((event) => event.type === "learning.outcome-reviewed");
+      const prior = this.events(feedback.run_id).filter((event) => event.type === "learning.external-claim-unverified");
       if (prior.length) {
         if (prior.length !== 1 || outcomeHash(prior[0]!.data.feedback) !== outcomeHash(feedback))
           throw new Error("GE run already has different reviewed outcome feedback");
         return prior[0]!;
       }
-      return this.event(feedback.run_id, "learning.outcome-reviewed", { feedback });
+      return this.event(feedback.run_id, "learning.external-claim-unverified", {
+        status: "UNVERIFIED_EXTERNAL_CLAIM", feedback,
+      });
     }).immediate();
   }
   outcomeSummary() {
-    const feedback: OutcomeFeedback[] = [];
-    const consultations: DualConsultEvidence[] = [];
+    let unverifiedClaims = 0;
     for (const run of this.runs()) {
-      const events = this.events(run.id).filter((event) => event.type === "learning.outcome-reviewed");
+      const events = this.events(run.id).filter((event) => event.type === "learning.external-claim-unverified");
       if (events.length > 1) throw new Error("GE run has conflicting outcome feedback");
       if (!events.length) continue;
-      const item = outcomeFeedbackSchema.parse(events[0]!.data.feedback);
-      const attempt = this.dualAttempt(item.dispatch_id);
-      if (attempt?.state !== "completed" || !attempt.evidence_json)
-        throw new Error("Reviewed outcome lost its dual consultation");
-      feedback.push(item);
-      consultations.push(JSON.parse(attempt.evidence_json) as DualConsultEvidence);
+      if (events[0]!.data.status !== "UNVERIFIED_EXTERNAL_CLAIM")
+        throw new Error("Outcome claim has invalid verification state");
+      outcomeFeedbackSchema.parse(events[0]!.data.feedback);
+      unverifiedClaims++;
     }
-    return summarizeOutcomes(feedback, consultations);
+    return { version: "1.0.0" as const, kind: "unverified-external-claims" as const,
+      unverifiedClaims, reviewedTasks: 0, groups: [], routingEligible: false as const,
+      promotionEligible: false as const, completionAuthority: false as const };
   }
   async recoverInterrupted(): Promise<void> {
     await this.ownerReady();

@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import type { RunRecord } from "@graph-engineering/contracts";
 import type { DualConsultEvidence } from "../src/decision-dual.js";
-import { outcomeFeedbackSchema, summarizeOutcomes } from "../src/outcome-feedback.js";
 import { RunStore } from "../src/store.js";
 
-it("retains one exact reviewed outcome and reports observations without promotion", () => {
+it("retains one external claim without routing and rejects settled-usage mismatch", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "graph-outcome-"));
   const store = new RunStore(directory, "project-a");
   try {
@@ -58,20 +58,27 @@ it("retains one exact reviewed outcome and reports observations without promotio
       decision_ids: ["laya-decision", "jev-decision"],
       decision_usage: { laya: dual.observations.laya.usage, jev: dual.observations.jev.usage },
       memory_accepted: false, routing_promoted: false };
+    const db = new Database(path.join(directory, "runs.sqlite"));
+    try {
+      db.prepare("UPDATE inference_calls SET usage_json=? WHERE id=?")
+        .run(JSON.stringify({ inputTokens: 10, outputTokens: 2, cachedTokens: 0,
+          costUsd: 0.2, estimated: false }), "jev-call");
+      expect(() => store.recordOutcomeFeedback(feedback, bytes))
+        .toThrow("Settled decision usage differs");
+      db.prepare("UPDATE inference_calls SET usage_json=? WHERE id=?")
+        .run(JSON.stringify({ inputTokens: 10, outputTokens: 2, cachedTokens: 0,
+          costUsd: 0.1, estimated: false }), "jev-call");
+    } finally { db.close(); }
     const first = store.recordOutcomeFeedback(feedback, bytes);
+    expect(first.data.status).toBe("UNVERIFIED_EXTERNAL_CLAIM");
     expect(store.recordOutcomeFeedback(feedback, bytes).id).toBe(first.id);
     expect(() => store.recordOutcomeFeedback({ ...feedback, candidate_sha256: "2".repeat(64) }, bytes))
       .toThrow("different reviewed outcome");
     expect(() => store.recordOutcomeFeedback({ ...feedback, dual_consultation_sha256: "3".repeat(64) }, bytes))
       .toThrow("bytes changed");
-    expect(store.outcomeSummary()).toMatchObject({ reviewedTasks: 1, promotionEligible: false,
-      completionAuthority: false, groups: [
-        { provider: "jev", reviewed: 1, completed: 1 },
-        { provider: "laya", reviewed: 1, completed: 1 },
-      ] });
-    const rejected = outcomeFeedbackSchema.parse({ ...feedback, outcome: { ...feedback.outcome,
-      state: "REVIEW_REJECTED" } });
-    expect(summarizeOutcomes([rejected], [dual]).groups[0]?.rejected).toBe(1);
+    expect(store.outcomeSummary()).toMatchObject({ unverifiedClaims: 1,
+      reviewedTasks: 0, groups: [], routingEligible: false,
+      promotionEligible: false, completionAuthority: false });
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

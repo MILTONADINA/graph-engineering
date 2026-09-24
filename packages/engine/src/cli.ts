@@ -466,7 +466,7 @@ cli
   );
 cli
   .command("outcome-record <feedback> <consultation>")
-  .description("Retain a reviewed task outcome against the exact local dual consultation and run")
+  .description("Retain an external outcome claim without granting it routing authority")
   .action(async (feedback, consultation) => {
     const project = await loadProject(root());
     const bytes = await readFile(path.resolve(consultation));
@@ -476,14 +476,15 @@ cli
     const store = new RunStore(projectDataDir(project.projectId), project.projectId);
     try {
       const event = store.recordOutcomeFeedback(JSON.parse(input.toString("utf8")), bytes);
-      print({ eventId: event.id, feedbackCanonicalSha256: event.data.feedback &&
+      print({ eventId: event.id, status: "UNVERIFIED_EXTERNAL_CLAIM",
+        feedbackCanonicalSha256: event.data.feedback &&
         (await import("./outcome-feedback.js")).outcomeHash(event.data.feedback),
-        promotionEligible: false, completionAuthority: false });
+        routingEligible: false, promotionEligible: false, completionAuthority: false });
     } finally { store.close(); }
   });
 cli
   .command("outcome-summary")
-  .description("Report local reviewed outcome counts and known decision costs; advisory only")
+  .description("Count unverified external claims; none can influence routing")
   .action(async () => {
     const project = await loadProject(root());
     const store = new RunStore(projectDataDir(project.projectId), project.projectId);
