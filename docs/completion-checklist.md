@@ -37,10 +37,12 @@ human/partner acceptance and a fresh autonomous repair of the separate
 cloud-export defect remain outstanding. See the
 [retained local-run evidence](local-validation.md).
 
-Item 10's new `devops.aws` node emits a local ECS Express Mode request only.
-Focused renderer, catalog, cloud-export and publication checks passed. It does
-not call AWS or establish image provenance, IAM permissions, VPC readiness,
-runtime health or deployment acceptance; eight other catalog IDs remain
+Item 10's `devops.aws` node emits a local ECS Express Mode request only. The
+`devops.deployment` composer combines it with audited Docker and build/test CI
+artifacts and a sanitized public plan after the reviewed Dockerfile is already
+applied. Focused renderer, catalog, cloud-export and publication checks passed.
+Neither node calls AWS or establishes image provenance, IAM permissions, VPC
+readiness, runtime health or deployment acceptance. Seven catalog IDs remain
 planned, including three aliases of already implemented API capabilities.
 
 Item 13 now has analysis-only signed worker-delivery verification for one
