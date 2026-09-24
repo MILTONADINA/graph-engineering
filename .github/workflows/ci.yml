@@ -41,6 +41,8 @@ jobs:
       - run: npm run format:check
       - name: Git branch and push safety
         run: node --test scripts/git-safety.test.mjs
+      - name: Cursor private-context exclusions
+        run: node --test scripts/cursor-ignore.test.mjs
       - name: Current synthetic fixture receipt
         run: node --test evaluation/validate-fixtures.test.mjs
       - run: npm run check
