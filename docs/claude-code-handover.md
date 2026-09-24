@@ -11,7 +11,7 @@ autonomous decision promotion, or touch another project.
 
 After the initial handover, the owner explicitly asked work to continue and
 approved pursuing the remaining code-side integrations. Jev's spending limit
-is **a per-user setting**, not a budget to bake into this open-source project;
+is **a per-user setting**, not a budget to bake into this intended open-source project;
 the owner has not set a limit for metered calls in this session. This does not
 block local development, tests, or implementing configurable provider support.
 It does mean no metered Jev call should be launched in this session. Approval
@@ -48,12 +48,12 @@ generated-app install; one failed-job retry at the same commit passed, with no
 source change. Local `dev` was fast-forwarded to the merge commit. No `main`,
 parent-repository, production-key provisioning, paid-Jev, or AWS deployment
 action occurred.
-This handover update was prepared on the pushed docs branch
-`chore/pr16-handover-20260924` (`fork/chore/pr16-handover-20260924`) and is
-tracked by [fork PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17)
-into `dev`. Before continuing, inspect the current branch, PR and `dev` tip
-rather than treating this snapshot as live status. At preparation time local
-`dev` and `fork/dev` were both
+The initial handover update was prepared on
+`chore/pr16-handover-20260924` and squash-merged into fork `dev` by
+[PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17) at
+`e871d8ad7f92649c538ad5be8086d4443cb78c1c`. Before continuing, inspect
+the live branch, PR and `dev` tip rather than treating this dated snapshot as
+live status. Before that docs merge, local `dev` and `fork/dev` were both
 `02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`.
 
 ## Where the work stands
@@ -66,22 +66,23 @@ rather than treating this snapshot as live status. At preparation time local
   a later, explicit partner step.
 - The earlier `cf4245848cab24181b104d5cc3eb36f19a32a9f7` fork-`dev` state
   and `feat/sealed-evidence-continuation-20260924` feature branch are history:
-  the latter was integrated by PR #16. The **current** integrated fork-`dev`
-  tip and post-merge CI are recorded above. Do not reopen completed PR work
+  the latter was integrated by PR #16. Its integration tip and post-merge CI
+  are recorded above as historical evidence. Do not reopen completed PR work
   because an older checklist paragraph calls it pending. Keep future
   implementation on focused branches based on the current fork `dev`.
 - `.serena/` was already untracked at handover. It is user/session data. Do not
   stage, alter, delete, or use it as a reason to clean the worktree. Ignore
   unrelated workspaces, linked worktrees, and global agent configuration.
-- Fork `dev` has nine required checks and zero required GitHub approvals by
-  the owner's explicit choice. Author review and green CI are **not** an
+- At this 2026-09-24 snapshot, fork `dev` had nine required checks and zero
+  required GitHub approvals by the owner's explicit choice; recheck live rules
+  before future merges. Author review and green CI are **not** an
   independent Kevin review. Kevin will inspect the integrated fork `dev`
   before any later upstream synchronization.
 
 The [completion checklist](completion-checklist.md) is the detailed history.
 Read it chronologically: its historical 48-node/seven-planned table and early
 "Vite on a separate branch" paragraph are superseded by later merges. The
-current catalog is **50 implemented, six planned**; every implemented fine
+catalog at this snapshot is **50 implemented, six planned**; every implemented fine
 node has an audited deterministic renderer. Planned API filtering, pagination,
 and sorting IDs partly duplicate existing capabilities rather than representing
 three missing implementations.
@@ -94,14 +95,23 @@ the existing template ecosystem. The shared project policy and stores support:
 1. Repository syntax/limited static graph, SQLite full-text search, optional
    offline Jina embeddings, structural summaries, and reviewed memory.
 2. Export-filtered context packets through a project MCP server for Claude
-   Code, Codex, and Cursor. Their cloud models may receive selected repository
-   source/docs and reviewed **shared** mandatory requirement/constraint memory
-   tied to exportable sources. Private mandatory memory causes rejection, and
-   other private memory is excluded from cloud retrieval. Secrets **must** be
-   excluded. Current path and content filters block recognized
-   patterns, but cannot prove arbitrary allowlisted source or shared memory
-   contains no embedded secret. Inspect the exact export packet before cloud
-   use. Local storage alone does not make a cloud client offline.
+   Code, Codex, and Cursor. The current cloud `context_get` can include
+   reviewed **shared** mandatory requirement/constraint memory tied to
+   exportable sources. This is implementation behavior, **not blanket user
+   authorization**: the owner allowed selected source/docs, not arbitrary
+   memory. The MCP tool returns its packet directly to a cloud client, so
+   inspecting it afterward cannot reliably prevent an unauthorized export.
+   Suspend cloud `context_get` until a tested, pre-return guard rejects mandatory
+   memory outside the owner's explicit permission; use local retrieval in the
+   meantime. Cloud `run_status` also returns operational metadata outside the
+   selected source/docs scope and needs its own output gate. Cloud worker
+   dispatch through `contextForProvider` has the same shared-memory boundary.
+   Private mandatory memory already causes rejection,
+   and other private memory is excluded from cloud retrieval. Secrets **must**
+   be excluded, but current path/content filters recognize patterns rather
+   than prove that arbitrary allowlisted source or shared memory contains no
+   embedded secret. Review selected source/docs locally before cloud use;
+   local storage alone does not make a cloud client offline.
 3. Deterministic policy and a batched typed-decision controller. Local Laya
    and optional hosted Jev may rank only explicit allowed actions. Default
    `shadow` mode records their answers but never grants them authority to
@@ -128,10 +138,11 @@ instructions. Preserve the distinction between a **product goal**, an
 **implemented interface**, and a **validated autonomous capability**:
 
 1. **One user-owned local context platform.** Store the durable engineering
-   context on each user's Mac, shared across coding tools: repository
-   structure/declarations/dependencies, searchable source/docs, reviewed
-   architecture decisions, requirements, API/schema contracts, coding
-   conventions, security constraints, bugs and solutions, Git history,
+   context on each operator's local machine (this owner's Mac), shared across
+   coding tools: repository structure/declarations/dependencies, searchable
+   source/docs, reviewed architecture decisions, requirements, API/schema
+   contracts, coding conventions, security constraints, bugs and solutions,
+   Git history,
    curated task/session summaries, and current task state. Preserve when a
    decision was made and what superseded it. Use graph, full-text and optional
    local semantic retrieval to build small, source-bound context packets. Do
@@ -144,10 +155,17 @@ instructions. Preserve the distinction between a **product goal**, an
    selected repository **source and docs** through the project MCP server.
    Private memory and secrets must never be exported to their cloud models or
    to hosted Jev. The current MCP can also include reviewed shared
-   requirement/constraint memory sourced from exportable files; inspect that
-   text as part of the packet, not as blanket permission to export memory.
-   Filters cannot prove arbitrary allowlisted files contain no embedded
-   secret. Local storage does not make those clients' inference offline.
+   requirement/constraint memory sourced from exportable files. Shared status
+   does not itself expand this owner's selected-source/docs permission. The
+   current `context_get` returns such memory directly to the cloud client;
+   post-return inspection is too late. The cloud worker packet path can do the
+   same before model dispatch. Suspend those paths until pre-return/pre-dispatch
+   rejection is implemented and tested. Cloud `run_status` returns run metadata
+   rather than selected source/docs; do not call it from a cloud client until
+   its output is explicitly scoped or separately authorized. A local preflight
+   may help review, but alone is not a race-free enforcement boundary. Filters
+   cannot prove arbitrary allowlisted files contain no embedded secret. Local
+   storage does not make those clients' inference offline.
    Their native indexing, open-file, terminal and subscription paths are
    separate from the MCP export filter and require their own care. The user
    allowed selected source/docs, not unrestricted repository or memory export.
@@ -223,6 +241,14 @@ The initial AI integrations have **different roles and evidence**:
 | Cursor             | Project MCP cloud client; separate optional SDK proposal worker                | Owner reports project MCP works in this workspace, without retained in-app trace. SDK isolation is mocked; no live user-key proposal was exercised.     |
 | Existing oMLX Qwen | Local Graph-managed generative worker, **not** an MCP client                   | Bounded live calls and one accepted unassisted real-task repair passed. Reuse the existing model; never download/install another Qwen for this project. |
 
+The four starting AIs are intended to use one project context/policy
+substrate for Graph-mediated work: Claude Code, Codex, and Cursor through the
+project MCP; existing oMLX Qwen through curated worker packets, not MCP.
+Their native client contexts and subscriptions remain separate channels.
+Laya is the local typed-decision provider; hosted Jev is optional and metered.
+No paid OpenAI, Anthropic, or Cursor API credential was supplied for this
+setup.
+
 Implementing a new control interface is not the same as proving it saves
 tokens, chooses correctly, or can autonomously take authority. Keep
 deterministic baselines and report the actual evidence level.
@@ -233,27 +259,28 @@ The numbered items are those in the [completion checklist](completion-checklist.
 "Implemented" means code and relevant checks exist, not that every production
 or independent-evaluation claim is established.
 
-| #   | Area                                            | Current status / remaining boundary                                                                                                                                                                                                                                                                                                                               |
-| --- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Partner review and integration                  | The owner's fork PR stack is merged into `dev` and CI is green. Kevin's review of integrated `dev`, and any parent sync, remain separate.                                                                                                                                                                                                                         |
-| 2   | Git workflow and protection                     | Fork `main`/`dev` protection and the fork-only push guard are set; keep feature branches, PRs, linear history, and no direct protected-branch pushes.                                                                                                                                                                                                             |
-| 3   | Real workers and verification                   | Existing oMLX Qwen and offline verifier exercised. One Claude Max subscription-backed structured proposal succeeded. Metered API worker tests await provider-specific policy and budget.                                                                                                                                                                          |
-| 4   | Local Jina/Laya/Qwen                            | Offline Jina retrieval, pinned Laya on MPS, and the existing oMLX Qwen endpoint exercised. Do **not** install/download another Qwen.                                                                                                                                                                                                                              |
-| 5   | MCP clients                                     | Claude Code and Codex live project-MCP retrieval passed. Direct project MCP `template_list` returned 61 entries; owner reports it works in Cursor in this exact workspace, but no Cursor in-app trace was retained. Serena is a separate shared server.                                                                                                           |
-| 6   | Real end-to-end task                            | One unassisted real UTF-8 subprocess repair by Qwen+Laya passed unchanged offline verification; the owner reported acceptance after review. The separate cloud-export autonomous repair pilots **failed** and must not be relabeled as successes.                                                                                                                 |
-| 7   | Batched typed decisions                         | Implemented with an observed two-question, one-forward-pass Laya call; not autonomously promoted.                                                                                                                                                                                                                                                                 |
-| 8   | Context/tool/test/retry/stop/memory controllers | Integrated with deterministic floors, bounded actions, and shadow defaults; model scores cannot skip safety gates.                                                                                                                                                                                                                                                |
-| 9   | Summaries and safe reuse                        | Content-addressed summaries and exact cache reuse exist; cached proposals still require fresh checks.                                                                                                                                                                                                                                                             |
-| 10  | DAG and fine templates                          | Validated scheduling and 50 audited implemented nodes; six planned IDs unavailable. AWS ECS Express Mode work is an **offline descriptor**, not a deployment or AWS spend.                                                                                                                                                                                        |
-| 11  | Memory and semantic graph                       | Bounded TS/JS, Python, Go, Java, C#, and Rust declaration evidence exists, with explicit heuristic/unsupported fallbacks. It is not a whole-program runtime call graph.                                                                                                                                                                                           |
-| 12  | Native clients and cost controls                | Claude Max managed proposal tested; Codex managed proposals disabled because the installed binary lacks restricted read roots; Cursor SDK proposal adapter mocked but not live-key-tested. Jev metering needs operator price/cap. MCP use is independent of these managed-worker paths.                                                                           |
-| 13  | Calibration, held-out evidence, promotion       | Extensive synthetic/retrospective fixtures, sealed bookkeeping, signed inspection and analysis-only projections exist. **Not complete as a real held-out or promotion capability:** independent source/review/key/witness governance, protected provenance, measured paired outcomes/costs, and a trusted grant issuer remain. This is the principal roadmap gap. |
-| 14  | Tests and operations                            | Cross-language synthetic fixtures, indexing benchmark, migrations, watch, pruning, backup/restore and focused native checks exist. Their receipts are not production accuracy or cost-saving evidence.                                                                                                                                                            |
+| #   | Area                                            | Current status / remaining boundary                                                                                                                                                                                                                                                                                                                                 |
+| --- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Partner review and integration                  | The implementation PR stack through #16 and docs PR #17 were merged into fork `dev`; their recorded CI passed. Kevin's review of integrated `dev`, and any parent sync, remain separate.                                                                                                                                                                            |
+| 2   | Git workflow and protection                     | Fork `main`/`dev` protection and the fork-only push guard are set; keep feature branches, PRs, linear history, and no direct protected-branch pushes.                                                                                                                                                                                                               |
+| 3   | Real workers and verification                   | Existing oMLX Qwen and offline verifier exercised. One Claude Max subscription-backed structured proposal succeeded. Metered API worker tests await provider-specific policy and budget.                                                                                                                                                                            |
+| 4   | Local Jina/Laya/Qwen                            | Offline Jina retrieval, pinned Laya on MPS, and the existing oMLX Qwen endpoint exercised. Do **not** install/download another Qwen.                                                                                                                                                                                                                                |
+| 5   | MCP clients                                     | Claude Code and Codex live project-MCP retrieval passed. Direct project MCP `template_list` returned 61 entries; owner reports it works in Cursor in this exact workspace, but no Cursor in-app trace was retained. Serena is a separate shared server. Cloud `context_get` needs a fail-closed memory-scope guard; cloud `run_status` needs a scope gate.          |
+| 6   | Real end-to-end task                            | One unassisted real UTF-8 subprocess repair by Qwen+Laya passed unchanged offline verification; the owner reported acceptance after review. The separate cloud-export autonomous repair pilots **failed** and must not be relabeled as successes.                                                                                                                   |
+| 7   | Batched typed decisions                         | Implemented with an observed two-question, one-forward-pass Laya call; not autonomously promoted.                                                                                                                                                                                                                                                                   |
+| 8   | Context/tool/test/retry/stop/memory controllers | Integrated with deterministic floors, bounded actions, and shadow defaults; model scores cannot skip safety gates.                                                                                                                                                                                                                                                  |
+| 9   | Summaries and safe reuse                        | Content-addressed summaries and exact cache reuse exist; cached proposals still require fresh checks.                                                                                                                                                                                                                                                               |
+| 10  | DAG and fine templates                          | Validated scheduling and 50 audited implemented nodes; six planned IDs unavailable. AWS ECS Express Mode work is an **offline descriptor**, not a deployment or AWS spend.                                                                                                                                                                                          |
+| 11  | Memory and semantic graph                       | Bounded TS/JS, Python, Go, Java, C#, and Rust declaration evidence exists, with explicit heuristic/unsupported fallbacks. It is not a whole-program runtime call graph.                                                                                                                                                                                             |
+| 12  | Native clients and cost controls                | Claude Max managed proposal tested; Codex managed proposals disabled because the installed binary lacks restricted read roots; Cursor SDK proposal adapter mocked but not live-key-tested. Jev metering needs operator price/cap. MCP use is independent of these managed-worker paths.                                                                             |
+| 13  | Calibration, held-out evidence, promotion       | Extensive synthetic/retrospective fixtures, sealed bookkeeping, signed inspection and analysis-only projections exist. **Not complete as a real held-out or promotion capability:** independent source/review/key/witness governance, protected provenance, measured paired outcomes/costs, and a trusted grant issuer remain. This is the principal promotion gap. |
+| 14  | Tests and operations                            | Cross-language synthetic fixtures, indexing benchmark, migrations, watch, pruning, backup/restore and focused native checks exist. Their receipts are not production accuracy or cost-saving evidence.                                                                                                                                                              |
 
 ## Evidence you can safely claim
 
-- The latest fork `dev` post-merge CI passed. Use the exact run linked above;
-  do not run the entire suite again simply to reconfirm an unchanged commit.
+- PR #16's fork-`dev` post-merge CI passed at the exact run linked above. It is
+  historical evidence, not a live assertion about later commits. Do not run
+  the entire suite again simply to reconfirm an unchanged commit.
 - The [real UTF-8 receipt](../evaluation/real-utf8-repair-2026-09-23.json)
   records the separate original baseline, one unassisted existing-Qwen+Laya
   candidate, unchanged focused Docker check, and owner-reported acceptance.
@@ -312,11 +339,34 @@ labels, or renamed historical tasks. There is still code-side work to do while
 the partners choose the external trust arrangement. Keep each change scoped and
 prove its failure path with focused tests before running long suites.
 
-1. **Preserve the current safety boundary.** Keep `decisionMode: "shadow"`,
+1. **Close the cloud export-scope gaps before further affected calls.** Inspect
+   [`context/index.ts`](../packages/engine/src/context/index.ts) and
+   [`mcp.ts`](../packages/engine/src/mcp.ts): export-only retrieval currently
+   adds accepted/conflicted shared requirement/constraint memory to `mandatory`
+   and returns it in the tool result. The owner authorized selected source/docs,
+   not blanket memory export. Make the cloud tool reject a packet containing
+   shared mandatory memory unless export of that exact memory text has been
+   separately and explicitly authorized **before** returning it. Do not
+   silently remove a mandatory constraint to make export succeed. Preserve
+   local-worker mandatory constraints and private-memory rejection. Apply the
+   same fail-closed check to [`contextForProvider`](../packages/engine/src/policy.ts)
+   before any cloud API/managed worker receives the packet; audit all cloud MCP
+   tool outputs, especially `run_status`, which currently returns run IDs,
+   status, usage, commit and PR metadata outside selected source/docs. Gate
+   that tool from cloud use by default unless separately authorized. Update
+   the MCP server instruction that currently tells cloud clients to use
+   `context_get` before engineering work. Add a
+   focused [MCP regression test](../packages/engine/tests/mcp.test.ts) that
+   creates export-eligible shared mandatory memory and proves the cloud call
+   rejects it by default; add a
+   [cloud worker packet test](../packages/engine/tests/policy-export.test.ts)
+   and a cloud `run_status` test. Test local behavior separately. Do not
+   treat client-side packet inspection or regex secret detection as the guard.
+2. **Preserve the current safety boundary.** Keep `decisionMode: "shadow"`,
    `promotedCategories: []`, and `maxCostUsd: 0` by default. The existing
    `evaluate --promote` intentionally rejects; the runtime authority loader
    has no trusted grant resolver. Do not create a self-issued shortcut.
-2. **Specify and implement the trusted promotion boundary.** The existing
+3. **Specify and implement the trusted promotion boundary.** The existing
    [paired-cohort API](paired-cohort-evaluation.md),
    [sealed ledger](../evaluation/sealed/README.md), and
    [promotion rules](decisions.md#evaluation-dataset) provide inputs and
@@ -331,7 +381,7 @@ prove its failure path with focused tests before running long suites.
    caller-controlled. The owner previously chose to leave the independently
    controlled witness integration point for later, so make it pluggable and
    fail closed until a real controller is selected.
-3. **Connect protected collection provenance.** The current signed source,
+4. **Connect protected collection provenance.** The current signed source,
    worker-delivery, oracle-execution, row-review, aggregate, witness and
    approval inspectors are useful but mostly caller-pinned analysis. A real
    collector needs independently governed keys and protected dispatch/oracle
@@ -342,7 +392,7 @@ prove its failure path with focused tests before running long suites.
    Follow the [repository black-box boundary](repository-blackbox-boundary.md)
    for permitted public source versus private runtime files; do not mount an
    arbitrary secret-bearing repository into a model worker.
-4. **Collect genuinely new, reviewed held-out data only under that protocol.**
+5. **Collect genuinely new, reviewed held-out data only under that protocol.**
    Historical cases are retrospective intake, not unseen tasks. Independent
    people/control must choose and label unseen tasks, approve separate signer
    keys, and own the pre-run witness. The numeric gate is at least 50 labeled
@@ -352,22 +402,27 @@ prove its failure path with focused tests before running long suites.
    **measured whole-task cost**. Unknown/estimated cost cannot prove savings.
    Threshold selection must use calibration only. No agent can manufacture
    independent review just by signing a fixture.
-5. **Treat any new real-task pilot as a separate bounded experiment.** The
+6. **Treat any new real-task pilot as a separate bounded experiment.** The
    cloud-export repair is still an open autonomous-worker challenge, not a
    missing manual code fix. Inspect its retained failure evidence and exact
    source binding first. If investigating it, use the existing oMLX Qwen and
    focused unchanged verifier; stop/re-scope on a recorded failure rather than
    looping through speculative runs. A passing candidate would still need
    human acceptance and would not itself satisfy held-out promotion gates.
-6. **Optional integrations only after prerequisites.** Jev has a private
-   ignored key-source pointer and an opt-in launcher, but no metered call has
-   occurred. Each open-source operator chooses supported providers, reviewed
-   account-specific pricing and a numeric spending cap; this owner's cap has
+7. **Optional integrations only after prerequisites.** Jev has a private
+   ignored key-source pointer and an opt-in launcher, but no metered Jev call
+   is recorded in the work described here. Each open-source operator chooses
+   supported providers, reviewed account-specific pricing and a numeric
+   spending cap; this owner's cap has
    **not** been supplied. Codex managed proposal mode requires a binary that
    actually exposes restricted read roots. Cursor managed SDK proposals need
-   an explicit user key and authorized live validation. These gaps do not
-   disable the already working project MCP client paths. AWS deployment is
-   also not authorized merely by generating an ECS descriptor.
+   an explicit user key and authorized live validation. These paid/managed-worker
+   gaps do not remove the project MCP configuration; the separate cloud
+   `context_get`/`run_status` suspension above still applies. AWS deployment is
+   also not authorized merely by generating an ECS descriptor. Before any
+   future hosted Jev dispatch, review the caller-supplied `cloudState` and
+   question text locally; `exportable` flags and pattern checks do not prove
+   private memory or arbitrary secrets are absent.
 
 ## Working safely on this Mac
 
@@ -391,8 +446,9 @@ model. In particular:
   with other sessions/projects. Do not reconfigure or deactivate Serena or
   global client servers. `.cursorignore` is defense in depth, not a guarantee
   that a cloud client's terminal, open files, or native indexing cannot see
-  private paths. Use the reviewed MCP export packet for selected-source cloud
-  work and inspect any attachments/tool calls.
+  private paths. Once the pre-return MCP memory guard is in place, use only
+  reviewed selected-source packets for cloud work and inspect attachments and
+  native tool calls separately.
 - Managed runs use isolated workspaces and do not edit this checkout. Review a
   run's patch before importing it into a feature branch. The verification
   image must be rebuilt if dependency metadata, `scripts/verify-project.mjs`,
@@ -401,18 +457,19 @@ model. In particular:
 - The default project config [`.graph/project.json`](../.graph/project.json)
   has local Qwen/Laya, no allowed outbound hosts, no publication, a zero
   external-API dollar ceiling, and shadow decisions. Cloud MCP source/docs
-  export is a separate, narrowly allowed path. Claude/Codex/Cursor subscriptions
-  have their own account usage, outside the engine's ledger and budget.
+  export is a separate path, but cloud `context_get` and `run_status` are
+  suspended pending the output-scope guards above. Claude/Codex/Cursor
+  subscriptions have their own account usage, outside the engine's ledger and
+  budget.
 
 ## Git and test discipline for Claude Code
 
 1. Inspect `pwd`, `git status --short --branch`, `git log -1`, `git remote -v`,
-   and [PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17).
-   This document was prepared on a pushed docs branch. If the PR is open,
-   review its exact head and checks before merging into fork `dev`; if merged,
-   continue from the current fork `dev`. If the PR cannot be found, inspect
-   the pushed branch before recreating it. Preserve `.serena/` and every
-   ignored private path; do not commit directly on `dev`.
+   the live fork `dev` tip and open PRs. [PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17)
+   merged the initial handover at the dated commit recorded above; do not
+   reopen it or treat its old branch as the starting point for new work.
+   Preserve `.serena/` and every ignored private path; do not commit directly
+   on `dev`.
 2. For subsequent changes, fetch/fast-forward the fork `dev`, then create a
    focused `feat/`, `fix/`, or `chore/` branch. Push only to `fork`; PRs target
    `MILTONADINA/graph-engineering:dev`. The owner explicitly authorized the

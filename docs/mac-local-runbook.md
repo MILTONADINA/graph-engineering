@@ -112,14 +112,24 @@ branch. Publication is disabled in this checkout.
 
 ## Privacy, paid providers, and evidence
 
-The shared policy permits selected source/docs exports but excludes private
+The shared policy permits selected source/docs exports and filters private
 memory, credential patterns, private runtime data, and non-allowlisted paths.
+This is not a proof that arbitrary source contains no secret. The current cloud
+`context_get` can also return shared mandatory memory before anyone reviews
+the tool result; cloud worker packets can carry it too. Until the handover's
+pre-return/pre-dispatch memory guard is implemented and tested, use local
+retrieval rather than cloud `context_get`, and do not dispatch Graph-managed
+cloud worker packets. Cloud `run_status` returns operational metadata outside the
+selected source/docs approval and should not be used without a scope gate or
+separate authorization.
+
 Client-local MCP files are ignored by Git. Codex recognizes the configured
 stdio server. A constrained Claude Code call using the explicit project MCP
 configuration retrieved exportable source; normal project-wide approval is
-complete for that project server only. Cloud `context_get` defaults to lexical
-retrieval for bounded cold latency. Request `retrieval: "hybrid"` explicitly
-when the local embedding index is prepared and semantic recall is needed.
+complete for that project server only. After the pre-return guard is in place,
+cloud `context_get` defaults to lexical retrieval for bounded cold latency.
+Request `retrieval: "hybrid"` explicitly when the local embedding index is
+prepared and semantic recall is needed.
 Cursor has activated Serena in this workspace under the registered project
 name `GRAPH ENGINEERING`. Serena is separate from the `graph-engineering`
 project MCP server. Its ignored project-only
@@ -150,8 +160,8 @@ files, and normal native indexing may include other source beyond a particular
 MCP request's selected packet. Disabling native indexing alone does not create
 a strict per-request boundary: Agent can still read/search files or include
 open-file context. For selected-source cloud use, avoid those native context
-paths, use the reviewed project MCP packet, and inspect tool calls and
-attachments before approving inference.
+paths, use only packets admitted by a pre-return export guard, and inspect
+tool calls and attachments before approving inference.
 The exact tracked `.env.example*` placeholders remain visible for template
 work; never put live credentials in them. Keep local values in excluded `.env`
 files.

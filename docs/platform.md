@@ -80,6 +80,8 @@ Configure the installed CLI as a stdio MCP server:
 
 Use `--client local` only for a consumer whose inference actually stays local. Cloud-backed clients are refused for offline projects. Cloud graph lookups apply the export allowlist to seeds and both resolved endpoints before traversal, so non-exportable files cannot disclose target identifiers or connect otherwise separate public nodes. MCP exposes context, symbols, graph relationships, templates, memory proposals, and run status. `--allow-run` separately enables starting existing managed plans. MCP does not replace a native client's own permissions or intercept all its model calls.
 
+The owner currently authorizes selected source/docs, not blanket shared-memory or operational-metadata export. Cloud `context_get` may return shared mandatory memory before client-side review, and cloud `run_status` returns run metadata. Do not use those cloud tools until pre-return scope guards are implemented and tested; see the [handover's immediate privacy task](claude-code-handover.md#the-next-engineering-phase). Suspend Graph-managed cloud worker packet dispatch until the same pre-dispatch mandatory-memory guard is tested. Path and credential-pattern filters cannot prove arbitrary allowlisted source is secret-free.
+
 ## Configure workers
 
 Providers are machine-local configuration, while the project policy determines which providers and source paths are allowed. Credentials are read from named environment variables and are never stored in project configuration.
