@@ -48,12 +48,12 @@ generated-app install; one failed-job retry at the same commit passed, with no
 source change. Local `dev` was fast-forwarded to the merge commit. No `main`,
 parent-repository, production-key provisioning, paid-Jev, or AWS deployment
 action occurred.
-This handover update was prepared on the pushed docs branch
-`chore/pr16-handover-20260924` (`fork/chore/pr16-handover-20260924`) and is
-tracked by [fork PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17)
-into `dev`. Before continuing, inspect the current branch, PR and `dev` tip
-rather than treating this snapshot as live status. At preparation time local
-`dev` and `fork/dev` were both
+This handover update was prepared on
+`chore/pr16-handover-20260924` and squash-merged into fork `dev` by
+[PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17) at
+`e871d8ad7f92649c538ad5be8086d4443cb78c1c`. Before continuing, inspect
+the live branch, PR and `dev` tip rather than treating this dated snapshot as
+live status. Before that docs merge, local `dev` and `fork/dev` were both
 `02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`.
 
 ## Where the work stands
@@ -66,8 +66,8 @@ rather than treating this snapshot as live status. At preparation time local
   a later, explicit partner step.
 - The earlier `cf4245848cab24181b104d5cc3eb36f19a32a9f7` fork-`dev` state
   and `feat/sealed-evidence-continuation-20260924` feature branch are history:
-  the latter was integrated by PR #16. The **current** integrated fork-`dev`
-  tip and post-merge CI are recorded above. Do not reopen completed PR work
+  the latter was integrated by PR #16. Its integration tip and post-merge CI
+  are recorded above as historical evidence. Do not reopen completed PR work
   because an older checklist paragraph calls it pending. Keep future
   implementation on focused branches based on the current fork `dev`.
 - `.serena/` was already untracked at handover. It is user/session data. Do not
@@ -252,8 +252,9 @@ or independent-evaluation claim is established.
 
 ## Evidence you can safely claim
 
-- The latest fork `dev` post-merge CI passed. Use the exact run linked above;
-  do not run the entire suite again simply to reconfirm an unchanged commit.
+- PR #16's fork-`dev` post-merge CI passed at the exact run linked above. It is
+  historical evidence, not a live assertion about later commits. Do not run
+  the entire suite again simply to reconfirm an unchanged commit.
 - The [real UTF-8 receipt](../evaluation/real-utf8-repair-2026-09-23.json)
   records the separate original baseline, one unassisted existing-Qwen+Laya
   candidate, unchanged focused Docker check, and owner-reported acceptance.
