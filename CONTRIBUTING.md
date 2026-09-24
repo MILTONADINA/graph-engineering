@@ -4,8 +4,10 @@
 
 The current implementation stack is hosted on `MILTONADINA/graph-engineering`.
 Push feature work to the `fork` remote and merge reviewed, green PRs into its
-`dev` branch. The owner may review and merge those PRs under the fork's
-zero-approval `dev` rule; that author review is not independent partner approval.
+`dev` branch. Under the owner's current authorization, the working agent may
+author-review the actual diff and exact-tip CI, then merge those PRs under the
+fork's zero-approval `dev` rule. That author review is not independent partner
+approval or human acceptance.
 Kevin reviews the integrated fork `dev` before any later synchronization with
 `NdahayoKevin25/graph-engineering`. Do not update the existing upstream PR
 while building this stack.
@@ -32,7 +34,16 @@ npm run setup:git
 
 Make small, coherent commits with descriptive subjects such as `feat(context): index repository symbols` or `fix(runtime): retain failed verification evidence`. Use your own configured Git identity. Do not add AI co-author trailers or generated attribution footers.
 
-Before a pull request, run `npm run check` and the checks relevant to the changed subsystem. The PR describes the final behavior, migration effects, and verification actually performed. The owner reviews the diff and CI results before integration into the fork's `dev`; Kevin reviews that integrated branch before upstream synchronization. Prefer squash merging a single-purpose PR; retain separate commits when they are independently meaningful. Do not force-push shared `dev` history.
+Before a code pull request, inspect the relevant source and prove a changed
+failure path with focused checks before running `npm run check` or other broad
+subsystem checks when warranted. A docs-only change needs proportionate
+formatting and link checks, not a repeat of an unchanged green engine suite.
+The PR describes the final behavior, migration effects, and verification
+actually performed. The working agent reviews the diff and exact-tip CI
+results before integration into the fork's `dev`; the owner may review as
+well. Kevin reviews that integrated branch before upstream synchronization.
+Prefer squash merging a single-purpose PR; retain separate commits when they
+are independently meaningful. Do not force-push shared `dev` history.
 
 Root workspaces include the scaffolding CLI, shared contracts, engine, and dashboard. Graph metadata validators retain standalone package locks; run `npm ci --prefix graph-templates/tools/validate-graph` followed by `npm test --prefix graph-templates/tools/validate-graph`.
 

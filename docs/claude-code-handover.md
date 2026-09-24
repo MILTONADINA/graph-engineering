@@ -123,12 +123,15 @@ instructions. Preserve the distinction between a **product goal**, an
 1. **One user-owned local context platform.** Store the durable engineering
    context on each user's Mac, shared across coding tools: repository
    structure/declarations/dependencies, searchable source/docs, reviewed
-   architecture decisions and constraints, relevant task/bug history,
-   summaries, and current task state. Use graph, full-text and optional local
-   semantic retrieval to build small, source-bound context packets. Do not
-   stuff the whole vault or conversation history into a model window. Memory
+   architecture decisions and constraints, relevant task/bug history, Git
+   history, curated session summaries, and current task state. Use graph,
+   full-text and optional local semantic retrieval to build small, source-bound
+   context packets. Do not stuff the whole vault or conversation history into
+   a model window. Memory
    writes require review, freshness/supersession handling, and a traceable
-   source; the current static graph is limited evidence, not runtime truth.
+   source. Broad automatic Git-history/session ingestion is a goal, **not** a
+   currently demonstrated capability; the current static graph, summaries,
+   reviewed memories and exact cache have narrower evidence.
 2. **Explicit cloud boundary.** Claude Code, Codex, and Cursor may receive
    selected repository **source and docs** through the project MCP server.
    Private memory and secrets must never be exported to their cloud models or
@@ -144,7 +147,11 @@ instructions. Preserve the distinction between a **product goal**, an
    retry/escalation, stop and memory-write decisions. The primary economic
    target is fewer expensive-model calls and smaller relevant inputs, not an
    unmeasured percentage claim. Batch independent questions when their shared
-   state permits it; dependent choices remain sequenced.
+   state permits it; dependent choices remain sequenced. The broader intended
+   funnel also includes a `need_llm?`/deterministic-tool bypass, structured
+   failure/log filtering, per-call output-token budgets, ranking generated
+   candidates, and choosing specialist agents/count. These are design goals,
+   **not** a claim that all are implemented or calibrated.
 4. **Decision authority is earned, not assumed.** A generator or person may
    propose novel architecture/implementation candidates; Laya/Jev can compare
    only explicit allowed alternatives. They cannot invent the solution, prove
@@ -165,9 +172,11 @@ instructions. Preserve the distinction between a **product goal**, an
    the engine's cost ledger and cannot be represented as a hard dollar cap.
 6. **Workers implement bounded specifications.** Give a worker a curated task,
    constraints and permitted files; require unchanged verifier tests and
-   risk-appropriate human review before accepting its patch. Failed attempts,
-   unknown cost/usage, and incomplete tests must remain visible. No classifier
-   confidence or successful test alone merges a PR or publishes artifacts.
+   risk-appropriate review before accepting its patch. Record human acceptance
+   separately where required; agent author-review is not that acceptance.
+   Failed attempts, unknown cost/usage, and incomplete tests must remain
+   visible. No classifier confidence or successful test alone merges a PR or
+   publishes artifacts.
 7. **Partner-owned Git history.** Work only in this repository and the owner's
    fork, on focused feature branches with PRs into fork `dev`, green exact-tip
    CI, reviewed diff and professional single-author commits. Never push to
@@ -375,17 +384,31 @@ model. In particular:
    from its branch into the fork's `dev`; do not commit directly on `dev`.
 2. For subsequent changes, fetch/fast-forward the fork `dev`, then create a
    focused `feat/`, `fix/`, or `chore/` branch. Push only to `fork`; PRs target
-   `MILTONADINA/graph-engineering:dev`. The owner reviews the actual diff and
-   green CI before merge. Kevin's later review is separate. No direct push to
+   `MILTONADINA/graph-engineering:dev`. The owner explicitly authorized the
+   working agent to review the actual diff and exact-tip green CI, then merge
+   PRs into fork `dev`; zero GitHub approvals are required there. This is
+   **author review**, not independent partner review or human acceptance.
+   Kevin's later review before parent sync is separate. No direct push to
    protected branches, no AI co-author trailers, no unrelated project name in
    commits/PRs, and no cross-repository edits.
-3. Follow the user's `AGENTS.md` working preference: no status-check loops or
-   rerunning passed work. Track existing live process handles to terminal
-   results. Before a test, inspect the relevant source, prerequisites and
-   expected outcome; resolve known blockers. Prove a speculative fix with a
-   focused check first, then run `npm run check` and subsystem-specific checks
-   only when changed code warrants it. Explain why a previously passing check
-   is rerun (changed source binding, recovery generation, or recorded failure).
+3. Follow the owner's working preference supplied in conversation (there is
+   no tracked `AGENTS.md` in this repository at this handover):
+
+   > Do not loop on status checks or rerun work that already passed. Track a
+   > live process by its existing handle, wait for its terminal result, and
+   > take the next concrete action. Rerun a check only when a changed source
+   > binding, recovery generation, or recorded failure requires it; explain
+   > that reason briefly. Report meaningful milestones, not repeated
+   > case-count updates.
+   >
+   > Before starting any test, rigorously inspect the relevant source,
+   > prerequisites, and expected outcome. Resolve known blockers first. In
+   > particular, do not launch a long suite on a speculative fix; establish
+   > focused evidence that the failure path is corrected before running it.
+
+   Run `npm run check` and subsystem-specific checks only when changed code
+   warrants them.
+
 4. Prefer exact, source-backed receipts and explicit unknowns in PR text.
    Automated verification is not human acceptance; author review is not
    independent partner review; synthetic fixtures are not held-out evidence;
@@ -413,11 +436,11 @@ needs a Markdown formatting/link check, not the full engine suite.
 
 The remaining work separates into three authorities:
 
-| Who can act                 | What can be done now                                                                                                                                                                 | What still needs outside evidence                                                                                          |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| Claude on the owner's fork  | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                          | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
-| Owner/operator              | Choose provider pricing and a numeric session cap when actually running metered Jev; review PRs and accept real-task outcomes; choose an independently governed witness/key service. | No per-user cap or external service is implicitly selected by the open-source defaults.                                    |
-| Kevin/independent reviewers | Inspect integrated fork `dev` and later coordinate any upstream sync; independently select/label/review held-out work and control the separated trust roles.                         | Author self-review or synthetic signed fixtures cannot substitute for independent governance.                              |
+| Who can act                 | What can be done now                                                                                                                                                                          | What still needs outside evidence                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Claude on the owner's fork  | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                   | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
+| Owner/operator              | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes and choose an independently governed witness/key service. | No per-user cap or external service is implicitly selected by the open-source defaults.                                    |
+| Kevin/independent reviewers | Inspect integrated fork `dev` and later coordinate any upstream sync; independently select/label/review held-out work and control the separated trust roles.                                  | Author self-review or synthetic signed fixtures cannot substitute for independent governance.                              |
 
 At any agent transition, start with a fresh status inspection and the linked
 primary documents, then continue with bounded code-side work under the stated
