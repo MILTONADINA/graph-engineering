@@ -49,10 +49,11 @@ source change. Local `dev` was fast-forwarded to the merge commit. No `main`,
 parent-repository, production-key provisioning, paid-Jev, or AWS deployment
 action occurred.
 This handover update was prepared on the pushed docs branch
-`chore/pr16-handover-20260924` (`fork/chore/pr16-handover-20260924`). It enters
-protected `dev` only through its docs PR. Before continuing, inspect the
-current branch, PR and `dev` tip rather than treating this snapshot as live
-status. At preparation time local `dev` and `fork/dev` were both
+`chore/pr16-handover-20260924` (`fork/chore/pr16-handover-20260924`) and is
+tracked by [fork PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17)
+into `dev`. Before continuing, inspect the current branch, PR and `dev` tip
+rather than treating this snapshot as live status. At preparation time local
+`dev` and `fork/dev` were both
 `02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`.
 
 ## Where the work stands
@@ -93,9 +94,14 @@ the existing template ecosystem. The shared project policy and stores support:
 1. Repository syntax/limited static graph, SQLite full-text search, optional
    offline Jina embeddings, structural summaries, and reviewed memory.
 2. Export-filtered context packets through a project MCP server for Claude
-   Code, Codex, and Cursor. Their cloud models may receive selected
-   repository source/docs, **never private memory or secrets**. Local storage
-   alone does not make a cloud client offline.
+   Code, Codex, and Cursor. Their cloud models may receive selected repository
+   source/docs and reviewed **shared** mandatory requirement/constraint memory
+   tied to exportable sources. Private mandatory memory causes rejection, and
+   other private memory is excluded from cloud retrieval. Secrets **must** be
+   excluded. Current path and content filters block recognized
+   patterns, but cannot prove arbitrary allowlisted source or shared memory
+   contains no embedded secret. Inspect the exact export packet before cloud
+   use. Local storage alone does not make a cloud client offline.
 3. Deterministic policy and a batched typed-decision controller. Local Laya
    and optional hosted Jev may rank only explicit allowed actions. Default
    `shadow` mode records their answers but never grants them authority to
@@ -124,19 +130,24 @@ instructions. Preserve the distinction between a **product goal**, an
 1. **One user-owned local context platform.** Store the durable engineering
    context on each user's Mac, shared across coding tools: repository
    structure/declarations/dependencies, searchable source/docs, reviewed
-   architecture decisions and constraints, relevant task/bug history, Git
-   history, curated session summaries, and current task state. Use graph,
-   full-text and optional local semantic retrieval to build small, source-bound
-   context packets. Do not stuff the whole vault or conversation history into
-   a model window. Memory
-   writes require review, freshness/supersession handling, and a traceable
-   source. Broad automatic Git-history/session ingestion is a goal, **not** a
-   currently demonstrated capability; the current static graph, summaries,
+   architecture decisions, requirements, API/schema contracts, coding
+   conventions, security constraints, bugs and solutions, Git history,
+   curated task/session summaries, and current task state. Preserve when a
+   decision was made and what superseded it. Use graph, full-text and optional
+   local semantic retrieval to build small, source-bound context packets. Do
+   not stuff the whole vault or conversation history into a model window.
+   Memory writes require review, freshness/supersession handling, and a
+   traceable source. Broad automatic Git-history/session ingestion is a goal,
+   **not a demonstrated capability**; the current static graph, summaries,
    reviewed memories and exact cache have narrower evidence.
 2. **Explicit cloud boundary.** Claude Code, Codex, and Cursor may receive
    selected repository **source and docs** through the project MCP server.
    Private memory and secrets must never be exported to their cloud models or
-   to hosted Jev. Local storage does not make those clients' inference offline.
+   to hosted Jev. The current MCP can also include reviewed shared
+   requirement/constraint memory sourced from exportable files; inspect that
+   text as part of the packet, not as blanket permission to export memory.
+   Filters cannot prove arbitrary allowlisted files contain no embedded
+   secret. Local storage does not make those clients' inference offline.
    Their native indexing, open-file, terminal and subscription paths are
    separate from the MCP export filter and require their own care. The user
    allowed selected source/docs, not unrestricted repository or memory export.
@@ -151,8 +162,11 @@ instructions. Preserve the distinction between a **product goal**, an
    state permits it; dependent choices remain sequenced. The broader intended
    funnel also includes a `need_llm?`/deterministic-tool bypass, structured
    failure/log filtering, per-call output-token budgets, ranking generated
-   candidates, and choosing specialist agents/count. These are design goals,
-   **not** a claim that all are implemented or calibrated.
+   architecture/implementation candidates, choosing specialist agents/count,
+   risk/security/regression scoring, and assessing whether rollback, human
+   approval or additional merge review is required. These are design goals,
+   **not** a claim that all are implemented, calibrated, or authorized to make
+   final approvals.
 4. **Decision authority is earned, not assumed.** A generator or person may
    propose novel architecture/implementation candidates; Laya/Jev can compare
    only explicit allowed alternatives. They cannot invent the solution, prove
@@ -169,8 +183,12 @@ instructions. Preserve the distinction between a **product goal**, an
    The current default external-API cap is $0. This owner's available paid
    decision provider is Jev, with a private local key pointer, but no numeric
    cap was supplied for this session: continue local/code-side work; abstain
-   from metered Jev calls. Subscription-backed coding-client usage is outside
-   the engine's cost ledger and cannot be represented as a hard dollar cap.
+   from metered Jev calls. Jev is the only metered API credential the owner has
+   identified for this project; the owner has Claude Code, Codex and Cursor
+   subscriptions, but has not supplied paid
+   OpenAI/Anthropic/Cursor API keys. Other providers are a later operator
+   choice. Subscription-backed coding-client usage is outside the engine's
+   cost ledger and cannot be represented as a hard dollar cap.
 6. **Workers implement bounded specifications.** Give a worker a curated task,
    constraints and permitted files; require unchanged verifier tests and
    risk-appropriate review before accepting its patch. Record human acceptance
@@ -178,12 +196,15 @@ instructions. Preserve the distinction between a **product goal**, an
    Failed attempts, unknown cost/usage, and incomplete tests must remain
    visible. No classifier confidence or successful test alone merges a PR or
    publishes artifacts.
-7. **Partner-owned Git history.** Work only in this repository and the owner's
-   fork, on focused feature branches with PRs into fork `dev`, green exact-tip
-   CI, reviewed diff and professional single-author commits. Never push to
-   `main` or Kevin's parent repo; Kevin reviews integrated fork `dev` before a
-   separately agreed upstream sync. No AI co-author trailer. Keep shared
-   Serena/global config and other project work untouched.
+7. **Partner-owned Git history.** Milton is Kevin's project partner, not an
+   outside drive-by contributor; this does not assert an unagreed legal
+   ownership split. Work only in this repository and Milton's fork, on focused
+   feature branches with PRs into fork `dev`, green exact-tip CI, reviewed diff
+   and professional single-author commits. Never push to `main` or Kevin's
+   parent repo; Kevin reviews integrated fork `dev` before a separately agreed
+   upstream sync. No AI co-author trailer or unrelated-project identifier in
+   tracked docs, PRs, comments or public artifacts. Keep shared Serena/global
+   config and other project work untouched.
 8. **Open-source release governance.** The intent is for Graph Engineering to
    be open source, not merely a public fork. This checkout has an MIT
    [license for `create-graph-app`](../create-graph-app/LICENSE) but no tracked
@@ -386,11 +407,12 @@ model. In particular:
 ## Git and test discipline for Claude Code
 
 1. Inspect `pwd`, `git status --short --branch`, `git log -1`, `git remote -v`,
-   and this handover's PR state. This document was prepared on a pushed docs
-   branch; verify whether that PR is now merged rather than assuming its
-   preparation snapshot still applies. Preserve `.serena/` and every ignored
-   private path. If the docs PR is still open, finish that PR into fork `dev`;
-   do not commit directly on `dev`.
+   and [PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17).
+   This document was prepared on a pushed docs branch. If the PR is open,
+   review its exact head and checks before merging into fork `dev`; if merged,
+   continue from the current fork `dev`. If the PR cannot be found, inspect
+   the pushed branch before recreating it. Preserve `.serena/` and every
+   ignored private path; do not commit directly on `dev`.
 2. For subsequent changes, fetch/fast-forward the fork `dev`, then create a
    focused `feat/`, `fix/`, or `chore/` branch. Push only to `fork`; PRs target
    `MILTONADINA/graph-engineering:dev`. The owner explicitly authorized the
@@ -398,8 +420,9 @@ model. In particular:
    PRs into fork `dev`; zero GitHub approvals are required there. This is
    **author review**, not independent partner review or human acceptance.
    Kevin's later review before parent sync is separate. No direct push to
-   protected branches, no AI co-author trailers, no unrelated project name in
-   commits/PRs, and no cross-repository edits.
+   protected branches, no AI co-author trailers, no unrelated project
+   identifiers in commits, tracked docs, PRs or public artifacts, and no
+   cross-repository edits.
 3. Follow the owner's working preference supplied in conversation (there is
    no tracked `AGENTS.md` in this repository at this handover):
 

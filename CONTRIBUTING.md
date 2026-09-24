@@ -28,9 +28,11 @@ git fetch fork
 git switch dev
 git pull --ff-only fork dev
 git switch -c feat/short-description
-npm ci
 npm run setup:git
 ```
+
+Run `npm ci` only when dependencies are absent or changed; do not repeat an
+unchanged install merely because a new branch was created.
 
 Make small, coherent commits with descriptive subjects such as `feat(context): index repository symbols` or `fix(runtime): retain failed verification evidence`. Use your own configured Git identity. Do not add AI co-author trailers or generated attribution footers.
 
