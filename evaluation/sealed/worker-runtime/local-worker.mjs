@@ -1,12 +1,22 @@
 // Trusted host relay for one local model call. Docker builds the public-only
 // request; the host retains its original bytes and sends them only to a frozen
-// loopback endpoint. This is not a signed evaluation or an oracle verifier.
-import { randomUUID } from "node:crypto";
+// loopback endpoint. Optional call signatures remain private, caller-pinned
+// claims, not authenticated model execution or promotion authority.
+import {
+  createHash,
+  createPrivateKey,
+  createPublicKey,
+  randomUUID,
+  sign,
+} from "node:crypto";
 import { spawn } from "node:child_process";
+import { constants } from "node:fs";
+import { lstat, open } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
+import path from "node:path";
 import { types } from "node:util";
 import { ArtifactStore } from "../artifacts.mjs";
-import { hashJson } from "../schema.mjs";
+import { canonicalJson, hashJson } from "../schema.mjs";
 import { SealedStore } from "../store.mjs";
 import {
   dockerClientEnvironment,
@@ -19,6 +29,9 @@ import { parseRetainedLocalProposal } from "./proposal.mjs";
 
 const SHA = /^[a-f0-9]{64}$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
+const SIGNED_WORKER_DELIVERY_DOMAIN =
+  "graph-engineering/sealed-worker-delivery/v1\n";
+const MAX_SIGNING_KEY_BYTES = 8192;
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const byteLengthOf = Object.getOwnPropertyDescriptor(
   typedArrayPrototype,
@@ -32,6 +45,218 @@ const bufferOf = Object.getOwnPropertyDescriptor(
   typedArrayPrototype,
   "buffer",
 ).get;
+
+function signingFields(input) {
+  if (
+    !input ||
+    typeof input !== "object" ||
+    types.isProxy(input) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(input)) ||
+    Reflect.ownKeys(input).length !== 4
+  )
+    throw new Error("Local worker signing needs exact private key options");
+  const result = Object.create(null);
+  for (const name of [
+    "keyPath",
+    "workerId",
+    "keyId",
+    "expectedPublicKeySha256",
+  ]) {
+    const field = Object.getOwnPropertyDescriptor(input, name);
+    if (!field?.enumerable || !Object.hasOwn(field, "value"))
+      throw new Error("Local worker signing refuses accessors");
+    result[name] = field.value;
+  }
+  if (
+    typeof result.keyPath !== "string" ||
+    !path.isAbsolute(result.keyPath) ||
+    result.keyPath.length > 4096 ||
+    /[\x00-\x1f\x7f]/.test(result.keyPath) ||
+    typeof result.workerId !== "string" ||
+    !ID.test(result.workerId) ||
+    typeof result.keyId !== "string" ||
+    !ID.test(result.keyId) ||
+    typeof result.expectedPublicKeySha256 !== "string" ||
+    !SHA.test(result.expectedPublicKeySha256)
+  )
+    throw new Error("Local worker signing options are invalid");
+  return result;
+}
+
+async function loadWorkerSigner(input, projectId, collectionId) {
+  if (input === undefined) return null;
+  const fields = signingFields(input);
+  if (process.platform === "win32" || !constants.O_NOFOLLOW)
+    throw new Error("Private local worker signing is unsupported here");
+  let handle;
+  let keyBytes;
+  try {
+    const parent = await lstat(path.dirname(fields.keyPath));
+    const leaf = await lstat(fields.keyPath);
+    if (
+      !parent.isDirectory() ||
+      parent.isSymbolicLink() ||
+      parent.uid !== process.getuid() ||
+      (parent.mode & 0o077) !== 0 ||
+      !leaf.isFile() ||
+      leaf.isSymbolicLink() ||
+      leaf.uid !== process.getuid() ||
+      (leaf.mode & 0o077) !== 0 ||
+      leaf.nlink !== 1 ||
+      leaf.size < 1 ||
+      leaf.size > MAX_SIGNING_KEY_BYTES
+    )
+      throw new Error("private signing key required");
+    handle = await open(
+      fields.keyPath,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    const opened = await handle.stat();
+    if (
+      !opened.isFile() ||
+      opened.dev !== leaf.dev ||
+      opened.ino !== leaf.ino ||
+      opened.uid !== leaf.uid ||
+      opened.mode !== leaf.mode ||
+      opened.size !== leaf.size ||
+      opened.nlink !== 1
+    )
+      throw new Error("private signing key changed");
+    keyBytes = await handle.readFile();
+    const current = await lstat(fields.keyPath);
+    const after = await handle.stat();
+    if (
+      keyBytes.length !== leaf.size ||
+      current.dev !== leaf.dev ||
+      current.ino !== leaf.ino ||
+      after.dev !== leaf.dev ||
+      after.ino !== leaf.ino ||
+      after.size !== leaf.size ||
+      after.mtimeMs !== opened.mtimeMs
+    )
+      throw new Error("private signing key changed");
+    const privateKey = createPrivateKey(keyBytes);
+    if (privateKey.asymmetricKeyType !== "ed25519")
+      throw new Error("Ed25519 signing key required");
+    const publicKey = createPublicKey(privateKey);
+    const publicKeyPem = publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString();
+    const publicKeySha256 = createHash("sha256")
+      .update(publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex");
+    if (publicKeySha256 !== fields.expectedPublicKeySha256)
+      throw new Error("signing key differs from pin");
+    return {
+      privateKey,
+      pin: Object.freeze({
+        version: "1.0.0",
+        kind: "sealed-worker-key-pin",
+        projectId,
+        collectionId,
+        workerId: fields.workerId,
+        keyId: fields.keyId,
+        publicKeyPem,
+        publicKeySha256,
+      }),
+    };
+  } catch {
+    // Never include the key path, key bytes, PEM parser detail or a cause.
+    throw new Error("Local worker signing key is unavailable or invalid");
+  } finally {
+    keyBytes?.fill(0);
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
+function signSettledWorkerDelivery(
+  signer,
+  store,
+  metadata,
+  reservedCall,
+  requestArtifact,
+  responseArtifact,
+  deliveredAt,
+) {
+  const inspection = store.inspectCollection(metadata.collectionId);
+  const item = inspection.assignments.find(
+    (entry) => entry.reservation?.reservationId === metadata.reservationId,
+  );
+  const call = item?.calls.find(
+    (entry) => entry.reservation.callId === reservedCall.callId,
+  );
+  const provider = item
+    ? inspection.plan.configurations[item.assignment.arm].providers.find(
+        (entry) => entry.providerId === call?.reservation.providerId,
+      )
+    : undefined;
+  if (
+    inspection.closure ||
+    !item?.publicDispatch ||
+    !item.reservation ||
+    item.receipt ||
+    item.calls.length !== 1 ||
+    !call?.receipt ||
+    call.receipt.status !== "completed" ||
+    !provider ||
+    hashJson(item.publicDispatch) !== metadata.claimSha256 ||
+    hashJson(call.reservation) !== hashJson(reservedCall) ||
+    call.reservation.requestSha256 !== requestArtifact.sha256 ||
+    call.receipt.responseSha256 !== responseArtifact.sha256 ||
+    call.receipt.reportedModel !== provider.requestedModel ||
+    typeof deliveredAt !== "string" ||
+    !Number.isFinite(Date.parse(deliveredAt)) ||
+    Date.parse(deliveredAt) < Date.parse(call.reservation.reservedAt) ||
+    Date.parse(deliveredAt) > Date.parse(call.receipt.finishedAt)
+  )
+    throw new Error("Local worker signed delivery lost its settled call");
+  const payload = Object.freeze({
+    version: "1.0.0",
+    kind: "sealed-worker-delivery",
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    planSha256: inspection.planSha256,
+    assignmentId: item.assignment.assignmentId,
+    reservationId: item.reservation.reservationId,
+    publicDispatchSha256: metadata.claimSha256,
+    callId: call.reservation.callId,
+    callReservationSha256: hashJson(call.reservation),
+    callReceiptSha256: hashJson(call.receipt),
+    providerId: provider.providerId,
+    providerSha256: hashJson(provider),
+    requestedModel: call.reservation.requestedModel,
+    reportedModel: call.receipt.reportedModel,
+    requestSha256: requestArtifact.sha256,
+    requestBytes: requestArtifact.bytes,
+    responseSha256: responseArtifact.sha256,
+    responseBytes: responseArtifact.bytes,
+    deliveredAt,
+  });
+  const unsigned = {
+    version: "1.0.0",
+    kind: "signed-sealed-worker-delivery",
+    workerId: signer.pin.workerId,
+    keyId: signer.pin.keyId,
+    payload,
+  };
+  const message = Buffer.from(
+    SIGNED_WORKER_DELIVERY_DOMAIN + canonicalJson(unsigned),
+  );
+  let signature;
+  try {
+    signature = sign(null, message, signer.privateKey).toString("base64");
+  } finally {
+    message.fill(0);
+  }
+  return Object.freeze({
+    callId: call.reservation.callId,
+    pin: signer.pin,
+    envelope: Object.freeze({
+      ...unsigned,
+      signature,
+    }),
+  });
+}
 
 function copyPacket(input) {
   if (
@@ -347,13 +572,21 @@ const unknownUsage = () => ({
 
 /**
  * Use only as SealedPublicPacketBridge.dispatch({send})'s trusted callback.
- * No private oracle or memory is read. The returned receipt is local, unsigned
- * and cannot settle the engineering attempt or authorize promotion.
+ * No private oracle or memory is read. The optional signed call claim is
+ * caller-pinned private metadata, not worker/model attestation or promotion.
  */
 export async function runOneShotLocalModelWorker(
   input,
   metadataInput,
-  { store, artifacts, providerId, imageId, endpoint, signal } = {},
+  {
+    store,
+    artifacts,
+    providerId,
+    imageId,
+    endpoint,
+    signal,
+    workerSigning,
+  } = {},
 ) {
   if (!(artifacts instanceof ArtifactStore))
     throw new Error("Local worker needs the trusted original-byte vault");
@@ -361,6 +594,15 @@ export async function runOneShotLocalModelWorker(
   const ack = inspectPublicPacket(packetBytes);
   const metadata = dispatchMetadata(metadataInput, ack);
   const frozen = frozenLocalProvider(store, metadata, providerId);
+  // Key failure consumes the bridge's one-shot dispatch claim, but occurs
+  // before Docker, call reservation, or any model request.
+  const projectId = store.inspectCollection(metadata.collectionId).plan
+    .projectId;
+  const signer = await loadWorkerSigner(
+    workerSigning,
+    projectId,
+    metadata.collectionId,
+  );
   const dockerEndpoint = localDockerEndpoint(endpoint);
   const expected = buildLocalModelRequest(
     packetBytes,
@@ -395,6 +637,8 @@ export async function runOneShotLocalModelWorker(
   let status = "ambiguous";
   let usage = unknownUsage();
   let settled = false;
+  let signedWorkerDelivery = null;
+  let deliveredAt = null;
   try {
     assertReadyToPost(store, metadata, call);
     const remaining =
@@ -409,6 +653,7 @@ export async function runOneShotLocalModelWorker(
       Math.min(120_000, remaining),
       signal,
     );
+    deliveredAt = new Date().toISOString();
     httpStatus = response.status;
     responseArtifact = await artifacts.put(response.bytes);
     usage = {
@@ -451,6 +696,16 @@ export async function runOneShotLocalModelWorker(
       finishedAt: new Date().toISOString(),
     });
     settled = true;
+    if (signer && status === "completed")
+      signedWorkerDelivery = signSettledWorkerDelivery(
+        signer,
+        store,
+        metadata,
+        call,
+        requestArtifact,
+        responseArtifact,
+        deliveredAt,
+      );
   } catch (error) {
     if (!settled) {
       if (
@@ -488,6 +743,7 @@ export async function runOneShotLocalModelWorker(
     reportedModel,
     httpStatus,
     status,
+    signedWorkerDelivery,
     promotionEligible: false,
   });
 }

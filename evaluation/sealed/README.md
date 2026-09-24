@@ -285,8 +285,9 @@ signed provenance are still required for sealed held-out evidence.
 An optional [public-packet intake sandbox](worker-runtime/README.md) sends
 only the bridge-retained packet to a fixed, offline Docker guest and returns a
 content-hash acknowledgment. A separate one-call local model relay can submit
-the same committed bytes to a loopback endpoint. Neither unsigned observation
-settles the engineering attempt or proves delivery of a proposal.
+the same committed bytes to a loopback endpoint. Neither local observation
+settles the engineering attempt or proves delivery of a proposal; an optional
+signed call claim does not change that boundary.
 
 For a **reviewed v1 selected-source repository task only**,
 `runOneShotLocalRepositoryAttempt()` in `local-repository-attempt.mjs` joins
@@ -430,11 +431,13 @@ selected Ed25519 worker-key pin, a purpose-separated signed claim, a complete
 closed ledger and exact original request/response bytes, it verifies the
 signature, frozen provider/dispatch/call identities and both byte hashes. It
 returns only hashes and `promotionEligible: false`; it never exports the
-original bytes. It does not create or provision a signer, verify that the
-pin's owner is independent, attest the worker binary or loaded model, prove
-the named model actually produced the response, authenticate source origin,
-or cover private oracle execution. No production worker currently emits this
-receipt, and one verified call is not whole-cohort provenance. The verifier
+original bytes. The opt-in local worker now emits a matching private signed
+claim after one completed model call using an operator-provisioned owner-only
+Ed25519 key file. It does not provision that signer, verify that the pin's
+owner is independent, attest the worker binary or loaded model, prove the
+named model actually produced the response, authenticate source origin,
+or cover private oracle execution. One verified call is not whole-cohort
+provenance. The verifier
 must be joined to independently governed key control, protected transport,
 oracle receipts and a current witness before any held-out authority claim.
 
@@ -448,9 +451,10 @@ cohort inspector can bind an explicit `null` when the ledger has no such claim.
 Its receipt reports that count and never claims public-packet delivery. Passing
 these claims as `workerDeliveries` to `inspectSealedEvidenceReadiness()` runs the
 coverage check inside that API's optional before/after witness comparison. The
-result remains private, analysis-only and `promotionEligible: false`: there is
-still no production signer, independently governed worker key, attested loaded
-model, authenticated source/oracle runtime, or anti-rollback witness.
+result remains private, analysis-only and `promotionEligible: false`: the
+optional local signer is not independently governed, and there is still no
+attested loaded model, authenticated source/oracle runtime, or anti-rollback
+witness.
 
 `inspectSealedCurrentGovernance()` in the engine also compares that signed
 aggregate with two fresh, challenge-bound checkpoints from a caller-configured

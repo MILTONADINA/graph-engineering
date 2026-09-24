@@ -24,7 +24,12 @@ import {
 export const SIGNED_WORKER_DELIVERY_DOMAIN =
   "graph-engineering/sealed-worker-delivery/v1\n";
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
-const model = z.string().min(1).max(200);
+// Match the frozen provider/call label and local request model bounds.
+const model = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[^\x00-\x1f\x7f]+$/);
 const bytes = z.number().int().positive().max(2_000_000);
 const timestamp = z.string().datetime();
 const pinSchema = z
