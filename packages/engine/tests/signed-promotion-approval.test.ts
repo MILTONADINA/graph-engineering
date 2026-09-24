@@ -10,7 +10,7 @@ import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
 import {
   inspectSignedPromotionApproval,
   SIGNED_PROMOTION_APPROVAL_DOMAIN,
-} from "../src/signed-promotion-approval.js";
+} from "../src/index.js";
 import { declaredSelectionAggregateFixture } from "./sealed-aggregate-fixture.js";
 
 const nowMs = Date.parse("2026-01-04T00:00:00.000Z");
