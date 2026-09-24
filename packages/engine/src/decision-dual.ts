@@ -450,7 +450,7 @@ export async function consultBothDecisions(
   if (
     providers.jev.model !== "jev-1.13.0" ||
     providers.jev.pricing?.unit !== "input-token" ||
-    providers.jev.pricing.maxInputTokens !== 64000 ||
+    providers.jev.pricing.inputTokenReserve !== 64000 ||
     providers.jev.pricing.usdPerMillionInputTokens !== 0.042
   )
     throw new Error(

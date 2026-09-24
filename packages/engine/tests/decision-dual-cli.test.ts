@@ -50,7 +50,7 @@ async function fixture() {
       pricing: {
         unit: "input-token",
         usdPerMillionInputTokens: 0.042,
-        maxInputTokens: 64000,
+        inputTokenReserve: 64000,
         version: "jev-1.13.0-2026-09-23",
       },
     },

@@ -78,7 +78,7 @@ async function fixture(keepDecisionProviders = false, v2 = false) {
       pricing: {
         unit: "input-token",
         usdPerMillionInputTokens: 0.042,
-        maxInputTokens: 64000,
+        inputTokenReserve: 64000,
         version: "reviewed",
       },
     },

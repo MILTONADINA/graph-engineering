@@ -65,6 +65,10 @@ export interface DecisionBatchOptions {
   /** Opaque loader-issued binding; raw caller identity/authority is never accepted. */
   promotionBinding?: PromotionDispatchBinding;
   signal?: AbortSignal;
+  /** Null waits for caller cancellation; other callers retain the default deadline. */
+  requestTimeoutMs?: number | null;
+  /** Require the exact model and a complete typed answer set. */
+  strictResponse?: boolean;
   budget?: DecisionBudget;
 }
 export interface DecisionBatchResult {
@@ -311,6 +315,13 @@ export async function decideBatch(
         throw new Error(
           "Decision policy changed before dispatch; baseline retained",
         );
+      if (
+        options.requestTimeoutMs !== undefined &&
+        options.requestTimeoutMs !== null &&
+        (!Number.isSafeInteger(options.requestTimeoutMs) ||
+          options.requestTimeoutMs <= 0)
+      )
+        throw new Error("Invalid decision request timeout");
       dispatched = true;
       const response = await fetch(provider.endpoint, {
         method: "POST",
@@ -320,14 +331,51 @@ export async function decideBatch(
           ...(key ? { Authorization: `Bearer ${key}` } : {}),
         },
         body,
-        signal: AbortSignal.any([
-          options.signal ?? new AbortController().signal,
-          AbortSignal.timeout(10000),
-        ]),
+        signal:
+          options.requestTimeoutMs === null
+            ? options.signal
+            : AbortSignal.any([
+                options.signal ?? new AbortController().signal,
+                AbortSignal.timeout(options.requestTimeoutMs ?? 10000),
+              ]),
       });
       if (!response.ok)
         throw new Error(`Decision provider HTTP ${response.status}`);
       result = await readDecisionResponse(response);
+      if (
+        options.strictResponse &&
+        (result.model !== provider.model ||
+          !result.answers ||
+          typeof result.answers !== "object" ||
+          Array.isArray(result.answers) ||
+          Object.keys(result.answers).length !== pending.length ||
+          (provider.id === "jev" &&
+            (!result.usage ||
+              typeof result.usage !== "object" ||
+              Array.isArray(result.usage) ||
+              count(result.usage.input_tokens) === null ||
+              count(result.usage.output_tokens) === null)) ||
+          pending.some((question) => {
+            if (!Object.hasOwn(result!.answers, question.id)) return true;
+            const answer = result!.answers[question.id];
+            return (
+              !answer ||
+              typeof answer !== "object" ||
+              Array.isArray(answer) ||
+              (provider.id === "jev" && answer.type !== "choice") ||
+              typeof answer.confidence !== "number" ||
+              !Number.isFinite(answer.confidence) ||
+              answer.confidence < 0 ||
+              answer.confidence > 1 ||
+              !answer.probabilities ||
+              typeof answer.probabilities !== "object" ||
+              Array.isArray(answer.probabilities)
+            );
+          }))
+      )
+        throw new Error(
+          "Decision response model or typed answer set did not match the request",
+        );
     } catch (error) {
       failure =
         error instanceof Error ? error.message : "Decision provider failed";
@@ -362,8 +410,7 @@ export async function decideBatch(
       callUsage = {
         callId,
         provider: provider.id,
-        model:
-          typeof result?.model === "string" ? result.model : provider.model,
+        model: typeof result?.model === "string" ? result.model : "unreported",
         questionCount: pending.length,
         inputTokens,
         outputTokens,
@@ -378,7 +425,10 @@ export async function decideBatch(
       };
       usages.push(callUsage);
       if (tokenPriced && result !== null && inputTokens === null) {
-        failure = "Decision provider omitted billable input-token usage";
+        failure =
+          provider.id === "jev"
+            ? "Jev input-token usage was not reported; reservation retained"
+            : "Decision provider omitted billable input-token usage";
         accountingFailure = true;
       }
       if (
