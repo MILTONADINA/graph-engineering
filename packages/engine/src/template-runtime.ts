@@ -29,9 +29,11 @@ import { authenticationTemplates } from "./template-runtime-auth.js";
 import { permissionTemplates } from "./template-runtime-permissions.js";
 import { storageTemplates } from "./template-runtime-storage.js";
 import { devopsTemplates } from "./template-runtime-devops.js";
+import { deploymentTemplates } from "./template-runtime-deployment.js";
 import {
   awsTemplates,
   awsDescriptorForSecretScan,
+  isAwsDescriptorPath,
 } from "./template-runtime-aws.js";
 import { databaseTemplates } from "./template-runtime-database.js";
 import { frontendTemplates } from "./template-runtime-frontend.js";
@@ -261,6 +263,7 @@ const extensions: Record<string, AuditedTemplateExtension> = {
   ...permissionTemplates,
   ...storageTemplates,
   ...devopsTemplates,
+  ...deploymentTemplates,
   ...awsTemplates,
   ...databaseTemplates,
   ...frontendTemplates,
@@ -982,8 +985,9 @@ export async function renderTemplateProposal(
   const changes = [];
   for (const artifact of artifacts) {
     let scannerContent = artifact.content;
-    if (templateId === "devops.aws") {
+    if (isAwsDescriptorPath(artifact.path)) {
       if (
+        !["devops.aws", "devops.deployment"].includes(templateId) ||
         artifact.path !== target("deploy/ecs-express-create-service.json") ||
         isAllowedPath(artifact.path, options.policy, true)
       )

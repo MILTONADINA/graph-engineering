@@ -1307,21 +1307,36 @@
     },
     {
       "id": "devops.deployment",
-      "name": "Deployment Orchestrator",
-      "version": "0.1.0",
+      "name": "ECS Express Deployment Plan",
+      "version": "1.0.0",
       "category": "devops",
       "subcategory": "deployment",
-      "status": "planned",
-      "description": "Planned. A higher-level composition node analogous to api.crud — given a target (docker/serverless/vm), invokes devops.docker + devops.github-actions + a target-specific node (e.g. the offline devops.aws ECS Express descriptor) in the right order and reconciles their combined output into one deployment.schema.json. Not yet implemented; devops.docker, devops.github-actions and devops.aws are usable independently in the meantime.",
+      "status": "implemented",
+      "description": "Offline-only ECS Express Mode composition of the audited Docker, build/test GitHub Actions and private AWS request renderers. Requires the reviewed Dockerfile to be applied first; emits a public, sanitized deployment schema plus the private AWS descriptor without building or deploying anything.",
       "tags": [
         "devops",
         "deployment",
-        "crud",
         "docker",
-        "ci"
+        "test"
       ],
-      "inputs": [],
-      "outputs": [],
+      "inputs": [
+        "target",
+        "generatedAt",
+        "serviceName",
+        "imageUri",
+        "port",
+        "executionRoleArn",
+        "infrastructureRoleArn",
+        "taskRoleArn",
+        "subnetIds",
+        "securityGroupIds",
+        "secrets",
+        "acknowledgeUnverifiedAwsPrerequisites",
+        "mainBranch",
+        "includeMigrations",
+        "migrationEnvironment"
+      ],
+      "outputs": ["files"],
       "dependsOn": [
         {
           "id": "devops.docker",
@@ -1333,14 +1348,14 @@
         },
         {
           "id": "devops.aws",
-          "relationship": "extends"
+          "relationship": "requires"
         }
       ],
       "environment": [],
       "testing": {
-        "strategy": "none",
-        "location": "",
-        "command": ""
+        "strategy": "unit",
+        "location": "packages/engine/tests/template-runtime-deployment.test.ts",
+        "command": "npm test -- tests/template-runtime-deployment.test.ts"
       },
       "compatibleNodes": [
         "devops.docker",
