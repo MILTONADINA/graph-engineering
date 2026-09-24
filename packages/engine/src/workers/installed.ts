@@ -871,6 +871,9 @@ async function invokeCursorWorker(input: WorkerInput): Promise<WorkerResult> {
     throw new Error(
       "Cursor SDK proposal mode cannot enforce a selected reasoning effort",
     );
+  // Model validation and agent execution use separate first-party origins in
+  // the audited SDK build. Both must be explicitly approved before launch.
+  assertEndpoint("https://api.cursor.com", policy);
   assertEndpoint("https://api2.cursor.sh", policy);
   if (!provider.apiKeyEnv)
     throw new Error(

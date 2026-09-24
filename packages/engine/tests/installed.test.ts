@@ -68,6 +68,7 @@ function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
         "claude.ai",
         "api.openai.com",
         "chatgpt.com",
+        "api.cursor.com",
         "api2.cursor.sh",
       ],
     },
@@ -490,7 +491,7 @@ describe("Cursor SDK text-only proposals", () => {
     await expect(access(run.options.cwd)).rejects.toThrow();
   });
 
-  it("requires an explicit key and an allowed Cursor host before launching", async () => {
+  it("requires an explicit key and both Cursor hosts before launching", async () => {
     const request = input("cursor");
     delete request.effort;
     vi.stubEnv("CURSOR_API_KEY", "");
@@ -501,6 +502,14 @@ describe("Cursor SDK text-only proposals", () => {
     request.policy.allowedHosts = [];
     await expect(invokeInstalledWorker(request)).rejects.toThrow(
       "Project policy denies endpoint",
+    );
+    request.policy.allowedHosts = ["api2.cursor.sh"];
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "Project policy denies endpoint api.cursor.com",
+    );
+    request.policy.allowedHosts = ["api.cursor.com"];
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "Project policy denies endpoint api2.cursor.sh",
     );
     expect(nativeCalls).toEqual([]);
   });
