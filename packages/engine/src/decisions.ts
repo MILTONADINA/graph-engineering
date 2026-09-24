@@ -34,8 +34,10 @@ export interface DecisionProvider {
     | {
         unit: "input-token";
         usdPerMillionInputTokens: number;
-        /** Full published Jev request envelope, reserved before dispatch. */
-        maxInputTokens: 64000;
+        /** Mandatory BrightPath Jev consultation reserves this full envelope. */
+        maxInputTokens?: 64000;
+        /** Other hosted decisions may use a smaller reviewed reservation. */
+        inputTokenReserve?: number;
         version: string;
       };
 }
@@ -150,14 +152,27 @@ export const decisionProviderSchema = z
           .object({
             unit: z.literal("input-token"),
             usdPerMillionInputTokens: costSchema.positive(),
-            maxInputTokens: z.literal(64000),
+            maxInputTokens: z.literal(64000).optional(),
+            inputTokenReserve: z
+              .number()
+              .int()
+              .positive()
+              .max(1_000_000)
+              .optional(),
             version: labelSchema,
           })
           .strict(),
       ])
       .optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (provider) =>
+      provider.pricing?.unit !== "input-token" ||
+      (provider.pricing.maxInputTokens !== undefined) !==
+        (provider.pricing.inputTokenReserve !== undefined),
+    "Token pricing requires exactly one reviewed reservation",
+  );
 export async function decisionProviders(
   dataDir: string,
 ): Promise<DecisionProvider[]> {

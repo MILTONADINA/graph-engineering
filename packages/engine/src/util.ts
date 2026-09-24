@@ -47,9 +47,13 @@ export function command(
       options.timeoutMs === null
         ? Infinity
         : performance.now() + (options.timeoutMs ?? 60000);
+    const environment = { ...(options.env ?? process.env) };
+    // Jev is consumed only by in-process HTTPS dispatch. Never pass its bearer
+    // credential to git, Docker, compilers, or installed coding clients.
+    delete environment.GRAPH_JEV_API_KEY;
     const child = spawn(executable, argv, {
       cwd: options.cwd,
-      env: options.env ?? process.env,
+      env: environment,
       detached: process.platform !== "win32",
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],

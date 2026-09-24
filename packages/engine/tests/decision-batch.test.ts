@@ -412,6 +412,80 @@ describe("decision accounting reservations", () => {
       version: "jev-1.13.0-2026-09-23",
     },
   });
+  const tokenReserved = (inputTokenReserve: number) => ({
+    ...hosted(),
+    pricing: {
+      unit: "input-token" as const,
+      usdPerMillionInputTokens: 0.042,
+      inputTokenReserve,
+      version: "test-reviewed-token-rate",
+    },
+  });
+  it("reserves a reviewed token bound before dispatch and settles actual usage", async () => {
+    const order: string[] = [];
+    const reserve = vi.fn(async () => {
+      order.push("reserve");
+    });
+    const settle = vi.fn(async () => {
+      order.push("settle");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        order.push("fetch");
+        return response(
+          {
+            workflow: { choice: "safe", confidence: 0.7 },
+            effort: { choice: "high", confidence: 0.7 },
+          },
+          { usage: { input_tokens: 120, output_tokens: 12 } },
+        );
+      }),
+    );
+    const input = options();
+    input.providers = [tokenReserved(65_536)];
+    input.policy.maxCostUsd = 0.01;
+    input.budget = { reserve, settle };
+    const result = await decideBatch(input);
+    expect(order).toEqual(["reserve", "fetch", "settle"]);
+    expect(result.usage[0]?.reservedUsd).toBeCloseTo(0.002752512);
+    expect(result.usage[0]?.chargedUsd).toBeCloseTo(0.00000504);
+  });
+  it("refuses a serialized token request larger than its reviewed reserve", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const input = options();
+    input.providers = [tokenReserved(16)];
+    input.policy.maxCostUsd = 1;
+    input.budget = { reserve: vi.fn(), settle: vi.fn() };
+    const result = await decideBatch(input);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(input.budget.reserve).not.toHaveBeenCalled();
+    expect(result.records[0]?.evidence.failure).toContain("reservation");
+  });
+  it("rejects reported token usage beyond a reviewed smaller reserve", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response(
+          {
+            workflow: { choice: "safe", confidence: 0.7 },
+            effort: { choice: "high", confidence: 0.7 },
+          },
+          { usage: { input_tokens: 2048, output_tokens: 10 } },
+        ),
+      ),
+    );
+    const input = options();
+    input.providers = [tokenReserved(1024)];
+    input.policy.maxCostUsd = 0.01;
+    input.budget = { reserve: vi.fn(), settle: vi.fn() };
+    const result = await decideBatch(input);
+    expect(result.records[0]?.evidence.failure).toContain("exceeded");
+    expect(result.usage[0]?.chargedUsd).toBeGreaterThan(
+      result.usage[0]?.reservedUsd ?? 0,
+    );
+  });
   it("reserves the full reviewed Jev envelope, then debits reported input tokens", async () => {
     const reserve = vi.fn(),
       settle = vi.fn();

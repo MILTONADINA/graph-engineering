@@ -279,8 +279,20 @@ Add `laya` to the project's allowed `policy.providers`. Local Laya is permitted
 with local inference and denied outbound networking. Jev requires its `jev`
 provider entry, an explicit permitted HTTPS endpoint, cloud inference policy,
 and its credential environment variable. No hosted Jev endpoint or model
-version is invented by the engine; use the actual documented endpoint and
-supported model from your account.
+version is invented by the engine; use the [official API schema](https://api.typesafe.ai/docs)
+and a supported model from your account.
+
+On this Mac, the optional `graph:local` wrapper can load the Jev credential from
+an ignored `.graph/local/jev-key-source.json` file with private permissions. The
+file contains only an absolute path and a `plain` or `rtf` format; it never
+contains the key itself. The referenced key file must also be a private regular
+file. For RTF, the wrapper converts it in memory with macOS `textutil`, validates
+that the result is one printable token, and passes it to the engine as
+`GRAPH_JEV_API_KEY` only when explicitly launched with
+`npm run graph:local -- --with-jev ...`. Ordinary `graph:local` commands and the
+Laya sidecar do not receive this key. The engine's
+decision provider entry uses `apiKeyEnv: "GRAPH_JEV_API_KEY"`; credentials must
+never be placed in `decisions.json`, Git, or a cloud context packet.
 
 The sidecar accepts POST `/v1/decide` (also `/v1/system-one`) with:
 
@@ -323,13 +335,17 @@ through `callId`. Missing input/output tokens and reported costs are `null`,
 not zero. Do not add the same call's cost once for every question.
 
 A reviewed private provider entry may contain fixed `request`/`question`
-pricing (`usdPerUnit`) or Jev input-token pricing with `unit: "input-token"`,
-`usdPerMillionInputTokens`, `maxInputTokens: 64000`, and an identifiable
-`version`. [TypeSafe's Jev 1.13 model reference](https://docs.typesafe.ai/models)
+pricing (`usdPerUnit`) or input-token pricing with a reviewed
+`usdPerMillionInputTokens`, `version`, and reservation. Generic hosted decisions
+may set `inputTokenReserve`. The serialized request must fit that reservation
+even when measured pessimistically as UTF-8 bytes. This proxy is a client-side
+bound, not a guarantee of provider tokenization. The mandatory BrightPath Jev
+path instead requires `maxInputTokens: 64000`, reserving the full published
+envelope before dispatch. [TypeSafe's Jev 1.13 model reference](https://docs.typesafe.ai/models)
 lists $0.042 per million input tokens, free output tokens, and a 64k total
-request context as checked on 2026-09-23. Pin the model and review the current
-rate for the actual endpoint/account before configuring it; the repository has
-no default hosted rate. A direct TypeSafe entry for that reviewed rate is:
+request context as checked on 2026-09-23. Verify the applicable account rate
+and model; the repository has no default hosted price or spending limit. The
+reviewed direct TypeSafe entry is:
 
 ```json
 "pricing": {
@@ -340,14 +356,11 @@ no default hosted rate. A direct TypeSafe entry for that reviewed rate is:
 }
 ```
 
-The adapter reserves the **full** 64k input-token envelope before sending a
-token-priced request, then settles from valid provider-reported `input_tokens`.
-It never estimates token use from text length. Missing input usage or an
-ambiguous dispatched failure leaves the reservation open for reconciliation,
-unless the provider separately reports a charge above it; that larger known
-charge is debited. Usage beyond the reviewed envelope or a reported charge
-above the reservation withholds the answer. Existing fixed-unit entries retain
-their prior behavior.
+Successful calls settle from provider-reported `usage.input_tokens`; the
+adapter never infers token use from text length. Missing usage or ambiguous
+dispatched failure leaves the full reservation open for reconciliation unless
+the provider separately reports a larger known charge. Usage or cost beyond
+the reservation withholds the answer. Fixed-unit entries retain their behavior.
 
 Cost-capped hosted decisions require that reviewed bounded pricing and a
 persistent `DecisionBudget` implementation. Its `reserve` callback must

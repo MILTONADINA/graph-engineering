@@ -112,8 +112,12 @@ function reservationCost(
   if (provider.id === "laya") return 0;
   const price = provider.pricing;
   if (!price) return null;
-  if (price.unit === "input-token")
-    return (price.maxInputTokens * price.usdPerMillionInputTokens) / 1_000_000;
+  if (price.unit === "input-token") {
+    const reserve = price.maxInputTokens ?? price.inputTokenReserve;
+    return reserve === undefined
+      ? null
+      : (reserve * price.usdPerMillionInputTokens) / 1_000_000;
+  }
   return price.usdPerUnit * (price.unit === "question" ? questionCount : 1);
 }
 function strings(value: unknown): string[] {
@@ -274,6 +278,25 @@ export async function decideBatch(
         throw new Error(
           "Compact decision state exceeds the configured model limit; abstaining",
         );
+      const body = JSON.stringify({
+        model: provider.model,
+        state,
+        questions: questionMap,
+      });
+      const bodyBytes = Buffer.byteLength(body, "utf8");
+      if (bodyBytes > 64 * 1024)
+        throw new Error(
+          "Decision request exceeds the complete batch byte limit",
+        );
+      const price = provider.pricing;
+      const tokenReserve =
+        price?.unit === "input-token"
+          ? (price.maxInputTokens ?? price.inputTokenReserve)
+          : undefined;
+      if (tokenReserve !== undefined && bodyBytes > tokenReserve)
+        throw new Error(
+          "Decision request exceeds the reviewed input-token reservation",
+        );
       const estimate = reservationCost(provider, pending.length);
       if (policy.maxCostUsd !== null && provider.id === "jev") {
         if (estimate === null || !options.budget)
@@ -290,15 +313,6 @@ export async function decideBatch(
         : undefined;
       if (provider.apiKeyEnv && !key)
         throw new Error(`Missing ${provider.apiKeyEnv}`);
-      const body = JSON.stringify({
-        model: provider.model,
-        state,
-        questions: questionMap,
-      });
-      if (Buffer.byteLength(body, "utf8") > 64 * 1024)
-        throw new Error(
-          "Decision request exceeds the complete batch byte limit",
-        );
       if (provider.id === "jev" && estimate !== null && options.budget) {
         await options.budget.reserve({
           callId,
@@ -379,17 +393,22 @@ export async function decideBatch(
     if (dispatched) {
       const rawUsage =
         result?.usage && typeof result.usage === "object" ? result.usage : {};
-      const reportedCostUsd = money(rawUsage.cost_usd ?? result?.cost_usd);
       const inputTokens = count(rawUsage.input_tokens);
+      const outputTokens = count(rawUsage.output_tokens);
+      const reportedCostUsd = money(rawUsage.cost_usd ?? result?.cost_usd);
       const tokenPrice =
         provider.id === "jev" && provider.pricing?.unit === "input-token"
           ? provider.pricing
           : null;
-      const estimatedCostUsd = reservationCost(provider, pending.length);
+      const tokenReserve = tokenPrice
+        ? (tokenPrice.maxInputTokens ?? tokenPrice.inputTokenReserve)
+        : undefined;
       const tokenCostUsd =
         tokenPrice && inputTokens !== null
           ? (inputTokens * tokenPrice.usdPerMillionInputTokens) / 1_000_000
           : null;
+      const estimatedCostUsd =
+        tokenCostUsd ?? reservationCost(provider, pending.length);
       const reportedOverReservation =
         tokenPrice !== null &&
         inputTokens === null &&
@@ -409,14 +428,16 @@ export async function decideBatch(
               ? estimatedCostUsd
               : Math.max(reportedCostUsd, reservedUsd ?? 0);
       if (tokenPrice && inputTokens === null) {
-        failure =
-          "Jev input-token usage was not reported; reservation retained";
+        if (result !== null)
+          failure =
+            "Jev input-token usage was not reported; reservation retained";
         accountingFailure = true;
       }
       if (
         tokenPrice &&
         inputTokens !== null &&
-        inputTokens > tokenPrice.maxInputTokens
+        tokenReserve !== undefined &&
+        inputTokens > tokenReserve
       ) {
         failure =
           "Reported Jev input usage exceeded the reviewed request envelope";
@@ -428,7 +449,7 @@ export async function decideBatch(
         model: typeof result?.model === "string" ? result.model : "unreported",
         questionCount: pending.length,
         inputTokens,
-        outputTokens: count(rawUsage.output_tokens),
+        outputTokens,
         reportedCostUsd,
         estimatedCostUsd,
         chargedUsd,
@@ -441,12 +462,12 @@ export async function decideBatch(
       usages.push(callUsage);
       if (
         reservedUsd !== null &&
-        reportedCostUsd !== null &&
         chargedUsd !== null &&
         chargedUsd > reservedUsd + 1e-12
       ) {
         failure = "Reported decision cost exceeded its configured reservation";
         accountingFailure = true;
+        callUsage.outcome = "failed";
       }
       // Keep an unmetered token-priced call reserved. A separately reported
       // charge above that reserve must instead debit the larger known amount.
@@ -460,6 +481,7 @@ export async function decideBatch(
           failure =
             "Decision accounting could not be persisted; baseline retained";
           accountingFailure = true;
+          callUsage.outcome = "failed";
         }
       }
     }
