@@ -242,6 +242,7 @@ describe("local context indexing", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  // Seven isolated runtime probes can outlast the suite default on loaded CI runners.
   it("parses all launch languages and records unresolved call evidence honestly", async () => {
     const { engine } = await fixture({
       "auth.ts":
@@ -324,7 +325,7 @@ describe("local context indexing", () => {
       ),
     ).toBe(true);
     expect(packet.estimatedTokens).toBeLessThanOrEqual(packet.budgetTokens);
-  });
+  }, 60_000);
 
   it("has stable content identity and invalidates dirty, renamed, deleted and branch content", async () => {
     const { engine, root } = await fixture({
