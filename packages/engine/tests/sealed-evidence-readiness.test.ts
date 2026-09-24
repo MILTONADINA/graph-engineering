@@ -522,6 +522,27 @@ function signedSourceAttestation(
   };
 }
 
+function sourceFingerprintRegistry(
+  request: Awaited<ReturnType<typeof scenario>>["request"],
+  attestation: ReturnType<typeof signedSourceAttestation>,
+) {
+  const inspection = request.aggregate.input.cohort.inspection;
+  return {
+    version: "1.0.0" as const,
+    kind: "sealed-source-key-fingerprint-registry" as const,
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    planSha256: inspection.planSha256,
+    keys: [
+      {
+        sourceAuthorityId: attestation.pin.sourceAuthorityId,
+        keyId: attestation.pin.keyId,
+        publicKeySha256: attestation.pin.publicKeySha256,
+      },
+    ],
+  };
+}
+
 function signedOracleExecutions(
   request: Awaited<ReturnType<typeof scenario>>["request"],
   options: {
@@ -880,6 +901,12 @@ it("rejects other valid cross-role actor and key reuse without granting authorit
 
 it("freezes optional signed claims before an external witness callback can mutate caller data", async () => {
   const { request, checkpoint } = await scenario(true);
+  const sourceAttestation = signedSourceAttestation(request);
+  const sourceKeyFingerprintRegistry = sourceFingerprintRegistry(
+    request,
+    sourceAttestation,
+  );
+  const sourceRegistrySha256 = hashJson(sourceKeyFingerprintRegistry);
   const workerDeliveries = signedWorkerDeliveries(request);
   const workerKeyFingerprintRegistry = workerFingerprintRegistry(
     request,
@@ -895,6 +922,8 @@ it("freezes optional signed claims before an external witness callback can mutat
   let reads = 0;
   const receipt = await inspectSealedEvidenceReadiness({
     ...request,
+    sourceAttestation,
+    sourceKeyFingerprintRegistry,
     workerDeliveries,
     workerKeyFingerprintRegistry,
     oracleExecutions,
@@ -903,6 +932,11 @@ it("freezes optional signed claims before an external witness callback can mutat
       witnessId: "test-witness",
       readCurrent: async (query) => {
         if (++reads === 1) {
+          sourceAttestation.envelope.signature =
+            Buffer.alloc(64).toString("base64");
+          sourceKeyFingerprintRegistry.keys[0]!.publicKeySha256 = "0".repeat(
+            64,
+          );
           workerDeliveries[0]!.envelope.signature =
             Buffer.alloc(64).toString("base64");
           workerKeyFingerprintRegistry.keys[0]!.publicKeySha256 = "0".repeat(
@@ -920,6 +954,9 @@ it("freezes optional signed claims before an external witness callback can mutat
   });
   expect(reads).toBe(2);
   expect(receipt).toMatchObject({
+    sourceSignatureCompared: true,
+    sourceKeyFingerprintRegistryCompared: true,
+    sourceKeyFingerprintRegistrySha256: sourceRegistrySha256,
     workerDeliveryCoverageCompared: true,
     workerDeliverySignaturesVerifiedAgainstSelfSuppliedPins: true,
     workerKeyFingerprintRegistryCompared: true,
@@ -941,6 +978,8 @@ it("joins a pinned pre-run source claim without treating it as independent prove
   });
   expect(receipt).toMatchObject({
     sourceSignatureCompared: true,
+    sourceKeyFingerprintRegistryCompared: false,
+    sourceKeyFingerprintRegistrySha256: null,
     sourceEligibilityAuthenticated: false,
     promotionEligible: false,
   });
@@ -956,6 +995,112 @@ it("joins a pinned pre-run source claim without treating it as independent prove
   await expect(
     inspectSealedEvidenceReadiness({ ...request, sourceAttestation }),
   ).rejects.toThrow(/Source attestation identity/);
+});
+
+it("compares the source key against a separate registry inside readiness", async () => {
+  const { request } = await scenario();
+  const sourceAttestation = signedSourceAttestation(request);
+  const sourceKeyFingerprintRegistry = sourceFingerprintRegistry(
+    request,
+    sourceAttestation,
+  );
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    sourceAttestation,
+    sourceKeyFingerprintRegistry,
+  });
+  expect(receipt).toMatchObject({
+    sourceSignatureCompared: true,
+    sourceKeyFingerprintRegistryCompared: true,
+    sourceKeyFingerprintRegistrySha256: hashJson(sourceKeyFingerprintRegistry),
+    sourceEligibilityAuthenticated: false,
+    promotionEligible: false,
+  });
+  expect(
+    authorizesPromotion(receipt, {} as never, {
+      projectId: receipt.projectId,
+      policyVersion:
+        request.aggregate.input.cohort.inspection.plan.configurations.candidate
+          .policySha256,
+    }),
+  ).toBe(false);
+});
+
+it("rejects replacement or malformed source keys before original or witness reads", async () => {
+  const { request, checkpoint } = await scenario();
+  const approved = signedSourceAttestation(request);
+  const registry = sourceFingerprintRegistry(request, approved);
+  const replacement = signedSourceAttestation(request);
+  expect(replacement.pin.publicKeySha256).not.toBe(
+    registry.keys[0]!.publicKeySha256,
+  );
+  const legacy = await inspectSealedEvidenceReadiness({
+    ...request,
+    sourceAttestation: replacement,
+  });
+  expect(legacy.sourceKeyFingerprintRegistryCompared).toBe(false);
+  request.aggregate.reader.mockClear();
+  const readCurrent = vi.fn(async (query: Parameters<typeof checkpoint>[0]) =>
+    checkpoint(query),
+  );
+  const invalidSignature = structuredClone(approved);
+  invalidSignature.envelope.signature = Buffer.alloc(64).toString("base64");
+  const cases: {
+    attestation: ReturnType<typeof signedSourceAttestation>;
+    registry: unknown;
+    error: RegExp;
+  }[] = [
+    {
+      attestation: replacement,
+      registry,
+      error: /fingerprint differs from registry/,
+    },
+    {
+      attestation: approved,
+      registry: { ...registry, planSha256: "a".repeat(64) },
+      error: /registry scope differs/,
+    },
+    {
+      attestation: approved,
+      registry: {
+        ...registry,
+        keys: [{ ...registry.keys[0]!, keyId: "unknown-key" }],
+      },
+      error: /identity is absent from registry/,
+    },
+    {
+      attestation: approved,
+      registry: {
+        ...registry,
+        keys: [...registry.keys, { ...registry.keys[0]! }],
+      },
+      error: /repeats an identity/,
+    },
+    {
+      attestation: invalidSignature,
+      registry,
+      error: /signature differs/,
+    },
+  ];
+  for (const value of cases) {
+    await expect(
+      inspectSealedEvidenceReadiness({
+        ...request,
+        sourceAttestation: value.attestation,
+        sourceKeyFingerprintRegistry: value.registry,
+        witness: { witnessId: "test-witness", readCurrent },
+      }),
+    ).rejects.toThrow(value.error);
+    expect(request.aggregate.reader).not.toHaveBeenCalled();
+    expect(readCurrent).not.toHaveBeenCalled();
+  }
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      sourceKeyFingerprintRegistry: registry,
+    }),
+  ).rejects.toThrow(/requires attestation/);
+  expect(request.aggregate.reader).not.toHaveBeenCalled();
 });
 
 it("rejects source key reuse with a population signer", async () => {

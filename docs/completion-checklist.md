@@ -158,6 +158,15 @@ other signer registries. Focused tamper tests pass. It does not authenticate
 source ownership, unseen eligibility, independent key control or actual
 pre-run chronology, and it cannot enable promotion.
 
+An optional collection-scoped source-key fingerprint registry now compares
+the signed source claim's authority/key identity and canonical Ed25519 SPKI
+fingerprint with a separately supplied list before original-byte reads or
+witness callbacks. This detects source pin/signature substitution against a
+fixed list and reports the comparison separately from the source signature.
+The caller can still govern both inputs; source ownership, independent key
+control, unseen eligibility and chronology remain unauthenticated. The
+readiness and source receipts remain analysis-only.
+
 An optional whole-cohort oracle-execution signature audit now requires one
 caller-pinned Ed25519 claim per private verdict, verifies all claims before
 private reads, and rechecks every exact original verdict byte against the

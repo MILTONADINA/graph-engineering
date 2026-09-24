@@ -111,6 +111,14 @@ precede the first attempt. It rejects use of that source key in the other
 signer registries. This is still a caller-pinned claim, not evidence that the
 source owner is independent, that tasks were unseen, or that the time was
 anchored externally. Its private receipt never authorizes promotion.
+An optional `sourceKeyFingerprintRegistry` compares the source authority/key
+identity and canonical Ed25519 SPKI fingerprint with a separate, collection
+and plan-scoped caller-supplied list. Readiness checks the signed row against
+that list before original-byte reads or witness callbacks and reports the
+registry comparison separately from signature verification against the row's
+pin. A fixed registry detects replacement of the row's pin and signature;
+the caller can still replace both inputs. The registry does not establish
+independent key control, source ownership or promotion authority.
 The optional `oracleExecutions` audit requires one caller-pinned Ed25519 claim
 for every closed-ledger private verdict. It verifies all signatures and frozen
 invocation/verdict joins before reading any private verdict, then re-reads the

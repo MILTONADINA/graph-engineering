@@ -28,6 +28,63 @@ const pinSchema = z
     publicKeySha256: digestSchema,
   })
   .strict();
+export const sealedSourceKeyFingerprintRegistrySchema = z
+  .object({
+    version: z.literal("1.0.0"),
+    kind: z.literal("sealed-source-key-fingerprint-registry"),
+    projectId: id,
+    collectionId: id,
+    planSha256: digestSchema,
+    keys: z
+      .array(
+        z
+          .object({
+            sourceAuthorityId: id,
+            keyId: id,
+            publicKeySha256: digestSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+  })
+  .strict();
+export type SourceKeyFingerprintRegistry = z.infer<
+  typeof sealedSourceKeyFingerprintRegistrySchema
+>;
+type SourceRegistryScope = Readonly<{
+  projectId: string;
+  collectionId: string;
+  planSha256: string;
+}>;
+
+/** A separate caller-supplied comparison list, not a trusted source issuer. */
+export function validateSealedSourceKeyFingerprintRegistry(
+  input: unknown,
+  scope: SourceRegistryScope,
+): SourceKeyFingerprintRegistry {
+  const registry = sealedSourceKeyFingerprintRegistrySchema.parse(
+    decodeJson(input),
+  );
+  if (
+    registry.projectId !== scope.projectId ||
+    registry.collectionId !== scope.collectionId ||
+    registry.planSha256 !== scope.planSha256
+  )
+    throw new Error("Source key fingerprint registry scope differs");
+  const identities = new Set<string>();
+  const fingerprints = new Set<string>();
+  for (const key of registry.keys) {
+    const identity = `${key.sourceAuthorityId}\u0000${key.keyId}`;
+    if (identities.has(identity))
+      throw new Error("Source key fingerprint registry repeats an identity");
+    if (fingerprints.has(key.publicKeySha256))
+      throw new Error("Source key fingerprint registry repeats a fingerprint");
+    identities.add(identity);
+    fingerprints.add(key.publicKeySha256);
+  }
+  return registry;
+}
 const payloadSchema = z
   .object({
     version: z.literal("1.0.0"),
@@ -50,6 +107,71 @@ const envelopeSchema = z
   })
   .strict();
 
+function verifyPinnedSignature(
+  pin: z.infer<typeof pinSchema>,
+  envelope: z.infer<typeof envelopeSchema>,
+): string {
+  if (!pin.publicKeyPem.startsWith("-----BEGIN PUBLIC KEY-----"))
+    throw new Error("Source attestation requires a public key pin");
+  const publicKey = createPublicKey(pin.publicKeyPem);
+  if (
+    publicKey.asymmetricKeyType !== "ed25519" ||
+    publicKey.export({ type: "spki", format: "pem" }).toString() !==
+      pin.publicKeyPem
+  )
+    throw new Error("Source attestation requires canonical Ed25519 PEM");
+  const fingerprint = createHash("sha256")
+    .update(publicKey.export({ type: "spki", format: "der" }))
+    .digest("hex");
+  if (fingerprint !== pin.publicKeySha256)
+    throw new Error("Source attestation key fingerprint differs from pin");
+  const { signature, ...unsigned } = envelope;
+  const signatureBytes = Buffer.from(signature, "base64");
+  if (
+    signatureBytes.toString("base64") !== signature ||
+    !verify(
+      null,
+      Buffer.from(SIGNED_SOURCE_INVENTORY_DOMAIN + canonicalJson(unsigned)),
+      publicKey,
+      signatureBytes,
+    )
+  )
+    throw new Error("Source attestation signature differs");
+  return fingerprint;
+}
+
+/** Compare the actual SPKI and signed claim before private or witness reads. */
+export function validateSealedSourceAttestationRegistryRow(
+  pinInput: unknown,
+  envelopeInput: unknown,
+  registry: SourceKeyFingerprintRegistry,
+): void {
+  const pin = pinSchema.parse(decodeJson(pinInput));
+  const envelope = envelopeSchema.parse(decodeJson(envelopeInput));
+  if (
+    pin.projectId !== registry.projectId ||
+    pin.collectionId !== registry.collectionId ||
+    pin.sourceAuthorityId !== envelope.sourceAuthorityId ||
+    pin.keyId !== envelope.keyId ||
+    envelope.payload.projectId !== registry.projectId ||
+    envelope.payload.collectionId !== registry.collectionId ||
+    envelope.payload.planSha256 !== registry.planSha256
+  )
+    throw new Error(
+      "Source attestation registry row identity or scope differs",
+    );
+  const fingerprint = verifyPinnedSignature(pin, envelope);
+  const registered = registry.keys.find(
+    (key) =>
+      key.sourceAuthorityId === pin.sourceAuthorityId &&
+      key.keyId === pin.keyId,
+  );
+  if (!registered)
+    throw new Error("Source attestation key identity is absent from registry");
+  if (registered.publicKeySha256 !== fingerprint)
+    throw new Error("Source attestation key fingerprint differs from registry");
+}
+
 /**
  * Bind one signed source-population claim to a fully validated closed ledger.
  * A separately governed pin, source retention/eligibility review, and a real
@@ -61,7 +183,7 @@ export function inspectSignedSealedSourceInventory(
   sourceInventoryInput: unknown,
   pinInput: unknown,
   envelopeInput: unknown,
-  options: Readonly<{ nowMs?: number }> = {},
+  options: Readonly<{ nowMs?: number; keyFingerprintRegistry?: unknown }> = {},
 ) {
   const inspection = validateFullCohortLedger(inspectionInput, cohortPinsInput);
   if (!inspection.closure?.complete)
@@ -72,12 +194,28 @@ export function inspectSignedSealedSourceInventory(
   const pin = pinSchema.parse(decodeJson(pinInput));
   const envelope = envelopeSchema.parse(decodeJson(envelopeInput));
   const optionsData = z
-    .object({ nowMs: z.number().finite().optional() })
+    .object({
+      nowMs: z.number().finite().optional(),
+      keyFingerprintRegistry: z.unknown().optional(),
+    })
     .strict()
     .parse(decodeJson(options));
   const nowMs = optionsData.nowMs ?? Date.now();
   if (nowMs < 0 || nowMs > 8_640_000_000_000_000)
     throw new Error("Source attestation verification time is invalid");
+  const registry =
+    optionsData.keyFingerprintRegistry === undefined
+      ? undefined
+      : validateSealedSourceKeyFingerprintRegistry(
+          optionsData.keyFingerprintRegistry,
+          {
+            projectId: inspection.plan.projectId,
+            collectionId: inspection.plan.collectionId,
+            planSha256: inspection.planSha256,
+          },
+        );
+  if (registry)
+    validateSealedSourceAttestationRegistryRow(pin, envelope, registry);
   const claim = envelope.payload;
   if (
     pin.projectId !== inspection.plan.projectId ||
@@ -123,32 +261,7 @@ export function inspectSignedSealedSourceInventory(
     signedAt > nowMs + 60_000
   )
     throw new Error("Source attestation is not a pre-run claim");
-  if (!pin.publicKeyPem.startsWith("-----BEGIN PUBLIC KEY-----"))
-    throw new Error("Source attestation requires a public key pin");
-  const publicKey = createPublicKey(pin.publicKeyPem);
-  if (
-    publicKey.asymmetricKeyType !== "ed25519" ||
-    publicKey.export({ type: "spki", format: "pem" }).toString() !==
-      pin.publicKeyPem
-  )
-    throw new Error("Source attestation requires canonical Ed25519 PEM");
-  const fingerprint = createHash("sha256")
-    .update(publicKey.export({ type: "spki", format: "der" }))
-    .digest("hex");
-  if (fingerprint !== pin.publicKeySha256)
-    throw new Error("Source attestation key fingerprint differs from pin");
-  const { signature, ...unsigned } = envelope;
-  const signatureBytes = Buffer.from(signature, "base64");
-  if (
-    signatureBytes.toString("base64") !== signature ||
-    !verify(
-      null,
-      Buffer.from(SIGNED_SOURCE_INVENTORY_DOMAIN + canonicalJson(unsigned)),
-      publicKey,
-      signatureBytes,
-    )
-  )
-    throw new Error("Source attestation signature differs");
+  const fingerprint = verifyPinnedSignature(pin, envelope);
   return freezeJson({
     kind: "sealed-source-inventory-signature-only" as const,
     projectId: pin.projectId,
@@ -161,6 +274,8 @@ export function inspectSignedSealedSourceInventory(
     signedClaimSha256: hashJson(claim),
     selectedTaskCount: inspection.plan.tasks.length,
     signatureVerifiedAgainstCallerPin: true as const,
+    keyFingerprintRegistryCompared: registry !== undefined,
+    keyFingerprintRegistrySha256: registry ? hashJson(registry) : null,
     preRunTimeClaimCompared: true as const,
     sourceOriginalBytesChecked: false as const,
     sourceArtifactMeaningAuthenticated: false as const,
