@@ -450,6 +450,28 @@ function signedWorkerDeliveries(
   );
 }
 
+function workerFingerprintRegistry(
+  request: Awaited<ReturnType<typeof scenario>>["request"],
+  deliveries: ReturnType<typeof signedWorkerDeliveries>,
+) {
+  const inspection = request.aggregate.input.cohort.inspection;
+  const pin = deliveries[0]!.pin;
+  return {
+    version: "1.0.0" as const,
+    kind: "sealed-worker-key-fingerprint-registry" as const,
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    planSha256: inspection.planSha256,
+    keys: [
+      {
+        workerId: pin.workerId,
+        keyId: pin.keyId,
+        publicKeySha256: pin.publicKeySha256,
+      },
+    ],
+  };
+}
+
 function signedSourceAttestation(
   request: Awaited<ReturnType<typeof scenario>>["request"],
   keys?: { publicKey: KeyObject; privateKey: KeyObject },
@@ -692,11 +714,17 @@ it("rejects other valid cross-role actor and key reuse without granting authorit
 it("freezes optional signed claims before an external witness callback can mutate caller data", async () => {
   const { request, checkpoint } = await scenario(true);
   const workerDeliveries = signedWorkerDeliveries(request);
+  const workerKeyFingerprintRegistry = workerFingerprintRegistry(
+    request,
+    workerDeliveries,
+  );
+  const registrySha256 = hashJson(workerKeyFingerprintRegistry);
   const oracleExecutions = signedOracleExecutions(request);
   let reads = 0;
   const receipt = await inspectSealedEvidenceReadiness({
     ...request,
     workerDeliveries,
+    workerKeyFingerprintRegistry,
     oracleExecutions,
     witness: {
       witnessId: "test-witness",
@@ -704,6 +732,9 @@ it("freezes optional signed claims before an external witness callback can mutat
         if (++reads === 1) {
           workerDeliveries[0]!.envelope.signature =
             Buffer.alloc(64).toString("base64");
+          workerKeyFingerprintRegistry.keys[0]!.publicKeySha256 = "0".repeat(
+            64,
+          );
           oracleExecutions[0]!.envelope.signature =
             Buffer.alloc(64).toString("base64");
         }
@@ -714,6 +745,9 @@ it("freezes optional signed claims before an external witness callback can mutat
   expect(reads).toBe(2);
   expect(receipt).toMatchObject({
     workerDeliveryCoverageCompared: true,
+    workerDeliverySignaturesVerifiedAgainstSelfSuppliedPins: true,
+    workerKeyFingerprintRegistryCompared: true,
+    workerKeyFingerprintRegistrySha256: registrySha256,
     oracleExecutionCoverageCompared: true,
     witnessAuthenticationVerified: false,
     promotionEligible: false,
@@ -766,6 +800,8 @@ it("joins whole-cohort signed worker deliveries inside the readiness audit witho
   });
   expect(receipt).toMatchObject({
     workerDeliveryCoverageCompared: true,
+    workerKeyFingerprintRegistryCompared: false,
+    workerKeyFingerprintRegistrySha256: null,
     verifiedWorkerDeliveryCount: 2,
     promotionEligible: false,
   });
@@ -776,6 +812,148 @@ it("joins whole-cohort signed worker deliveries inside the readiness audit witho
       expect.stringMatching(/do not authenticate signer governance/),
     ]),
   );
+});
+
+it("compares every worker key with a separate registry while retaining evidence-only receipts", async () => {
+  const { request } = await scenario();
+  const deliveries = signedWorkerDeliveries(request);
+  const registry = workerFingerprintRegistry(request, deliveries);
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    workerDeliveries: deliveries,
+    workerKeyFingerprintRegistry: registry,
+  });
+  expect(receipt).toMatchObject({
+    workerDeliveryCoverageCompared: true,
+    workerKeyFingerprintRegistryCompared: true,
+    workerKeyFingerprintRegistrySha256: hashJson(registry),
+    verifiedWorkerDeliveryCount: deliveries.length,
+    promotionEligible: false,
+  });
+  const coverage = await inspectSignedSealedWorkerDeliveryCohort(
+    request.aggregate.input.cohort.inspection,
+    request.aggregate.input.cohort.pins,
+    request.aggregate.manifest,
+    request.aggregate.manifestSha256,
+    request.aggregate.reader,
+    deliveries,
+    { nowMs, keyFingerprintRegistry: registry },
+  );
+  expect(coverage).toMatchObject({
+    signaturesVerifiedAgainstCallerPins: true,
+    keyFingerprintRegistryCompared: true,
+    keyFingerprintRegistrySha256: hashJson(registry),
+    independentKeyControlVerified: false,
+    promotionEligible: false,
+  });
+});
+
+it("rejects a valid replacement worker signature when its SPKI differs from the registry", async () => {
+  const { request, checkpoint } = await scenario();
+  const approved = signedWorkerDeliveries(request);
+  const registry = workerFingerprintRegistry(request, approved);
+  const replacement = signedWorkerDeliveries(request);
+  expect(replacement[0]!.pin.publicKeySha256).not.toBe(
+    registry.keys[0]!.publicKeySha256,
+  );
+  const legacy = await inspectSealedEvidenceReadiness({
+    ...request,
+    workerDeliveries: replacement,
+  });
+  expect(legacy.workerDeliveryCoverageCompared).toBe(true);
+  expect(legacy.workerKeyFingerprintRegistryCompared).toBe(false);
+  request.aggregate.reader.mockClear();
+  const readCurrent = vi.fn(async (query: Parameters<typeof checkpoint>[0]) =>
+    checkpoint(query),
+  );
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      workerDeliveries: replacement,
+      workerKeyFingerprintRegistry: registry,
+      witness: { witnessId: "test-witness", readCurrent },
+    }),
+  ).rejects.toThrow(/fingerprint differs from registry/);
+  expect(request.aggregate.reader).not.toHaveBeenCalled();
+  expect(readCurrent).not.toHaveBeenCalled();
+});
+
+it("rejects unknown worker identities, duplicate keys and wrong registry scope before evidence I/O", async () => {
+  const { request, checkpoint } = await scenario();
+  const deliveries = signedWorkerDeliveries(request);
+  const registry = workerFingerprintRegistry(request, deliveries);
+  const unknown = signedWorkerDeliveries(request, {
+    workerId: "unknown-worker",
+  });
+  const invalidSignature = structuredClone(deliveries);
+  invalidSignature[0]!.envelope.signature = Buffer.alloc(64).toString("base64");
+  const readCurrent = vi.fn(async (query: Parameters<typeof checkpoint>[0]) =>
+    checkpoint(query),
+  );
+  const cases = [
+    {
+      deliveries: unknown,
+      registry,
+      error: /identity is absent from registry/,
+    },
+    {
+      deliveries: invalidSignature,
+      registry,
+      error: /signature differs/,
+    },
+    {
+      deliveries,
+      registry: {
+        ...registry,
+        keys: [...registry.keys, { ...registry.keys[0]! }],
+      },
+      error: /repeats an identity/,
+    },
+    {
+      deliveries,
+      registry: {
+        ...registry,
+        keys: [
+          ...registry.keys,
+          {
+            workerId: "another-worker",
+            keyId: "another-key",
+            publicKeySha256: registry.keys[0]!.publicKeySha256,
+          },
+        ],
+      },
+      error: /repeats a fingerprint/,
+    },
+    {
+      deliveries,
+      registry: { ...registry, planSha256: "a".repeat(64) },
+      error: /registry scope differs/,
+    },
+    {
+      deliveries,
+      registry: { ...registry, extra: true },
+      error: /Unrecognized key/,
+    },
+  ];
+  for (const value of cases) {
+    await expect(
+      inspectSealedEvidenceReadiness({
+        ...request,
+        workerDeliveries: value.deliveries,
+        workerKeyFingerprintRegistry: value.registry,
+        witness: { witnessId: "test-witness", readCurrent },
+      }),
+    ).rejects.toThrow(value.error);
+    expect(request.aggregate.reader).not.toHaveBeenCalled();
+    expect(readCurrent).not.toHaveBeenCalled();
+  }
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      workerKeyFingerprintRegistry: registry,
+    }),
+  ).rejects.toThrow(/requires deliveries/);
+  expect(request.aggregate.reader).not.toHaveBeenCalled();
 });
 
 it("rejects missing, duplicated, foreign and altered worker-delivery claims", async () => {

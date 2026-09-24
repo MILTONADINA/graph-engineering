@@ -32,7 +32,11 @@ import {
   sealedPopulationManifestTrustSchema,
   sealedSourceInventorySchema,
 } from "./sealed-population-manifest.js";
-import { inspectSignedSealedWorkerDeliveryCohort } from "./sealed-worker-delivery.js";
+import {
+  inspectSignedSealedWorkerDeliveryCohort,
+  validateSealedWorkerKeyFingerprintRegistry,
+  validateSealedWorkerDeliveryRegistryRows,
+} from "./sealed-worker-delivery.js";
 import { inspectSignedSealedSourceInventory } from "./sealed-source-provenance.js";
 import { inspectSignedSealedOracleExecutionCohort } from "./sealed-oracle-execution.js";
 
@@ -59,6 +63,8 @@ export interface SealedEvidenceReadinessInput {
   };
   /** Caller-pinned claims only; no signer, runtime or model authentication. */
   workerDeliveries?: unknown;
+  /** Optional separate fingerprint list; caller provenance is not verified. */
+  workerKeyFingerprintRegistry?: unknown;
   /** Caller-pinned pre-run claim; no independent source/key authentication. */
   sourceAttestation?: { pin: unknown; envelope: unknown };
   /** Caller-pinned oracle claims; no executable/image/key authentication. */
@@ -271,6 +277,7 @@ export async function inspectSealedEvidenceReadiness(
       "witness",
       "identityBytes",
       "workerDeliveries",
+      "workerKeyFingerprintRegistry",
       "sourceAttestation",
       "oracleExecutions",
       "nowMs",
@@ -333,6 +340,29 @@ export async function inspectSealedEvidenceReadiness(
   const manifestSha256 = digestSchema.parse(aggregateFields.manifestSha256);
   const earlier = cohortInspectionSchema.parse(population.inspection);
   const closed = cohortInspectionSchema.parse(cohort.inspection);
+  if (
+    fields.workerKeyFingerprintRegistry !== undefined &&
+    workerDeliveries === undefined
+  )
+    throw new Error(
+      "Sealed readiness worker key fingerprint registry requires deliveries",
+    );
+  const workerKeyFingerprintRegistry =
+    fields.workerKeyFingerprintRegistry === undefined
+      ? undefined
+      : validateSealedWorkerKeyFingerprintRegistry(
+          fields.workerKeyFingerprintRegistry,
+          {
+            projectId: closed.plan.projectId,
+            collectionId: closed.plan.collectionId,
+            planSha256: closed.planSha256,
+          },
+        );
+  if (workerKeyFingerprintRegistry)
+    validateSealedWorkerDeliveryRegistryRows(
+      workerDeliveries,
+      workerKeyFingerprintRegistry,
+    );
   cohortPinsSchema.parse(population.cohortPins);
   cohortPinsSchema.parse(cohort.pins);
   same("frozen plan", hashJson(earlier.plan), hashJson(closed.plan));
@@ -434,7 +464,12 @@ export async function inspectSealedEvidenceReadiness(
           manifestSha256,
           aggregateFields.reader as OriginalReader,
           workerDeliveries,
-          { nowMs },
+          {
+            nowMs,
+            ...(workerKeyFingerprintRegistry
+              ? { keyFingerprintRegistry: workerKeyFingerprintRegistry }
+              : {}),
+          },
         ),
       );
     if (oracleExecutions !== undefined)
@@ -779,6 +814,12 @@ export async function inspectSealedEvidenceReadiness(
     identityByteManifestSha256: identityBytes?.manifestSha256 ?? null,
     identityReaderAuthenticated: false as const,
     workerDeliveryCoverageCompared: workerDelivery !== undefined,
+    workerDeliverySignaturesVerifiedAgainstSelfSuppliedPins:
+      workerDelivery?.signaturesVerifiedAgainstSelfSuppliedPins ?? false,
+    workerKeyFingerprintRegistryCompared:
+      workerDelivery?.keyFingerprintRegistryCompared ?? false,
+    workerKeyFingerprintRegistrySha256:
+      workerDelivery?.keyFingerprintRegistrySha256 ?? null,
     verifiedWorkerDeliveryCount:
       workerDelivery?.verifiedWorkerDeliveryCount ?? 0,
     workerDeliveryInventorySha256:
