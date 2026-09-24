@@ -583,6 +583,31 @@ describe("local context indexing", () => {
     expect(packet.items).toHaveLength(1);
   });
 
+  it("returns the reactivated current snapshot instead of the newest record", async () => {
+    const { engine, root } = await fixture({
+      "src/state.ts": "export const state = 'first';\n",
+    });
+    expect(await engine.currentSnapshot()).toBeNull();
+    const first = await engine.index({ semantic: false });
+    await writeFile(
+      join(root, "src/state.ts"),
+      "export const state = 'second';\n",
+    );
+    const second = await engine.index({ semantic: false });
+    expect(second.id).not.toBe(first.id);
+    await writeFile(
+      join(root, "src/state.ts"),
+      "export const state = 'first';\n",
+    );
+    const reactivated = await engine.index({ semantic: false });
+    expect(reactivated.id).toBe(first.id);
+    expect((await engine.listSnapshots())[0]?.id).toBe(second.id);
+    expect(await engine.currentSnapshot()).toMatchObject({
+      id: first.id,
+      createdAt: first.createdAt,
+    });
+  });
+
   it("applies tightened exclusion policy even to historical retrieval", async () => {
     const { engine } = await fixture({
       "private.ts": "export function authenticateSecretSubsystem() {}",

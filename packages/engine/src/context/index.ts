@@ -642,6 +642,15 @@ export class ContextEngine {
       )
     ).map((row) => json<RepositorySnapshot>(row));
   }
+  /** Return the selected snapshot, which may be older than the newest row. */
+  async currentSnapshot(): Promise<RepositorySnapshot | null> {
+    await this.ready;
+    const current = await this.db.get<{ value: string }>(
+      "SELECT value FROM context_metadata WHERE key=?",
+      ["currentSnapshot"],
+    );
+    return current ? this.snapshot(current.value) : null;
+  }
   private async snapshot(id?: string): Promise<RepositorySnapshot> {
     await this.ready;
     if (!id) return this.index();
