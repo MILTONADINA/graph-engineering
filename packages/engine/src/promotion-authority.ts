@@ -134,6 +134,8 @@ const promotionPreflightReceiptSchema = promotionPreflightPinsSchema
   .extend({
     kind: z.literal("promotion-import-preflight"),
     expectedModel: z.string().min(1).max(256).optional(),
+    /** New preflights emit this; legacy analysis receipts remain readable. */
+    reportSha256: digestSchema.optional(),
     minimumConfidence: z.number().finite().min(0.5).max(1),
     accountingMetricsSatisfied: z.boolean(),
     advisoryCohortProjection: advisoryCohortProjectionSchema
@@ -696,6 +698,7 @@ export async function inspectPromotionImportPreflight(
     requestedModel: pins.requestedModel,
     expectedModel,
     modelIdentitySha256: pins.modelIdentitySha256,
+    reportSha256: hashJson(report),
     minimumConfidence: report.minimumConfidence,
     accountingMetricsSatisfied:
       evaluation.metricsEligible && report.decisionMetricsSatisfied,

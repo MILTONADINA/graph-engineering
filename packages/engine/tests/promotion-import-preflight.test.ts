@@ -911,6 +911,39 @@ it("keeps legacy advisory-free preflight receipts readable without authority", a
   ).toThrow(/projection digest or target/);
 });
 
+it("reads legacy serialized preflight receipts without creating authority", async () => {
+  const trust = trustFixture();
+  const { input, target } = fixture(trust);
+  const receipt = await inspectPromotionImportPreflight(input, target);
+  const { reportSha256, ...legacy } = receipt;
+  expect(reportSha256).toMatch(/^[a-f0-9]{64}$/);
+  const serialized = JSON.stringify(legacy);
+  expect(inspectPromotionRuntimeIdentity(serialized, target)).toMatchObject({
+    identityMatches: true,
+    promotionEligible: false,
+    authorityStatus: "unsigned-identity-check-only",
+  });
+  const checkedTrust = await inspectPromotionTrustSnapshot(serialized, trust, {
+    expectedTrustSha256: hashJson(trust),
+  });
+  expect(checkedTrust).toMatchObject({
+    signatureVerificationPerformed: false,
+    operatorApprovalVerified: false,
+    promotionEligible: false,
+    authorityStatus: "pinned-public-trust-only",
+  });
+  expect(
+    authorizesPromotion(legacy, {} as PromotionEvidence, {
+      projectId: target.projectId,
+      policyVersion: target.policyVersion,
+      currentIdentity: target,
+    }),
+  ).toBe(false);
+  expect(() =>
+    inspectPromotionRuntimeIdentity({ ...legacy, reportSha256: "bad" }, target),
+  ).toThrow();
+});
+
 it("rechecks every frozen promotion target identity without conferring authority", async () => {
   const { input, target } = fixture();
   const receipt = await inspectPromotionImportPreflight(input, target);
