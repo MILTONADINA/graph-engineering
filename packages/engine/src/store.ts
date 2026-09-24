@@ -402,6 +402,42 @@ export class RunStore {
       .all(this.projectId, runId)
       .map((r) => JSON.parse((r as { json: string }).json));
   }
+  /** Atomically keep one task/source binding for a decision ledger owner. */
+  bindDecisionOwner(
+    ownerId: string,
+    binding: { taskId: string; sourceSha256: string },
+  ): void {
+    this.db
+      .transaction(() => {
+        const history = this.events(ownerId);
+        const bound = history.filter(
+          (event) => event.type === "decision.owner-binding",
+        );
+        if (
+          bound.some((event) => {
+            const prior = event.data.binding as typeof binding | undefined;
+            return (
+              prior?.taskId !== binding.taskId ||
+              prior?.sourceSha256 !== binding.sourceSha256
+            );
+          })
+        )
+          throw new Error(
+            "Decision ledger owner is bound to a different task/source",
+          );
+        if (!bound.length) {
+          const calls = this.db
+            .prepare(
+              "SELECT count(*) AS count FROM inference_calls WHERE project_id=? AND owner_id=?",
+            )
+            .get(this.projectId, ownerId) as { count: number };
+          if (history.length || calls.count)
+            throw new Error("Decision ledger owner has unbound prior history");
+          this.event(ownerId, "decision.owner-binding", { binding });
+        }
+      })
+      .immediate();
+  }
   event(
     runId: string,
     type: string,
