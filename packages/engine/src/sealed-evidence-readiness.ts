@@ -38,7 +38,11 @@ import {
   validateSealedWorkerDeliveryRegistryRows,
 } from "./sealed-worker-delivery.js";
 import { inspectSignedSealedSourceInventory } from "./sealed-source-provenance.js";
-import { inspectSignedSealedOracleExecutionCohort } from "./sealed-oracle-execution.js";
+import {
+  inspectSignedSealedOracleExecutionCohort,
+  validateSealedOracleExecutionRegistryRows,
+  validateSealedOracleKeyFingerprintRegistry,
+} from "./sealed-oracle-execution.js";
 
 type OriginalReader = Parameters<
   typeof inspectPrivateSealedAggregateFromManifest
@@ -69,6 +73,8 @@ export interface SealedEvidenceReadinessInput {
   sourceAttestation?: { pin: unknown; envelope: unknown };
   /** Caller-pinned oracle claims; no executable/image/key authentication. */
   oracleExecutions?: unknown;
+  /** Optional separate oracle fingerprint list; caller provenance is unverified. */
+  oracleKeyFingerprintRegistry?: unknown;
   /** Testable signature cutoff, not an independently attested clock. */
   nowMs?: number;
 }
@@ -280,6 +286,7 @@ export async function inspectSealedEvidenceReadiness(
       "workerKeyFingerprintRegistry",
       "sourceAttestation",
       "oracleExecutions",
+      "oracleKeyFingerprintRegistry",
       "nowMs",
     ],
   );
@@ -362,6 +369,29 @@ export async function inspectSealedEvidenceReadiness(
     validateSealedWorkerDeliveryRegistryRows(
       workerDeliveries,
       workerKeyFingerprintRegistry,
+    );
+  if (
+    fields.oracleKeyFingerprintRegistry !== undefined &&
+    oracleExecutions === undefined
+  )
+    throw new Error(
+      "Sealed readiness oracle key fingerprint registry requires executions",
+    );
+  const oracleKeyFingerprintRegistry =
+    fields.oracleKeyFingerprintRegistry === undefined
+      ? undefined
+      : validateSealedOracleKeyFingerprintRegistry(
+          fields.oracleKeyFingerprintRegistry,
+          {
+            projectId: closed.plan.projectId,
+            collectionId: closed.plan.collectionId,
+            planSha256: closed.planSha256,
+          },
+        );
+  if (oracleKeyFingerprintRegistry)
+    validateSealedOracleExecutionRegistryRows(
+      oracleExecutions,
+      oracleKeyFingerprintRegistry,
     );
   cohortPinsSchema.parse(population.cohortPins);
   cohortPinsSchema.parse(cohort.pins);
@@ -481,7 +511,12 @@ export async function inspectSealedEvidenceReadiness(
           manifestSha256,
           aggregateFields.reader as OriginalReader,
           oracleExecutions,
-          { nowMs },
+          {
+            nowMs,
+            ...(oracleKeyFingerprintRegistry
+              ? { keyFingerprintRegistry: oracleKeyFingerprintRegistry }
+              : {}),
+          },
         ),
       );
     if (identityFields)
@@ -828,6 +863,10 @@ export async function inspectSealedEvidenceReadiness(
       workerDelivery?.completedCallsWithoutPublicDispatch ?? 0,
     workerModelExecutionAuthenticated: false as const,
     oracleExecutionCoverageCompared: oracleExecution !== undefined,
+    oracleKeyFingerprintRegistryCompared:
+      oracleExecution?.keyFingerprintRegistryCompared ?? false,
+    oracleKeyFingerprintRegistrySha256:
+      oracleExecution?.keyFingerprintRegistrySha256 ?? null,
     verifiedOracleVerdictCount:
       oracleExecution?.verifiedOracleVerdictCount ?? 0,
     oracleExecutionInventorySha256:
