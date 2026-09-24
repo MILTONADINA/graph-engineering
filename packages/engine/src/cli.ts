@@ -29,6 +29,13 @@ import {
   exportEvaluationDraft,
   importEvaluationLabels,
 } from "./decision-evaluation.js";
+import {
+  runDualConsultCli,
+  runDualConsultStatusCli,
+} from "./decision-dual-cli.js";
+import { dualPlanPreflightRequestSchema } from "./decision-dual.js";
+import { readWorkspaceFingerprint } from "./workspace-receipt.js";
+import { readRunReceipt, RunStore } from "./store.js";
 
 const cli = new Command()
   .name("graph-engine")
@@ -305,6 +312,7 @@ cli
   .requiredOption("--accept <criterion...>", "Acceptance criteria")
   .option("--provider <id>")
   .option("--effort <effort>")
+  .option("--dual-preflight <json>", "Reviewed private dual/task/scope binding")
   .option(
     "--steps <json>",
     "Reviewed dependency DAG steps with per-step providers/templates",
@@ -316,6 +324,13 @@ cli
         acceptance: options.accept,
         providerId: options.provider,
         effort: options.effort,
+        ...(options.dualPreflight
+          ? {
+              dualPreflight: dualPlanPreflightRequestSchema.parse(
+                await readJson(path.resolve(options.dualPreflight)),
+              ),
+            }
+          : {}),
         ...(options.steps
           ? {
               steps: (await readJson(
@@ -326,13 +341,16 @@ cli
       }),
     ),
   );
-cli.command("run <planId>").action((planId) =>
-  withEngine(async (engine) => {
-    const run = await engine.start(planId);
-    process.stderr.write(`Run ${run.id}\n`);
-    return engine.wait(run.id);
-  }),
-);
+cli
+  .command("run <planId>")
+  .option("--scope-sha256 <digest>")
+  .action((planId, options) =>
+    withEngine(async (engine) => {
+      const run = await engine.start(planId, options.scopeSha256);
+      process.stderr.write(`Run ${run.id}\n`);
+      return engine.wait(run.id);
+    }),
+  );
 cli
   .command("runs")
   .action(() => withEngine(async (engine) => engine.store.runs()));
@@ -343,17 +361,41 @@ cli.command("inspect <runId>").action((runId) =>
   })),
 );
 cli
+  .command("run-receipt <runId>")
+  .description("Read retained run and events without triggering recovery")
+  .action(async (runId) => {
+    const project = await loadProject(root());
+    print(
+      readRunReceipt(
+        projectDataDir(project.projectId),
+        project.projectId,
+        runId,
+      ),
+    );
+  });
+cli
+  .command("workspace-fingerprint <runId>")
+  .description("Read the current managed workspace hash without recovery")
+  .action(async (runId) =>
+    print(await readWorkspaceFingerprint(root(), runId)),
+  );
+cli
   .command("cancel <runId>")
   .action((runId) => withEngine(async (engine) => engine.cancel(runId)));
 cli
   .command("resume <runId>")
+  .option("--scope-sha256 <digest>")
   .option(
     "--reconciled",
     "Acknowledge review of the retained workspace and external effects",
   )
   .action((runId, options) =>
     withEngine(async (engine) => {
-      await engine.resume(runId, Boolean(options.reconciled));
+      await engine.resume(
+        runId,
+        Boolean(options.reconciled),
+        options.scopeSha256,
+      );
       return engine.wait(runId);
     }),
   );
@@ -404,6 +446,57 @@ cli
 cli
   .command("decisions")
   .action(() => withEngine(async (engine) => engine.store.decisions()));
+cli
+  .command("dual-consult <request>")
+  .description(
+    "Require independent Laya and Jev observations before a bound worker task",
+  )
+  .action(async (request) => {
+    const evidence = await runDualConsultCli(root(), request);
+    print(evidence);
+    if (!evidence.ready) process.exitCode = 1;
+  });
+cli
+  .command("dual-consult-status <ownerId>")
+  .description(
+    "Read a retained dual-consult attempt without contacting providers",
+  )
+  .action(async (ownerId) =>
+    print(await runDualConsultStatusCli(root(), ownerId)),
+  );
+cli
+  .command("outcome-record <feedback> <consultation>")
+  .description("Bind a GE run to an external review claim; no routing authority")
+  .action(async (feedback, consultation) => {
+    const project = await loadProject(root());
+    const bytes = await readFile(path.resolve(consultation));
+    if (bytes.length > 2_000_000) throw new Error("Consultation artifact exceeds size limit");
+    const input = await readFile(path.resolve(feedback));
+    if (input.length > 2_000_000) throw new Error("Outcome feedback exceeds size limit");
+    const candidate = (await import("./outcome-feedback.js")).outcomeFeedbackSchema.parse(
+      JSON.parse(input.toString("utf8")),
+    );
+    const fingerprint = await readWorkspaceFingerprint(root(), candidate.run_id);
+    if (fingerprint.snapshotHash !== candidate.workspace_snapshot_sha256)
+      throw new Error("Feedback workspace differs from the verified GE snapshot");
+    const store = new RunStore(projectDataDir(project.projectId), project.projectId);
+    try {
+      const event = store.recordOutcomeFeedback(candidate, bytes);
+      print({ eventId: event.id, status: "UNVERIFIED_EXTERNAL_CLAIM",
+        feedbackCanonicalSha256: event.data.feedback &&
+        (await import("./outcome-feedback.js")).outcomeHash(event.data.feedback),
+        routingEligible: false, promotionEligible: false, completionAuthority: false });
+    } finally { store.close(); }
+  });
+cli
+  .command("outcome-summary")
+  .description("Summarize GE-observed dual runs for local advisory decision context")
+  .action(async () => {
+    const project = await loadProject(root());
+    const store = new RunStore(projectDataDir(project.projectId), project.projectId);
+    try { print(store.outcomeSummary()); }
+    finally { store.close(); }
+  });
 cli
   .command("evaluation-export <mapping> <output>")
   .requiredOption("--dataset <id>")

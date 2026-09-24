@@ -403,6 +403,137 @@ describe("independent question batching", () => {
 });
 
 describe("decision accounting reservations", () => {
+  const tokenPriced = () => ({
+    ...hosted(),
+    pricing: {
+      unit: "input-token" as const,
+      usdPerMillionInputTokens: 0.042,
+      maxInputTokens: 64000 as const,
+      version: "jev-1.13.0-2026-09-23",
+    },
+  });
+  it("reserves the full reviewed Jev envelope, then debits reported input tokens", async () => {
+    const reserve = vi.fn(),
+      settle = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response(
+          {
+            workflow: { choice: "safe", confidence: 0.7 },
+            effort: { choice: "high", confidence: 0.7 },
+          },
+          { usage: { input_tokens: 334, output_tokens: 31 } },
+        ),
+      ),
+    );
+    const input = options();
+    input.providers = [tokenPriced()];
+    input.budget = { reserve, settle };
+    const result = await decideBatch(input);
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "jev",
+        amountUsd: (64000 * 0.042) / 1_000_000,
+      }),
+    );
+    expect(result.usage[0]).toMatchObject({
+      inputTokens: 334,
+      outputTokens: 31,
+      reservedUsd: (64000 * 0.042) / 1_000_000,
+      chargedUsd: (334 * 0.042) / 1_000_000,
+      reportedCostUsd: null,
+      outcome: "completed",
+    });
+    expect(settle).toHaveBeenCalledWith(result.usage[0]);
+  });
+  it("keeps token-priced reservations open when usage is absent or dispatch fails", async () => {
+    const reserve = vi.fn(),
+      settle = vi.fn();
+    const fetch = vi.fn(async () =>
+      response({
+        workflow: { choice: "safe", confidence: 0.7 },
+        effort: { choice: "high", confidence: 0.7 },
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const input = options();
+    input.providers = [tokenPriced()];
+    input.budget = { reserve, settle };
+    const noUsage = await decideBatch(input);
+    expect(noUsage.usage[0]).toMatchObject({
+      reservedUsd: (64000 * 0.042) / 1_000_000,
+      chargedUsd: (64000 * 0.042) / 1_000_000,
+      costUnknown: true,
+      outcome: "failed",
+    });
+    expect(noUsage.records[0]?.evidence.failure).toContain(
+      "reservation retained",
+    );
+    expect(settle).not.toHaveBeenCalled();
+    fetch.mockImplementation(async () => {
+      throw new Error("Connection reset");
+    });
+    const uncertain = await decideBatch(input);
+    expect(uncertain.usage[0]?.outcome).toBe("failed");
+    expect(settle).not.toHaveBeenCalled();
+    expect(reserve).toHaveBeenCalledTimes(2);
+  });
+  it("debits a separately reported charge above the token reservation even without token usage", async () => {
+    const settle = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        response(
+          {
+            workflow: { choice: "safe", confidence: 0.7 },
+            effort: { choice: "high", confidence: 0.7 },
+          },
+          { usage: { cost_usd: 0.1 } },
+        ),
+      ),
+    );
+    const input = options();
+    input.providers = [tokenPriced()];
+    input.budget = { reserve: vi.fn(), settle };
+    const result = await decideBatch(input);
+    expect(result.usage[0]).toMatchObject({
+      inputTokens: null,
+      reportedCostUsd: 0.1,
+      chargedUsd: 0.1,
+      outcome: "failed",
+    });
+    expect(result.records[0]?.evidence.failure).toMatch(/exceeded/);
+    expect(settle).toHaveBeenCalledWith(result.usage[0]);
+  });
+  it("rejects under-reserved token envelopes and usage above the reviewed maximum", async () => {
+    const fetch = vi.fn(async () =>
+      response(
+        {
+          workflow: { choice: "safe", confidence: 0.7 },
+          effort: { choice: "high", confidence: 0.7 },
+        },
+        { usage: { input_tokens: 64001 } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const input = options();
+    input.providers = [
+      {
+        ...tokenPriced(),
+        pricing: { ...tokenPriced().pricing, maxInputTokens: 1000 as 64000 },
+      },
+    ];
+    await expect(decideBatch(input)).rejects.toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+    input.providers = [tokenPriced()];
+    input.budget = { reserve: vi.fn(), settle: vi.fn() };
+    const result = await decideBatch(input);
+    expect(result.records[0]?.evidence.failure).toMatch(/exceeded/);
+    expect(result.usage[0]!.chargedUsd).toBeGreaterThan(
+      result.usage[0]!.reservedUsd!,
+    );
+  });
   it("reserves a reviewed per-question price once before fetching and records missing hosted usage as unknown tokens", async () => {
     const order: string[] = [],
       reserve = vi.fn(async () => {

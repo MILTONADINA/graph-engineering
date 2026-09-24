@@ -28,12 +28,16 @@ export interface DecisionProvider {
   model: string;
   apiKeyEnv?: string;
   maxStateChars: number;
-  /** Reviewed fixed-unit price; no default or inferred hosted pricing. */
-  pricing?: {
-    unit: "request" | "question";
-    usdPerUnit: number;
-    version: string;
-  };
+  /** Reviewed provider price; hosted calls never infer a rate from request text. */
+  pricing?:
+    | { unit: "request" | "question"; usdPerUnit: number; version: string }
+    | {
+        unit: "input-token";
+        usdPerMillionInputTokens: number;
+        /** Full published Jev request envelope, reserved before dispatch. */
+        maxInputTokens: 64000;
+        version: string;
+      };
 }
 export interface PromotionEvidence {
   version: string;
@@ -127,12 +131,30 @@ export const decisionProviderSchema = z
       .optional(),
     maxStateChars: z.number().int().min(64).max(100000),
     pricing: z
-      .object({
-        unit: z.enum(["request", "question"]),
-        usdPerUnit: costSchema,
-        version: labelSchema,
-      })
-      .strict()
+      .discriminatedUnion("unit", [
+        z
+          .object({
+            unit: z.literal("request"),
+            usdPerUnit: costSchema,
+            version: labelSchema,
+          })
+          .strict(),
+        z
+          .object({
+            unit: z.literal("question"),
+            usdPerUnit: costSchema,
+            version: labelSchema,
+          })
+          .strict(),
+        z
+          .object({
+            unit: z.literal("input-token"),
+            usdPerMillionInputTokens: costSchema.positive(),
+            maxInputTokens: z.literal(64000),
+            version: labelSchema,
+          })
+          .strict(),
+      ])
       .optional(),
   })
   .strict();

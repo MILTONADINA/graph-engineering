@@ -465,7 +465,7 @@ class CodexConnection {
   private sequence = 0;
   private closed = false;
   private failure: Error | null = null;
-  private watchdog: ReturnType<typeof setTimeout>;
+  private watchdog: ReturnType<typeof setTimeout> | undefined;
   private hardStop: ReturnType<typeof setTimeout> | undefined;
   private done: Promise<void>;
   private abort: () => void;
@@ -474,7 +474,7 @@ class CodexConnection {
 
   constructor(
     cwd: string,
-    timeoutMs: number,
+    timeoutMs: number | null,
     private signal?: AbortSignal,
   ) {
     const args = [
@@ -522,10 +522,11 @@ class CodexConnection {
     );
     this.abort = () => this.stop(new Error("Codex worker cancelled"));
     signal?.addEventListener("abort", this.abort, { once: true });
-    this.watchdog = setTimeout(
-      () => this.stop(new Error("Codex worker timed out")),
-      timeoutMs,
-    );
+    if (timeoutMs !== null)
+      this.watchdog = setTimeout(
+        () => this.stop(new Error("Codex worker timed out")),
+        timeoutMs,
+      );
     let bytes = 0;
     const count = (chunk: Buffer) => {
       bytes += chunk.byteLength;
@@ -653,7 +654,7 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
   const temporary = await mkdtemp(path.join(os.tmpdir(), "graph-worker-"));
   const rpc = new CodexConnection(
     temporary,
-    policy.timeoutSeconds * 1000,
+    policy.timeoutSeconds === null ? null : policy.timeoutSeconds * 1000,
     signal,
   );
   try {
@@ -1083,7 +1084,8 @@ export async function invokeInstalledWorker(
       env,
       input: prompt,
       signal,
-      timeoutMs: policy.timeoutSeconds * 1000,
+      timeoutMs:
+        policy.timeoutSeconds === null ? null : policy.timeoutSeconds * 1000,
       maxBytes: 2_000_000,
     });
     if (response.code !== 0)

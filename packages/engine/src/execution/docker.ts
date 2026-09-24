@@ -110,7 +110,11 @@ export async function verifyInContainer(
             imageId,
             ...check.argv,
           ],
-          { signal, timeoutMs: policy.timeoutSeconds * 1000 },
+          {
+            signal,
+            timeoutMs:
+              policy.timeoutSeconds === null ? null : policy.timeoutSeconds * 1000,
+          },
         );
         results.push({
           ...result,

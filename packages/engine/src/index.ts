@@ -21,6 +21,27 @@ export {
 } from "./decisions.js";
 export { decideBatch } from "./decision-batch.js";
 export {
+  consultBothDecisions,
+  DualConsultUnavailable,
+  dualOwnerSchema,
+  dualCloudStateSchema,
+  dualWorkerQuestionSchema,
+  dualPlanPreflightRequestSchema,
+  dualPlanPreflightSchema,
+  taskBindingSchema,
+  type DualConsultAttemptLedger,
+  type DualConsultAttemptMeta,
+  type DualConsultEvidence,
+  type DualConsultOptions,
+  type TaskBinding,
+} from "./decision-dual.js";
+export {
+  readDualConsultStatus,
+  readRunReceipt,
+  type DualConsultStatus,
+} from "./store.js";
+export { readWorkspaceFingerprint } from "./workspace-receipt.js";
+export {
   freezeCohortCalibration,
   evaluateFullCohort,
   type FrozenCohortThresholds,

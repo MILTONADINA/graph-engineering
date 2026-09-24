@@ -274,7 +274,9 @@ export async function invokeApiWorker(
     redirect: "error",
     signal: AbortSignal.any([
       signal ?? new AbortController().signal,
-      AbortSignal.timeout(policy.timeoutSeconds * 1000),
+      ...(policy.timeoutSeconds === null
+        ? []
+        : [AbortSignal.timeout(policy.timeoutSeconds * 1000)]),
     ]),
   });
   if (!response.ok)

@@ -31,11 +31,148 @@ Dependent stages, such as selecting a worker before choosing that worker's
 supported effort, remain separate. Large candidate sets use explicit batches
 of at most 12 and retain mandatory items regardless of classifier output.
 
-Hosted decisions require a separately supplied `cloudState` and an explicit
-`exportable` flag on every question. Source filenames, memory labels, candidate
-descriptions, and state all need export review. The presence of a Jev provider
-does not grant permission to upload arbitrary local state. Oversized or
-secret-bearing requests abstain; no text is silently truncated at dispatch.
+`consultBothDecisions` and `graph-engine dual-consult <request.json>` are a
+separate prerequisite for a caller that requires **both** local Laya and hosted
+Jev before each worker task. They make two independent single-provider calls;
+no cascade, shadow fallback, or model promotion can satisfy the missing call.
+Both responses must report the exact configured model, answer every requested
+question with a permitted choice and numeric confidence, and have distinct
+retained call IDs. A missing/invalid response throws `DualConsultUnavailable`
+(API) or exits nonzero (CLI). This consultation is advisory: even two valid
+`proceed` choices confer no authority to dispatch, approve, publish, or skip
+verification. The caller must enforce its own worker prerequisite and all
+other task gates. The consultation waits for a response or caller cancellation;
+it has no fixed 10-second cutoff or automatic retry.
+
+The CLI loads the project policy and exactly one Laya and one Jev entry from
+its private `decisions.json`. This mandatory path pins Jev to the reviewed
+direct `https://api.typesafe.ai/v1/systemone` endpoint; query strings and
+fragments are rejected for both providers. The request file is a reviewed
+compact JSON object. `cloudState` accepts only the fixed fields shown here;
+`securityReviewRequired` may also be supplied as a boolean. The single
+worker question and its candidate descriptions are fixed by the engine:
+
+```json
+{
+  "ownerId": "handoff-GRAPH-42",
+  "binding": {
+    "taskId": "GRAPH-42",
+    "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "state": {
+    "taskBinding": {
+      "taskId": "GRAPH-42",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "complexity": 2
+  },
+  "cloudState": {
+    "taskBinding": {
+      "taskId": "GRAPH-42",
+      "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "writePathCount": 2,
+    "acceptanceCount": 1,
+    "sourceDirty": false,
+    "textOnlyCoverage": false
+  },
+  "questions": [
+    {
+      "id": "dispatch",
+      "category": "worker",
+      "candidates": {
+        "proceed": "Proceed with selected scoped task",
+        "pause": "Pause for more evidence"
+      },
+      "baseline": "pause",
+      "exportable": true
+    }
+  ]
+}
+```
+
+The caller must derive `taskId` and `sourceSha256` from the selected graph
+task and verify that binding again against the result immediately before
+dispatch. It must review `cloudState`, the binding, and every question for
+hosted export. The CLI echoes `ownerId` and the binding and emits `ready`,
+`policyVersion`, `requestHash`,
+and separate `observations.laya` / `observations.jev` with the requested
+endpoints, observed models, choices, call IDs, records, and usage. The provider
+name is bound to the reviewed request endpoint; the wire response itself
+reports the model but no separate provider name. It saves both decision records and a
+task-bound event in the project's private run database; the budget ledger
+stores settled charges or unresolved reservations under `ownerId`. Choose a
+stable unique handoff/dispatch identity for `ownerId`. The CLI durably binds
+it to the exact task/source, policy version and canonical request hash before
+either call. A completed exact replay returns the retained evidence without
+another paid call. An in-flight or uncertain owner blocks a new call; inspect
+it with read-only `graph-engine dual-consult-status <ownerId>` before explicit
+reconciliation and a new owner. A changed request under the same owner is
+rejected. Exported observations are drafts until independently labeled and
+reviewed through the evaluation workflow.
+
+After managed execution, `graph-engine run-receipt <runId>` reads only the
+persisted run database and returns `{ "run": RunRecord, "events": RunEvent[] }`.
+The embedded `run.plan` carries its plan ID, source snapshot ID and policy
+hash; `run` also carries status, workspace, branch, completion and usage.
+Events are ordered by retained sequence. A missing run fails nonzero. This
+command does not open the engine or run interruption recovery.
+
+Projects with `policy.requireDualBeforeWorker: true` require a retained pair
+before worker planning and dispatch. The BrightPath bridge supplies
+`--dual-preflight <private.json>` to `plan` with the exact closed object:
+
+```json
+{
+  "ownerId": "GRAPH-42/handoff-1/1",
+  "requestHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "binding": {
+    "taskId": "GRAPH-42",
+    "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "scopeSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
+```
+
+The engine adds `version: "1.0.0"` to `plan.dualPreflight`, checks that both
+retained models validly selected `proceed` under the current policy, and
+claims the owner for one plan. `run <planId> --scope-sha256 <same digest>`
+rechecks the pair and claims it for one run before worker dispatch. A resumed
+run also requires the digest and rechecks the retained claim. The run receipt
+contains the same metadata in `run.dualPreflight` and `run.plan.dualPreflight`.
+The scope digest is opaque to Graph Engineering: the BrightPath bridge derives
+and verifies it from its selected task, exact paths and acceptance anchor.
+It is never sent to Jev. The dual choices do not approve the scope.
+
+`workspace-fingerprint <runId>` recomputes Graph Engineering's current
+path-policy-aware `snapshotHash` from the workspace in the retained run receipt.
+It returns `{runId,workspace,snapshotHash}` without opening the engine or
+running recovery. It refuses policy drift or a workspace outside the run's
+canonical managed path. The caller must compare this hash to the unique
+successful `publication.started` event before treating candidate bytes as
+the run's output.
+
+After BrightPath independently reviews a candidate scope, its bridge may call
+`graph-engine outcome-record <feedback.json> <dual-result.json>`. The private
+feedback names task, source, candidate, scope, proof and review hashes, both
+decision IDs and usage, and the reported outcome. GE compares the dual artifact
+with its retained attempt, decisions and settled usage. It requires the exact
+dual owner, task/source binding, opaque scope digest, claimed plan and run,
+successful automated checks, and the unique verified snapshot event. The CLI
+also recomputes the current managed workspace fingerprint. BrightPath must
+authenticate its own scope and completion review before calling; GE cannot
+derive their authority from the supplied hashes. The event remains an
+`UNVERIFIED_EXTERNAL_CLAIM` and cannot label model answers or authorize
+completion. `outcome-summary` separately aggregates GE's own dual-bound run
+results and settled decision costs into bounded local decision context. These
+are automated-run observations, not BrightPath accepted outcomes. They never
+accept memory or promote routing, and are not exported to Jev.
+
+Hosted decisions require the separately supplied closed `cloudState` and the
+fixed exportable worker question. Free-form paths, source text, objectives,
+memory, or alternative candidate descriptions are rejected before any call.
+Oversized or secret-bearing requests abstain; no text is silently truncated at
+dispatch.
 
 ## Laya sidecar
 
@@ -185,12 +322,32 @@ dispatched batch emits one `DecisionCallUsage`, shared by its question records
 through `callId`. Missing input/output tokens and reported costs are `null`,
 not zero. Do not add the same call's cost once for every question.
 
-A reviewed private provider entry may contain `pricing` with `unit` equal to
-`request` or `question`, numeric `usdPerUnit`, and an identifiable price
-`version`. Supply the actual applicable fixed-unit rate from your provider
-agreement; the repository has no default hosted rate. Configured pricing is an
-estimate, kept separate from `reportedCostUsd`. Token-based or otherwise
-unbounded billing is not inferred from text length.
+A reviewed private provider entry may contain fixed `request`/`question`
+pricing (`usdPerUnit`) or Jev input-token pricing with `unit: "input-token"`,
+`usdPerMillionInputTokens`, `maxInputTokens: 64000`, and an identifiable
+`version`. [TypeSafe's Jev 1.13 model reference](https://docs.typesafe.ai/models)
+lists $0.042 per million input tokens, free output tokens, and a 64k total
+request context as checked on 2026-09-23. Pin the model and review the current
+rate for the actual endpoint/account before configuring it; the repository has
+no default hosted rate. A direct TypeSafe entry for that reviewed rate is:
+
+```json
+"pricing": {
+  "unit": "input-token",
+  "usdPerMillionInputTokens": 0.042,
+  "maxInputTokens": 64000,
+  "version": "jev-1.13.0-2026-09-23"
+}
+```
+
+The adapter reserves the **full** 64k input-token envelope before sending a
+token-priced request, then settles from valid provider-reported `input_tokens`.
+It never estimates token use from text length. Missing input usage or an
+ambiguous dispatched failure leaves the reservation open for reconciliation,
+unless the provider separately reports a charge above it; that larger known
+charge is debited. Usage beyond the reviewed envelope or a reported charge
+above the reservation withholds the answer. Existing fixed-unit entries retain
+their prior behavior.
 
 Cost-capped hosted decisions require that reviewed bounded pricing and a
 persistent `DecisionBudget` implementation. Its `reserve` callback must
@@ -201,6 +358,10 @@ abstains without calling Jev. An ambiguous dispatched failure retains the
 conservative reservation; it is not refunded on an assumption that the service
 did not bill. Accounting persistence failure or a reported charge above the
 reservation prevents using the answer or escalating further.
+
+The mandatory BrightPath dual-consult path also requires the exact reviewed
+Jev 1.13 input-token rate and full 64k reservation when `maxCostUsd` is null.
+It refuses a missing, fixed-unit, or different Jev price before either call.
 
 The authenticated local `GET /api/usage` endpoint and dashboard aggregate the
 durable inference-call ledger, not per-run totals. Every call is counted once,
