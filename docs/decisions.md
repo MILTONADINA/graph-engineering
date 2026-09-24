@@ -156,13 +156,17 @@ After BrightPath independently reviews a candidate scope, its bridge may call
 `graph-engine outcome-record <feedback.json> <dual-result.json>`. The private
 feedback names task, source, candidate, scope, proof and review hashes, both
 decision IDs and usage, and the reported outcome. GE compares the dual artifact
-with its retained attempt, decisions and settled usage, requires a successful
-GE run, and appends one idempotent event. BrightPath must authenticate its own
-review and proof before calling. GE can bind the run to the dual dispatch and
-scope digest, but cannot verify BrightPath review state from these hashes. The event is
-therefore `UNVERIFIED_EXTERNAL_CLAIM`; `outcome-summary` only counts these claims
-and excludes them from routing. They cannot label model answers, accept memory,
-promote decisions or authorize completion. This path exports nothing to Jev.
+with its retained attempt, decisions and settled usage. It requires the exact
+dual owner, task/source binding, opaque scope digest, claimed plan and run,
+successful automated checks, and the unique verified snapshot event. The CLI
+also recomputes the current managed workspace fingerprint. BrightPath must
+authenticate its own scope and completion review before calling; GE cannot
+derive their authority from the supplied hashes. The event remains an
+`UNVERIFIED_EXTERNAL_CLAIM` and cannot label model answers or authorize
+completion. `outcome-summary` separately aggregates GE's own dual-bound run
+results and settled decision costs into bounded local decision context. These
+are automated-run observations, not BrightPath accepted outcomes. They never
+accept memory or promote routing, and are not exported to Jev.
 
 Hosted decisions require the separately supplied closed `cloudState` and the
 fixed exportable worker question. Free-form paths, source text, objectives,

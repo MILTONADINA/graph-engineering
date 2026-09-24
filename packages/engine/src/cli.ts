@@ -466,16 +466,22 @@ cli
   );
 cli
   .command("outcome-record <feedback> <consultation>")
-  .description("Retain an external outcome claim without granting it routing authority")
+  .description("Bind a GE run to an external review claim; no routing authority")
   .action(async (feedback, consultation) => {
     const project = await loadProject(root());
     const bytes = await readFile(path.resolve(consultation));
     if (bytes.length > 2_000_000) throw new Error("Consultation artifact exceeds size limit");
     const input = await readFile(path.resolve(feedback));
     if (input.length > 2_000_000) throw new Error("Outcome feedback exceeds size limit");
+    const candidate = (await import("./outcome-feedback.js")).outcomeFeedbackSchema.parse(
+      JSON.parse(input.toString("utf8")),
+    );
+    const fingerprint = await readWorkspaceFingerprint(root(), candidate.run_id);
+    if (fingerprint.snapshotHash !== candidate.workspace_snapshot_sha256)
+      throw new Error("Feedback workspace differs from the verified GE snapshot");
     const store = new RunStore(projectDataDir(project.projectId), project.projectId);
     try {
-      const event = store.recordOutcomeFeedback(JSON.parse(input.toString("utf8")), bytes);
+      const event = store.recordOutcomeFeedback(candidate, bytes);
       print({ eventId: event.id, status: "UNVERIFIED_EXTERNAL_CLAIM",
         feedbackCanonicalSha256: event.data.feedback &&
         (await import("./outcome-feedback.js")).outcomeHash(event.data.feedback),
@@ -484,7 +490,7 @@ cli
   });
 cli
   .command("outcome-summary")
-  .description("Count unverified external claims; none can influence routing")
+  .description("Summarize GE-observed dual runs for local advisory decision context")
   .action(async () => {
     const project = await loadProject(root());
     const store = new RunStore(projectDataDir(project.projectId), project.projectId);
