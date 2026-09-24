@@ -20,6 +20,14 @@
 .mcp.json
 **/.env
 **/.env.*
+# Only these reviewed, tracked public placeholders are safe to re-include.
+# Never put live values in them; local values belong in excluded .env files.
+!graph-templates/devops/environments/files/.env.example.reference-stack.template
+!graph-templates/examples/express-neon-s3-app/.env.example
+!graph-templates/examples/multi-tenant-saas/.env.example
+!graph-templates/project/nextjs/files/.env.example.template
+!graph-templates/project/node-express/files/.env.example.template
+!graph-templates/project/vite-react/files/.env.example.template
 **/.npmrc
 **/.pypirc
 **/.netrc
