@@ -47,7 +47,7 @@ const manifestSchema = z
     schema: z
       .object({
         context: z.number().int().min(1).max(CONTEXT_SCHEMA_VERSION),
-        runs: z.number().int().min(1).max(3),
+        runs: z.number().int().min(1).max(4),
       })
       .strict(),
     files: z
