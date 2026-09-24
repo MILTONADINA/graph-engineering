@@ -63,7 +63,9 @@ function main() {
     const compatibleNodes = new Set([
       ...(((doc.compatible_with || {}).upstream) || []),
       ...(((doc.compatible_with || {}).downstream) || []),
-      ...(((doc.dependencies || {}).templates) || []).map((t) => t.id),
+      ...(((doc.dependencies || {}).templates) || [])
+        .filter((t) => t.relationship !== 'conflicts')
+        .map((t) => t.id),
     ]);
 
     templates.push({

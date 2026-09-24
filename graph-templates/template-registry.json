@@ -1,7 +1,7 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-23T22:39:35.410Z",
-  "templateCount": 55,
+  "generatedAt": "2026-09-24T10:01:35.678Z",
+  "templateCount": 56,
   "templates": [
     {
       "id": "api.crud",
@@ -1336,7 +1336,9 @@
         "includeMigrations",
         "migrationEnvironment"
       ],
-      "outputs": ["files"],
+      "outputs": [
+        "files"
+      ],
       "dependsOn": [
         {
           "id": "devops.docker",
@@ -1797,29 +1799,35 @@
     },
     {
       "id": "frontend.react",
-      "name": "Plain React (Vite) Project Scaffold",
-      "version": "0.1.0",
+      "name": "Typed API Client for Vite React",
+      "version": "1.0.0",
       "category": "frontend",
       "subcategory": "react",
-      "status": "planned",
-      "description": "Planned. A non-Next.js React SPA scaffold (Vite + React + TypeScript) for projects that want a pure client-rendered app instead of Next.js's App Router/SSR (e.g. an internal admin tool with no SEO/SSR requirement). Would need its own project.* root node (project.vite-react, not yet registered) since it has a different build tool and routing story than project.nextjs — frontend.forms/frontend.tables's hooks are framework-agnostic React and would likely be reusable as-is; frontend.nextjs's apiClient has no Next.js-specific code either, so a future frontend.react node may turn out to just be \"frontend.nextjs's apiClient, renamed and duplicated\" rather than new code — worth checking before implementing to avoid needless duplication.",
+      "status": "implemented",
+      "description": "Adds the audited typed API client to a project.vite-react application. The client shares frontend.nextjs's framework-independent apiFetch implementation: bounded /api/ paths, included cookie credentials, safe status errors and limited JSON requests and responses. This node does not add routing, login pages, forms, tables or dashboard integration.",
       "tags": [
         "frontend",
-        "react",
-        "ci"
+        "react"
       ],
       "inputs": [],
-      "outputs": [],
-      "dependsOn": [],
+      "outputs": [
+        "files",
+        "exports"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.vite-react",
+          "relationship": "requires"
+        }
+      ],
       "environment": [],
       "testing": {
-        "strategy": "none",
-        "location": "",
-        "command": ""
+        "strategy": "unit",
+        "location": "tests/apiClient.test.ts",
+        "command": "npm test -- apiClient"
       },
       "compatibleNodes": [
-        "frontend.forms",
-        "frontend.tables"
+        "project.vite-react"
       ],
       "path": "frontend/react"
     },
@@ -1869,7 +1877,7 @@
       "category": "project",
       "subcategory": "nextjs",
       "status": "implemented",
-      "description": "Bootstraps a pinned TypeScript Next.js 16.3.5 (App Router) project as a separate frontend app that talks to the Express backend over HTTP with credentials: 'include' (matching authentication.jwt's httpOnly-cookie design — no token ever touches browser JS). Unlike project.node-express, there is no reference-app precedent for this: the reference application ships no frontend at all, so this node is a deliberate, from-scratch addition (see REFERENCE_ARCHITECTURE.md's \"not yet started\" note) rather than a port. Root node for every frontend/* template.",
+      "description": "Bootstraps a pinned TypeScript Next.js 16.3.5 (App Router) project as a separate frontend app that talks to the Express backend over HTTP with credentials: 'include' (matching authentication.jwt's httpOnly-cookie design — no token ever touches browser JS). Unlike project.node-express, there is no reference-app precedent for this: the reference application ships no frontend at all, so this node is a deliberate, from-scratch addition (see REFERENCE_ARCHITECTURE.md's \"not yet started\" note) rather than a port. Root node for the Next.js frontend path.",
       "tags": [
         "project",
         "nextjs",
@@ -2000,6 +2008,67 @@
         "backend.middleware"
       ],
       "path": "project/node-express"
+    },
+    {
+      "id": "project.vite-react",
+      "name": "Vite React Project Scaffold",
+      "version": "1.0.0",
+      "category": "project",
+      "subcategory": "vite-react",
+      "status": "implemented",
+      "description": "Bootstraps a pinned Vite, React and TypeScript client-rendered application as a separate frontend. It emits a minimal home view, build and test setup, validated public API origin and deterministic public generation ledger. Routing, authentication pages and server rendering are not supplied.",
+      "tags": [
+        "project",
+        "vite-react",
+        "react",
+        "react-dom",
+        "jest-dom",
+        "node",
+        "plugin-react",
+        "jsdom",
+        "typescript",
+        "vite",
+        "vitest",
+        "auth",
+        "test"
+      ],
+      "inputs": [
+        "projectName",
+        "description",
+        "port",
+        "apiBaseUrl"
+      ],
+      "outputs": [
+        "files",
+        "entrypoint"
+      ],
+      "dependsOn": [
+        {
+          "id": "project.nextjs",
+          "relationship": "conflicts"
+        }
+      ],
+      "environment": [
+        {
+          "name": "VITE_API_URL",
+          "required": false,
+          "secret": false,
+          "description": "Optional public build-time Express API origin; empty uses the reviewed code default.",
+          "usedBy": [
+            "project.vite-react",
+            "frontend.react"
+          ]
+        }
+      ],
+      "testing": {
+        "strategy": "unit",
+        "location": "tests/App.test.tsx",
+        "command": "npm test -- App"
+      },
+      "compatibleNodes": [
+        "frontend.react"
+      ],
+      "path": "project/vite-react"
     },
     {
       "id": "storage.aws-s3",

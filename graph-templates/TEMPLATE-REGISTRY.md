@@ -6,14 +6,17 @@ The human-readable catalog of every graph node in this library. **This file is a
 node tools/generate-registry/index.js . > template-registry.json
 ```
 
-`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 48 implemented, 7 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
+`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no executable renderer yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 50 implemented, 6 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
 
 ## project
 
-| Status | id                     | Description                                                                                                                                                                                                                                                         |
-| ------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| I      | `project.node-express` | Root scaffold: `package.json`, `tsconfig.json`, the Express entrypoint with global middleware, health check, fail-fast `SECRETS` env validation. Always first (backend half of a graph).                                                                            |
-| I      | `project.nextjs`       | Root scaffold for a **separate** TypeScript Next.js 14 (App Router) frontend app — talks to the Express backend over HTTP with `credentials: 'include'`. No reference-app precedent (the reference app ships no frontend); always first (frontend half of a graph). |
+| Status | id                     | Description                                                                                                                                                                              |
+| ------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| I      | `project.node-express` | Express backend root scaffold with TypeScript, middleware, a health check and fail-fast environment validation.                                                                         |
+| I      | `project.nextjs`       | Separate Next.js 16.3.5 App Router frontend root. Use before `frontend.nextjs` and the existing Next.js-specific auth, form, table and dashboard nodes.                                 |
+| I      | `project.vite-react`   | Separate Vite 7.3.6 / React 19.3.0 client-rendered frontend root with build/test setup, a public API origin and a deterministic ledger. Use before `frontend.react`.                     |
+
+The two frontend roots conflict in one application target. Select one path for each frontend application.
 
 `project.fullstack`, `project.monorepo` are not yet registered even as planned stubs — out of scope for this pass (see `REFERENCE_ARCHITECTURE.md` §11).
 
@@ -113,14 +116,14 @@ Entity CRUD generation itself lives at `backend.repository`, not a `database.rep
 
 No reference-app precedent (the reference app ships no frontend) — implemented from scratch, designed to compose with the existing backend nodes' conventions rather than invent new ones. See `REFERENCE_ARCHITECTURE.md` §11.
 
-| Status | id                        | Description                                                                                                                                                                                   |
-| ------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| I      | `frontend.nextjs`         | `apiFetch`/`ApiError` — a typed client mirroring `backend.api-response`/`backend.error-handler`'s exact envelopes, always `credentials: 'include'`. Every other `frontend.*` node imports it. |
-| I      | `frontend.authentication` | `AuthProvider`/`useAuth` (hydrates via a new `GET /api/auth/me` this node required adding to `authentication.password`) + login/register pages.                                               |
-| I      | `frontend.forms`          | `useFormState<T>` — generic field values/errors/submit-in-flight, framework for any validation approach.                                                                                      |
-| I      | `frontend.tables`         | `useQueryTable`/`DataTable` — paginated list fetching matching `backend.pagination`/`api.crud`'s exact query-param contract.                                                                  |
-| I      | `frontend.dashboards`     | Reusable authenticated dashboard composition with display-only role navigation, caller-supplied stats, optional bounded table and profile-save callback; no route or endpoint is invented.    |
-| P      | `frontend.react`          | Non-Next.js SPA scaffold (Vite) — deferred pending a check of how much of the Next.js-targeted nodes above is actually framework-specific vs. reusable as-is.                                 |
+| Status | id                        | Description                                                                                                                                                                                |
+| ------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| I      | `frontend.nextjs`         | Audited `apiFetch`/`ApiError` client for the Next.js root. The existing auth, form, table and dashboard nodes require this exact graph ID.                                                |
+| I      | `frontend.react`          | Same audited API client for the Vite root. It supplies no routing, auth UI, form, table or dashboard integration.                                                                         |
+| I      | `frontend.authentication` | `AuthProvider`/`useAuth` plus Next.js login/register pages and root-layout modification; requires the Next.js client and backend password authentication.                               |
+| I      | `frontend.forms`          | `useFormState<T>` for string-valued fields/errors/submission; currently requires the Next.js client graph ID.                                                                             |
+| I      | `frontend.tables`         | `useQueryTable`/`DataTable` for paginated list fetching; currently requires the Next.js client graph ID.                                                                                |
+| I      | `frontend.dashboards`     | Reusable authenticated dashboard composition with display-only role navigation and caller-supplied data; currently requires the Next.js auth/form/table chain.                           |
 
 ## ai (orchestration agents — not templates, see `ai/README.md`)
 

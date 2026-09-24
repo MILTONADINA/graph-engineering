@@ -8,7 +8,7 @@ description: >
   browser JS). Unlike project.node-express, there is no reference-app precedent
   for this: the reference application ships no frontend at all, so this node is a
   deliberate, from-scratch addition (see REFERENCE_ARCHITECTURE.md's "not yet
-  started" note) rather than a port. Root node for every frontend/* template.
+  started" note) rather than a port. Root node for the Next.js frontend path.
 category: project
 subcategory: nextjs
 status: implemented
