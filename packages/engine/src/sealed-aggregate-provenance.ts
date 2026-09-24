@@ -50,7 +50,7 @@ const artifactSchema = z
     bytesBase64: z.string().max(2_000_000),
   })
   .strict();
-const originalByteManifestSchema = z
+export const originalByteManifestSchema = z
   .object({
     version: z.literal("1.0.0"),
     kind: z.literal("sealed-original-byte-manifest"),
@@ -368,7 +368,7 @@ function oracleRolePrefix(item: CohortInspection["assignments"][number]) {
   return `${namespace}/${item.assignment.assignmentId}`;
 }
 
-function originalReferences(inspection: CohortInspection) {
+export function originalReferences(inspection: CohortInspection) {
   const references = new Map<string, string>();
   const add = (role: string, digest: string | null) => {
     if (digest === null) return;
@@ -503,7 +503,7 @@ function auditOriginalBytes(
 }
 
 /** The reader transfers a fresh byte array; this function wipes it on all paths. */
-async function readAndCheckOriginal(
+export async function readAndCheckOriginal(
   reference: OriginalManifest["entries"][number],
   reader: ArtifactReader,
 ): Promise<Buffer> {
