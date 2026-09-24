@@ -456,6 +456,19 @@ optional local signer is not independently governed, and there is still no
 attested loaded model, authenticated source/oracle runtime, or anti-rollback
 witness.
 
+An optional, separately retained fingerprint list can be passed as
+`keyFingerprintRegistry` in either worker inspector's options, or as
+`workerKeyFingerprintRegistry` alongside `workerDeliveries` in readiness. Its
+strict shape is `{version:"1.0.0",kind:"sealed-worker-key-fingerprint-registry",projectId,collectionId,planSha256,keys:[{workerId,keyId,publicKeySha256}]}`.
+Duplicate worker/key identities or fingerprints, wrong scope and any signed
+row whose canonical SPKI DER fingerprint differs from the named registry key
+fail before an original-byte reader or witness callback runs. The receipts
+separately report self-row signature verification and
+`keyFingerprintRegistryCompared` (readiness:
+`workerKeyFingerprintRegistryCompared`) with the registry hash. A caller can
+still supply both the registry and the row; comparison does not establish
+independent key control, signer governance, or promotion authority.
+
 `inspectSealedCurrentGovernance()` in the engine also compares that signed
 aggregate with two fresh, challenge-bound checkpoints from a caller-configured
 current-witness reader. It fails on changed ledger heads, registrations, trust

@@ -109,6 +109,9 @@ it("joins a pinned worker signature, frozen call and exact original bytes withou
     collectionId: record.inspection.plan.collectionId,
     callId: record.call.reservation.callId,
     signatureVerifiedAgainstPin: true,
+    signatureVerifiedAgainstSelfSuppliedPin: true,
+    keyFingerprintRegistryCompared: false,
+    keyFingerprintRegistrySha256: null,
     originalBytesChecked: true,
     independentKeyControlVerified: false,
     modelExecutionAuthenticated: false,
@@ -125,6 +128,50 @@ it("joins a pinned worker signature, frozen call and exact original bytes withou
         record.inspection.plan.configurations.candidate.policySha256,
     }),
   ).toBe(false);
+});
+
+it("compares the one-call signer with an optional separately supplied fingerprint registry", async () => {
+  const record = await scenario();
+  const registry = {
+    version: "1.0.0",
+    kind: "sealed-worker-key-fingerprint-registry",
+    projectId: record.inspection.plan.projectId,
+    collectionId: record.inspection.plan.collectionId,
+    planSha256: record.inspection.planSha256,
+    keys: [
+      {
+        workerId: record.pin.workerId,
+        keyId: record.pin.keyId,
+        publicKeySha256: record.pin.publicKeySha256,
+      },
+    ],
+  };
+  const signed = record.makeEnvelope();
+  const verify = (keyFingerprintRegistry: unknown) =>
+    inspectSignedSealedWorkerDelivery(
+      record.inspection,
+      record.pins,
+      record.pin,
+      signed,
+      {
+        requestBytes: record.requestBytes,
+        responseBytes: record.responseBytes,
+      },
+      { nowMs, keyFingerprintRegistry },
+    );
+  expect(verify(registry)).toMatchObject({
+    signatureVerifiedAgainstSelfSuppliedPin: true,
+    keyFingerprintRegistryCompared: true,
+    keyFingerprintRegistrySha256: hashJson(registry),
+    independentKeyControlVerified: false,
+    promotionEligible: false,
+  });
+  expect(() =>
+    verify({
+      ...registry,
+      keys: [{ ...registry.keys[0]!, publicKeySha256: "0".repeat(64) }],
+    }),
+  ).toThrow(/fingerprint differs from registry/);
 });
 
 it("rejects tampered bytes, signed claim, key pin, other call and ambiguous JSON", async () => {

@@ -44,6 +44,144 @@ const pinSchema = z
     publicKeySha256: digestSchema,
   })
   .strict();
+export const sealedWorkerKeyFingerprintRegistrySchema = z
+  .object({
+    version: z.literal("1.0.0"),
+    kind: z.literal("sealed-worker-key-fingerprint-registry"),
+    projectId: id,
+    collectionId: id,
+    planSha256: digestSchema,
+    keys: z
+      .array(
+        z
+          .object({
+            workerId: id,
+            keyId: id,
+            publicKeySha256: digestSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(10_000),
+  })
+  .strict();
+export type WorkerKeyFingerprintRegistry = z.infer<
+  typeof sealedWorkerKeyFingerprintRegistrySchema
+>;
+type WorkerRegistryScope = Readonly<{
+  projectId: string;
+  collectionId: string;
+  planSha256: string;
+}>;
+
+/** Validate the caller's separate fingerprint list before reading originals. */
+export function validateSealedWorkerKeyFingerprintRegistry(
+  input: unknown,
+  scope: WorkerRegistryScope,
+): WorkerKeyFingerprintRegistry {
+  const registry = sealedWorkerKeyFingerprintRegistrySchema.parse(
+    decodeJson(input),
+  );
+  if (
+    registry.projectId !== scope.projectId ||
+    registry.collectionId !== scope.collectionId ||
+    registry.planSha256 !== scope.planSha256
+  )
+    throw new Error("Worker key fingerprint registry scope differs");
+  const identities = new Set<string>();
+  const fingerprints = new Set<string>();
+  for (const key of registry.keys) {
+    const identity = `${key.workerId}\u0000${key.keyId}`;
+    if (identities.has(identity))
+      throw new Error("Worker key fingerprint registry repeats an identity");
+    if (fingerprints.has(key.publicKeySha256))
+      throw new Error("Worker key fingerprint registry repeats a fingerprint");
+    identities.add(identity);
+    fingerprints.add(key.publicKeySha256);
+  }
+  return registry;
+}
+
+function compareRegistryRow(
+  pinInput: unknown,
+  envelopeInput: unknown,
+  registry: WorkerKeyFingerprintRegistry,
+  registeredKeys: ReadonlyMap<string, string>,
+  permitUndispatchedCall: boolean,
+): void {
+  const pin = pinSchema.parse(boundedJson(pinInput, "key pin"));
+  const signed = (
+    permitUndispatchedCall ? cohortEnvelopeSchema : envelopeSchema
+  ).parse(boundedJson(envelopeInput, "envelope"));
+  if (
+    pin.projectId !== registry.projectId ||
+    pin.collectionId !== registry.collectionId ||
+    signed.workerId !== pin.workerId ||
+    signed.keyId !== pin.keyId ||
+    signed.payload.projectId !== registry.projectId ||
+    signed.payload.collectionId !== registry.collectionId ||
+    signed.payload.planSha256 !== registry.planSha256
+  )
+    throw new Error("Worker delivery registry row identity or scope differs");
+  if (!pin.publicKeyPem.startsWith("-----BEGIN PUBLIC KEY-----"))
+    throw new Error("Worker delivery requires a public key pin");
+  const key = createPublicKey(pin.publicKeyPem);
+  if (
+    key.asymmetricKeyType !== "ed25519" ||
+    key.export({ type: "spki", format: "pem" }).toString() !== pin.publicKeyPem
+  )
+    throw new Error("Worker delivery requires canonical Ed25519 PEM");
+  const fingerprint = createHash("sha256")
+    .update(key.export({ type: "spki", format: "der" }))
+    .digest("hex");
+  if (fingerprint !== pin.publicKeySha256)
+    throw new Error("Worker delivery key fingerprint differs from pin");
+  const registeredFingerprint = registeredKeys.get(
+    `${pin.workerId}\u0000${pin.keyId}`,
+  );
+  if (!registeredFingerprint)
+    throw new Error("Worker delivery key identity is absent from registry");
+  if (registeredFingerprint !== fingerprint)
+    throw new Error("Worker delivery key fingerprint differs from registry");
+  const { signature, ...unsigned } = signed;
+  const signatureBytes = Buffer.from(signature, "base64");
+  if (
+    signatureBytes.toString("base64") !== signature ||
+    !verify(
+      null,
+      Buffer.from(SIGNED_WORKER_DELIVERY_DOMAIN + canonicalJson(unsigned)),
+      key,
+      signatureBytes,
+    )
+  )
+    throw new Error("Worker delivery signature differs");
+}
+
+function registryKeyMap(registry: WorkerKeyFingerprintRegistry) {
+  return new Map(
+    registry.keys.map(
+      (key) =>
+        [`${key.workerId}\u0000${key.keyId}`, key.publicKeySha256] as const,
+    ),
+  );
+}
+
+/** Check every self-supplied row pin against the separate registry, without I/O. */
+export function validateSealedWorkerDeliveryRegistryRows(
+  deliveriesInput: unknown,
+  registry: WorkerKeyFingerprintRegistry,
+): void {
+  const deliveries = cohortDeliverySchema.parse(decodeJson(deliveriesInput));
+  const registeredKeys = registryKeyMap(registry);
+  for (const delivery of deliveries)
+    compareRegistryRow(
+      delivery.pin,
+      delivery.envelope,
+      registry,
+      registeredKeys,
+      true,
+    );
+}
 const payloadSchema = z
   .object({
     version: z.literal("1.0.0"),
@@ -160,15 +298,23 @@ function originalFields(input: unknown): {
   };
 }
 
-function verificationTime(options: Readonly<{ nowMs?: number }>): number {
+function verificationOptions(
+  options: Readonly<{ nowMs?: number; keyFingerprintRegistry?: unknown }>,
+) {
   const parsedOptions = z
-    .object({ nowMs: z.number().optional() })
+    .object({
+      nowMs: z.number().optional(),
+      keyFingerprintRegistry: z.unknown().optional(),
+    })
     .strict()
     .parse(decodeJson(options));
   const nowMs = parsedOptions.nowMs ?? Date.now();
   if (!Number.isFinite(nowMs) || nowMs < 0 || nowMs > 8_640_000_000_000_000)
     throw new Error("Worker delivery verification time is invalid");
-  return nowMs;
+  return {
+    nowMs,
+    keyFingerprintRegistry: parsedOptions.keyFingerprintRegistry,
+  };
 }
 
 function inspectValidatedSignedWorkerDelivery(
@@ -293,6 +439,7 @@ function inspectValidatedSignedWorkerDelivery(
     requestSha256: claim.requestSha256,
     responseSha256: claim.responseSha256,
     signatureVerifiedAgainstPin: true as const,
+    signatureVerifiedAgainstSelfSuppliedPin: true as const,
     originalBytesChecked: true as const,
     independentKeyControlVerified: false as const,
     modelExecutionAuthenticated: false as const,
@@ -314,19 +461,40 @@ export function inspectSignedSealedWorkerDelivery(
   pinInput: unknown,
   envelopeInput: unknown,
   originals: Readonly<{ requestBytes: Uint8Array; responseBytes: Uint8Array }>,
-  options: Readonly<{ nowMs?: number }> = {},
+  options: Readonly<{ nowMs?: number; keyFingerprintRegistry?: unknown }> = {},
 ) {
-  const nowMs = verificationTime(options);
+  const { nowMs, keyFingerprintRegistry } = verificationOptions(options);
   const inspection = validateFullCohortLedger(inspectionInput, pinsInput);
   if (!inspection.closure?.complete)
     throw new Error("Worker delivery needs a complete closed collection");
-  return inspectValidatedSignedWorkerDelivery(
+  const registry =
+    keyFingerprintRegistry === undefined
+      ? undefined
+      : validateSealedWorkerKeyFingerprintRegistry(keyFingerprintRegistry, {
+          projectId: inspection.plan.projectId,
+          collectionId: inspection.plan.collectionId,
+          planSha256: inspection.planSha256,
+        });
+  if (registry)
+    compareRegistryRow(
+      pinInput,
+      envelopeInput,
+      registry,
+      registryKeyMap(registry),
+      false,
+    );
+  const receipt = inspectValidatedSignedWorkerDelivery(
     inspection,
     pinInput,
     envelopeInput,
     originals,
     nowMs,
   );
+  return freezeJson({
+    ...receipt,
+    keyFingerprintRegistryCompared: registry !== undefined,
+    keyFingerprintRegistrySha256: registry ? hashJson(registry) : null,
+  });
 }
 
 /**
@@ -345,14 +513,22 @@ export async function inspectSignedSealedWorkerDeliveryCohort(
     bytes: number;
   }) => Promise<Uint8Array>,
   deliveriesInput: unknown,
-  options: Readonly<{ nowMs?: number }> = {},
+  options: Readonly<{ nowMs?: number; keyFingerprintRegistry?: unknown }> = {},
 ) {
-  const nowMs = verificationTime(options);
+  const { nowMs, keyFingerprintRegistry } = verificationOptions(options);
   const inspection = validateFullCohortLedger(inspectionInput, pinsInput);
   if (!inspection.closure?.complete)
     throw new Error(
       "Worker delivery cohort needs a complete closed collection",
     );
+  const registry =
+    keyFingerprintRegistry === undefined
+      ? undefined
+      : validateSealedWorkerKeyFingerprintRegistry(keyFingerprintRegistry, {
+          projectId: inspection.plan.projectId,
+          collectionId: inspection.plan.collectionId,
+          planSha256: inspection.planSha256,
+        });
   const manifest = originalByteManifestSchema.parse(decodeJson(manifestInput));
   const manifestSha256 = digestSchema.parse(expectedManifestSha256);
   if (
@@ -390,6 +566,17 @@ export async function inspectSignedSealedWorkerDeliveryCohort(
       }
   if (!expected.size || deliveries.length !== expected.size)
     throw new Error("Worker delivery cohort coverage is incomplete");
+  if (registry) {
+    const registeredKeys = registryKeyMap(registry);
+    for (const delivery of deliveries)
+      compareRegistryRow(
+        delivery.pin,
+        delivery.envelope,
+        registry,
+        registeredKeys,
+        true,
+      );
+  }
   const references = new Map(
     manifest.entries.map((entry) => [entry.role, entry] as const),
   );
@@ -461,6 +648,9 @@ export async function inspectSignedSealedWorkerDeliveryCohort(
     workerDeliveryInventorySha256: hashJson(inventory),
     allCompletedCallsCovered: true as const,
     signaturesVerifiedAgainstCallerPins: true as const,
+    signaturesVerifiedAgainstSelfSuppliedPins: true as const,
+    keyFingerprintRegistryCompared: registry !== undefined,
+    keyFingerprintRegistrySha256: registry ? hashJson(registry) : null,
     originalRequestResponseBytesChecked: true as const,
     publicDispatchProvenForEveryCall: false as const,
     publicPacketDeliveryAuthenticated: false as const,

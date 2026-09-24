@@ -119,6 +119,15 @@ provenance and separate trusted pin governance are still absent. Neither
 verifier grants promotion authority or turns these fixtures into held-out
 evidence.
 
+An optional worker-key fingerprint registry now lets the private inspectors
+compare each signed row's worker/key identity and canonical Ed25519 SPKI
+fingerprint with a separately supplied collection-scoped list before reading
+original evidence or calling a witness. The receipt distinguishes that
+comparison from verification against the row's own public key. The caller can
+still control both inputs: registry origin, independent key governance, actual
+model execution and worker assignment are not authenticated, and promotion
+eligibility remains false.
+
 An optional pre-run source-inventory signature check now binds a
 caller-pinned Ed25519 source key, declared inventory digest, selected task
 identities and claimed signing time to the closed cohort. Readiness checks it

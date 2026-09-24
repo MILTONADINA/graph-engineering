@@ -158,10 +158,16 @@ put them in a public packet, MCP response, repository, or CI secret output.
 Windows signing is disabled because this adapter does not inspect Windows ACLs.
 Parent-ancestor trust and hostile same-user filesystem races are not proven.
 The returned public key pin is **not** independent approval: the caller must
-obtain its trusted pin separately. Cohort/readiness callers must compare each
-row's pin fingerprint with that separately retained trust list; those APIs do
-not make an embedded row pin trusted merely by verifying its signature. The
-host still signs its own local claim;
+obtain its trusted pin separately. The engine's optional strict
+`sealed-worker-key-fingerprint-registry` accepts the collection's project ID,
+collection ID and plan hash plus unique `{workerId,keyId,publicKeySha256}`
+entries. Pass it as `keyFingerprintRegistry` in a worker inspector's options,
+or as `workerKeyFingerprintRegistry` with `workerDeliveries` in readiness. The
+inspectors compare each row's canonical SPKI DER fingerprint and worker/key
+identity with that list before reading original bytes; readiness also does so
+before calling a witness. A matching caller-supplied registry is reported
+separately from verification against the row's own pin. The host still signs
+its own local claim;
 this does not attest the loaded model, executable, Docker host, key governance,
 or actual worker delivery. Every receipt remains non-authorizing.
 
