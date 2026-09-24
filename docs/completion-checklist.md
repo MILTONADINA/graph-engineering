@@ -6,11 +6,13 @@ are separate outcomes. Synthetic tests are never counted as production
 calibration evidence.
 
 Work is stacked in focused commits on the owner's fork, on feature branches.
-No direct pushes to `main`, no AI co-author trailers, no upstream updates, and
-no PR reviews or merges until the implementation is ready.
-When ready, review and merge this feature stack into
+No direct pushes to `main`, no AI co-author trailers, and no upstream updates.
+The owner has authorized a PR review and merge of the completed implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
+
+The table is the implementation checkpoint before the final PR handoff; dated
+updates immediately below it supersede rows 1 and 12 where applicable.
 
 | #   | Deliverable                                                | Status / completion evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -28,6 +30,31 @@ When ready, review and merge this feature stack into
 | 12  | Native clients and hosted decision accounting              | Nullable ledger, reservations, batch pricing and resume safeguards implemented. Claude Max subscription-backed managed proposal mode passed a bounded live call. Codex `0.156.0` and disposable `0.158.0-alpha.6` both lack required restricted read roots, so managed Codex stays disabled. A pinned text-only Cursor SDK adapter passed mocked isolation/fail-closed checks and dependency audit, but no Cursor user key or live call was used. Jev API access and metered provider/budget selection remain deferred.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 13  | Representative calibration and held-out evidence           | Nine pinned historical intake tasks and four additional bounded known-history replays are implemented. Sealed bookkeeping, a one-call local model relay, narrow digest, one-file QuickJS, JavaScript module-graph, selected-file repository v1, and declared-safe-tree repository v2 black-box oracles exist. Full private repository snapshot closure, original-byte audit, full-cohort accounting, signed aggregate inspection, and a non-authorizing current-witness comparison exist. The repository aggregate independently joins retained response-derived trees, guest observations, and private counters; native Docker and signed tamper fixtures pass. Native tests use fake responses and synthetic private cases; an opt-in two-arm known-synthetic run additionally reached both private oracles with real local Qwen. Neither is held-out evidence. **Not complete as evidence:** execution beyond a reviewed safe scope, authenticated source/worker/oracle provenance and external witness, independent unseen tasks/labels, and paired measured model costs/outcomes remain required. |
 | 14  | Cross-language tests and operations                        | All 60 synthetic fixtures failed before repair and passed their oracles in 120 offline containers across six languages. 10,000-file benchmark recorded. Migrations, content-aware watch, retained-evidence pruning, and real backup/staged restore validated.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+## Final PR handoff update — 2026-09-24
+
+Kevin was invited as a collaborator on the owner's fork so that his GitHub
+review can satisfy the protected `dev` branch's required independent approval.
+The invitation must be accepted and the approval submitted on the actual PR;
+verbal approval does not satisfy GitHub's rule. The branch still requires all
+nine checks and a review after the last push. No `main`, upstream or `dev`
+commit was changed by the invitation.
+
+Jev is configured through an ignored, private key-source pointer and an opt-in
+launcher. The key itself remains in a private file and is not printed or
+committed. The decision adapter now accepts an operator-reviewed input-token
+rate and a bounded reservation, preserves unknown usage, and scrubs the Jev key
+from utility subprocesses. Focused decision and subprocess tests plus engine
+typecheck pass. The tracked default still selects local Qwen/Laya and a $0
+external budget; no paid Jev call has been made. Each open-source user chooses
+their own supported providers, pricing and spending cap. A client-side token
+reservation is not a provider-enforced billing limit.
+
+The sealed-readiness join now rejects reuse of a signed worker or oracle actor
+or Ed25519 key across source, selection, row-review, aggregate-review, worker
+and oracle roles. Adversarial cross-role cases and legitimate same-role reuse
+pass the focused tests. This is an analysis-only consistency check: it does not
+authenticate signer control, create unseen tasks, or enable promotion.
 
 Item 6 now also has a successful one-attempt, unassisted local Qwen+Laya run on
 a real UTF-8 subprocess-output defect. Its pre-fix regression failed, the
@@ -244,8 +271,11 @@ This is an implemented and tested development platform, not a claim of fourteen
 unqualified production approvals. The remaining work has different owners and
 is not all a prerequisite for normal local or MCP-assisted engineering:
 
-- Owner/partner decisions: review and merge into the fork's `dev`, later upstream
-  synchronization, and (only if wanted) a metered API provider and spending cap.
+- Owner/partner actions: Kevin accepts the fork invitation and submits an
+  approving review on the final PR, after which the protected-branch merge can
+  proceed. Upstream synchronization is a separate later decision. Jev is the
+  only configured metered decision provider, but it remains disabled until an
+  operator selects a numeric session cap and reviewed account-specific price.
 - Client integration evidence: Cursor's separate project MCP still needs an
   observed in-app call. Codex managed proposals require a native binary with
   restricted read roots; Cursor's new text-only SDK path needs a user key and
