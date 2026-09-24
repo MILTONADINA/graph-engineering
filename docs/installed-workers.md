@@ -22,7 +22,16 @@ Native authentication remains with Codex; Graph Engineering does not copy or ext
 
 ## Cursor and budgets
 
-Cursor is reported unavailable for managed proposals. The SDK offers an empty built-in toolset, but independent hook-loading behavior and output-budget enforcement require verification before enabling it. Cursor can still consume Graph Engineering context through MCP. Its SDK requires explicit supported authentication; an installed application does not automatically supply it. See [Cursor SDK](https://cursor.com/docs/sdk/typescript).
+Cursor is reported unavailable for managed proposals on this host. The SDK
+documents `tools: []` for a text-only, no-built-in-tool proposal path. A future
+adapter could use that with a curated source packet and an isolated empty
+working directory, but must verify the installed SDK's effective controls,
+hook-loading behavior, authentication, output limits and fail-closed behavior
+before enabling it. Cursor can already consume Graph Engineering context through
+MCP; that does not require Graph Engineering to launch Cursor as a worker. The
+SDK does not inherit desktop-app credentials automatically; it requires a user
+key or its own browser login. A user key is charged to the user's Cursor plan,
+so it is not necessarily a separate metered API provider. See [Cursor SDK](https://cursor.com/docs/sdk/typescript).
 
 All installed workers reject local-only policies and hard monetary caps. Use API workers when precise provider limits are required. Claude's output setting applies per response; Codex usage limits are observed asynchronously and can overshoot before interruption. Missing token or cost telemetry stays `null`. Protocol and failure handling have mocked-native tests; one controlled subscription-backed Claude call also completed live on this Mac. It used a selected public source snippet from the real cloud-export bug and returned a structured one-change proposal without tools or applying edits. This proves the installed Claude path on this host, not a hard account spending cap or a full verified engineering run.
 

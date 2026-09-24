@@ -2,9 +2,10 @@
 
 This checkout is configured for Milton's fork and local inference. Keep work on
 `feat/engineering-platform` (or a new feature branch based on `dev`), never
-`main`. PR review, merges, and synchronization with Kevin's repository remain
-separate partner actions. Commits use the configured human identity, without AI
-co-author trailers.
+`main`. When ready, PR review and merges target
+`MILTONADINA/graph-engineering:dev`; synchronization with Kevin's repository is
+a separate later partner action. Commits use the configured human identity,
+without AI co-author trailers.
 
 ## Start and inspect
 
