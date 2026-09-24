@@ -592,6 +592,28 @@ function signedOracleExecutions(
     });
 }
 
+function oracleFingerprintRegistry(
+  request: Awaited<ReturnType<typeof scenario>>["request"],
+  executions: ReturnType<typeof signedOracleExecutions>,
+) {
+  const inspection = request.aggregate.input.cohort.inspection;
+  const pin = executions[0]!.pin;
+  return {
+    version: "1.0.0" as const,
+    kind: "sealed-oracle-executor-key-fingerprint-registry" as const,
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    planSha256: inspection.planSha256,
+    keys: [
+      {
+        oracleExecutorId: pin.oracleExecutorId,
+        keyId: pin.keyId,
+        publicKeySha256: pin.publicKeySha256,
+      },
+    ],
+  };
+}
+
 it("joins complete signed oracle verdicts without authenticating execution", async () => {
   const { request } = await scenario(true);
   const oracleExecutions = signedOracleExecutions(request);
@@ -602,6 +624,8 @@ it("joins complete signed oracle verdicts without authenticating execution", asy
   });
   expect(receipt).toMatchObject({
     oracleExecutionCoverageCompared: true,
+    oracleKeyFingerprintRegistryCompared: false,
+    oracleKeyFingerprintRegistrySha256: null,
     verifiedOracleVerdictCount: 1,
     oracleExecutionAuthenticated: false,
     promotionEligible: false,
@@ -618,6 +642,146 @@ it("joins complete signed oracle verdicts without authenticating execution", asy
       oracleExecutions: [],
     }),
   ).rejects.toThrow(/coverage/);
+});
+
+it("compares every oracle key with a separate registry while retaining evidence-only receipts", async () => {
+  const { request } = await scenario(true);
+  const executions = signedOracleExecutions(request);
+  const registry = oracleFingerprintRegistry(request, executions);
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    oracleExecutions: executions,
+    oracleKeyFingerprintRegistry: registry,
+  });
+  expect(receipt).toMatchObject({
+    oracleExecutionCoverageCompared: true,
+    oracleKeyFingerprintRegistryCompared: true,
+    oracleKeyFingerprintRegistrySha256: hashJson(registry),
+    verifiedOracleVerdictCount: executions.length,
+    oracleExecutionAuthenticated: false,
+    promotionEligible: false,
+  });
+});
+
+it("rejects a valid replacement oracle signature before evidence or witness I/O", async () => {
+  const { request, checkpoint } = await scenario(true);
+  const approved = signedOracleExecutions(request);
+  const registry = oracleFingerprintRegistry(request, approved);
+  const replacement = signedOracleExecutions(request);
+  expect(replacement[0]!.pin.publicKeySha256).not.toBe(
+    registry.keys[0]!.publicKeySha256,
+  );
+  const legacy = await inspectSealedEvidenceReadiness({
+    ...request,
+    oracleExecutions: replacement,
+  });
+  expect(legacy.oracleKeyFingerprintRegistryCompared).toBe(false);
+  request.aggregate.reader.mockClear();
+  const readCurrent = vi.fn(async (query: Parameters<typeof checkpoint>[0]) =>
+    checkpoint(query),
+  );
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      oracleExecutions: replacement,
+      oracleKeyFingerprintRegistry: registry,
+      witness: { witnessId: "test-witness", readCurrent },
+    }),
+  ).rejects.toThrow(/fingerprint differs from registry/);
+  expect(request.aggregate.reader).not.toHaveBeenCalled();
+  expect(readCurrent).not.toHaveBeenCalled();
+});
+
+it("rejects unknown oracle identities, duplicate keys and wrong scope before evidence I/O", async () => {
+  const { request, checkpoint } = await scenario(true);
+  const executions = signedOracleExecutions(request);
+  const registry = oracleFingerprintRegistry(request, executions);
+  const invalidSignature = structuredClone(executions);
+  invalidSignature[0]!.envelope.signature = Buffer.alloc(64).toString("base64");
+  const readCurrent = vi.fn(async (query: Parameters<typeof checkpoint>[0]) =>
+    checkpoint(query),
+  );
+  const cases: { executions: unknown; registry: unknown; error: RegExp }[] = [
+    {
+      executions,
+      registry: {
+        ...registry,
+        keys: [
+          {
+            ...registry.keys[0]!,
+            oracleExecutorId: "unknown-oracle",
+          },
+        ],
+      },
+      error: /identity is absent from registry/,
+    },
+    { executions: invalidSignature, registry, error: /signature differs/ },
+    {
+      executions,
+      registry: {
+        ...registry,
+        keys: [...registry.keys, { ...registry.keys[0]! }],
+      },
+      error: /repeats an identity/,
+    },
+    {
+      executions,
+      registry: {
+        ...registry,
+        keys: [
+          ...registry.keys,
+          {
+            oracleExecutorId: "another-oracle",
+            keyId: "another-key",
+            publicKeySha256: registry.keys[0]!.publicKeySha256,
+          },
+        ],
+      },
+      error: /repeats a fingerprint/,
+    },
+    {
+      executions,
+      registry: { ...registry, planSha256: "a".repeat(64) },
+      error: /registry scope differs/,
+    },
+    {
+      executions,
+      registry: { ...registry, extra: true },
+      error: /Unrecognized key/,
+    },
+    {
+      executions: [
+        {
+          ...executions[0]!,
+          pin: {
+            ...executions[0]!.pin,
+            publicKeyPem: `${executions[0]!.pin.publicKeyPem}\n`,
+          },
+        },
+      ],
+      registry,
+      error: /canonical Ed25519 PEM/,
+    },
+  ];
+  for (const value of cases) {
+    await expect(
+      inspectSealedEvidenceReadiness({
+        ...request,
+        oracleExecutions: value.executions,
+        oracleKeyFingerprintRegistry: value.registry,
+        witness: { witnessId: "test-witness", readCurrent },
+      }),
+    ).rejects.toThrow(value.error);
+    expect(request.aggregate.reader).not.toHaveBeenCalled();
+    expect(readCurrent).not.toHaveBeenCalled();
+  }
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      oracleKeyFingerprintRegistry: registry,
+    }),
+  ).rejects.toThrow(/requires executions/);
+  expect(request.aggregate.reader).not.toHaveBeenCalled();
 });
 
 it("rejects a shared worker-oracle key even when every claim is valid", async () => {
@@ -720,12 +884,18 @@ it("freezes optional signed claims before an external witness callback can mutat
   );
   const registrySha256 = hashJson(workerKeyFingerprintRegistry);
   const oracleExecutions = signedOracleExecutions(request);
+  const oracleKeyFingerprintRegistry = oracleFingerprintRegistry(
+    request,
+    oracleExecutions,
+  );
+  const oracleRegistrySha256 = hashJson(oracleKeyFingerprintRegistry);
   let reads = 0;
   const receipt = await inspectSealedEvidenceReadiness({
     ...request,
     workerDeliveries,
     workerKeyFingerprintRegistry,
     oracleExecutions,
+    oracleKeyFingerprintRegistry,
     witness: {
       witnessId: "test-witness",
       readCurrent: async (query) => {
@@ -737,6 +907,9 @@ it("freezes optional signed claims before an external witness callback can mutat
           );
           oracleExecutions[0]!.envelope.signature =
             Buffer.alloc(64).toString("base64");
+          oracleKeyFingerprintRegistry.keys[0]!.publicKeySha256 = "0".repeat(
+            64,
+          );
         }
         return checkpoint(query);
       },
@@ -749,6 +922,8 @@ it("freezes optional signed claims before an external witness callback can mutat
     workerKeyFingerprintRegistryCompared: true,
     workerKeyFingerprintRegistrySha256: registrySha256,
     oracleExecutionCoverageCompared: true,
+    oracleKeyFingerprintRegistryCompared: true,
+    oracleKeyFingerprintRegistrySha256: oracleRegistrySha256,
     witnessAuthenticationVerified: false,
     promotionEligible: false,
   });

@@ -37,6 +37,63 @@ const pinSchema = z
     publicKeySha256: digestSchema,
   })
   .strict();
+export const sealedOracleKeyFingerprintRegistrySchema = z
+  .object({
+    version: z.literal("1.0.0"),
+    kind: z.literal("sealed-oracle-executor-key-fingerprint-registry"),
+    projectId: id,
+    collectionId: id,
+    planSha256: digestSchema,
+    keys: z
+      .array(
+        z
+          .object({
+            oracleExecutorId: id,
+            keyId: id,
+            publicKeySha256: digestSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(2_000),
+  })
+  .strict();
+export type OracleKeyFingerprintRegistry = z.infer<
+  typeof sealedOracleKeyFingerprintRegistrySchema
+>;
+type OracleRegistryScope = Readonly<{
+  projectId: string;
+  collectionId: string;
+  planSha256: string;
+}>;
+
+/** Validate the caller's separate fingerprint list before reading originals. */
+export function validateSealedOracleKeyFingerprintRegistry(
+  input: unknown,
+  scope: OracleRegistryScope,
+): OracleKeyFingerprintRegistry {
+  const registry = sealedOracleKeyFingerprintRegistrySchema.parse(
+    decodeJson(input),
+  );
+  if (
+    registry.projectId !== scope.projectId ||
+    registry.collectionId !== scope.collectionId ||
+    registry.planSha256 !== scope.planSha256
+  )
+    throw new Error("Oracle key fingerprint registry scope differs");
+  const identities = new Set<string>();
+  const fingerprints = new Set<string>();
+  for (const key of registry.keys) {
+    const identity = `${key.oracleExecutorId}\u0000${key.keyId}`;
+    if (identities.has(identity))
+      throw new Error("Oracle key fingerprint registry repeats an identity");
+    if (fingerprints.has(key.publicKeySha256))
+      throw new Error("Oracle key fingerprint registry repeats a fingerprint");
+    identities.add(identity);
+    fingerprints.add(key.publicKeySha256);
+  }
+  return registry;
+}
 const payloadSchema = z
   .object({
     version: z.literal("1.0.0"),
@@ -76,6 +133,18 @@ const executionsSchema = z
   )
   .max(2_000);
 
+function registryKeyMap(registry: OracleKeyFingerprintRegistry) {
+  return new Map(
+    registry.keys.map(
+      (key) =>
+        [
+          `${key.oracleExecutorId}\u0000${key.keyId}`,
+          key.publicKeySha256,
+        ] as const,
+    ),
+  );
+}
+
 function boundedJson(input: unknown, name: string): unknown {
   if (typeof input === "string" && Buffer.byteLength(input) > 16_384)
     throw new Error(`Oracle execution ${name} exceeds byte limit`);
@@ -85,15 +154,96 @@ function boundedJson(input: unknown, name: string): unknown {
   return value;
 }
 
-function verificationTime(options: Readonly<{ nowMs?: number }>): number {
+function verificationOptions(
+  options: Readonly<{ nowMs?: number; keyFingerprintRegistry?: unknown }>,
+) {
   const parsed = z
-    .object({ nowMs: z.number().optional() })
+    .object({
+      nowMs: z.number().optional(),
+      keyFingerprintRegistry: z.unknown().optional(),
+    })
     .strict()
     .parse(decodeJson(options));
   const nowMs = parsed.nowMs ?? Date.now();
   if (!Number.isFinite(nowMs) || nowMs < 0 || nowMs > 8_640_000_000_000_000)
     throw new Error("Oracle execution verification time is invalid");
-  return nowMs;
+  return { nowMs, keyFingerprintRegistry: parsed.keyFingerprintRegistry };
+}
+
+function verifyPinnedSignature(
+  pin: z.infer<typeof pinSchema>,
+  envelope: z.infer<typeof envelopeSchema>,
+): string {
+  if (!pin.publicKeyPem.startsWith("-----BEGIN PUBLIC KEY-----"))
+    throw new Error("Oracle execution requires a public key pin");
+  const key = createPublicKey(pin.publicKeyPem);
+  if (
+    key.asymmetricKeyType !== "ed25519" ||
+    key.export({ type: "spki", format: "pem" }).toString() !== pin.publicKeyPem
+  )
+    throw new Error("Oracle execution requires canonical Ed25519 PEM");
+  const fingerprint = createHash("sha256")
+    .update(key.export({ type: "spki", format: "der" }))
+    .digest("hex");
+  if (fingerprint !== pin.publicKeySha256)
+    throw new Error("Oracle execution key fingerprint differs from pin");
+  const { signature, ...unsigned } = envelope;
+  const signatureBytes = Buffer.from(signature, "base64");
+  if (
+    signatureBytes.toString("base64") !== signature ||
+    !verify(
+      null,
+      Buffer.from(SIGNED_ORACLE_EXECUTION_DOMAIN + canonicalJson(unsigned)),
+      key,
+      signatureBytes,
+    )
+  )
+    throw new Error("Oracle execution signature differs");
+  return fingerprint;
+}
+
+function compareRegistryRow(
+  pinInput: unknown,
+  envelopeInput: unknown,
+  registry: OracleKeyFingerprintRegistry,
+  registeredKeys: ReadonlyMap<string, string>,
+): void {
+  const pin = pinSchema.parse(boundedJson(pinInput, "key pin"));
+  const envelope = envelopeSchema.parse(boundedJson(envelopeInput, "envelope"));
+  if (
+    pin.projectId !== registry.projectId ||
+    pin.collectionId !== registry.collectionId ||
+    pin.oracleExecutorId !== envelope.oracleExecutorId ||
+    pin.keyId !== envelope.keyId ||
+    envelope.payload.projectId !== registry.projectId ||
+    envelope.payload.collectionId !== registry.collectionId ||
+    envelope.payload.planSha256 !== registry.planSha256
+  )
+    throw new Error("Oracle execution registry row identity or scope differs");
+  const fingerprint = verifyPinnedSignature(pin, envelope);
+  const registeredFingerprint = registeredKeys.get(
+    `${pin.oracleExecutorId}\u0000${pin.keyId}`,
+  );
+  if (!registeredFingerprint)
+    throw new Error("Oracle execution key identity is absent from registry");
+  if (registeredFingerprint !== fingerprint)
+    throw new Error("Oracle execution key fingerprint differs from registry");
+}
+
+/** Check every self-supplied row pin against the separate registry, without I/O. */
+export function validateSealedOracleExecutionRegistryRows(
+  executionsInput: unknown,
+  registry: OracleKeyFingerprintRegistry,
+): void {
+  const executions = executionsSchema.parse(decodeJson(executionsInput));
+  const registeredKeys = registryKeyMap(registry);
+  for (const execution of executions)
+    compareRegistryRow(
+      execution.pin,
+      execution.envelope,
+      registry,
+      registeredKeys,
+    );
 }
 
 function inspectSignedClaim(
@@ -145,31 +295,7 @@ function inspectSignedClaim(
     Date.parse(claim.executedAt) > nowMs + 60_000
   )
     throw new Error("Oracle execution differs from frozen invocation/verdict");
-  if (!pin.publicKeyPem.startsWith("-----BEGIN PUBLIC KEY-----"))
-    throw new Error("Oracle execution requires a public key pin");
-  const key = createPublicKey(pin.publicKeyPem);
-  if (
-    key.asymmetricKeyType !== "ed25519" ||
-    key.export({ type: "spki", format: "pem" }).toString() !== pin.publicKeyPem
-  )
-    throw new Error("Oracle execution requires canonical Ed25519 PEM");
-  const fingerprint = createHash("sha256")
-    .update(key.export({ type: "spki", format: "der" }))
-    .digest("hex");
-  if (fingerprint !== pin.publicKeySha256)
-    throw new Error("Oracle execution key fingerprint differs from pin");
-  const { signature, ...unsigned } = envelope;
-  const signatureBytes = Buffer.from(signature, "base64");
-  if (
-    signatureBytes.toString("base64") !== signature ||
-    !verify(
-      null,
-      Buffer.from(SIGNED_ORACLE_EXECUTION_DOMAIN + canonicalJson(unsigned)),
-      key,
-      signatureBytes,
-    )
-  )
-    throw new Error("Oracle execution signature differs");
+  verifyPinnedSignature(pin, envelope);
   return {
     assignmentId: claim.assignmentId,
     keyPinSha256: hashJson(pin),
@@ -197,12 +323,20 @@ export async function inspectSignedSealedOracleExecutionCohort(
     bytes: number;
   }) => Promise<Uint8Array>,
   executionsInput: unknown,
-  options: Readonly<{ nowMs?: number }> = {},
+  options: Readonly<{ nowMs?: number; keyFingerprintRegistry?: unknown }> = {},
 ) {
-  const nowMs = verificationTime(options);
+  const { nowMs, keyFingerprintRegistry } = verificationOptions(options);
   const inspection = validateFullCohortLedger(inspectionInput, pinsInput);
   if (!inspection.closure?.complete)
     throw new Error("Oracle execution needs a complete closed collection");
+  const registry =
+    keyFingerprintRegistry === undefined
+      ? undefined
+      : validateSealedOracleKeyFingerprintRegistry(keyFingerprintRegistry, {
+          projectId: inspection.plan.projectId,
+          collectionId: inspection.plan.collectionId,
+          planSha256: inspection.planSha256,
+        });
   const manifest = originalByteManifestSchema.parse(decodeJson(manifestInput));
   const manifestSha256 = digestSchema.parse(expectedManifestSha256);
   if (
@@ -244,6 +378,7 @@ export async function inspectSignedSealedOracleExecutionCohort(
   }
   if (seen.size !== expected.size)
     throw new Error("Oracle execution cohort coverage is incomplete");
+  if (registry) validateSealedOracleExecutionRegistryRows(executions, registry);
   const references = new Map(
     manifest.entries.map((entry) => [entry.role, entry] as const),
   );
@@ -309,6 +444,8 @@ export async function inspectSignedSealedOracleExecutionCohort(
     oracleExecutionInventorySha256: hashJson(inventory),
     allPrivateOracleVerdictsCovered: true as const,
     signaturesVerifiedAgainstCallerPins: true as const,
+    keyFingerprintRegistryCompared: registry !== undefined,
+    keyFingerprintRegistrySha256: registry ? hashJson(registry) : null,
     originalVerdictBytesChecked: true as const,
     independentKeyControlVerified: false as const,
     oracleExecutionAuthenticated: false as const,

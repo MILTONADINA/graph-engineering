@@ -469,6 +469,22 @@ separately report self-row signature verification and
 still supply both the registry and the row; comparison does not establish
 independent key control, signer governance, or promotion authority.
 
+The private `inspectSignedSealedOracleExecutionCohort()` likewise checks one
+caller-pinned signed claim and original private-verdict bytes for every frozen
+oracle verdict. Its optional `keyFingerprintRegistry` option, or
+`oracleKeyFingerprintRegistry` alongside `oracleExecutions` in readiness,
+accepts a separate list with strict shape
+`{version:"1.0.0",kind:"sealed-oracle-executor-key-fingerprint-registry",projectId,collectionId,planSha256,keys:[{oracleExecutorId,keyId,publicKeySha256}]}`.
+Duplicate oracle/key identities or fingerprints, wrong scope, noncanonical
+Ed25519 SPKI pins, invalid signatures and keys absent from or different from
+the registry fail before private evidence or a witness is read. The inspector
+reports `keyFingerprintRegistryCompared` and its registry hash; readiness
+reports `oracleKeyFingerprintRegistryCompared` and the same hash. Without the
+optional registry, existing caller-pin verification still works and both
+comparison flags are false. A registry supplied by the same caller does not
+verify independent key control, oracle execution or promotion authority;
+those receipt flags remain false.
+
 `inspectSealedCurrentGovernance()` in the engine also compares that signed
 aggregate with two fresh, challenge-bound checkpoints from a caller-configured
 current-witness reader. It fails on changed ledger heads, registrations, trust

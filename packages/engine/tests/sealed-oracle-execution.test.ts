@@ -1,10 +1,11 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { authorizesPromotion } from "../src/promotion-authority.js";
 import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
 import {
   inspectSignedSealedOracleExecutionCohort,
   SIGNED_ORACLE_EXECUTION_DOMAIN,
+  validateSealedOracleExecutionRegistryRows,
 } from "../src/sealed-oracle-execution.js";
 import { fixture, nowMs } from "./sealed-aggregate-fixture.js";
 
@@ -90,6 +91,20 @@ async function scenario(engineering = false) {
     pin,
     envelope: makeEnvelope(),
   };
+  const registry = {
+    version: "1.0.0" as const,
+    kind: "sealed-oracle-executor-key-fingerprint-registry" as const,
+    projectId: pin.projectId,
+    collectionId: pin.collectionId,
+    planSha256: inspection.planSha256,
+    keys: [
+      {
+        oracleExecutorId: pin.oracleExecutorId,
+        keyId: pin.keyId,
+        publicKeySha256: pin.publicKeySha256,
+      },
+    ],
+  };
   const reader = async (reference: { sha256: string }) =>
     Buffer.from(retainedBlobs.get(reference.sha256)!, "base64");
   const inspect = (
@@ -97,6 +112,7 @@ async function scenario(engineering = false) {
     suppliedManifest: unknown = manifest,
     expectedManifestSha256: unknown = hashJson(manifest),
     suppliedReader: typeof reader = reader,
+    keyFingerprintRegistry?: unknown,
   ) =>
     inspectSignedSealedOracleExecutionCohort(
       inspection,
@@ -105,7 +121,12 @@ async function scenario(engineering = false) {
       expectedManifestSha256,
       suppliedReader,
       executions,
-      { nowMs },
+      {
+        nowMs,
+        ...(keyFingerprintRegistry === undefined
+          ? {}
+          : { keyFingerprintRegistry }),
+      },
     );
   return {
     inspection,
@@ -116,6 +137,7 @@ async function scenario(engineering = false) {
     pin,
     payload,
     entry,
+    registry,
     reader,
     inspect,
     makeEnvelope,
@@ -133,6 +155,8 @@ it("checks every caller-pinned oracle signature and original private verdict wit
       verifiedOracleVerdictCount: 1,
       allPrivateOracleVerdictsCovered: true,
       signaturesVerifiedAgainstCallerPins: true,
+      keyFingerprintRegistryCompared: false,
+      keyFingerprintRegistrySha256: null,
       originalVerdictBytesChecked: true,
       independentKeyControlVerified: false,
       oracleExecutionAuthenticated: false,
@@ -149,6 +173,207 @@ it("checks every caller-pinned oracle signature and original private verdict wit
           record.inspection.plan.configurations.candidate.policySha256,
       }),
     ).toBe(false);
+  }
+});
+
+it("compares an oracle key with a separate registry while retaining analysis-only flags", async () => {
+  const record = await scenario();
+  const result = await record.inspect(
+    [record.entry],
+    record.manifest,
+    hashJson(record.manifest),
+    record.reader,
+    record.registry,
+  );
+  expect(result).toMatchObject({
+    signaturesVerifiedAgainstCallerPins: true,
+    keyFingerprintRegistryCompared: true,
+    keyFingerprintRegistrySha256: hashJson(record.registry),
+    independentKeyControlVerified: false,
+    oracleExecutionAuthenticated: false,
+    promotionEligible: false,
+  });
+});
+
+it("rejects a valid replacement oracle signature when its SPKI differs from the registry", async () => {
+  const record = await scenario();
+  const replacementKey = generateKeyPairSync("ed25519");
+  const replacementPin = {
+    ...record.pin,
+    publicKeyPem: replacementKey.publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString(),
+    publicKeySha256: createHash("sha256")
+      .update(replacementKey.publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex"),
+  };
+  const { signature: _signature, ...unsigned } = record.entry.envelope;
+  const replacement = {
+    ...record.entry,
+    pin: replacementPin,
+    envelope: {
+      ...unsigned,
+      signature: sign(
+        null,
+        Buffer.from(SIGNED_ORACLE_EXECUTION_DOMAIN + canonicalJson(unsigned)),
+        replacementKey.privateKey,
+      ).toString("base64"),
+    },
+  };
+  const legacy = await record.inspect([replacement]);
+  expect(legacy.keyFingerprintRegistryCompared).toBe(false);
+  const reader = vi.fn(record.reader);
+  await expect(
+    record.inspect(
+      [replacement],
+      record.manifest,
+      hashJson(record.manifest),
+      reader,
+      record.registry,
+    ),
+  ).rejects.toThrow(/fingerprint differs from registry/);
+  expect(reader).not.toHaveBeenCalled();
+});
+
+it("checks a later signed registry row even when the first row is valid", async () => {
+  const record = await scenario();
+  const replacementKey = generateKeyPairSync("ed25519");
+  const replacementPin = {
+    ...record.pin,
+    publicKeyPem: replacementKey.publicKey
+      .export({ type: "spki", format: "pem" })
+      .toString(),
+    publicKeySha256: createHash("sha256")
+      .update(replacementKey.publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex"),
+  };
+  // This unit preflight checks signed rows; only the cohort inspector enforces
+  // frozen assignment coverage and reads original verdict bytes.
+  const secondAssignmentId = "second-registry-row";
+  const unsigned = {
+    version: "1.0.0",
+    kind: "signed-sealed-oracle-execution",
+    oracleExecutorId: record.pin.oracleExecutorId,
+    keyId: record.pin.keyId,
+    payload: { ...record.payload, assignmentId: secondAssignmentId },
+  };
+  const replacement = {
+    assignmentId: secondAssignmentId,
+    pin: replacementPin,
+    envelope: {
+      ...unsigned,
+      signature: sign(
+        null,
+        Buffer.from(SIGNED_ORACLE_EXECUTION_DOMAIN + canonicalJson(unsigned)),
+        replacementKey.privateKey,
+      ).toString("base64"),
+    },
+  };
+  const replacementRegistry = {
+    ...record.registry,
+    keys: [
+      {
+        ...record.registry.keys[0]!,
+        publicKeySha256: replacementPin.publicKeySha256,
+      },
+    ],
+  };
+  expect(() =>
+    validateSealedOracleExecutionRegistryRows([record.entry], record.registry),
+  ).not.toThrow();
+  expect(() =>
+    validateSealedOracleExecutionRegistryRows(
+      [replacement],
+      replacementRegistry,
+    ),
+  ).not.toThrow();
+  expect(() =>
+    validateSealedOracleExecutionRegistryRows(
+      [record.entry, replacement],
+      record.registry,
+    ),
+  ).toThrow(/fingerprint differs from registry/);
+});
+
+it("rejects invalid oracle registries and rows before private verdict I/O", async () => {
+  const record = await scenario();
+  const invalidSignature = structuredClone(record.entry);
+  invalidSignature.envelope.signature = Buffer.alloc(64).toString("base64");
+  const cases: { entries: unknown; registry: unknown; error: RegExp }[] = [
+    {
+      entries: [record.entry],
+      registry: {
+        ...record.registry,
+        keys: [
+          {
+            ...record.registry.keys[0]!,
+            oracleExecutorId: "foreign-executor",
+          },
+        ],
+      },
+      error: /identity is absent from registry/,
+    },
+    {
+      entries: [invalidSignature],
+      registry: record.registry,
+      error: /signature differs/,
+    },
+    {
+      entries: [record.entry],
+      registry: {
+        ...record.registry,
+        keys: [...record.registry.keys, { ...record.registry.keys[0]! }],
+      },
+      error: /repeats an identity/,
+    },
+    {
+      entries: [record.entry],
+      registry: {
+        ...record.registry,
+        keys: [
+          ...record.registry.keys,
+          {
+            oracleExecutorId: "other-executor",
+            keyId: "other-key",
+            publicKeySha256: record.pin.publicKeySha256,
+          },
+        ],
+      },
+      error: /repeats a fingerprint/,
+    },
+    {
+      entries: [record.entry],
+      registry: { ...record.registry, planSha256: "0".repeat(64) },
+      error: /registry scope differs/,
+    },
+    {
+      entries: [record.entry],
+      registry: { ...record.registry, extra: true },
+      error: /Unrecognized key/,
+    },
+    {
+      entries: [
+        {
+          ...record.entry,
+          pin: { ...record.pin, publicKeyPem: `${record.pin.publicKeyPem}\n` },
+        },
+      ],
+      registry: record.registry,
+      error: /canonical Ed25519 PEM/,
+    },
+  ];
+  for (const value of cases) {
+    const reader = vi.fn(record.reader);
+    await expect(
+      record.inspect(
+        value.entries,
+        record.manifest,
+        hashJson(record.manifest),
+        reader,
+        value.registry,
+      ),
+    ).rejects.toThrow(value.error);
+    expect(reader).not.toHaveBeenCalled();
   }
 });
 

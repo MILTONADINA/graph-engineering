@@ -31,6 +31,14 @@ force-push/deletion protection. No commit was pushed to either `main` or the
 parent repository. Kevin's review of the resulting fork `dev`, human acceptance
 of the real-task run, and any later upstream synchronization remain separate.
 
+Subsequent fork-only PRs [#4](https://github.com/MILTONADINA/graph-engineering/pull/4),
+[#5](https://github.com/MILTONADINA/graph-engineering/pull/5) and
+[#6](https://github.com/MILTONADINA/graph-engineering/pull/6) were also
+rebase-merged into `dev`, through `3b433cb`. Their exact-tip required checks
+passed. They add local signed worker-delivery receipts, an audited Vite/React
+scaffold and API client, and optional worker-key fingerprint registry checks.
+Neither `main` nor the parent repository was updated.
+
 The table is a historical implementation checkpoint before those merges. The
 dated updates and current-state paragraph supersede its older handoff wording.
 
@@ -127,6 +135,14 @@ comparison from verification against the row's own public key. The caller can
 still control both inputs: registry origin, independent key governance, actual
 model execution and worker assignment are not authenticated, and promotion
 eligibility remains false.
+
+The private oracle-execution inspector now also accepts an optional
+collection-scoped registry of oracle executor key fingerprints. It checks the
+signed rows against that caller-supplied list before original verdict reads or
+witness callbacks, and reports the comparison separately from each row's own
+pin. This closes a self-consistent key-substitution path in analysis, not the
+independent signer-control or executable-attestation gap; the oracle receipt
+and readiness join remain non-authorizing.
 
 An optional pre-run source-inventory signature check now binds a
 caller-pinned Ed25519 source key, declared inventory digest, selected task
