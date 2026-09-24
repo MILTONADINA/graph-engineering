@@ -190,7 +190,70 @@ function distinctRegistryActors(
       actorIds.add(key.actorId);
       publicKeys.add(fingerprint);
     }
-  return publicKeys;
+  return { actorIds: new Set([...sourceActors, ...actorIds]), publicKeys };
+}
+
+const signerId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
+const workerPinRowsSchema = z
+  .array(
+    z
+      .object({
+        pin: z
+          .object({
+            workerId: signerId,
+            publicKeySha256: digestSchema,
+          })
+          .passthrough(),
+      })
+      .passthrough(),
+  )
+  .max(10_000);
+const oraclePinRowsSchema = z
+  .array(
+    z
+      .object({
+        pin: z
+          .object({
+            oracleExecutorId: signerId,
+            publicKeySha256: digestSchema,
+          })
+          .passthrough(),
+      })
+      .passthrough(),
+  )
+  .max(2_000);
+
+/** Caller-pinned signature checks are complete before these role comparisons. */
+function rejectCrossRoleSignerReuse(
+  registry: ReturnType<typeof distinctRegistryActors>,
+  sourceKey: string | undefined,
+  workerDeliveries: unknown,
+  oracleExecutions: unknown,
+): void {
+  const reservedKeys = new Set(registry.publicKeys);
+  if (sourceKey) reservedKeys.add(sourceKey);
+  const workers =
+    workerDeliveries === undefined
+      ? []
+      : workerPinRowsSchema.parse(workerDeliveries);
+  const oracles =
+    oracleExecutions === undefined
+      ? []
+      : oraclePinRowsSchema.parse(oracleExecutions);
+  const workerActors = new Set(workers.map((row) => row.pin.workerId));
+  const workerKeys = new Set(workers.map((row) => row.pin.publicKeySha256));
+  if (
+    [...workerActors].some((actor) => registry.actorIds.has(actor)) ||
+    [...workerKeys].some((key) => reservedKeys.has(key)) ||
+    oracles.some(
+      (row) =>
+        registry.actorIds.has(row.pin.oracleExecutorId) ||
+        workerActors.has(row.pin.oracleExecutorId) ||
+        reservedKeys.has(row.pin.publicKeySha256) ||
+        workerKeys.has(row.pin.publicKeySha256),
+    )
+  )
+    throw new Error("Sealed readiness reuses a cross-role actor or key");
 }
 
 /**
@@ -292,7 +355,7 @@ export async function inspectSealedEvidenceReadiness(
       event.sha256,
       closed.events[index]?.sha256,
     );
-  const registryKeyFingerprints = distinctRegistryActors(
+  const registryIdentities = distinctRegistryActors(
     populationTrust,
     aggregate.rowTrust,
     aggregate.aggregateTrust,
@@ -458,12 +521,18 @@ export async function inspectSealedEvidenceReadiness(
   const oracleExecution = auditedOracleExecutions[0];
   if (
     sourceClaim &&
-    registryKeyFingerprints.has(sourceClaim.sourceKeyFingerprintSha256)
+    registryIdentities.publicKeys.has(sourceClaim.sourceKeyFingerprintSha256)
   )
     throw new Error(
       "Sealed readiness reuses a source key across independent signer roles",
     );
   const workerDelivery = auditedWorkerDeliveries[0];
+  rejectCrossRoleSignerReuse(
+    registryIdentities,
+    sourceClaim?.sourceKeyFingerprintSha256,
+    workerDeliveries,
+    oracleExecutions,
+  );
   const payload = z
     .object({
       policySha256: digestSchema,

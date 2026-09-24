@@ -362,10 +362,15 @@ function identityBytesFor(value: Awaited<ReturnType<typeof scenario>>) {
 
 function signedWorkerDeliveries(
   request: Awaited<ReturnType<typeof scenario>>["request"],
+  options: {
+    keys?: { publicKey: KeyObject; privateKey: KeyObject };
+    workerId?: string;
+  } = {},
 ) {
   const inspection = request.aggregate.input.cohort.inspection;
   const entries = request.aggregate.manifest.entries;
-  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const { publicKey, privateKey } =
+    options.keys ?? generateKeyPairSync("ed25519");
   const publicKeyPem = publicKey
     .export({ type: "spki", format: "pem" })
     .toString();
@@ -374,7 +379,7 @@ function signedWorkerDeliveries(
     kind: "sealed-worker-key-pin",
     projectId: inspection.plan.projectId,
     collectionId: inspection.plan.collectionId,
-    workerId: "fixture-worker",
+    workerId: options.workerId ?? "fixture-worker",
     keyId: "fixture-worker-key",
     publicKeyPem,
     publicKeySha256: createHash("sha256")
@@ -494,15 +499,19 @@ function signedSourceAttestation(
 
 function signedOracleExecutions(
   request: Awaited<ReturnType<typeof scenario>>["request"],
+  options: {
+    keys?: { publicKey: KeyObject; privateKey: KeyObject };
+    oracleExecutorId?: string;
+  } = {},
 ) {
   const inspection = request.aggregate.input.cohort.inspection;
-  const keyPair = generateKeyPairSync("ed25519");
+  const keyPair = options.keys ?? generateKeyPairSync("ed25519");
   const pin = {
     version: "1.0.0" as const,
     kind: "sealed-oracle-executor-key-pin" as const,
     projectId: inspection.plan.projectId,
     collectionId: inspection.plan.collectionId,
-    oracleExecutorId: "fixture-oracle-executor",
+    oracleExecutorId: options.oracleExecutorId ?? "fixture-oracle-executor",
     keyId: "fixture-oracle-key",
     publicKeyPem: keyPair.publicKey
       .export({ type: "spki", format: "pem" })
@@ -587,6 +596,97 @@ it("joins complete signed oracle verdicts without authenticating execution", asy
       oracleExecutions: [],
     }),
   ).rejects.toThrow(/coverage/);
+});
+
+it("rejects a shared worker-oracle key even when every claim is valid", async () => {
+  const { request } = await scenario(true);
+  const keys = generateKeyPairSync("ed25519");
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...request,
+      workerDeliveries: signedWorkerDeliveries(request, { keys }),
+      oracleExecutions: signedOracleExecutions(request, { keys }),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+});
+
+it("rejects other valid cross-role actor and key reuse without granting authority", async () => {
+  const sourceActor = await scenario(true);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...sourceActor.request,
+      workerDeliveries: signedWorkerDeliveries(sourceActor.request, {
+        workerId:
+          sourceActor.request.population.input.sourceInventory
+            .sourceAuthorityId,
+      }),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const selectorActor = await scenario(true);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...selectorActor.request,
+      workerDeliveries: signedWorkerDeliveries(selectorActor.request, {
+        workerId: selectorActor.request.population.trust.keys[0]!.actorId,
+      }),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const selectorKey = await scenario(true);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...selectorKey.request,
+      workerDeliveries: signedWorkerDeliveries(selectorKey.request, {
+        keys: selectorKey.selectorKeys,
+      }),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const sourceProducer = await scenario(true);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...sourceProducer.request,
+      oracleExecutions: signedOracleExecutions(sourceProducer.request, {
+        oracleExecutorId:
+          sourceProducer.request.population.input.sourceInventory.entries[0]!
+            .producerIds[0]!,
+      }),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const oracleSelectorKey = await scenario(true);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...oracleSelectorKey.request,
+      oracleExecutions: signedOracleExecutions(oracleSelectorKey.request, {
+        keys: oracleSelectorKey.selectorKeys,
+      }),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const sharedActor = await scenario(true);
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...sharedActor.request,
+      workerDeliveries: signedWorkerDeliveries(sharedActor.request, {
+        workerId: "fixture-oracle-executor",
+      }),
+      oracleExecutions: signedOracleExecutions(sharedActor.request),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
+
+  const sourceKey = await scenario(true);
+  const keyPair = generateKeyPairSync("ed25519");
+  await expect(
+    inspectSealedEvidenceReadiness({
+      ...sourceKey.request,
+      sourceAttestation: signedSourceAttestation(sourceKey.request, keyPair),
+      workerDeliveries: signedWorkerDeliveries(sourceKey.request, {
+        keys: keyPair,
+      }),
+    }),
+  ).rejects.toThrow(/reuses a cross-role actor or key/);
 });
 
 it("freezes optional signed claims before an external witness callback can mutate caller data", async () => {
