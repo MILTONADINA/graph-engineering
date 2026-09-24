@@ -67,8 +67,8 @@ describe("constrained fine-grained template execution", () => {
     const planned = registry.templates.filter(
       (entry: any) => entry.status === "planned",
     );
-    expect(implemented).toHaveLength(48);
-    expect(planned).toHaveLength(7);
+    expect(implemented).toHaveLength(50);
+    expect(planned).toHaveLength(6);
     for (const entry of implemented) {
       expect(templateRuntimeCapability(entry.id).executable, entry.id).toBe(
         true,
@@ -200,7 +200,7 @@ describe("constrained fine-grained template execution", () => {
   });
   it("keeps planned and unsupported prompt-only nodes explicitly unavailable", async () => {
     const { workspace } = await fixture();
-    for (const id of ["api.filtering", "frontend.react", "__proto__"]) {
+    for (const id of ["api.filtering", "authentication.oauth", "__proto__"]) {
       expect(templateRuntimeCapability(id).executable).toBe(false);
       await expect(
         renderTemplateProposal(parameters(workspace, id)),

@@ -16,8 +16,14 @@ The owner authorized review and merge of the implementation into
 Foundation [PR #3](https://github.com/MILTONADINA/graph-engineering/pull/3)
 and platform [PR #2](https://github.com/MILTONADINA/graph-engineering/pull/2)
 were rebase-merged into the owner's fork `dev` at `bcbd691`. All nine required
-checks passed on the PR tip and again on the merged `dev` commit in
+checks passed on the PR tip and again in
 [the post-merge run](https://github.com/MILTONADINA/graph-engineering/actions/runs/35978069125).
+[PR #4](https://github.com/MILTONADINA/graph-engineering/pull/4) then added
+the opt-in local worker signature emitter and was rebase-merged at `0649e95`;
+its nine required PR checks and
+[post-merge `dev` run](https://github.com/MILTONADINA/graph-engineering/actions/runs/35983667667)
+also passed. The Vite/React catalog work described below is a separate feature
+branch, not part of that merged `dev` commit.
 The fork `main` still requires seven checks and one independent approval;
 `dev` requires nine checks and zero GitHub approvals under the owner's chosen
 author-review workflow. Both retain linear history, admin enforcement, and
@@ -25,7 +31,7 @@ force-push/deletion protection. No commit was pushed to either `main` or the
 parent repository. Kevin's review of the resulting fork `dev`, human acceptance
 of the real-task run, and any later upstream synchronization remain separate.
 
-The table is a historical implementation checkpoint before that merge. The
+The table is a historical implementation checkpoint before those merges. The
 dated updates and current-state paragraph supersede its older handoff wording.
 
 ## Historical implementation checkpoint
@@ -85,8 +91,19 @@ Item 10's `devops.aws` node emits a local ECS Express Mode request only. The
 artifacts and a sanitized public plan after the reviewed Dockerfile is already
 applied. Focused renderer, catalog, cloud-export and publication checks passed.
 Neither node calls AWS or establishes image provenance, IAM permissions, VPC
-readiness, runtime health or deployment acceptance. Seven catalog IDs remain
-planned, including three aliases of already implemented API capabilities.
+readiness, runtime health or deployment acceptance. Before this feature, seven
+catalog IDs remained planned, including three aliases of already implemented
+API capabilities.
+
+This feature branch adds a separate `project.vite-react` scaffold and
+`frontend.react` API client, bringing the catalog to 50 implemented and six
+planned nodes once merged. The client reuses the audited API source; the root
+pins its packages, public API origin and deterministic ledger. Focused catalog,
+graph-contract, renderer and generated-app typecheck/test/build checks passed.
+Authentication pages, forms, tables and dashboards still have exact Next.js
+prerequisites and are not claimed for Vite. Cross-origin cookie use still needs
+an explicitly approved backend CORS origin, and generated-app checks do not
+establish deployment or human acceptance.
 
 Item 13 now has analysis-only signed worker-delivery verification for one
 closed-ledger call and, optionally, exact coverage of every completed call in a

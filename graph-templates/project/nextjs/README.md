@@ -2,7 +2,7 @@
 
 **What.** The audited renderer scaffolds a separate pinned Next.js 16.3.5 / React 19.3.0 TypeScript App Router project: package/config files, root layout/home page, tests and a validated public API origin. It uses a reviewed code default when `NEXT_PUBLIC_API_URL` is empty or unset. See [audited frontend runtime](../../../docs/frontend-runtime.md) for exact policy, dependency and deployment requirements. Historical `files/` assets are not the hardened executable renderer.
 
-**When.** First node in any graph that includes a frontend — every `frontend/*` template modifies or adds to files this node creates, the same way `backend/*` nodes build on `project.node-express`.
+**When.** First node in a Next.js frontend graph. Its downstream Next.js nodes modify or add to files this node creates, the same way `backend/*` nodes build on `project.node-express`. A Vite frontend uses `project.vite-react` instead.
 
 **Requires.** This is a root node independent of `project.node-express`. Root rendering requires explicit permission for the public `.graph/manifest.json` ledger and only `.env.example`; private context and real environment files stay excluded. Dependency installation/locking is a separate reviewed workflow, never a renderer hook.
 

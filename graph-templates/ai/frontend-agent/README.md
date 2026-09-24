@@ -2,9 +2,9 @@
 
 **Full treatment** (promoted from lighter treatment in v1.0.0, now that `frontend.*` has real code-generation nodes — see `TEMPLATE-REGISTRY.md`'s frontend section).
 
-**Consumes.** `architecture.schema`, `api.schema`, `auth.schema`. **Produces.** `frontend.schema` (pages/components per route, per `graph-templates/artifacts/frontend.schema.json`), and invokes `project.nextjs` → `frontend.nextjs` → `frontend.authentication` (if auth or a dashboard component is selected) → `frontend.forms`/`frontend.tables` (when a page references a matching component kind or a dashboard) → `frontend.dashboards` (when a page references a dashboard component). A page lists component **names**; only entries in `data.components[]` have `kind`.
+**Consumes.** `architecture.schema`, `api.schema`, `auth.schema`. **Produces.** `frontend.schema` (pages/components per route, per `graph-templates/artifacts/frontend.schema.json`). For a Next.js stack it invokes `project.nextjs` → `frontend.nextjs` → the selected authentication, form, table and dashboard nodes. For a React stack it invokes `project.vite-react` → `frontend.react`, a Vite scaffold and the shared API client. A page lists component **names**; only entries in `data.components[]` have `kind`.
 
-**Scope note.** `frontend.dashboards` generates a reusable composition component and test, not a page route, stats API, profile-save endpoint or permission policy. Those integrations require explicit application review; hidden role links never authorize backend access. `frontend.react` remains planned. A `stack.frontend: react` request is reported as unimplemented, not silently redirected to `project.nextjs`.
+**Scope note.** `frontend.dashboards` generates a reusable composition component and test, not a page route, stats API, profile-save endpoint or permission policy. Those integrations require explicit application review; hidden role links never authorize backend access. The React path does not yet generate authentication pages, forms, tables or dashboards: their graph dependencies require `frontend.nextjs`, and auth pages also import Next.js routing and modify its layout. Report those feature gaps explicitly for a React request. Neither root/client pair creates application page routes.
 
 **Hands off to.** `ai.testing-agent`.
 

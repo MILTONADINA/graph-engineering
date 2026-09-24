@@ -60,6 +60,28 @@ test('accepts the generated registry regardless of its timestamp or caller root'
   }
 });
 
+test('does not advertise conflicting nodes as compatible', () => {
+  const { parent, root } = fixture();
+  try {
+    writeTemplate(root, 'other');
+    fs.writeFileSync(
+      path.join(root, 'api', 'demo', 'template.yaml'),
+      'id: api.demo\nname: demo\nversion: 1.0.0\ncategory: api\nsubcategory: demo\nstatus: planned\ntype: graph-node\nactions: [generate]\ninputs: []\noutputs: []\ndependencies:\n  templates:\n    - { id: api.other, relationship: conflicts }\ncompatible_with: { upstream: [], downstream: [] }\n',
+    );
+    const generated = run(generator, root);
+    assert.equal(generated.status, 0, generated.stderr);
+    const demo = JSON.parse(generated.stdout).templates.find(
+      (entry) => entry.id === 'api.demo',
+    );
+    assert.deepEqual(demo.dependsOn, [
+      { id: 'api.other', relationship: 'conflicts' },
+    ]);
+    assert.equal(demo.compatibleNodes.includes('api.other'), false);
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test('rejects stale entry fields after a template.yaml change', () => {
   const { parent, root } = fixture();
   try {

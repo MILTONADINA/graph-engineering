@@ -16,7 +16,7 @@ import {
   workspaceFingerprint,
 } from "../src/execution/workspace.js";
 import { verifyInContainer } from "../src/execution/docker.js";
-import { checked } from "../src/util.js";
+import { checked, command } from "../src/util.js";
 import { load } from "js-yaml";
 const directory = fileURLToPath(
   new URL("./fixtures/frontend-runtime/", import.meta.url),
@@ -67,6 +67,10 @@ async function scaffold(root: string) {
   await apply(root, "project.nextjs", { projectName: "frontend-fixture" });
   await apply(root, "frontend.nextjs");
 }
+async function viteScaffold(root: string) {
+  await apply(root, "project.vite-react", { projectName: "vite-fixture" });
+  await apply(root, "frontend.react");
+}
 async function all(root: string) {
   await scaffold(root);
   await apply(root, "frontend.forms");
@@ -75,6 +79,239 @@ async function all(root: string) {
   await apply(root, "frontend.dashboards");
 }
 describe("audited frontend template runtime", () => {
+  it("renders the Vite scaffold and shared API client deterministically and idempotently", async () => {
+    const root = await fixture();
+    await viteScaffold(root);
+    for (const id of ["project.vite-react", "frontend.react"])
+      expect(
+        (
+          await renderTemplateProposal(
+            options(
+              root,
+              id,
+              id === "project.vite-react"
+                ? { projectName: "vite-fixture" }
+                : {},
+            ),
+          )
+        ).proposal.changes,
+      ).toEqual([]);
+    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    expect(pkg.dependencies).toEqual({
+      react: "19.3.0",
+      "react-dom": "19.3.0",
+    });
+    expect(pkg.devDependencies.vite).toBe("7.3.6");
+    expect(pkg.devDependencies["@vitejs/plugin-react"]).toBe("5.2.0");
+    expect(pkg.dependencies.next).toBeUndefined();
+    expect(await readFile(join(root, ".env.example"), "utf8")).toContain(
+      "VITE_API_URL=\n",
+    );
+    expect(await readFile(join(root, "lib/env.ts"), "utf8")).toContain(
+      'import.meta.env.VITE_API_URL||"http://localhost:3000"',
+    );
+    const viteConfig = await readFile(join(root, "vite.config.ts"), "utf8");
+    expect(viteConfig).toContain(
+      "server:{host:'localhost',port:3001,strictPort:true}",
+    );
+    expect(viteConfig).toContain(
+      "preview:{host:'localhost',port:3001,strictPort:true}",
+    );
+    expect(viteConfig).not.toContain("127.0.0.1");
+    const ledger = JSON.parse(
+      await readFile(join(root, ".graph/manifest.json"), "utf8"),
+    );
+    expect(ledger.nodes["frontend-test"]).toMatchObject({
+      templateId: "project.vite-react",
+      files: expect.arrayContaining([
+        ".graph/manifest.json",
+        "src/main.tsx",
+        "tests/App.test.tsx",
+      ]),
+    });
+    expect(ledger.nodes["frontend-test"].generatedAt).toBeUndefined();
+    const client = await readFile(join(root, "lib/apiClient.ts"), "utf8");
+    expect(client).toContain("credentials:'include'");
+    const nextRoot = await fixture();
+    await apply(nextRoot, "project.nextjs", { projectName: "next-fixture" });
+    const nextClient = await renderTemplateProposal(
+      options(nextRoot, "frontend.nextjs"),
+    );
+    expect(client).toBe(
+      nextClient.proposal.changes.find(
+        (item) => item.path === "lib/apiClient.ts",
+      )?.after,
+    );
+    const first = await fixture(),
+      second = await fixture();
+    const a = await renderTemplateProposal(
+        options(first, "project.vite-react", { projectName: "same" }),
+      ),
+      b = await renderTemplateProposal(
+        options(second, "project.vite-react", { projectName: "same" }),
+      );
+    expect(a.manifest.outputs.entrypoint).toBe("src/main.tsx");
+    expect(a.proposal.changes.map((item) => [item.path, item.after])).toEqual(
+      b.proposal.changes.map((item) => [item.path, item.after]),
+    );
+  });
+  it("rejects unsafe Vite origins, unpinned packages, and Next-only feature composition", async () => {
+    const root = await fixture();
+    for (const apiBaseUrl of [
+      "https://user:password@example.invalid",
+      "http://remote.example",
+      "https://example.invalid/api",
+    ])
+      await expect(
+        renderTemplateProposal(
+          options(root, "project.vite-react", {
+            projectName: "vite-fixture",
+            apiBaseUrl,
+          }),
+        ),
+      ).rejects.toThrow();
+    const source = await renderTemplateProposal(
+      options(root, "project.vite-react", {
+        projectName: "vite-fixture",
+        description: "';globalThis.__INJECTION__=true;//<script>",
+      }),
+    );
+    expect(
+      source.proposal.changes.find((item) => item.path === "src/App.tsx")
+        ?.after,
+    ).toContain("\\u003cscript>");
+    await viteScaffold(root);
+    for (const id of [
+      "frontend.forms",
+      "frontend.tables",
+      "frontend.authentication",
+    ])
+      await expect(renderTemplateProposal(options(root, id))).rejects.toThrow(
+        /prerequisite package next|pinned Next/,
+      );
+    const pkgPath = join(root, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
+    pkg.devDependencies.vite = "7.0.0";
+    await writeFile(pkgPath, JSON.stringify(pkg));
+    await expect(
+      renderTemplateProposal(options(root, "frontend.react")),
+    ).rejects.toThrow("pinned vite");
+    pkg.devDependencies.vite = "7.3.6";
+    await writeFile(pkgPath, JSON.stringify(pkg));
+    const envPath = join(root, "lib/env.ts");
+    await writeFile(
+      envPath,
+      (await readFile(envPath, "utf8")).replace(
+        "import.meta.env.VITE_API_URL",
+        "process.env.NEXT_PUBLIC_API_URL",
+      ),
+    );
+    await expect(
+      renderTemplateProposal(options(root, "frontend.react")),
+    ).rejects.toThrow("Edited Vite API environment");
+    const nextRoot = await fixture();
+    await apply(nextRoot, "project.nextjs", { projectName: "next-fixture" });
+    await expect(
+      renderTemplateProposal(options(nextRoot, "frontend.react")),
+    ).rejects.toThrow("prerequisite package vite");
+    const manifest = load(
+      await readFile(join(catalog, "frontend/react/template.yaml"), "utf8"),
+    ) as any;
+    manifest.files.create[0].path = "arbitrary.ts";
+    expect(() =>
+      validateExecutableTemplateManifest("frontend.react", manifest),
+    ).toThrow("audited");
+  });
+  it("requires the Vite root identity and version in the scoped public ledger", async () => {
+    const root = await fixture();
+    await apply(root, "project.vite-react", { projectName: "vite-fixture" });
+    await expect(
+      renderTemplateProposal({
+        ...options(root, "frontend.react"),
+        instanceId: "client-instance",
+      }),
+    ).resolves.toMatchObject({
+      manifest: { templateId: "frontend.react" },
+    });
+
+    const copied = await fixture();
+    await mkdir(join(copied, "lib"), { recursive: true });
+    await writeFile(
+      join(copied, "package.json"),
+      await readFile(join(root, "package.json")),
+    );
+    await writeFile(
+      join(copied, "lib/env.ts"),
+      await readFile(join(root, "lib/env.ts")),
+    );
+    const renderCopied = () =>
+      renderTemplateProposal(options(copied, "frontend.react"));
+    await expect(renderCopied()).rejects.toThrow(
+      "project.vite-react@1.0.0 public ledger node",
+    );
+    await mkdir(join(copied, ".graph"), { recursive: true });
+    const ledger = JSON.parse(
+      await readFile(join(root, ".graph/manifest.json"), "utf8"),
+    );
+    for (const changed of [
+      { ...ledger, schemaVersion: "1.0.0" },
+      {
+        ...ledger,
+        nodes: {
+          "frontend-test": {
+            ...ledger.nodes["frontend-test"],
+            templateId: "project.vite-react-copy",
+          },
+        },
+      },
+      {
+        ...ledger,
+        nodes: {
+          "frontend-test": {
+            ...ledger.nodes["frontend-test"],
+            version: "0.9.0",
+          },
+        },
+      },
+    ]) {
+      await writeFile(
+        join(copied, ".graph/manifest.json"),
+        JSON.stringify(changed),
+      );
+      await expect(renderCopied()).rejects.toThrow(
+        "project.vite-react@1.0.0 public ledger node",
+      );
+    }
+  });
+  it.runIf(process.env.GRAPH_ENGINE_VITE_BUILD_TESTS === "1")(
+    "typechecks, tests, and builds the generated Vite application",
+    async () => {
+      const root = await fixture();
+      await viteScaffold(root);
+      const install = await command(
+        "npm",
+        ["install", "--ignore-scripts", "--no-audit", "--no-fund"],
+        { cwd: root, timeoutMs: 120000 },
+      );
+      expect(install.code, install.stdout + install.stderr).toBe(0);
+      const build = await command("npm", ["run", "build"], {
+        cwd: root,
+        timeoutMs: 30000,
+        env: { ...process.env, VITE_API_URL: "" },
+      });
+      expect(build.code, build.stdout + build.stderr).toBe(0);
+      const tests = await command("npm", ["test"], {
+        cwd: root,
+        timeoutMs: 30000,
+        env: { ...process.env, VITE_API_URL: "" },
+      });
+      expect(tests.code, tests.stdout + tests.stderr).toBe(0);
+      expect(await readFile(join(root, "dist/index.html"), "utf8")).toContain(
+        "vite-fixture",
+      );
+    },
+    185000,
+  );
   it("renders all six nodes and exact idempotent modifications with deterministic public ledger", async () => {
     const root = await fixture();
     await all(root);

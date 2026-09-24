@@ -40,6 +40,7 @@ const literal = (value: string) =>
     .replaceAll("\u2028", "\\u2028")
     .replaceAll("\u2029", "\\u2029");
 const dependencies = { next: "16.3.5", react: "19.3.0", "react-dom": "19.3.0" };
+const viteDependencies = { react: "19.3.0", "react-dom": "19.3.0" };
 const devDependencies = {
   "@testing-library/jest-dom": "7.0.1",
   "@testing-library/react": "16.3.3",
@@ -49,6 +50,11 @@ const devDependencies = {
   jsdom: "30.1.1",
   typescript: "5.9.3",
   vitest: "4.1.11",
+};
+const viteDevDependencies = {
+  ...devDependencies,
+  "@vitejs/plugin-react": "5.2.0",
+  vite: "7.3.6",
 };
 const projectFiles = [
   { path: "package.json", source: "files/package.json.template" },
@@ -61,6 +67,24 @@ const projectFiles = [
   { path: "app/layout.tsx", source: "files/app/layout.tsx.template" },
   { path: "app/page.tsx", source: "files/app/page.tsx" },
   { path: "app/globals.css", source: "files/app/globals.css" },
+  { path: "lib/env.ts", source: "files/lib/env.ts.template" },
+  {
+    path: ".graph/manifest.json",
+    source: "files/.graph/manifest.json.template",
+  },
+];
+const viteProjectFiles = [
+  { path: "package.json", source: "files/package.json.template" },
+  { path: "tsconfig.json", source: "files/tsconfig.json" },
+  { path: "vite.config.ts", source: "files/vite.config.ts" },
+  { path: "index.html", source: "files/index.html.template" },
+  { path: ".env.example", source: "files/.env.example.template" },
+  { path: ".gitignore", source: "files/.gitignore" },
+  { path: "vitest.config.ts", source: "files/vitest.config.ts" },
+  { path: "vitest.setup.ts", source: "files/vitest.setup.ts" },
+  { path: "src/main.tsx", source: "files/src/main.tsx" },
+  { path: "src/App.tsx", source: "files/src/App.tsx" },
+  { path: "src/globals.css", source: "files/src/globals.css" },
   { path: "lib/env.ts", source: "files/lib/env.ts.template" },
   {
     path: ".graph/manifest.json",
@@ -104,13 +128,18 @@ function baseUrl(value: unknown): string {
     );
   return parsed.origin;
 }
-function envSource(origin: string) {
-  return `const configured=process.env.NEXT_PUBLIC_API_URL||${literal(origin)};\nlet origin:URL;try{origin=new URL(configured);}catch{throw new Error('Invalid public API origin');}\nif(origin.username||origin.password||origin.search||origin.hash||origin.pathname!=='/'||!(origin.protocol==='https:'||(origin.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(origin.hostname))))throw new Error('Invalid public API origin');\n/** Public build-time configuration, never a secret or credential. */\nexport const ENV=Object.freeze({API_URL:origin.origin});\n`;
+function envSource(origin: string, environment: "next" | "vite" = "next") {
+  const configured =
+    environment === "vite"
+      ? "import.meta.env.VITE_API_URL"
+      : "process.env.NEXT_PUBLIC_API_URL";
+  return `const configured=${configured}||${literal(origin)};\nlet origin:URL;try{origin=new URL(configured);}catch{throw new Error('Invalid public API origin');}\nif(origin.username||origin.password||origin.search||origin.hash||origin.pathname!=='/'||!(origin.protocol==='https:'||(origin.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(origin.hostname))))throw new Error('Invalid public API origin');\n/** Public build-time configuration, never a secret or credential. */\nexport const ENV=Object.freeze({API_URL:origin.origin});\n`;
 }
 const configuration = `import type {NextConfig} from 'next';\nconst config:NextConfig={reactStrictMode:true,poweredByHeader:false,images:{unoptimized:true},experimental:{cpus:2},async headers(){return [{source:'/:path*',headers:[{key:'X-Content-Type-Options',value:'nosniff'},{key:'Referrer-Policy',value:'same-origin'},{key:'X-Frame-Options',value:'DENY'}]}];}};\nexport default config;\n`;
 const home = `export default function HomePage(){return <main><h1>Application ready</h1><p>Connect reviewed application features and authentication before deployment.</p></main>;}\n`;
 const setup = `import '@testing-library/jest-dom/vitest';\nimport {afterEach} from 'vitest';\nimport {cleanup} from '@testing-library/react';\nafterEach(()=>cleanup());\n`;
 const homeTest = `import {expect,it} from 'vitest';\nimport {render,screen} from '@testing-library/react';\nimport HomePage from '../app/page';\nit('renders the scaffold without remote resources',()=>{render(<HomePage/>);expect(screen.getByRole('heading',{name:'Application ready'})).toBeInTheDocument();});\n`;
+const viteHomeTest = `import {expect,it} from 'vitest';\nimport {render,screen} from '@testing-library/react';\nimport App from '../src/App';\nit('renders the scaffold without remote resources',()=>{render(<App/>);expect(screen.getByRole('heading',{name:'Application ready'})).toBeInTheDocument();});\n`;
 const apiTest = `import {expect,it} from 'vitest';\nimport {apiUrl} from '../lib/apiClient';\nit('rejects credential-bearing cross-origin paths',()=>{for(const path of ['https://untrusted.invalid/api/data','//untrusted.invalid/api/data','/api/../data','/api/%2e%2e/data'])expect(()=>apiUrl(path)).toThrow();});\n`;
 const formTest = `import {expect,it} from 'vitest';\nimport {act,renderHook} from '@testing-library/react';\nimport {useFormState} from '../lib/forms/useFormState';\nit('updates named form fields',()=>{const {result}=renderHook(()=>useFormState({name:''}));act(()=>result.current.setValue('name','Ada'));expect(result.current.values.name).toBe('Ada');});\n`;
 const tableTest = `import {expect,it} from 'vitest';\nimport {render,screen} from '@testing-library/react';\nimport {DataTable} from '../components/DataTable';\nimport type {UseQueryTableResult} from '../lib/tables/useQueryTable';\nit('renders cell content as text, never HTML',()=>{const table:UseQueryTableResult<{name:string}>={rows:[{name:'<img src=x onerror=alert(1)>'}],meta:null,page:1,setPage:()=>{},sortBy:undefined,sortDir:'asc',setSort:()=>{},filters:{},setFilter:()=>{},isLoading:false,error:null,refetch:()=>{}};const {container}=render(<DataTable table={table} columns={[{key:'name',label:'Name'}]} getRowId={()=>'row'}/>);expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeInTheDocument();expect(container.querySelector('img')).toBeNull();});\n`;
@@ -128,6 +157,69 @@ async function packages(context: TemplateRenderContext) {
       throw new Error(
         "Audited frontend requires pinned Next 16.3.5 and React 19.3.0 dependencies",
       );
+}
+async function vitePrerequisites(context: TemplateRenderContext) {
+  const parsed = JSON.parse(await context.readTarget("package.json")) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  for (const [name, version] of Object.entries(viteDependencies))
+    if (parsed.dependencies?.[name] !== version)
+      throw new Error(
+        "Audited React scaffold requires pinned React dependencies",
+      );
+  for (const [name, version] of Object.entries(viteDevDependencies))
+    if (parsed.devDependencies?.[name] !== version)
+      throw new Error(
+        `Audited React scaffold requires pinned ${name} dependency`,
+      );
+  const source = await context.readTarget("lib/env.ts");
+  const prefix = "const configured=import.meta.env.VITE_API_URL||";
+  const end = source.indexOf(";\n", prefix.length);
+  if (!source.startsWith(prefix) || end < 0)
+    throw new Error(
+      "Edited Vite API environment requires explicit reconciliation",
+    );
+  let fallback: unknown;
+  try {
+    fallback = JSON.parse(source.slice(prefix.length, end));
+  } catch {
+    throw new Error(
+      "Edited Vite API environment requires explicit reconciliation",
+    );
+  }
+  if (
+    typeof fallback !== "string" ||
+    source !== envSource(baseUrl(fallback), "vite")
+  )
+    throw new Error(
+      "Edited Vite API environment requires explicit reconciliation",
+    );
+  const missingRoot =
+    "Audited React client requires a project.vite-react@1.0.0 public ledger node";
+  let ledger: unknown;
+  try {
+    ledger = JSON.parse(await context.readManifest());
+  } catch {
+    throw new Error(missingRoot);
+  }
+  const parsedLedger = z
+    .object({
+      schemaVersion: z.literal("2.0.0"),
+      nodes: z.record(z.unknown()),
+    })
+    .safeParse(ledger);
+  const rootNode = z.object({
+    templateId: z.literal("project.vite-react"),
+    version: z.literal("1.0.0"),
+  });
+  if (
+    !parsedLedger.success ||
+    !Object.values(parsedLedger.data.nodes).some(
+      (node) => rootNode.safeParse(node).success,
+    )
+  )
+    throw new Error(missingRoot);
 }
 async function client(context: TemplateRenderContext) {
   await packages(context);
@@ -185,6 +277,153 @@ function authenticatedLayout(source: string): string {
 }
 
 export const frontendTemplates: Record<string, AuditedTemplateExtension> = {
+  "project.vite-react": {
+    directory: "project/vite-react",
+    creates: viteProjectFiles,
+    packages: [],
+    async render(context) {
+      const name = z
+          .string()
+          .min(1)
+          .max(64)
+          .regex(/^[a-z][a-z0-9-]*$/)
+          .parse(context.inputs.projectName),
+        description = z
+          .string()
+          .max(512)
+          .refine((value) => !value.includes("\0"))
+          .parse(context.inputs.description),
+        port = z.number().int().min(1).max(65535).parse(context.inputs.port),
+        origin = baseUrl(context.inputs.apiBaseUrl);
+      const manifest = {
+        name,
+        version: "1.0.0",
+        description,
+        private: true,
+        type: "module",
+        engines: { node: ">=24.0.0 <25" },
+        scripts: {
+          dev: "vite",
+          build: "tsc --noEmit && vite build",
+          preview: "vite preview",
+          test: "vitest run",
+          typecheck: "tsc --noEmit",
+        },
+        dependencies: viteDependencies,
+        devDependencies: viteDevDependencies,
+      };
+      const files: TemplateArtifact[] = [
+        artifact("package.json", JSON.stringify(manifest, null, 2) + "\n"),
+        artifact(
+          "tsconfig.json",
+          JSON.stringify(
+            {
+              compilerOptions: {
+                target: "ES2022",
+                lib: ["dom", "dom.iterable", "esnext"],
+                module: "esnext",
+                moduleResolution: "bundler",
+                jsx: "react-jsx",
+                strict: true,
+                esModuleInterop: true,
+                skipLibCheck: true,
+                resolveJsonModule: true,
+                isolatedModules: true,
+                noEmit: true,
+                types: ["vite/client", "node"],
+              },
+              include: [
+                "src/**/*.ts",
+                "src/**/*.tsx",
+                "lib/**/*.ts",
+                "lib/**/*.tsx",
+                "tests/**/*.ts",
+                "tests/**/*.tsx",
+                "*.config.ts",
+                "vitest.setup.ts",
+              ],
+              exclude: ["node_modules", "dist"],
+            },
+            null,
+            2,
+          ) + "\n",
+        ),
+        artifact(
+          "vite.config.ts",
+          `import {defineConfig} from 'vite';\nimport react from '@vitejs/plugin-react';\nexport default defineConfig({plugins:[react()],server:{host:'localhost',port:${port},strictPort:true},preview:{host:'localhost',port:${port},strictPort:true}});\n`,
+        ),
+        artifact(
+          "index.html",
+          `<!doctype html>\n<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>${name}</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>\n`,
+        ),
+        artifact(
+          ".env.example",
+          "# Optional public build-time override; empty uses the reviewed code default.\n# Never put secrets in VITE_ values.\nVITE_API_URL=\n",
+        ),
+        artifact(
+          ".gitignore",
+          "node_modules/\ndist/\n.env*\n!.env.example\n*.tsbuildinfo\n.graph/*\n!.graph/manifest.json\n",
+        ),
+        artifact(
+          "vitest.config.ts",
+          "import {defineConfig} from 'vitest/config';\nexport default defineConfig({test:{environment:'jsdom',setupFiles:['./vitest.setup.ts'],include:['tests/**/*.test.{ts,tsx}'],maxWorkers:1}});\n",
+        ),
+        artifact("vitest.setup.ts", setup),
+        artifact(
+          "src/main.tsx",
+          "import {StrictMode} from 'react';\nimport {createRoot} from 'react-dom/client';\nimport App from './App';\nimport './globals.css';\nconst root=document.getElementById('root');\nif(!root)throw new Error('Missing application root');\ncreateRoot(root).render(<StrictMode><App/></StrictMode>);\n",
+        ),
+        artifact(
+          "src/App.tsx",
+          `export default function App(){return <main><h1>Application ready</h1><p>{${literal(description || "Connect reviewed application features before deployment.")}}</p></main>;}\n`,
+        ),
+        artifact(
+          "src/globals.css",
+          "*{box-sizing:border-box}body{font-family:system-ui,sans-serif;margin:2rem;color:#17202a;background:#fff}main{max-width:60rem;margin:auto}\n",
+        ),
+        artifact("lib/env.ts", envSource(origin, "vite")),
+        artifact(
+          ".graph/manifest.json",
+          JSON.stringify(
+            {
+              schemaVersion: "2.0.0",
+              projectName: name,
+              nodes: {
+                [context.instanceId]: {
+                  templateId: "project.vite-react",
+                  version: "1.0.0",
+                  files: [
+                    ...viteProjectFiles.map((item) => item.path),
+                    "tests/App.test.tsx",
+                  ],
+                },
+              },
+            },
+            null,
+            2,
+          ) + "\n",
+        ),
+        artifact("tests/App.test.tsx", viteHomeTest, "test"),
+      ];
+      return result(files, { entrypoint: "src/main.tsx" });
+    },
+  },
+  "frontend.react": {
+    directory: "frontend/react",
+    creates: [{ path: "lib/apiClient.ts", source: "files/apiClient.ts" }],
+    packages: ["vite", "@vitejs/plugin-react", "react", "react-dom", "vitest"],
+    prerequisites: { "lib/env.ts": ["ENV"] },
+    async render(context) {
+      await vitePrerequisites(context);
+      return result(
+        [
+          artifact("lib/apiClient.ts", apiClientSource),
+          artifact("tests/apiClient.test.ts", apiTest, "test"),
+        ],
+        { exports: ["apiFetch", "ApiError", "ApiSuccess", "ApiPaginated"] },
+      );
+    },
+  },
   "project.nextjs": {
     directory: "project/nextjs",
     creates: projectFiles,
