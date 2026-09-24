@@ -113,7 +113,9 @@ export async function verifyInContainer(
           {
             signal,
             timeoutMs:
-              policy.timeoutSeconds === null ? null : policy.timeoutSeconds * 1000,
+              policy.timeoutSeconds === null
+                ? null
+                : policy.timeoutSeconds * 1000,
           },
         );
         results.push({

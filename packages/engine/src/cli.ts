@@ -466,36 +466,66 @@ cli
   );
 cli
   .command("outcome-record <feedback> <consultation>")
-  .description("Bind a GE run to an external review claim; no routing authority")
+  .description(
+    "Bind a GE run to an external review claim; no routing authority",
+  )
   .action(async (feedback, consultation) => {
     const project = await loadProject(root());
     const bytes = await readFile(path.resolve(consultation));
-    if (bytes.length > 2_000_000) throw new Error("Consultation artifact exceeds size limit");
+    if (bytes.length > 2_000_000)
+      throw new Error("Consultation artifact exceeds size limit");
     const input = await readFile(path.resolve(feedback));
-    if (input.length > 2_000_000) throw new Error("Outcome feedback exceeds size limit");
-    const candidate = (await import("./outcome-feedback.js")).outcomeFeedbackSchema.parse(
-      JSON.parse(input.toString("utf8")),
+    if (input.length > 2_000_000)
+      throw new Error("Outcome feedback exceeds size limit");
+    const candidate = (
+      await import("./outcome-feedback.js")
+    ).outcomeFeedbackSchema.parse(JSON.parse(input.toString("utf8")));
+    const fingerprint = await readWorkspaceFingerprint(
+      root(),
+      candidate.run_id,
     );
-    const fingerprint = await readWorkspaceFingerprint(root(), candidate.run_id);
     if (fingerprint.snapshotHash !== candidate.workspace_snapshot_sha256)
-      throw new Error("Feedback workspace differs from the verified GE snapshot");
-    const store = new RunStore(projectDataDir(project.projectId), project.projectId);
+      throw new Error(
+        "Feedback workspace differs from the verified GE snapshot",
+      );
+    const store = new RunStore(
+      projectDataDir(project.projectId),
+      project.projectId,
+    );
     try {
       const event = store.recordOutcomeFeedback(candidate, bytes);
-      print({ eventId: event.id, status: "UNVERIFIED_EXTERNAL_CLAIM",
-        feedbackCanonicalSha256: event.data.feedback &&
-        (await import("./outcome-feedback.js")).outcomeHash(event.data.feedback),
-        routingEligible: false, promotionEligible: false, completionAuthority: false });
-    } finally { store.close(); }
+      print({
+        eventId: event.id,
+        status: "UNVERIFIED_EXTERNAL_CLAIM",
+        feedbackCanonicalSha256:
+          event.data.feedback &&
+          (await import("./outcome-feedback.js")).outcomeHash(
+            event.data.feedback,
+          ),
+        routingEligible: false,
+        promotionEligible: false,
+        completionAuthority: false,
+      });
+    } finally {
+      store.close();
+    }
   });
 cli
   .command("outcome-summary")
-  .description("Summarize GE-observed dual runs for local advisory decision context")
+  .description(
+    "Summarize GE-observed dual runs for local advisory decision context",
+  )
   .action(async () => {
     const project = await loadProject(root());
-    const store = new RunStore(projectDataDir(project.projectId), project.projectId);
-    try { print(store.outcomeSummary()); }
-    finally { store.close(); }
+    const store = new RunStore(
+      projectDataDir(project.projectId),
+      project.projectId,
+    );
+    try {
+      print(store.outcomeSummary());
+    } finally {
+      store.close();
+    }
   });
 cli
   .command("evaluation-export <mapping> <output>")

@@ -303,9 +303,12 @@ it("rechecks retained dual state at run start and keeps scope metadata out of ho
     "UPDATE dual_consult_attempts SET state='completed' WHERE owner_id=?",
   ).run(data.ownerId);
   const decisionId = evidence.observations.laya.records[0]!.id;
-  const saved = db.prepare("SELECT json FROM decisions WHERE id=?").get(decisionId) as { json: string };
+  const saved = db
+    .prepare("SELECT json FROM decisions WHERE id=?")
+    .get(decisionId) as { json: string };
   db.prepare("UPDATE decisions SET json=? WHERE id=?").run(
-    JSON.stringify({ ...JSON.parse(saved.json), selected: "pause" }), decisionId,
+    JSON.stringify({ ...JSON.parse(saved.json), selected: "pause" }),
+    decisionId,
   );
   db.close();
   await expect(data.engine.start(plan.id, data.scopeSha256)).rejects.toThrow(
