@@ -14,12 +14,12 @@ starting AIs. An AI using Graph Engineering's MCP context tools is different
 from Graph Engineering launching it as a managed proposal worker. Their current
 verification is deliberately reported separately:
 
-| AI          | Context / worker path                                                                           | Current local evidence                                                                                                             |
-| ----------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| oMLX Qwen   | Graph-managed local worker receives a curated context packet; Qwen is not itself an MCP client. | Live bounded worker call and an unassisted real UTF-8 repair passed; no new model download.                                        |
-| Claude Code | Project MCP client and optional subscription-backed managed proposal worker.                    | Live MCP retrieval and one bounded managed proposal passed; full Claude-managed repair is not claimed.                             |
-| Codex       | Project MCP client; managed App Server worker only when restricted read roots are available.    | Live MCP retrieval passed. Installed `0.156.0` does not meet the managed-worker read-isolation gate.                               |
-| Cursor      | Separate project MCP client; prospective SDK-managed proposal worker.                           | Serena works, but the project MCP has not completed an in-editor call; managed mode is disabled pending SDK and safety validation. |
+| AI          | Context / worker path                                                                           | Current local evidence                                                                                                                                                                         |
+| ----------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| oMLX Qwen   | Graph-managed local worker receives a curated context packet; Qwen is not itself an MCP client. | Live bounded worker call and an unassisted real UTF-8 repair passed; no new model download.                                                                                                    |
+| Claude Code | Project MCP client and optional subscription-backed managed proposal worker.                    | Live MCP retrieval and one bounded managed proposal passed; full Claude-managed repair is not claimed.                                                                                         |
+| Codex       | Project MCP client; managed App Server worker only when restricted read roots are available.    | Live MCP retrieval passed. Installed `0.156.0` does not meet the managed-worker read-isolation gate.                                                                                           |
+| Cursor      | Separate project MCP client and optional text-only SDK proposal worker.                         | The project MCP config passed a direct stdio `template_list` call (61 entries), not an in-editor call. SDK controls pass mocked tests; no Cursor user key or live proposal call is configured. |
 
 The default checked-in project policy remains local-only with `qwen` and `laya`
 enabled. That does not disable Claude Code, Codex, or Cursor as MCP clients; it
@@ -116,17 +116,28 @@ retrieval for bounded cold latency. Request `retrieval: "hybrid"` explicitly
 when the local embedding index is prepared and semantic recall is needed.
 Cursor has activated Serena in this workspace under the registered project
 name `GRAPH ENGINEERING`. That validates Serena, not the separate
-`graph-engineering` project MCP server: Cursor currently discovers the latter
-but reports it disconnected. Enable only that server under Customize → MCPs
-and verify its read-only `template_list` tool. Do not activate, deactivate, or
-reconfigure Serena for this check: it is shared with other Cursor sessions and
-projects. Leave global servers unchanged. Cloud MCP retrieval is not fully
-offline and does not replace each client's own tool-permission controls.
+`graph-engineering` project MCP server. Its ignored project-only
+`.cursor/mcp.json` now uses explicit `type: "stdio"`, an absolute local Node
+executable, and Cursor's `${workspaceFolder}` interpolation. The exact
+configured command and args passed a direct stdio handshake and read-only
+`template_list` call with 61 catalog entries. This still does not prove an
+in-editor Cursor call; Cursor previously discovered the server but reported it
+disconnected, and the current MCP Logs contain no project-server launch or
+error entry. Under Customize → MCPs, enable only `graph-engineering`, then run
+its `template_list` tool in this workspace and check MCP Logs if it fails.
+Do not activate, deactivate, or reconfigure Serena: it is shared with other
+Cursor sessions and projects. Leave global servers unchanged. A portable
+starting configuration is in `.cursor/mcp.example.json`; copy it to the
+ignored `.cursor/mcp.json` and use an absolute Node executable if Cursor's
+GUI process cannot find `node` on its PATH. Build the engine before enabling
+the server. Cloud MCP retrieval is not fully offline and does not replace
+each client's own tool-permission controls.
 
 A fresh Git clone does not contain ignored provider/decision/MCP settings,
-tokens, models, or databases. Recreate these explicitly; MCP configurations
-use machine-specific absolute paths. Never copy credentials into Git to make
-another machine work.
+tokens, models, or databases. Recreate these explicitly; the Cursor MCP
+example uses portable workspace interpolation, but a GUI-visible Node path may
+still be machine-specific. Never copy credentials into Git to make another
+machine work.
 
 No metered API provider has been enabled or exercised. A single bounded
 Claude Max subscription call passed the managed proposal adapter using a

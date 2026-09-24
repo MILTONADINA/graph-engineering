@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "graph-engineering": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/packages/engine/dist/cli.js",
+        "-C",
+        "${workspaceFolder}",
+        "mcp",
+        "--client",
+        "cloud"
+      ]
+    }
+  }
+}
