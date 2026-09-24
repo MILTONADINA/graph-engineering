@@ -139,12 +139,16 @@ example uses portable workspace interpolation, but a GUI-visible Node path may
 still be machine-specific. Never copy credentials into Git to make another
 machine work.
 
-No metered API provider has been enabled or exercised. A single bounded
-Claude Max subscription call passed the managed proposal adapter using a
+The private Jev key source can be loaded only through the opt-in
+`npm run graph:local -- --with-jev` path. The tracked project policy still
+allows only local Qwen and Laya, sets `maxCostUsd` to zero, and does not
+authorize Jev. No metered Jev call has been made; each operator must select
+their own provider, reviewed price and spending ceiling before enabling one.
+Separately, a single bounded Claude Max subscription call passed the managed
+proposal adapter using a
 selected public source snippet; it did not apply a patch. Native subscription
 usage has no enforceable dollar cap, so this is not a paid-API spending-limit
-test. Provider and dollar-limit selection for metered API calls is deferred to
-the owner. Claude Code, Codex, and Cursor's own cloud inference after MCP
+test. Claude Code, Codex, and Cursor's own cloud inference after MCP
 retrieval is outside the engine ledger and cap; configure their separate
 provider/account budgets. Never paste
 keys into chat or commit them. Local `$0` accounting means no marginal external
