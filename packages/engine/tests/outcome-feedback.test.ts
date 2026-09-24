@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
-import type { RunRecord } from "@graph-engineering/contracts";
+import type { ExecutionPlan, RunRecord } from "@graph-engineering/contracts";
 import type { DualConsultEvidence } from "../src/decision-dual.js";
 import { RunStore } from "../src/store.js";
 
@@ -40,16 +40,35 @@ it("retains one external claim without routing and rejects settled-usage mismatc
       binding, policyVersion: meta.policyVersion, requestHash: meta.requestHash, ready: true,
       observations: { laya: observation("laya"), jev: observation("jev") } };
     store.finishDualConsultAttempt(dual);
-    const run = { id: "run-42", status: "succeeded", completion: { automatedChecksPassed: true,
-      humanAcceptance: "pending", reviewScope: "normal" } } as RunRecord;
+    const scopeSha256 = "9".repeat(64);
+    const snapshotHash = "8".repeat(64);
+    const preflight = { version: "1.0.0" as const, ownerId: meta.ownerId,
+      requestHash: meta.requestHash, binding, scopeSha256 };
+    const plan: ExecutionPlan = { version: "1.0.0", id: "plan-42", projectId: meta.projectId,
+      snapshotId: "snapshot-42", policyHash: meta.policyVersion,
+      createdAt: "2026-09-23T00:00:00.000Z", objective: "Selected task",
+      acceptance: ["Selected task passes"], steps: [{ id: "step", kind: "worker",
+        objective: "Selected task", dependsOn: [], providerId: "local" }],
+      verification: [], publication: "none", dualPreflight: preflight };
+    store.savePlan(plan);
+    const run: RunRecord = { id: "run-42", plan, dualPreflight: preflight, status: "planned",
+      createdAt: "2026-09-23T00:00:00.000Z", updatedAt: "2026-09-23T00:00:00.000Z",
+      usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0, estimated: false } };
+    store.reserve(run, 1);
+    run.status = "succeeded";
+    run.completion = { automatedChecksPassed: true, humanAcceptance: "pending", reviewScope: "normal" };
     store.saveRun(run);
+    store.event(run.id, "publication.started", { mode: "none", snapshotHash });
+    store.event(run.id, "publication.completed", { commit: null, pullRequest: null });
+    store.event(run.id, "run.succeeded", { usage: run.usage });
     const bytes = Buffer.from(JSON.stringify(dual));
     const feedback = { schema_version: 1, task: binding.taskId, task_kind: "engineering",
       context: { write_path_count: 1, acceptance_count: 1, source_dirty: false,
         text_only_coverage: false },
       handoff: "handoff", dispatch_id: meta.ownerId,
       source_before_sha256: binding.sourceSha256, candidate_sha256: "b".repeat(64),
-      run_id: run.id, scope_id: "scope-42", scope_request_sha256: "c".repeat(64),
+      run_id: run.id, scope_sha256: scopeSha256, workspace_snapshot_sha256: snapshotHash,
+      scope_id: "scope-42", scope_request_sha256: "c".repeat(64),
       completion_proof_sha256: "d".repeat(64), dual_consultation_sha256:
         createHash("sha256").update(bytes).digest("hex"),
       outcome: { kind: "BRIGHTPATH_COMPLETION_REVIEW", state: "CURRENT_ENGINEERING_COMPLETION",
@@ -76,8 +95,15 @@ it("retains one external claim without routing and rejects settled-usage mismatc
       .toThrow("different reviewed outcome");
     expect(() => store.recordOutcomeFeedback({ ...feedback, dual_consultation_sha256: "3".repeat(64) }, bytes))
       .toThrow("bytes changed");
+    expect(() => store.recordOutcomeFeedback({ ...feedback, scope_sha256: "4".repeat(64) }, bytes))
+      .toThrow("not bound to the retained dual task and scope");
+    expect(() => store.recordOutcomeFeedback({ ...feedback, workspace_snapshot_sha256: "5".repeat(64) }, bytes))
+      .toThrow("snapshot is not the retained verified GE run");
     expect(store.outcomeSummary()).toMatchObject({ unverifiedClaims: 1,
-      reviewedTasks: 0, groups: [], routingEligible: false,
+      kind: "advisory-ge-run-observations", observedRuns: 1,
+      groups: [{ provider: "jev", observed: 1, automatedPassed: 1 },
+        { provider: "laya", observed: 1, automatedPassed: 1 }],
+      localDecisionContextEligible: true, routingEligible: false,
       promotionEligible: false, completionAuthority: false });
   } finally {
     store.close();

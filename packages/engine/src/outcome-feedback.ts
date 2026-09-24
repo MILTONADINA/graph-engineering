@@ -20,6 +20,8 @@ export const outcomeFeedbackSchema = z.object({
   source_before_sha256: digest,
   candidate_sha256: digest,
   run_id: identity,
+  scope_sha256: digest,
+  workspace_snapshot_sha256: digest,
   scope_id: identity,
   scope_request_sha256: digest,
   completion_proof_sha256: digest.nullable(),
@@ -54,7 +56,7 @@ function canonical(value: unknown): string {
 export const outcomeHash = (value: unknown): string =>
   createHash("sha256").update(canonical(value)).digest("hex");
 
-/** Checks GE's own receipts only; no GE run-to-dual or BrightPath review proof is established. */
+/** Bind GE's retained consultation and run. BrightPath review remains external. */
 export function validateOutcomeFeedback(
   input: unknown,
   consultationBytes: Buffer,
@@ -80,8 +82,21 @@ export function validateOutcomeFeedback(
       outcomeHash(decisionIds.slice().sort()) !== outcomeHash(feedback.decision_ids.slice().sort()) ||
       outcomeHash(feedback.decision_usage) !== outcomeHash({ laya: observations.laya.usage, jev: observations.jev.usage }))
     throw new Error("Feedback decision IDs or usage differ from retained observations");
+  const preflight = run.plan.dualPreflight;
+  if (!preflight || !run.dualPreflight ||
+      outcomeHash(preflight) !== outcomeHash(run.dualPreflight) ||
+      preflight.ownerId !== feedback.dispatch_id ||
+      preflight.requestHash !== retained.requestHash ||
+      preflight.binding.taskId !== feedback.task ||
+      preflight.binding.sourceSha256 !== feedback.source_before_sha256 ||
+      preflight.scopeSha256 !== feedback.scope_sha256 ||
+      run.plan.projectId !== retained.projectId ||
+      run.plan.policyHash !== retained.policyVersion)
+    throw new Error("Feedback run is not bound to the retained dual task and scope");
   if (run.id !== feedback.run_id || run.status !== "succeeded" ||
-      run.completion?.automatedChecksPassed !== true)
+      run.plan.publication !== "none" ||
+      run.completion?.automatedChecksPassed !== true ||
+      run.completion.humanAcceptance !== "pending")
     throw new Error("Feedback requires the retained successful GE run");
   return feedback;
 }
