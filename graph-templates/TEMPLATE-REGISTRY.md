@@ -6,7 +6,7 @@ The human-readable catalog of every graph node in this library. **This file is a
 node tools/generate-registry/index.js . > template-registry.json
 ```
 
-`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 47 implemented, 8 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
+`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no `files/` yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 48 implemented, 7 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
 
 ## project
 
@@ -98,7 +98,7 @@ Entity CRUD generation itself lives at `backend.repository`, not a `database.rep
 | I      | `devops.github-actions` | CI (build+test) on every PR/push; migrations are a separate, manually-triggered job.                                                  |
 | I      | `devops.environments`   | Aggregates every selected node's `environment.variables` into `.env.example` + `docs/ENVIRONMENT.md`.                                 |
 | I      | `devops.aws`            | Offline ECS Express Mode request JSON for a reviewed, digest-pinned `devops.docker` ECR image; generation makes no AWS call.          |
-| P      | `devops.deployment`     | Higher-level composition of `docker`+`github-actions`+`aws`, analogous to `api.crud`.                                                 |
+| I      | `devops.deployment`     | Offline ECS Express Mode composition of audited Docker, build/test CI, a private request, and a sanitized public plan; no deployment. |
 
 ## documentation
 
