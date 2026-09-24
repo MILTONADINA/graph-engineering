@@ -133,6 +133,21 @@ GUI process cannot find `node` on its PATH. Build the engine before enabling
 the server. Cloud MCP retrieval is not fully offline and does not replace
 each client's own tool-permission controls.
 
+Cursor's native codebase indexing and Agent file reads are separate from the
+project MCP export allowlist. The tracked `.cursorignore` excludes local Graph
+state, Serena data, client configuration, credential-like files and private
+paths such as directories named `backups` from that native path. Keep any
+custom backup destination outside the workspace. Cursor also respects
+`.gitignore`; reindex this workspace after changing ignore rules. These are
+defense-in-depth exclusions,
+not a guarantee: Cursor's terminal and MCP tools can still access ignored
+files, and normal native indexing may include other source beyond a particular
+MCP request's selected packet. Disabling native indexing alone does not create
+a strict per-request boundary: Agent can still read/search files or include
+open-file context. For selected-source cloud use, avoid those native context
+paths, use the reviewed project MCP packet, and inspect tool calls and
+attachments before approving inference.
+
 A fresh Git clone does not contain ignored provider/decision/MCP settings,
 tokens, models, or databases. Recreate these explicitly; the Cursor MCP
 example uses portable workspace interpolation, but a GUI-visible Node path may

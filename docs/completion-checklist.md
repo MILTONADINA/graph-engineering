@@ -103,15 +103,21 @@ readiness, runtime health or deployment acceptance. Before this feature, seven
 catalog IDs remained planned, including three aliases of already implemented
 API capabilities.
 
-This feature branch adds a separate `project.vite-react` scaffold and
-`frontend.react` API client, bringing the catalog to 50 implemented and six
-planned nodes once merged. The client reuses the audited API source; the root
+PR #5 added a separate `project.vite-react` scaffold and `frontend.react` API
+client, bringing the catalog to 50 implemented and six planned nodes. The
+client reuses the audited API source; the root
 pins its packages, public API origin and deterministic ledger. Focused catalog,
 graph-contract, renderer and generated-app typecheck/test/build checks passed.
 Authentication pages, forms, tables and dashboards still have exact Next.js
 prerequisites and are not claimed for Vite. Cross-origin cookie use still needs
 an explicitly approved backend CORS origin, and generated-app checks do not
 establish deployment or human acceptance.
+
+Cursor's native workspace context is separate from the project MCP filter.
+A tracked `.cursorignore` now excludes local Graph state, Serena data and
+credential-like files from Cursor's own indexing/Agent context. This is
+defense in depth, not proof of an in-editor project-MCP call or a hard boundary
+for Cursor's terminal/MCP tools.
 
 Item 13 now has analysis-only signed worker-delivery verification for one
 closed-ledger call and, optionally, exact coverage of every completed call in a
