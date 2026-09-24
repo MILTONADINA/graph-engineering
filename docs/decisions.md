@@ -142,8 +142,20 @@ Add `laya` to the project's allowed `policy.providers`. Local Laya is permitted
 with local inference and denied outbound networking. Jev requires its `jev`
 provider entry, an explicit permitted HTTPS endpoint, cloud inference policy,
 and its credential environment variable. No hosted Jev endpoint or model
-version is invented by the engine; use the actual documented endpoint and
-supported model from your account.
+version is invented by the engine; use the [official API schema](https://api.typesafe.ai/docs)
+and a supported model from your account.
+
+On this Mac, the optional `graph:local` wrapper can load the Jev credential from
+an ignored `.graph/local/jev-key-source.json` file with private permissions. The
+file contains only an absolute path and a `plain` or `rtf` format; it never
+contains the key itself. The referenced key file must also be a private regular
+file. For RTF, the wrapper converts it in memory with macOS `textutil`, validates
+that the result is one printable token, and passes it to the engine as
+`GRAPH_JEV_API_KEY` only when explicitly launched with
+`npm run graph:local -- --with-jev ...`. Ordinary `graph:local` commands and the
+Laya sidecar do not receive this key. The engine's
+decision provider entry uses `apiKeyEnv: "GRAPH_JEV_API_KEY"`; credentials must
+never be placed in `decisions.json`, Git, or a cloud context packet.
 
 The sidecar accepts POST `/v1/decide` (also `/v1/system-one`) with:
 
@@ -189,8 +201,19 @@ A reviewed private provider entry may contain `pricing` with `unit` equal to
 `request` or `question`, numeric `usdPerUnit`, and an identifiable price
 `version`. Supply the actual applicable fixed-unit rate from your provider
 agreement; the repository has no default hosted rate. Configured pricing is an
-estimate, kept separate from `reportedCostUsd`. Token-based or otherwise
-unbounded billing is not inferred from text length.
+estimate, kept separate from `reportedCostUsd`. Actual token billing is not
+inferred from text length. For an account whose terms
+bill Jev input tokens and make output tokens free, the entry may instead use
+`unit: "input-token"`, a reviewed `usdPerMillionInputTokens`, and an explicit
+`inputTokenReserve`. The complete serialized request must fit within that token
+reservation even when measured pessimistically as UTF-8 bytes. This byte proxy
+is only a conservative client-side estimate, not a promise by TypeSafe that
+billable tokens cannot exceed it. The response's actual `usage.input_tokens`
+settles a successful call at the reviewed input-token rate; missing usage keeps
+the full reservation and rejects the decision. A returned cost or calculated
+token charge above the reservation also rejects the decision and prevents
+further cascading. Verify the account's actual terms and model before setting
+these fields; the repository supplies no Jev price or spending limit.
 
 Cost-capped hosted decisions require that reviewed bounded pricing and a
 persistent `DecisionBudget` implementation. Its `reserve` callback must

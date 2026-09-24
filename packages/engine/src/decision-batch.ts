@@ -259,13 +259,30 @@ export async function decideBatch(
         throw new Error(
           "Compact decision state exceeds the configured model limit; abstaining",
         );
+      const body = JSON.stringify({
+        model: provider.model,
+        state,
+        questions: questionMap,
+      });
+      const bodyBytes = Buffer.byteLength(body, "utf8");
+      if (bodyBytes > 64 * 1024)
+        throw new Error(
+          "Decision request exceeds the complete batch byte limit",
+        );
       const price = provider.pricing;
+      if (price?.unit === "input-token" && bodyBytes > price.inputTokenReserve)
+        throw new Error(
+          "Decision request exceeds the reviewed input-token reservation",
+        );
       const estimate =
         provider.id === "laya"
           ? 0
           : price
-            ? price.usdPerUnit *
-              (price.unit === "question" ? pending.length : 1)
+            ? price.unit === "input-token"
+              ? (price.usdPerMillionInputTokens * price.inputTokenReserve) /
+                1_000_000
+              : price.usdPerUnit *
+                (price.unit === "question" ? pending.length : 1)
             : null;
       if (policy.maxCostUsd !== null && provider.id === "jev") {
         if (estimate === null || !options.budget)
@@ -282,15 +299,6 @@ export async function decideBatch(
         : undefined;
       if (provider.apiKeyEnv && !key)
         throw new Error(`Missing ${provider.apiKeyEnv}`);
-      const body = JSON.stringify({
-        model: provider.model,
-        state,
-        questions: questionMap,
-      });
-      if (Buffer.byteLength(body, "utf8") > 64 * 1024)
-        throw new Error(
-          "Decision request exceeds the complete batch byte limit",
-        );
       if (provider.id === "jev" && estimate !== null && options.budget) {
         await options.budget.reserve({
           callId,
@@ -327,41 +335,56 @@ export async function decideBatch(
     if (dispatched) {
       const rawUsage =
         result?.usage && typeof result.usage === "object" ? result.usage : {};
+      const inputTokens = count(rawUsage.input_tokens);
+      const outputTokens = count(rawUsage.output_tokens);
       const reportedCostUsd = money(rawUsage.cost_usd ?? result?.cost_usd);
+      const price = provider.pricing;
+      const tokenPriced = price?.unit === "input-token";
       const estimatedCostUsd =
         provider.id === "laya"
           ? 0
-          : provider.pricing
-            ? provider.pricing.usdPerUnit *
-              (provider.pricing.unit === "question" ? pending.length : 1)
+          : price
+            ? tokenPriced
+              ? (price.usdPerMillionInputTokens *
+                  (inputTokens ?? price.inputTokenReserve)) /
+                1_000_000
+              : price.usdPerUnit *
+                (price.unit === "question" ? pending.length : 1)
             : null;
       const chargedUsd =
         provider.id === "laya"
           ? 0
-          : reportedCostUsd === null
-            ? estimatedCostUsd
-            : Math.max(reportedCostUsd, reservedUsd ?? 0);
+          : tokenPriced && estimatedCostUsd !== null
+            ? Math.max(reportedCostUsd ?? 0, estimatedCostUsd)
+            : reportedCostUsd === null
+              ? estimatedCostUsd
+              : Math.max(reportedCostUsd, reservedUsd ?? 0);
       callUsage = {
         callId,
         provider: provider.id,
         model:
           typeof result?.model === "string" ? result.model : provider.model,
         questionCount: pending.length,
-        inputTokens: count(rawUsage.input_tokens),
-        outputTokens: count(rawUsage.output_tokens),
+        inputTokens,
+        outputTokens,
         reportedCostUsd,
         estimatedCostUsd,
         chargedUsd,
         reservedUsd,
         priceVersion: provider.pricing?.version ?? null,
-        costUnknown: chargedUsd === null,
+        costUnknown:
+          chargedUsd === null || (tokenPriced && inputTokens === null),
         outcome: failure ? "failed" : "completed",
       };
       usages.push(callUsage);
+      if (tokenPriced && result !== null && inputTokens === null) {
+        failure = "Decision provider omitted billable input-token usage";
+        accountingFailure = true;
+      }
       if (
         reservedUsd !== null &&
-        reportedCostUsd !== null &&
-        reportedCostUsd > reservedUsd
+        chargedUsd !== null &&
+        chargedUsd > reservedUsd
       ) {
         failure = "Reported decision cost exceeded its configured reservation";
         accountingFailure = true;

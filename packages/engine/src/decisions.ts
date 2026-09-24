@@ -28,12 +28,19 @@ export interface DecisionProvider {
   model: string;
   apiKeyEnv?: string;
   maxStateChars: number;
-  /** Reviewed fixed-unit price; no default or inferred hosted pricing. */
-  pricing?: {
-    unit: "request" | "question";
-    usdPerUnit: number;
-    version: string;
-  };
+  /** Reviewed provider price; token reservations are conservative, not provider-enforced. */
+  pricing?:
+    | {
+        unit: "request" | "question";
+        usdPerUnit: number;
+        version: string;
+      }
+    | {
+        unit: "input-token";
+        usdPerMillionInputTokens: number;
+        inputTokenReserve: number;
+        version: string;
+      };
 }
 export interface PromotionEvidence {
   version: string;
@@ -127,12 +134,34 @@ export const decisionProviderSchema = z
       .optional(),
     maxStateChars: z.number().int().min(64).max(100000),
     pricing: z
-      .object({
-        unit: z.enum(["request", "question"]),
-        usdPerUnit: costSchema,
-        version: labelSchema,
-      })
-      .strict()
+      .discriminatedUnion("unit", [
+        z
+          .object({
+            unit: z.literal("request"),
+            usdPerUnit: costSchema,
+            version: labelSchema,
+          })
+          .strict(),
+        z
+          .object({
+            unit: z.literal("question"),
+            usdPerUnit: costSchema,
+            version: labelSchema,
+          })
+          .strict(),
+        z
+          .object({
+            unit: z.literal("input-token"),
+            usdPerMillionInputTokens: z
+              .number()
+              .finite()
+              .positive()
+              .max(1_000_000_000_000),
+            inputTokenReserve: z.number().int().positive().max(1_000_000),
+            version: labelSchema,
+          })
+          .strict(),
+      ])
       .optional(),
   })
   .strict();
