@@ -21,7 +21,11 @@ import { readJson, writeJson, errorMessage } from "./util.js";
 import { createServer } from "./server.js";
 import { serveMcp } from "./mcp.js";
 import { listTemplates, scaffold, validateArtifacts } from "./templates.js";
-import { evaluateDecisions, type EvaluationRow } from "./decisions.js";
+import {
+  decisionProviders,
+  evaluateDecisions,
+  type EvaluationRow,
+} from "./decisions.js";
 import { PROMOTION_IMPORT_BLOCKED } from "./promotion-authority.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 import { backupProject, restoreProject } from "./operations.js";
@@ -306,7 +310,15 @@ cli.command("providers").action(async () => {
 cli
   .command("capabilities")
   .description("Probe installed coding clients without starting paid inference")
-  .action(async () => print(await discoverInstalledWorkers()));
+  .action(async () => {
+    try {
+      const project = await loadProject(root());
+      await decisionProviders(projectDataDir(project.projectId));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    print(await discoverInstalledWorkers());
+  });
 cli
   .command("plan <objective>")
   .requiredOption("--accept <criterion...>", "Acceptance criteria")

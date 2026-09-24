@@ -108,7 +108,10 @@ export class GraphEngine {
     deps: EngineDependencies = {},
   ): Promise<GraphEngine> {
     const absolute = path.resolve(root);
-    return new GraphEngine(absolute, await loadProject(absolute), deps);
+    const config = await loadProject(absolute);
+    // Register configured decision keys before any project subprocess starts.
+    await decisionProviders(projectDataDir(config.projectId));
+    return new GraphEngine(absolute, config, deps);
   }
   async providers(): Promise<ProviderConfig[]> {
     return loadProviders(this.dataDir);
