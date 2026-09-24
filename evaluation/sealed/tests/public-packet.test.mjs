@@ -16,7 +16,16 @@ const { buildSealedPublicPacket } = await tsImport(
   import.meta.url,
 );
 
-async function setup(t) {
+async function setup(
+  t,
+  {
+    oracleContent = "PRIVATE ORACLE THAT MUST NOT LEAVE",
+    taskContent = "export const n = 42;\n",
+    documentationPath = "docs/task.md",
+    objective = "Update the exported source task",
+    acceptance = ["Tests pass"],
+  } = {},
+) {
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-public-bridge-"));
   const source = path.join(root, "repository");
   const ledgerDirectory = path.join(root, "ledger");
@@ -26,11 +35,8 @@ async function setup(t) {
   await mkdir(path.join(source, ".graph", "local"), { recursive: true });
   await mkdir(ledgerDirectory, { mode: 0o700 });
   await mkdir(artifactDirectory, { mode: 0o700 });
-  await writeFile(
-    path.join(source, "src", "task.ts"),
-    "export const n = 42;\n",
-  );
-  await writeFile(path.join(source, "docs", "task.md"), "# Public task\n");
+  await writeFile(path.join(source, "src", "task.ts"), taskContent);
+  await writeFile(path.join(source, documentationPath), "# Public task\n");
   await writeFile(
     path.join(source, ".graph", "local", "memory.md"),
     "PRIVATE MEMORY THAT MUST NOT LEAVE\n",
@@ -42,19 +48,17 @@ async function setup(t) {
     taskId: data.plan.tasks[0].taskId,
     repositoryId: data.plan.tasks[0].repositoryId,
     baselineSha256: data.plan.tasks[0].baselineSha256,
-    objective: "Update the exported source task",
-    acceptance: ["Tests pass"],
+    objective,
+    acceptance,
     selected: [
       { path: "src/task.ts", kind: "source" },
-      { path: "docs/task.md", kind: "documentation" },
+      { path: documentationPath, kind: "documentation" },
     ],
   };
   const prepared = await buildSealedPublicPacket(packetInput);
   data.plan.tasks[0].publicPacketSha256 = prepared.sha256;
   const artifacts = new ArtifactStore({ directory: artifactDirectory });
-  const oracle = await artifacts.put(
-    Buffer.from("PRIVATE ORACLE THAT MUST NOT LEAVE"),
-  );
+  const oracle = await artifacts.put(Buffer.from(oracleContent));
   data.plan.tasks[0].oracleSha256 = oracle.sha256;
   const store = new SealedStore({ directory: ledgerDirectory });
   t.after(async () => {
@@ -78,12 +82,13 @@ async function setup(t) {
 }
 
 test("retains only the exact frozen public packet and exposes detached bytes on an active attempt", async (t) => {
-  const { store, artifacts, bridge, data, packetInput, prepared } =
+  const { store, artifacts, bridge, data, packetInput, prepared, oracle } =
     await setup(t);
   const handle = await bridge.retain({
     collectionId: data.plan.collectionId,
     taskId: packetInput.taskId,
     packetInput,
+    oracleReference: oracle,
   });
   assert.equal(Object.isFrozen(handle), true);
   assert.equal(Object.isFrozen(handle.artifact), true);
@@ -154,13 +159,14 @@ test("retains only the exact frozen public packet and exposes detached bytes on 
 });
 
 test("changed source, secret content, and private memory paths fail before artifact retention", async (t) => {
-  const { source, artifactDirectory, bridge, data, packetInput } =
+  const { source, artifactDirectory, bridge, data, packetInput, oracle } =
     await setup(t);
   const retain = (input = packetInput) =>
     bridge.retain({
       collectionId: data.plan.collectionId,
       taskId: packetInput.taskId,
       packetInput: input,
+      oracleReference: oracle,
     });
   const before = await readdir(artifactDirectory);
   await writeFile(
@@ -188,6 +194,62 @@ test("changed source, secret content, and private memory paths fail before artif
   assert.deepEqual(await readdir(artifactDirectory), before);
 });
 
+test("private oracle text, nested digest and wrong oracle reference fail before retention", async (t) => {
+  const expectedSha256 = "f".repeat(64);
+  const oracleContent = JSON.stringify({
+    expectedSha256,
+    kind: "sealed-digest-oracle",
+    version: "1.0.0",
+  });
+  const retain = (
+    setupResult,
+    input = setupResult.packetInput,
+    reference = setupResult.oracle,
+  ) =>
+    setupResult.bridge.retain({
+      collectionId: setupResult.data.plan.collectionId,
+      taskId: setupResult.packetInput.taskId,
+      packetInput: input,
+      oracleReference: reference,
+    });
+  const exact = await setup(t, { oracleContent, taskContent: oracleContent });
+  const nested = await buildSealedPublicPacket(exact.packetInput);
+  assert.equal(nested.bytes.includes(Buffer.from(oracleContent)), false);
+  assert.equal(JSON.parse(nested.bytes).files[0].content, oracleContent);
+  await assert.rejects(retain(exact), /private oracle material/);
+
+  const digest = await setup(t, {
+    oracleContent,
+    objective: `Implement ${expectedSha256}`,
+  });
+  await assert.rejects(retain(digest), /private oracle material/);
+  const encoded = await setup(t, {
+    oracleContent,
+    objective: `Implement ${Buffer.from(expectedSha256).toString("base64")}`,
+  });
+  await assert.rejects(retain(encoded), /private oracle material/);
+  const pathLeak = await setup(t, {
+    oracleContent,
+    documentationPath: `docs/${expectedSha256}.md`,
+  });
+  await assert.rejects(retain(pathLeak), /private oracle material/);
+
+  const clean = await setup(t, { oracleContent });
+  const wrong = await clean.artifacts.put(Buffer.from("unrelated oracle"));
+  await assert.rejects(retain(clean, clean.packetInput, wrong), /frozen task/);
+  await assert.rejects(
+    retain(clean, {
+      ...clean.packetInput,
+      objective: `Probe ${expectedSha256}`,
+    }),
+    /differs from its frozen task/,
+  );
+  await assert.rejects(
+    retain(clean, { ...clean.packetInput, acceptance: [clean.oracle.sha256] }),
+    /differs from its frozen task/,
+  );
+});
+
 test("wrong and oracle artifact references cannot be substituted for a retained handle", async (t) => {
   const { store, artifacts, bridge, data, packetInput, oracle } =
     await setup(t);
@@ -195,6 +257,7 @@ test("wrong and oracle artifact references cannot be substituted for a retained 
     collectionId: data.plan.collectionId,
     taskId: packetInput.taskId,
     packetInput,
+    oracleReference: oracle,
   });
   const wrong = await artifacts.put(Buffer.from("unrelated public bytes"));
   const reservation = store.reserveAttempt(
@@ -226,12 +289,13 @@ test("wrong and oracle artifact references cannot be substituted for a retained 
 });
 
 test("corrupted committed artifact bytes cannot reach the dispatcher", async (t) => {
-  const { store, bridge, artifactDirectory, data, packetInput } =
+  const { store, bridge, artifactDirectory, data, packetInput, oracle } =
     await setup(t);
   const handle = await bridge.retain({
     collectionId: data.plan.collectionId,
     taskId: packetInput.taskId,
     packetInput,
+    oracleReference: oracle,
   });
   const reservation = store.reserveAttempt(
     data.plan.collectionId,
@@ -254,11 +318,12 @@ test("corrupted committed artifact bytes cannot reach the dispatcher", async (t)
 });
 
 test("terminal attempts and callback failures never become successful ledger completion", async (t) => {
-  const { store, bridge, data, packetInput } = await setup(t);
+  const { store, bridge, data, packetInput, oracle } = await setup(t);
   const handle = await bridge.retain({
     collectionId: data.plan.collectionId,
     taskId: packetInput.taskId,
     packetInput,
+    oracleReference: oracle,
   });
   const reservation = store.reserveAttempt(
     data.plan.collectionId,
@@ -304,11 +369,12 @@ test("terminal attempts and callback failures never become successful ledger com
 });
 
 test("concurrent bridge dispatches invoke only one trusted callback", async (t) => {
-  const { store, bridge, data, packetInput } = await setup(t);
+  const { store, bridge, data, packetInput, oracle } = await setup(t);
   const handle = await bridge.retain({
     collectionId: data.plan.collectionId,
     taskId: packetInput.taskId,
     packetInput,
+    oracleReference: oracle,
   });
   const reservation = store.reserveAttempt(
     data.plan.collectionId,
@@ -342,7 +408,7 @@ test("concurrent bridge dispatches invoke only one trusted callback", async (t) 
 });
 
 test("bridge input records refuse accessor and proxy substitution", async (t) => {
-  const { bridge, data, packetInput } = await setup(t);
+  const { bridge, data, packetInput, oracle } = await setup(t);
   let touched = false;
   await assert.rejects(
     bridge.retain({
@@ -352,6 +418,7 @@ test("bridge input records refuse accessor and proxy substitution", async (t) =>
         touched = true;
         return packetInput;
       },
+      oracleReference: oracle,
     }),
     /accessors/,
   );
@@ -371,6 +438,7 @@ test("bridge input records refuse accessor and proxy substitution", async (t) =>
           },
         },
       },
+      oracleReference: oracle,
     }),
     /accessors/,
   );

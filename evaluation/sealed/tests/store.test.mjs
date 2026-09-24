@@ -87,6 +87,34 @@ function dispatchChild(directory, reservationId, packet, mode = "claim") {
     processChild.once("close", (code) => resolve({ code, stdout, stderr }));
   });
 }
+function completedLocalCall(store, attempt, callId = "oracle-local-call") {
+  const call = store.reserveCall(attempt.reservationId, callInput(callId, 0));
+  const receipt = store.completeCall({
+    ...settledCall(call),
+    responseSha256: digest(`response-${callId}`),
+    usage: {
+      inputTokens: 5,
+      outputTokens: 2,
+      costUsd: 0,
+      reportedCostUsd: 0,
+      chargedCostUsd: 0,
+      basis: "local-no-api-charge",
+      pricingSha256: null,
+    },
+  });
+  return { call, receipt };
+}
+function boundOracleInput(plan, call, receipt) {
+  return {
+    expectedPlanSha256: hashJson(plan),
+    oracleSha256: plan.tasks[0].oracleSha256,
+    proposalSha256: digest("oracle-proposal"),
+    callId: call.callId,
+    expectedCallReceiptSha256: hashJson(receipt),
+    expectedResponseSha256: receipt.responseSha256,
+    imageId: `sha256:${"a".repeat(64)}`,
+  };
+}
 
 test("registration and reservations are immutable, durable and single-use", async (t) => {
   const fixture = await setup(t);
@@ -117,11 +145,28 @@ test("registration and reservations are immutable, durable and single-use", asyn
   );
   assert.equal(store.storageSettings.synchronous, 2);
   assert.equal(store.storageSettings.journalMode, "wal");
+  assert.equal(store.storageSettings.recursiveTriggers, 1);
   const db = new Database(path.join(fixture.directory, "sealed.sqlite"));
   try {
     assert.throws(
       () => db.prepare("UPDATE events SET hash=?").run(digest("tamper")),
       /Immutable ledger/,
+    );
+    db.pragma("recursive_triggers = ON");
+    const existing = db
+      .prepare("SELECT * FROM events WHERE collection_id=? AND sequence=1")
+      .get(fixture.plan.collectionId);
+    assert.throws(
+      () =>
+        db
+          .prepare("INSERT OR REPLACE INTO events VALUES(?,?,?,?)")
+          .run(
+            existing.collection_id,
+            existing.sequence,
+            existing.json,
+            existing.hash,
+          ),
+      /Immutable ledger event/,
     );
   } finally {
     db.close();
@@ -324,6 +369,255 @@ test("real store inspection with a dispatch claim reconciles through full-cohort
     /public dispatch claim differs/,
   );
 });
+test("one durable oracle claim is plan-bound and reconciles with the full cohort", async (t) => {
+  const { store, plan, registry } = await setup(t);
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  const absentCallInput = {
+    ...boundOracleInput(
+      plan,
+      { callId: "oracle-local-call" },
+      {
+        responseSha256: digest("absent-response"),
+      },
+    ),
+    expectedCallReceiptSha256: digest("absent-receipt"),
+  };
+  assert.throws(
+    () => store.claimOracleInvocation(attempt.reservationId, absentCallInput),
+    /prior public dispatch/,
+  );
+  store.claimPublicDispatch(attempt.reservationId, {
+    sha256: plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  assert.throws(
+    () => store.claimOracleInvocation(attempt.reservationId, absentCallInput),
+    /completed local model call/,
+  );
+  const { call, receipt } = completedLocalCall(store, attempt);
+  const claimInput = boundOracleInput(plan, call, receipt);
+  assert.throws(
+    () =>
+      store.claimOracleInvocation(attempt.reservationId, {
+        ...claimInput,
+        expectedPlanSha256: digest("wrong-plan"),
+      }),
+    /plan differs/,
+  );
+  assert.throws(
+    () =>
+      store.claimOracleInvocation(attempt.reservationId, {
+        ...claimInput,
+        oracleSha256: digest("wrong-oracle"),
+      }),
+    /frozen attempt/,
+  );
+  assert.throws(
+    () =>
+      store.claimOracleInvocation(attempt.reservationId, {
+        ...claimInput,
+        proposalSha256: plan.tasks[0].publicPacketSha256,
+      }),
+    /frozen attempt/,
+  );
+  const claim = store.claimOracleInvocation(attempt.reservationId, claimInput);
+  assert.equal(claim.oracleSha256, plan.tasks[0].oracleSha256);
+  assert.equal(claim.kind, "sealed-call-bound-oracle-invocation-claim");
+  assert.equal(claim.responseSha256, receipt.responseSha256);
+  assert.equal(claim.callReceiptSha256, hashJson(receipt));
+  assert.throws(
+    () =>
+      store.reserveCall(attempt.reservationId, callInput("after-oracle", 0)),
+    /Oracle opportunity consumed/,
+  );
+  const verdict = store.retainOracleVerdict(attempt.reservationId, {
+    claimSha256: hashJson(claim),
+    verificationReference: { sha256: digest("private-verdict"), bytes: 100 },
+  });
+  assert.equal(verdict.claimSha256, hashJson(claim));
+  assert.throws(
+    () =>
+      store.completeAttempt({
+        ...settledAttempt(attempt, [receipt]),
+        proposalSha256: claim.proposalSha256,
+        outcome: {
+          ...settledAttempt(attempt, [receipt]).outcome,
+          verificationSha256: verdict.verificationSha256,
+        },
+      }),
+    /non-authorizing/,
+  );
+  assert.throws(
+    () =>
+      store.retainOracleVerdict(attempt.reservationId, {
+        claimSha256: hashJson(claim),
+        verificationReference: { sha256: digest("other-verdict"), bytes: 100 },
+      }),
+    /already retained/,
+  );
+  assert.throws(
+    () => store.claimOracleInvocation(attempt.reservationId, claimInput),
+    /already claimed; never retry/,
+  );
+  const inspection = store.inspectCollection(plan.collectionId);
+  const pins = {
+    planSha256: inspection.planSha256,
+    registrySha256: hashJson(registry),
+    baselineConfigurationSha256: hashJson(plan.configurations.baseline),
+    candidateConfigurationSha256: hashJson(plan.configurations.candidate),
+  };
+  assert.equal(
+    validateFullCohortLedger(inspection, pins).assignments[0].oracleInvocation
+      ?.reservationId,
+    attempt.reservationId,
+  );
+  assert.deepEqual(inspection.assignments[0].oracleVerdict, verdict);
+  const omitted = structuredClone(inspection);
+  omitted.assignments[0].oracleInvocation = null;
+  assert.throws(
+    () => validateFullCohortLedger(omitted, pins),
+    /missing or duplicate artifact|complete event\/artifact inventory|oracle verdict reference lacks/,
+  );
+  const wrong = structuredClone(inspection);
+  wrong.assignments[0].oracleInvocation.proposalSha256 = digest("other");
+  assert.throws(
+    () => validateFullCohortLedger(wrong, pins),
+    /missing or duplicate artifact|oracle invocation differs|oracle verdict reference lacks/,
+  );
+  const wrongCall = structuredClone(inspection);
+  wrongCall.assignments[0].oracleInvocation.callReceiptSha256 = digest("other");
+  assert.throws(
+    () => validateFullCohortLedger(wrongCall, pins),
+    /not bound to a completed local model response/,
+  );
+  const wrongVerdict = structuredClone(inspection);
+  wrongVerdict.assignments[0].oracleVerdict.claimSha256 = digest("other");
+  assert.throws(
+    () => validateFullCohortLedger(wrongVerdict, pins),
+    /verdict reference lacks its call-bound claim/,
+  );
+  const reordered = structuredClone(inspection);
+  const settledIndex = reordered.events.findIndex(
+    (item) => item.event.type === "call-settled",
+  );
+  const oracleIndex = reordered.events.findIndex(
+    (item) => item.event.type === "call-bound-oracle-invocation-claimed",
+  );
+  [reordered.events[settledIndex], reordered.events[oracleIndex]] = [
+    reordered.events[oracleIndex],
+    reordered.events[settledIndex],
+  ];
+  let previous = null;
+  const latest = inspection.events.at(-1).event.createdAt;
+  for (const [index, item] of reordered.events.entries()) {
+    item.event.sequence = index + 1;
+    item.event.previousSha256 = previous;
+    item.event.createdAt = latest;
+    item.sha256 = hashJson(item.event);
+    previous = item.sha256;
+  }
+  assert.throws(
+    () => validateFullCohortLedger(reordered, pins),
+    /artifact event precedes|claim event precedes its settled model call/,
+  );
+});
+test("call-bound oracle rejects ambiguous, mismatched, cross-attempt and additional calls", async (t) => {
+  const { store, plan } = await setup(t);
+  const first = store.reserveAttempt(plan.collectionId, "baseline-assignment");
+  store.claimPublicDispatch(first.reservationId, {
+    sha256: plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  const call = store.reserveCall(
+    first.reservationId,
+    callInput("first-call", 0),
+  );
+  const ambiguous = store.completeCall({
+    ...settledCall(call),
+    status: "ambiguous",
+    reportedModel: null,
+    usage: {
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      reportedCostUsd: null,
+      chargedCostUsd: null,
+      basis: "unknown",
+      pricingSha256: null,
+    },
+  });
+  const input = boundOracleInput(plan, call, ambiguous);
+  assert.throws(
+    () => store.claimOracleInvocation(first.reservationId, input),
+    /completed local model call/,
+  );
+  store.recoverCollection(plan.collectionId, { abandonOutstanding: true });
+  const second = store.reserveAttempt(
+    plan.collectionId,
+    "candidate-assignment",
+  );
+  store.claimPublicDispatch(second.reservationId, {
+    sha256: plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  assert.throws(
+    () => store.claimOracleInvocation(second.reservationId, input),
+    /completed local model call/,
+  );
+  const secondCall = completedLocalCall(store, second, "second-call");
+  const valid = boundOracleInput(plan, secondCall.call, secondCall.receipt);
+  for (const bad of [
+    { ...valid, expectedResponseSha256: digest("forged-response") },
+    { ...valid, expectedCallReceiptSha256: digest("forged-receipt") },
+    { ...valid, callId: call.callId },
+  ])
+    assert.throws(
+      () => store.claimOracleInvocation(second.reservationId, bad),
+      /response\/call receipt differs|completed local model call/,
+    );
+  store.reserveCall(second.reservationId, callInput("extra-call", 0));
+  assert.throws(
+    () => store.claimOracleInvocation(second.reservationId, valid),
+    /exactly one model call/,
+  );
+});
+test("call-bound oracle claim is durable across recovery, but cannot become a measured outcome", async (t) => {
+  const { store, plan } = await setup(t);
+  const attempt = store.reserveAttempt(
+    plan.collectionId,
+    "baseline-assignment",
+  );
+  store.claimPublicDispatch(attempt.reservationId, {
+    sha256: plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  const { call, receipt } = completedLocalCall(store, attempt);
+  const claim = store.claimOracleInvocation(
+    attempt.reservationId,
+    boundOracleInput(plan, call, receipt),
+  );
+  const recovered = store.recoverCollection(plan.collectionId, {
+    abandonOutstanding: true,
+  });
+  assert.equal(recovered[0].outcome.success, null);
+  assert.equal(recovered[0].status, "collector-crashed");
+  assert.throws(
+    () =>
+      store.claimOracleInvocation(
+        attempt.reservationId,
+        boundOracleInput(plan, call, receipt),
+      ),
+    /already terminal/,
+  );
+  assert.equal(
+    store.inspectCollection(plan.collectionId).assignments[0].oracleInvocation
+      .callReceiptSha256,
+    claim.callReceiptSha256,
+  );
+});
 test("crash after public dispatch claim never permits redispatch", async (t) => {
   const value = await setup(t);
   const attempt = value.store.reserveAttempt(
@@ -373,7 +667,9 @@ test("version 2 ledgers migrate without changing reservations or events", async 
   const filename = path.join(value.directory, "sealed.sqlite");
   const legacy = new Database(filename);
   try {
-    legacy.exec("DROP TABLE public_dispatches; PRAGMA user_version=2;");
+    legacy.exec(
+      "DROP TABLE oracle_invocations; DROP TABLE public_dispatches; PRAGMA user_version=2;",
+    );
   } finally {
     legacy.close();
   }
@@ -383,7 +679,7 @@ test("version 2 ledgers migrate without changing reservations or events", async 
   assert.deepEqual(migrated.assignments[0].reservation, attempt);
   const migratedDb = new Database(filename, { readonly: true });
   try {
-    assert.equal(migratedDb.pragma("user_version", { simple: true }), 3);
+    assert.equal(migratedDb.pragma("user_version", { simple: true }), 5);
   } finally {
     migratedDb.close();
   }
@@ -396,6 +692,143 @@ test("version 2 ledgers migrate without changing reservations or events", async 
       .publicDispatch.reservationId,
     claim.reservationId,
   );
+});
+test("version 3 ledgers migrate to durable oracle claims without changing public dispatch", async (t) => {
+  const value = await setup(t);
+  const attempt = value.store.reserveAttempt(
+    value.plan.collectionId,
+    "baseline-assignment",
+  );
+  const publicDispatch = value.store.claimPublicDispatch(
+    attempt.reservationId,
+    {
+      sha256: value.plan.tasks[0].publicPacketSha256,
+      bytes: 42,
+    },
+  );
+  const before = value.store.inspectCollection(value.plan.collectionId);
+  value.store.close();
+  const filename = path.join(value.directory, "sealed.sqlite");
+  const legacy = new Database(filename);
+  try {
+    legacy.exec("DROP TABLE oracle_invocations; PRAGMA user_version=3;");
+  } finally {
+    legacy.close();
+  }
+  const store = value.reopen();
+  const migrated = store.inspectCollection(value.plan.collectionId);
+  assert.deepEqual(migrated.events, before.events);
+  assert.deepEqual(migrated.assignments[0].publicDispatch, publicDispatch);
+  assert.equal(migrated.assignments[0].oracleInvocation, null);
+  const { call, receipt } = completedLocalCall(store, attempt);
+  const claim = store.claimOracleInvocation(
+    attempt.reservationId,
+    boundOracleInput(value.plan, call, receipt),
+  );
+  assert.equal(claim.reservationId, attempt.reservationId);
+  assert.equal(
+    store.inspectCollection(value.plan.collectionId).assignments[0]
+      .oracleInvocation?.reservationId,
+    attempt.reservationId,
+  );
+  const migratedDb = new Database(filename, { readonly: true });
+  try {
+    assert.equal(migratedDb.pragma("user_version", { simple: true }), 5);
+  } finally {
+    migratedDb.close();
+  }
+});
+test("version 4 legacy oracle claims remain readable but are not upgraded to call-bound evidence", async (t) => {
+  const value = await setup(t);
+  const attempt = value.store.reserveAttempt(
+    value.plan.collectionId,
+    "baseline-assignment",
+  );
+  const dispatch = value.store.claimPublicDispatch(attempt.reservationId, {
+    sha256: value.plan.tasks[0].publicPacketSha256,
+    bytes: 42,
+  });
+  const before = value.store.inspectCollection(value.plan.collectionId);
+  value.store.close();
+  const filename = path.join(value.directory, "sealed.sqlite");
+  const legacy = new Database(filename);
+  const legacyClaim = {
+    version: "1.0.0",
+    kind: "sealed-oracle-invocation-claim",
+    reservationId: attempt.reservationId,
+    reservationSha256: hashJson(attempt),
+    collectionId: value.plan.collectionId,
+    assignmentId: attempt.assignmentId,
+    taskId: attempt.taskId,
+    taskSha256: hashJson(value.plan.tasks[0]),
+    planSha256: hashJson(value.plan),
+    publicDispatchSha256: hashJson(dispatch),
+    oracleSha256: value.plan.tasks[0].oracleSha256,
+    proposalSha256: digest("legacy-proposal"),
+    imageId: `sha256:${"a".repeat(64)}`,
+    claimedAt: new Date().toISOString(),
+  };
+  try {
+    const head = before.events.at(-1);
+    const event = {
+      version: "1.0.0",
+      kind: "sealed-ledger-event",
+      collectionId: value.plan.collectionId,
+      sequence: head.event.sequence + 1,
+      type: "oracle-invocation-claimed",
+      createdAt: legacyClaim.claimedAt,
+      previousSha256: head.sha256,
+      payloadSha256: hashJson(legacyClaim),
+    };
+    legacy
+      .prepare("INSERT INTO oracle_invocations VALUES(?,?)")
+      .run(attempt.reservationId, JSON.stringify(legacyClaim));
+    legacy
+      .prepare("INSERT INTO events VALUES(?,?,?,?)")
+      .run(
+        value.plan.collectionId,
+        event.sequence,
+        JSON.stringify(event),
+        hashJson(event),
+      );
+    legacy.exec("DROP TABLE oracle_verdicts; PRAGMA user_version=4;");
+  } finally {
+    legacy.close();
+  }
+  const migrated = value.reopen();
+  const inspection = migrated.inspectCollection(value.plan.collectionId);
+  assert.equal(
+    inspection.assignments[0].oracleInvocation.kind,
+    "sealed-oracle-invocation-claim",
+  );
+  assert.equal(inspection.assignments[0].oracleVerdict, null);
+  assert.equal(inspection.events.length, before.events.length + 1);
+  assert.deepEqual(inspection.events.slice(0, -1), before.events);
+  const pins = {
+    planSha256: inspection.planSha256,
+    registrySha256: hashJson(value.registry),
+    baselineConfigurationSha256: hashJson(value.plan.configurations.baseline),
+    candidateConfigurationSha256: hashJson(value.plan.configurations.candidate),
+  };
+  assert.equal(
+    validateFullCohortLedger(inspection, pins).assignments[0].oracleInvocation
+      .kind,
+    "sealed-oracle-invocation-claim",
+  );
+  assert.throws(
+    () =>
+      migrated.retainOracleVerdict(attempt.reservationId, {
+        claimSha256: hashJson(legacyClaim),
+        verificationReference: { sha256: digest("legacy-verdict"), bytes: 100 },
+      }),
+    /call-bound claim/,
+  );
+  const reopened = new Database(filename, { readonly: true });
+  try {
+    assert.equal(reopened.pragma("user_version", { simple: true }), 5);
+  } finally {
+    reopened.close();
+  }
 });
 test("the frozen assignment order cannot be skipped or overlapped", async (t) => {
   const { store } = await setup(t);

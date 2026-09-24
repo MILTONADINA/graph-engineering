@@ -13,16 +13,29 @@ const exactKeys = (value, names) =>
 
 function requiredBytes(inspection) {
   const required = new Map();
-  const add = (role, sha256) => {
+  const dispatchLengths = new Map();
+  for (const item of inspection.assignments) {
+    if (!item.publicDispatch) continue;
+    const role = `task/${item.assignment.taskId}/public-packet`;
+    const prior = dispatchLengths.get(role);
+    if (prior !== undefined && prior !== item.publicDispatch.publicPacketBytes)
+      throw new Error("Conflicting public dispatch byte counts for one task");
+    dispatchLengths.set(role, item.publicDispatch.publicPacketBytes);
+  }
+  const add = (role, sha256, recordedBytes = null) => {
     if (sha256 === null) return;
     if (!digest.test(sha256) || required.has(role))
       throw new Error("Invalid or duplicate original artifact commitment");
-    required.set(role, sha256);
+    required.set(role, { sha256, recordedBytes });
   };
   for (const task of inspection.plan.tasks) {
     const role = `task/${task.taskId}`;
     add(`${role}/baseline`, task.baselineSha256);
-    add(`${role}/public-packet`, task.publicPacketSha256);
+    add(
+      `${role}/public-packet`,
+      task.publicPacketSha256,
+      dispatchLengths.get(`${role}/public-packet`) ?? null,
+    );
     add(`${role}/private-oracle`, task.oracleSha256);
     add(`${role}/reference-repair`, task.referenceRepairSha256);
   }
@@ -36,6 +49,19 @@ function requiredBytes(inspection) {
         add(
           `call/${call.reservation.callId}/response`,
           call.receipt.responseSha256,
+        );
+    }
+    if (
+      item.oracleInvocation?.kind ===
+      "sealed-call-bound-oracle-invocation-claim"
+    ) {
+      const role = `oracle/v1/${item.assignment.assignmentId}`;
+      add(`${role}/derived-proposal`, item.oracleInvocation.proposalSha256);
+      if (item.oracleVerdict)
+        add(
+          `${role}/private-verdict`,
+          item.oracleVerdict.verificationSha256,
+          item.oracleVerdict.verificationBytes,
         );
     }
     if (item.receipt) {
@@ -110,7 +136,7 @@ export async function auditOriginalBytes({
     );
   const refs = new Map();
   let index = 0;
-  for (const [role, sha256] of required) {
+  for (const [role, { sha256, recordedBytes }] of required) {
     const entry = manifest.entries[index++];
     if (
       !exactKeys(entry, ["role", "sha256", "bytes"]) ||
@@ -121,6 +147,10 @@ export async function auditOriginalBytes({
       entry.bytes > MAX_ARTIFACT_BYTES
     )
       throw new Error("Original-byte manifest role, hash or length mismatch");
+    if (recordedBytes !== null && entry.bytes !== recordedBytes)
+      throw new Error(
+        "Recorded byte count differs from original-byte manifest",
+      );
     const prior = refs.get(sha256);
     if (prior && prior.bytes !== entry.bytes)
       throw new Error("Original-byte digest has conflicting lengths");

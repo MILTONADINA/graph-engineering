@@ -24,6 +24,8 @@ export const {
   observationSchema,
   reservationSchema,
   publicDispatchClaimSchema,
+  oracleInvocationClaimSchema,
+  oracleVerdictRecordSchema,
   callReservationSchema,
   callReceiptSchema,
   attemptReceiptSchema,

@@ -1,13 +1,19 @@
+import { createHash, createPublicKey, verify } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
+import { types } from "node:util";
 import { z } from "zod";
 import type { FullCohortEvaluationInput } from "./full-cohort-evaluation.js";
-import { cohortInspectionSchema } from "./full-cohort-ledger.js";
+import {
+  cohortInspectionSchema,
+  type CohortInspection,
+} from "./full-cohort-ledger.js";
 import {
   promotionEvidenceSchema,
   type PromotionEvidence,
 } from "./decisions.js";
 import {
+  canonicalJson,
   decodeJson,
   digestSchema,
   freezeJson,
@@ -72,6 +78,35 @@ const promotionPreflightReceiptSchema = promotionPreflightPinsSchema
   })
   .strict();
 
+function detachedCohortInput(
+  input: FullCohortEvaluationInput & { evaluation: unknown },
+) {
+  const names = [
+    "inspection",
+    "pins",
+    "calibration",
+    "thresholds",
+    "labels",
+    "evaluation",
+  ] as const;
+  if (
+    !input ||
+    typeof input !== "object" ||
+    types.isProxy(input) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(input)) ||
+    Reflect.ownKeys(input).length !== names.length
+  )
+    throw new Error("Promotion cohort input must be plain data");
+  const value = {} as Record<(typeof names)[number], unknown>;
+  for (const name of names) {
+    const field = Object.getOwnPropertyDescriptor(input, name);
+    if (!field?.enumerable || !Object.hasOwn(field, "value"))
+      throw new Error("Promotion cohort input refuses accessors");
+    value[name] = decodeJson(field.value);
+  }
+  return value;
+}
+
 /**
  * Compare a reviewed preflight target with identities freshly obtained by the
  * runtime. Both inputs are still caller-supplied: this does not authenticate
@@ -102,6 +137,302 @@ export function inspectPromotionRuntimeIdentity(
 }
 
 /**
+ * Validate current public review-trust bytes against two separately selected
+ * commitments. The registry is not itself an approval, signature, or
+ * anti-rollback witness. In particular, a caller may not use this receipt to
+ * issue a promotion grant or convert historical review into held-out review.
+ */
+export async function inspectPromotionTrustSnapshot(
+  preflightInput: unknown,
+  trustInput: unknown,
+  pinInput: unknown,
+) {
+  const preflight = promotionPreflightReceiptSchema.parse(
+    decodeJson(preflightInput),
+  );
+  const trustJson = decodeJson(trustInput);
+  const pins = z
+    .object({ expectedTrustSha256: digestSchema })
+    .strict()
+    .parse(decodeJson(pinInput));
+  const { reviewTrustSchema } = await import("./evaluation-attestations.js");
+  const trust = reviewTrustSchema.parse(trustJson);
+  const trustSha256 = hashJson(trust);
+  if (
+    trustSha256 !== pins.expectedTrustSha256 ||
+    trustSha256 !== preflight.trustPolicySha256
+  )
+    throw new Error(
+      "Current public trust differs from the separately selected and frozen digests",
+    );
+  const ids = new Set<string>();
+  const fingerprints = new Set<string>();
+  const active = new Map<"labeler" | "reviewer", Set<string>>([
+    ["labeler", new Set()],
+    ["reviewer", new Set()],
+  ]);
+  for (const key of trust.keys) {
+    if (ids.has(key.keyId) || new Set(key.roles).size !== key.roles.length)
+      throw new Error("Duplicate public review key identity or role");
+    ids.add(key.keyId);
+    if (!key.publicKeyPem.startsWith("-----BEGIN PUBLIC KEY-----"))
+      throw new Error("Promotion trust accepts public review keys only");
+    const publicKey = createPublicKey(key.publicKeyPem);
+    if (publicKey.asymmetricKeyType !== "ed25519")
+      throw new Error("Promotion trust requires Ed25519 review keys");
+    if (
+      key.publicKeyPem !==
+      publicKey.export({ type: "spki", format: "pem" }).toString()
+    )
+      throw new Error("Promotion trust requires one canonical public key PEM");
+    const fingerprint = createHash("sha256")
+      .update(publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex");
+    if (fingerprints.has(fingerprint))
+      throw new Error(
+        "One public key cannot impersonate independent reviewers",
+      );
+    fingerprints.add(fingerprint);
+    if (!trust.revokedKeyIds.includes(key.keyId))
+      for (const role of key.roles) active.get(role)!.add(key.actorId);
+  }
+  if (
+    new Set(trust.revokedKeyIds).size !== trust.revokedKeyIds.length ||
+    trust.revokedKeyIds.some((id) => !ids.has(id))
+  )
+    throw new Error("Promotion trust has ambiguous revocations");
+  const independentPair = [...active.get("labeler")!].some((labeler) =>
+    [...active.get("reviewer")!].some((reviewer) => reviewer !== labeler),
+  );
+  if (!independentPair)
+    throw new Error(
+      "Promotion trust lacks distinct active labeler and reviewer actors",
+    );
+  return freezeJson({
+    kind: "promotion-public-trust-inspection" as const,
+    preflightSha256: hashJson(preflight),
+    trustSha256,
+    activeLabelerActors: active.get("labeler")!.size,
+    activeReviewerActors: active.get("reviewer")!.size,
+    signatureVerificationPerformed: false as const,
+    operatorApprovalVerified: false as const,
+    antiRollbackVerified: false as const,
+    promotionEligible: false as const,
+    authorityStatus: "pinned-public-trust-only" as const,
+  });
+}
+
+/**
+ * Verify purpose-separated signatures on every original candidate label. This
+ * authenticates only signatures and their join to the unsigned full cohort;
+ * population, protected execution, artifact bytes, approval and rollback
+ * remain unverified, so the receipt can never populate the authority map.
+ */
+export async function inspectSealedHeldOutReviewSignatures(
+  input: FullCohortEvaluationInput & { evaluation: unknown },
+  pinInput: unknown,
+  trustInput: unknown,
+  trustPinInput: unknown,
+  bundleInput: unknown,
+  options: { nowMs?: number } = {},
+) {
+  const detachedPins = decodeJson(pinInput);
+  const detachedInput = detachedCohortInput(input);
+  const detachedTrust = decodeJson(trustInput);
+  const detachedTrustPins = decodeJson(trustPinInput);
+  const detachedBundles = decodeJson(bundleInput);
+  const parsedOptions = z
+    .object({ nowMs: z.number().finite().optional() })
+    .strict()
+    .parse(decodeJson(options));
+  const nowMs = parsedOptions.nowMs ?? Date.now();
+  if (!Number.isFinite(nowMs) || nowMs < 0 || nowMs > 8_640_000_000_000_000)
+    throw new Error("Invalid held-out review verification time");
+  const preflight = await inspectPromotionImportPreflight(
+    detachedInput,
+    detachedPins,
+  );
+  const trustInspection = await inspectPromotionTrustSnapshot(
+    preflight,
+    detachedTrust,
+    detachedTrustPins,
+  );
+  const [{ reviewTrustSchema }, { cohortLabelSchema }] = await Promise.all([
+    import("./evaluation-attestations.js"),
+    import("./full-cohort-evaluation.js"),
+  ]);
+  const trust = reviewTrustSchema.parse(detachedTrust);
+  const inspection = cohortInspectionSchema.parse(detachedInput.inspection);
+  const labels = z
+    .array(cohortLabelSchema)
+    .max(100_000)
+    .parse(detachedInput.labels);
+  const payloadSchema = z
+    .object({
+      version: z.literal("1.0.0"),
+      kind: z.literal("sealed-held-out-label-review"),
+      projectId: name,
+      collectionId: name,
+      planSha256: digestSchema,
+      assignmentId: name,
+      taskId: name,
+      labelerId: z.string().min(1).max(200),
+      producerIds: z.array(name).min(1).max(20),
+      label: cohortLabelSchema,
+    })
+    .strict();
+  const signatureSchema = z
+    .object({
+      keyId: name,
+      role: z.enum(["labeler", "reviewer"]),
+      signedAt: z.string().datetime(),
+      payloadSha256: digestSchema,
+      signature: z.string().regex(/^[A-Za-z0-9+/]{86}==$/),
+    })
+    .strict();
+  const bundles = z
+    .array(
+      z
+        .object({
+          payload: payloadSchema,
+          attestations: z.array(signatureSchema).length(2),
+        })
+        .strict(),
+    )
+    .max(10_000)
+    .parse(detachedBundles);
+  const observations = new Map<
+    string,
+    {
+      observation: NonNullable<
+        CohortInspection["assignments"][number]["receipt"]
+      >["observations"][number];
+      assignmentId: string;
+      taskId: string;
+    }
+  >();
+  for (const item of inspection.assignments) {
+    if (item.assignment.arm !== "candidate") continue;
+    for (const observation of item.receipt?.observations ?? []) {
+      if (observations.has(observation.recordId))
+        throw new Error("Repeated held-out observation record ID");
+      observations.set(observation.recordId, {
+        observation,
+        assignmentId: item.assignment.assignmentId,
+        taskId: item.assignment.taskId,
+      });
+    }
+  }
+  if (
+    observations.size === 0 ||
+    bundles.length !== labels.length ||
+    labels.length !== observations.size
+  )
+    throw new Error("Signed held-out review inventory is incomplete");
+  const labelMap = new Map(labels.map((label) => [label.recordId, label]));
+  const keys = new Map(trust.keys.map((key) => [key.keyId, key]));
+  const consumed = new Set<string>();
+  for (const bundle of bundles) {
+    const { payload, attestations } = bundle;
+    const label = labelMap.get(payload.label.recordId);
+    const original = observations.get(payload.label.recordId);
+    const task = inspection.plan.tasks.find(
+      (item) => item.taskId === original?.taskId,
+    );
+    if (
+      consumed.has(payload.label.recordId) ||
+      !label ||
+      !original ||
+      !task ||
+      payload.projectId !== preflight.projectId ||
+      payload.collectionId !== preflight.collectionId ||
+      payload.planSha256 !== preflight.planSha256 ||
+      payload.assignmentId !== original.assignmentId ||
+      payload.taskId !== original.taskId ||
+      hashJson(payload.label) !== hashJson(label) ||
+      payload.label.observationSha256 !== hashJson(original.observation) ||
+      hashJson(payload.producerIds) !== hashJson(inspection.plan.producerIds)
+    )
+      throw new Error(
+        "Signed held-out review differs from original cohort data",
+      );
+    consumed.add(payload.label.recordId);
+    const actors: string[] = [];
+    const payloadSha256 = hashJson(payload);
+    let previousTime = Date.parse(original.observation.observedAt);
+    for (const [index, attestation] of attestations.entries()) {
+      const role = index === 0 ? "labeler" : "reviewer";
+      const key = keys.get(attestation.keyId);
+      const signedAt = Date.parse(attestation.signedAt);
+      const { signature, ...envelope } = attestation;
+      const signatureBytes = Buffer.from(signature, "base64");
+      if (
+        attestation.role !== role ||
+        !key ||
+        !key.roles.includes(role) ||
+        trust.revokedKeyIds.includes(key.keyId) ||
+        inspection.plan.producerIds.includes(key.actorId) ||
+        key.actorId === task.curatorId ||
+        attestation.payloadSha256 !== payloadSha256 ||
+        signedAt < previousTime ||
+        signedAt > nowMs + 60_000 ||
+        signatureBytes.toString("base64") !== signature ||
+        !verify(
+          null,
+          Buffer.from(
+            `graph-engineering/sealed-held-out-review/v1\n${canonicalJson(envelope)}`,
+          ),
+          createPublicKey(key.publicKeyPem),
+          signatureBytes,
+        )
+      )
+        throw new Error(
+          "Original held-out review signature or signer mismatch",
+        );
+      previousTime = signedAt;
+      actors.push(key.actorId);
+    }
+    if (
+      actors[0] === actors[1] ||
+      actors[0] !== payload.labelerId ||
+      actors[1] !== payload.label.reviewerId ||
+      Date.parse(payload.label.reviewedAt) <
+        Date.parse(attestations[0]!.signedAt) ||
+      Date.parse(payload.label.reviewedAt) > previousTime
+    )
+      throw new Error(
+        "Held-out labeler/reviewer independence or time mismatch",
+      );
+  }
+  if (consumed.size !== observations.size)
+    throw new Error("Signed held-out review inventory is incomplete");
+  return freezeJson({
+    kind: "sealed-held-out-review-signatures-only" as const,
+    projectId: preflight.projectId,
+    collectionId: preflight.collectionId,
+    planSha256: preflight.planSha256,
+    evaluationArtifactSha256: preflight.evaluationArtifactSha256,
+    trustSha256: trustInspection.trustSha256,
+    reviewInventorySha256: hashJson(
+      [...bundles].sort((a, b) =>
+        a.payload.label.recordId < b.payload.label.recordId
+          ? -1
+          : a.payload.label.recordId > b.payload.label.recordId
+            ? 1
+            : 0,
+      ),
+    ),
+    verifiedReviewCount: consumed.size,
+    signatureVerificationPerformed: true as const,
+    operatorApprovalVerified: false as const,
+    protectedExecutionVerified: false as const,
+    antiRollbackVerified: false as const,
+    promotionEligible: false as const,
+    authorityStatus: "held-out-row-signatures-only" as const,
+  });
+}
+
+/**
  * Recompute unsigned full-cohort accounting from detached originals and bind
  * its exact target to separately selected pins. This is useful before review,
  * but neither the pins nor the local ledger authenticate their own origin.
@@ -112,11 +443,12 @@ export async function inspectPromotionImportPreflight(
   pinInput: unknown,
 ) {
   const pins = promotionPreflightPinsSchema.parse(decodeJson(pinInput));
+  const detachedInput = detachedCohortInput(input);
   // Dynamic import avoids making the decision-routing module initialize the
   // full evaluator on every ordinary engine startup.
   const { evaluateFullCohort } = await import("./full-cohort-evaluation.js");
-  const evaluation = evaluateFullCohort(input);
-  const detached = decodeJson(input.evaluation);
+  const evaluation = evaluateFullCohort(detachedInput);
+  const detached = detachedInput.evaluation;
   if (
     hashJson(detached) !== hashJson(evaluation) ||
     hashJson(detached) !== pins.evaluationArtifactSha256
@@ -124,7 +456,7 @@ export async function inspectPromotionImportPreflight(
     throw new Error(
       "Promotion preflight evaluation differs from recomputed full-cohort accounting or its separate pin",
     );
-  const inspection = cohortInspectionSchema.parse(decodeJson(input.inspection));
+  const inspection = cohortInspectionSchema.parse(detachedInput.inspection);
   const { plan } = inspection;
   if (
     plan.projectId !== pins.projectId ||

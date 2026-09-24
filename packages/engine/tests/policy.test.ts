@@ -11,7 +11,9 @@ import {
   assertProvider,
   assertPublication,
   contextForProvider,
+  containsSecret,
   isAllowedPath,
+  redact,
   safePath,
 } from "../src/policy.js";
 
@@ -35,6 +37,19 @@ afterEach(async () => {
   );
 });
 describe("project boundaries", () => {
+  it("recognizes common bearer and named-token disclosures without rejecting placeholders", () => {
+    const bearer =
+      "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature";
+    const named = "SERVICE_TOKEN=abcdefghijklmnopqrstuvwxyz0123456789";
+    expect(containsSecret(bearer)).toBe(true);
+    expect(containsSecret(named)).toBe(true);
+    expect(redact(bearer)).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+    expect(redact(named)).not.toContain("abcdefghijklmnopqrstuvwxyz");
+    expect(containsSecret("Authorization: Bearer <placeholder>")).toBe(false);
+    expect(containsSecret("SERVICE_TOKEN=process.env.SERVICE_TOKEN")).toBe(
+      false,
+    );
+  });
   it("requires explicit opt-in for only the public root template ledger", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "graph-public-ledger-"));
     directories.push(root);

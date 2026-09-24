@@ -2,3 +2,5 @@
 !Dockerfile
 !packet.mjs
 !executor.mjs
+!model-request.mjs
+!model-executor.mjs
