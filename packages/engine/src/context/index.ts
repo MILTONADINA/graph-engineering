@@ -293,7 +293,12 @@ export class ContextEngine {
       throw new Error(
         "Index limit exceeded: at most 100000 candidate files per snapshot",
       );
-    const files: { path: string; text: string; hash: string }[] = [];
+    const files: {
+      path: string;
+      text: string;
+      hash: string;
+      executableMode: number;
+    }[] = [];
     const errors: string[] = [];
     let totalBytes = 0;
     for (const path of paths) {
@@ -325,7 +330,12 @@ export class ContextEngine {
           );
           continue;
         }
-        files.push({ path, text, hash: hash(text) });
+        files.push({
+          path,
+          text,
+          hash: hash(text),
+          executableMode: info.mode & 0o111,
+        });
       } catch (error) {
         if (error instanceof RangeError) throw error;
         errors.push(`${path}: file unavailable during indexing`);
@@ -334,6 +344,11 @@ export class ContextEngine {
     const contentHash = hash(
       JSON.stringify(files.map((file) => [file.path, file.hash])),
     );
+    // Parsing depends on bytes, but execution-sensitive repository identity
+    // must also change when any indexed file's executable permission changes.
+    const executableModes = files
+      .filter((file) => file.executableMode !== 0)
+      .map((file) => [file.path, file.executableMode]);
     const python = files.some((file) => file.path.endsWith(".py"))
       ? await pythonRuntime()
       : null;
@@ -356,6 +371,9 @@ export class ContextEngine {
         revision: revision?.trim(),
         branch: branch?.trim(),
         contentHash,
+        ...(executableModes.length > 0
+          ? { executableModes: hash(JSON.stringify(executableModes)) }
+          : {}),
         parser: PARSER_VERSION,
         staticBindings: SEMANTIC_VERSION,
         pythonBindings: [PYTHON_VERSION, python?.identity ?? "unavailable"],
