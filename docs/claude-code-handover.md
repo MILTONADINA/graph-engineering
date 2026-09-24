@@ -1,9 +1,11 @@
 # Claude Code handover — 2026-09-24
 
 This is a continuation brief for the **Graph Engineering repository in this
-workspace only**. Read it together with the linked source documents; it is not
-a new authorization to publish, spend money, enable autonomous decisions, or
-touch another project.
+workspace only**. It records the owner's requirements, the implemented state,
+the evidence limits, and the next actions for Claude Code. Read it with the
+linked primary documents. It does not grant permission beyond the recorded
+fork-only workflow, authorize metered calls without a session cap, activate
+autonomous decision promotion, or touch another project.
 
 ## Continuation update — 2026-09-24
 
@@ -18,14 +20,14 @@ unseen tasks, reviewer signatures, signer custody, or a pre-run witness. Record
 new implementation and validation milestones in this section as work proceeds;
 keep unsupported production claims out of the status table below.
 
-On this local continuation branch, sealed-readiness inspection now optionally
-joins a signed operator-approval claim to the exact frozen cohort, target,
+The continuation merged in PR #16 added an optional signed operator-approval
+join to sealed-readiness inspection for the exact frozen cohort, target,
 preflight and report. It rejects signer actor/key reuse across the independent
 roles and still reports `operatorAuthorityVerified: false` and
 `promotionEligible: false`. Its focused engine tests passed. This is a
 code-side consistency improvement, **not** a trusted approval issuer.
 
-The same branch adds an [in-memory reference witness](reference-witness-protocol.md)
+That PR also added an [in-memory reference witness](reference-witness-protocol.md)
 for the existing signed v2 checkpoint protocol. It freezes registration,
 population and trust before the first attempt, checks a bounded event chain,
 and signs fresh current checkpoints. Its three focused tests and engine
@@ -33,8 +35,26 @@ typecheck passed. A same-key restart can still sign a shorter history; the
 full-ledger comparator rejects that rollback, but the reference witness itself
 is neither durable nor independently governed. It does **not** establish
 anti-rollback authority or enable promotion. The combined changed-file check
-passed all 45 focused tests, engine typecheck and Prettier. Inspect the Git
-branch and PR state separately before treating these commits as integrated.
+passed all 45 focused tests, engine typecheck and Prettier.
+
+The integration is now verified: [fork PR #16](https://github.com/MILTONADINA/graph-engineering/pull/16)
+was rebase-merged into the fork's `dev` at
+`02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`. The
+[PR checks](https://github.com/MILTONADINA/graph-engineering/actions/runs/36044756710)
+and [post-merge `dev` checks](https://github.com/MILTONADINA/graph-engineering/actions/runs/36047979004)
+ended with all nine required jobs green. The first PR attempt's Windows job
+hit a newly published AWS SDK tarball 404 during an unchanged unlocked
+generated-app install; one failed-job retry at the same commit passed, with no
+source change. Local `dev` was fast-forwarded to the merge commit. No `main`,
+parent-repository, production-key provisioning, paid-Jev, or AWS deployment
+action occurred.
+This handover update was prepared on the pushed docs branch
+`chore/pr16-handover-20260924` (`fork/chore/pr16-handover-20260924`) and is
+tracked by [fork PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17)
+into `dev`. Before continuing, inspect the current branch, PR and `dev` tip
+rather than treating this snapshot as live status. At preparation time local
+`dev` and `fork/dev` were both
+`02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`.
 
 ## Where the work stands
 
@@ -44,18 +64,12 @@ branch and PR state separately before treating these commits as integrated.
   authorized integration target so far is the **fork's `dev`** branch. Do not
   push to either `main`, or to the parent repository. Parent synchronization is
   a later, explicit partner step.
-- At this handover's start, local `dev` and `fork/dev` both pointed to
-  `cf4245848cab24181b104d5cc3eb36f19a32a9f7`. The final post-merge
-  [CI run](https://github.com/MILTONADINA/graph-engineering/actions/runs/36030395799)
-  passed all nine required jobs. The implementation PR stack through #14 was
-  rebase-merged into the fork's `dev`; do not reopen or repeat that work merely
-  because an older checklist paragraph still calls it pending.
-- This handover started as a separate docs commit and the subsequent code-side
-  continuation was assembled on `feat/sealed-evidence-continuation-20260924`,
-  based on that `dev` commit. Inspect `git status`, the branch tip and PR state
-  before continuing; this document alone does not prove a branch was pushed
-  or merged. Keep future implementation on focused branches based on the
-  current fork `dev` and use PRs into that branch.
+- The earlier `cf4245848cab24181b104d5cc3eb36f19a32a9f7` fork-`dev` state
+  and `feat/sealed-evidence-continuation-20260924` feature branch are history:
+  the latter was integrated by PR #16. The **current** integrated fork-`dev`
+  tip and post-merge CI are recorded above. Do not reopen completed PR work
+  because an older checklist paragraph calls it pending. Keep future
+  implementation on focused branches based on the current fork `dev`.
 - `.serena/` was already untracked at handover. It is user/session data. Do not
   stage, alter, delete, or use it as a reason to clean the worktree. Ignore
   unrelated workspaces, linked worktrees, and global agent configuration.
@@ -80,9 +94,14 @@ the existing template ecosystem. The shared project policy and stores support:
 1. Repository syntax/limited static graph, SQLite full-text search, optional
    offline Jina embeddings, structural summaries, and reviewed memory.
 2. Export-filtered context packets through a project MCP server for Claude
-   Code, Codex, and Cursor. Their cloud models may receive selected
-   repository source/docs, **never private memory or secrets**. Local storage
-   alone does not make a cloud client offline.
+   Code, Codex, and Cursor. Their cloud models may receive selected repository
+   source/docs and reviewed **shared** mandatory requirement/constraint memory
+   tied to exportable sources. Private mandatory memory causes rejection, and
+   other private memory is excluded from cloud retrieval. Secrets **must** be
+   excluded. Current path and content filters block recognized
+   patterns, but cannot prove arbitrary allowlisted source or shared memory
+   contains no embedded secret. Inspect the exact export packet before cloud
+   use. Local storage alone does not make a cloud client offline.
 3. Deterministic policy and a batched typed-decision controller. Local Laya
    and optional hosted Jev may rank only explicit allowed actions. Default
    `shadow` mode records their answers but never grants them authority to
@@ -101,6 +120,112 @@ Useful starting points: [README](../README.md), [platform](platform.md),
 [installed-worker limits](installed-workers.md). The coarse `create-graph-app`
 scaffolder and the fine-node `graph-templates` registry have intentionally
 different contracts; do not merge their schemas casually.
+
+## Owner requirements and intended end state
+
+These requirements come from the owner's original research and subsequent
+instructions. Preserve the distinction between a **product goal**, an
+**implemented interface**, and a **validated autonomous capability**:
+
+1. **One user-owned local context platform.** Store the durable engineering
+   context on each user's Mac, shared across coding tools: repository
+   structure/declarations/dependencies, searchable source/docs, reviewed
+   architecture decisions, requirements, API/schema contracts, coding
+   conventions, security constraints, bugs and solutions, Git history,
+   curated task/session summaries, and current task state. Preserve when a
+   decision was made and what superseded it. Use graph, full-text and optional
+   local semantic retrieval to build small, source-bound context packets. Do
+   not stuff the whole vault or conversation history into a model window.
+   Memory writes require review, freshness/supersession handling, and a
+   traceable source. Broad automatic Git-history/session ingestion is a goal,
+   **not a demonstrated capability**; the current static graph, summaries,
+   reviewed memories and exact cache have narrower evidence.
+2. **Explicit cloud boundary.** Claude Code, Codex, and Cursor may receive
+   selected repository **source and docs** through the project MCP server.
+   Private memory and secrets must never be exported to their cloud models or
+   to hosted Jev. The current MCP can also include reviewed shared
+   requirement/constraint memory sourced from exportable files; inspect that
+   text as part of the packet, not as blanket permission to export memory.
+   Filters cannot prove arbitrary allowlisted files contain no embedded
+   secret. Local storage does not make those clients' inference offline.
+   Their native indexing, open-file, terminal and subscription paths are
+   separate from the MCP export filter and require their own care. The user
+   allowed selected source/docs, not unrestricted repository or memory export.
+3. **Deterministic-first token savings.** Search, syntax/index/graph lookup,
+   git, compiler, tests, static analysis, exact cache reuse, diff-aware
+   retrieval and prompt assembly should do what software can do. Laya locally
+   and optional Jev should rank bounded, typed options for workflow, worker,
+   effort, context/retrieval/file/memory scope, tool/test/review scope,
+   retry/escalation, stop and memory-write decisions. The primary economic
+   target is fewer expensive-model calls and smaller relevant inputs, not an
+   unmeasured percentage claim. Batch independent questions when their shared
+   state permits it; dependent choices remain sequenced. The broader intended
+   funnel also includes a `need_llm?`/deterministic-tool bypass, structured
+   failure/log filtering, per-call output-token budgets, ranking generated
+   architecture/implementation candidates, choosing specialist agents/count,
+   risk/security/regression scoring, and assessing whether rollback, human
+   approval or additional merge review is required. These are design goals,
+   **not** a claim that all are implemented, calibrated, or authorized to make
+   final approvals.
+4. **Decision authority is earned, not assumed.** A generator or person may
+   propose novel architecture/implementation candidates; Laya/Jev can compare
+   only explicit allowed alternatives. They cannot invent the solution, prove
+   semantic correctness, overrule deterministic policy/tests, remove required
+   review, authorize publication, or substitute for human acceptance. The
+   existing bounded controller covers the categories in [decisions](decisions.md);
+   a universal `need_llm?` gate, automatic architecture selection, universal
+   output-token budgeting and arbitrary agent-count control are **aspirations**,
+   not completed/validated features. Maintain default shadow mode until the
+   independently governed promotion requirements below are satisfied.
+5. **Open-source operator choice.** Each user chooses their supported local
+   and paid providers, account-specific reviewed prices, usage limits and
+   spending caps. Do not hardcode this owner's Jev cap or price in the project.
+   The current default external-API cap is $0. This owner's available paid
+   decision provider is Jev, with a private local key pointer, but no numeric
+   cap was supplied for this session: continue local/code-side work; abstain
+   from metered Jev calls. Jev is the only metered API credential the owner has
+   identified for this project; the owner has Claude Code, Codex and Cursor
+   subscriptions, but has not supplied paid
+   OpenAI/Anthropic/Cursor API keys. Other providers are a later operator
+   choice. Subscription-backed coding-client usage is outside the engine's
+   cost ledger and cannot be represented as a hard dollar cap.
+6. **Workers implement bounded specifications.** Give a worker a curated task,
+   constraints and permitted files; require unchanged verifier tests and
+   risk-appropriate review before accepting its patch. Record human acceptance
+   separately where required; agent author-review is not that acceptance.
+   Failed attempts, unknown cost/usage, and incomplete tests must remain
+   visible. No classifier confidence or successful test alone merges a PR or
+   publishes artifacts.
+7. **Partner-owned Git history.** Milton is Kevin's project partner, not an
+   outside drive-by contributor; this does not assert an unagreed legal
+   ownership split. Work only in this repository and Milton's fork, on focused
+   feature branches with PRs into fork `dev`, green exact-tip CI, reviewed diff
+   and professional single-author commits. Never push to `main` or Kevin's
+   parent repo; Kevin reviews integrated fork `dev` before a separately agreed
+   upstream sync. No AI co-author trailer or unrelated-project identifier in
+   tracked docs, PRs, comments or public artifacts. Keep shared Serena/global
+   config and other project work untouched.
+8. **Open-source release governance.** The intent is for Graph Engineering to
+   be open source, not merely a public fork. This checkout has an MIT
+   [license for `create-graph-app`](../create-graph-app/LICENSE) but no tracked
+   project-root `LICENSE`; do not infer that the package license covers the
+   whole repository. The owner and Kevin need to select and document the
+   project-wide license and attribution before representing the entire graph
+   platform as licensed open source. See [GitHub's repository licensing
+   guidance](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository).
+
+The initial AI integrations have **different roles and evidence**:
+
+| AI/runtime         | Intended path                                                                  | Current evidence and limit                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code        | Project MCP cloud client; optional subscription-backed managed proposal worker | MCP retrieval and one bounded managed proposal passed. No full Claude-managed repair or hard subscription dollar cap is established.                    |
+| Codex              | Project MCP cloud client; optional native managed proposal worker              | MCP retrieval passed. Installed App Server lacks required restricted read roots, so managed proposals remain disabled.                                  |
+| Cursor             | Project MCP cloud client; separate optional SDK proposal worker                | Owner reports project MCP works in this workspace, without retained in-app trace. SDK isolation is mocked; no live user-key proposal was exercised.     |
+| Existing oMLX Qwen | Local Graph-managed generative worker, **not** an MCP client                   | Bounded live calls and one accepted unassisted real-task repair passed. Reuse the existing model; never download/install another Qwen for this project. |
+
+Implementing a new control interface is not the same as proving it saves
+tokens, chooses correctly, or can autonomously take authority. Keep
+deterministic baselines and report the actual evidence level.
 
 ## Fourteen-item roadmap: honest status
 
@@ -150,6 +275,36 @@ or independent-evaluation claim is established.
   task eligibility, provider billing, or a promotion grant. Never set
   `promotionEligible: true` merely because a synthetic fixture passes.
 
+## Source map for the unfinished authority boundary
+
+Use these as entrypoints, not as a reason to broaden the change before
+inspecting the exact failure path:
+
+| Concern                                                            | Primary code / contract                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Analysis-only joined readiness, including optional signed approval | [`sealed-evidence-readiness.ts`](../packages/engine/src/sealed-evidence-readiness.ts), [`signed-promotion-approval.ts`](../packages/engine/src/signed-promotion-approval.ts)                                                                                                                                 |
+| Example and currently untrusted witness adapters                   | [`sealed-reference-witness.ts`](../packages/engine/src/sealed-reference-witness.ts), [`sealed-signed-current-witness.ts`](../packages/engine/src/sealed-signed-current-witness.ts), [`sealed-governance-witness.ts`](../packages/engine/src/sealed-governance-witness.ts)                                    |
+| Promotion preflight, opaque binding and current shadow dispatch    | [`promotion-authority.ts`](../packages/engine/src/promotion-authority.ts), [`decision-batch.ts`](../packages/engine/src/decision-batch.ts), [`service.ts`](../packages/engine/src/service.ts)                                                                                                                |
+| Collector/ledger and evaluation contracts                          | [sealed README](../evaluation/sealed/README.md), [paired-cohort evaluation](paired-cohort-evaluation.md), [reference-witness protocol](reference-witness-protocol.md), [signed-current witness adapter](signed-current-witness-adapter.md), [black-box repository boundary](repository-blackbox-boundary.md) |
+
+The current `promotion-authority.ts` loader does not resolve a verified grant,
+even if an advisory `promotions.json` exists. A legitimate issuer would need
+to attach a grant to each authenticated report and a fresh, narrowly scoped
+category/provider/project/policy/model identity; runtime dispatch must
+recompute and recheck that identity for every route. A valid purpose-separated
+approval signature only proves that a caller-pinned key signed bytes, not that
+the signer had operator authority. The reference witness similarly needs an
+independently governed service, authenticated ingest, crash-safe transaction
+storage, monotonic non-equivocation, an externally anchored pre-run checkpoint,
+and protected key/pin custody before its history can carry authority.
+
+The repository v2 oracle runs only an **operator-declared safe execution
+tree**. It does not attest protected execution, authenticate the declared
+scope, or make arbitrary private repository mounts safe. Its private runtime
+files are separated from the model packet for that sealed run; the general
+project MCP export policy is a separate channel that must be reviewed on its
+own. See the [black-box boundary](repository-blackbox-boundary.md).
+
 ## The next engineering phase
 
 Do not create invented "independent" evidence with Claude's own keys, synthetic
@@ -169,9 +324,10 @@ prove its failure path with focused tests before running long suites.
    artifacts, verify independent source/split/reviewer/worker/oracle trust,
    complete cohort accounting, measured whole-task paired outcomes/costs,
    current project/policy/model identity, and a still-current external witness
-   before issuing a narrowly scoped runtime grant. The loader must recheck
-   drift at each route. First write a concrete trust-domain/interface design
-   and adversarial focused tests; do not enable grants while provenance is
+   before issuing a narrowly scoped **per-report** runtime grant. The loader
+   must recompute category/provider and project/policy/model identity and
+   recheck drift at each route. First write a concrete trust-domain/interface
+   design and adversarial focused tests; do not enable grants while provenance is
    caller-controlled. The owner previously chose to leave the independently
    controlled witness integration point for later, so make it pluggable and
    fail closed until a real controller is selected.
@@ -250,28 +406,73 @@ model. In particular:
 
 ## Git and test discipline for Claude Code
 
-1. Inspect `git status --short --branch`, `git log -1`, current remotes, and
-   this handover branch. Preserve `.serena/` and every ignored private path.
-   If publishing this document, make a docs-only PR from its branch into the
-   fork's `dev`; do not commit directly on `dev`.
+1. Inspect `pwd`, `git status --short --branch`, `git log -1`, `git remote -v`,
+   and [PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17).
+   This document was prepared on a pushed docs branch. If the PR is open,
+   review its exact head and checks before merging into fork `dev`; if merged,
+   continue from the current fork `dev`. If the PR cannot be found, inspect
+   the pushed branch before recreating it. Preserve `.serena/` and every
+   ignored private path; do not commit directly on `dev`.
 2. For subsequent changes, fetch/fast-forward the fork `dev`, then create a
    focused `feat/`, `fix/`, or `chore/` branch. Push only to `fork`; PRs target
-   `MILTONADINA/graph-engineering:dev`. The owner reviews the actual diff and
-   green CI before merge. Kevin's later review is separate. No direct push to
-   protected branches, no AI co-author trailers, no unrelated project name in
-   commits/PRs, and no cross-repository edits.
-3. Follow the user's `AGENTS.md` working preference: no status-check loops or
-   rerunning passed work. Track existing live process handles to terminal
-   results. Before a test, inspect the relevant source, prerequisites and
-   expected outcome; resolve known blockers. Prove a speculative fix with a
-   focused check first, then run `npm run check` and subsystem-specific checks
-   only when changed code warrants it. Explain why a previously passing check
-   is rerun (changed source binding, recovery generation, or recorded failure).
+   `MILTONADINA/graph-engineering:dev`. The owner explicitly authorized the
+   working agent to review the actual diff and exact-tip green CI, then merge
+   PRs into fork `dev`; zero GitHub approvals are required there. This is
+   **author review**, not independent partner review or human acceptance.
+   Kevin's later review before parent sync is separate. No direct push to
+   protected branches, no AI co-author trailers, no unrelated project
+   identifiers in commits, tracked docs, PRs or public artifacts, and no
+   cross-repository edits.
+3. Follow the owner's working preference supplied in conversation (there is
+   no tracked `AGENTS.md` in this repository at this handover):
+
+   > Do not loop on status checks or rerun work that already passed. Track a
+   > live process by its existing handle, wait for its terminal result, and
+   > take the next concrete action. Rerun a check only when a changed source
+   > binding, recovery generation, or recorded failure requires it; explain
+   > that reason briefly. Report meaningful milestones, not repeated
+   > case-count updates.
+   >
+   > Before starting any test, rigorously inspect the relevant source,
+   > prerequisites, and expected outcome. Resolve known blockers first. In
+   > particular, do not launch a long suite on a speculative fix; establish
+   > focused evidence that the failure path is corrected before running it.
+
+   Run `npm run check` and subsystem-specific checks only when changed code
+   warrants them.
+
 4. Prefer exact, source-backed receipts and explicit unknowns in PR text.
    Automated verification is not human acceptance; author review is not
    independent partner review; synthetic fixtures are not held-out evidence;
    local `$0` external-API cost is not zero hardware cost. Never turn an
    analysis-only receipt into a runtime permission without the trust chain.
+
+For a fresh checkout, verify Node `>=24 <27` and the private-local prerequisites
+in the [Mac runbook](mac-local-runbook.md). Install dependencies with `npm ci`
+only if absent or changed; build workspace dependencies before targeted engine
+tests. For an item-13 source change, first inspect the affected implementation,
+test, fixture and expected failure path, then use only the relevant subset of
+these focused tests (paths are relative to the engine workspace):
+
+```sh
+npm run build:dependencies
+npm test -w @graph-engineering/engine -- tests/sealed-evidence-readiness.test.ts tests/signed-promotion-approval.test.ts tests/sealed-reference-witness.test.ts tests/sealed-signed-current-witness.test.ts tests/sealed-governance-witness.test.ts tests/promotion-authority.test.ts tests/full-cohort-evaluation.test.ts
+npm run typecheck -w @graph-engineering/engine
+```
+
+Run the sealed JavaScript tests (`node --test evaluation/sealed/tests/*.test.mjs`)
+only for affected collector/protocol code. `npm run check` and Docker/native
+verification are proportionate later checks for changed implementation, not
+routine reconfirmation of an unchanged green commit. This docs-only handover
+needs a Markdown formatting/link check, not the full engine suite.
+
+The remaining work separates into three authorities:
+
+| Who can act                 | What can be done now                                                                                                                                                                                                         | What still needs outside evidence                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Claude on the owner's fork  | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                                                  | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
+| Owner/operator              | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes; agree with Kevin on the project license and independently governed witness/key service. | No per-user cap, repository-wide license or external service is implicitly selected by the current defaults.               |
+| Kevin/independent reviewers | Inspect integrated fork `dev` and later coordinate any upstream sync; independently select/label/review held-out work and control the separated trust roles.                                                                 | Author self-review or synthetic signed fixtures cannot substitute for independent governance.                              |
 
 At any agent transition, start with a fresh status inspection and the linked
 primary documents, then continue with bounded code-side work under the stated

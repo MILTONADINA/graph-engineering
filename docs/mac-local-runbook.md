@@ -1,11 +1,12 @@
 # Local development handoff
 
-This checkout is configured for Milton's fork and local inference. Keep work on
-`feat/engineering-platform` (or a new feature branch based on `dev`), never
-`main`. When ready, PR review and merges target
-`MILTONADINA/graph-engineering:dev`; synchronization with Kevin's repository is
-a separate later partner action. Commits use the configured human identity,
-without AI co-author trailers.
+This checkout is configured for Milton's fork and local inference. Create a
+focused feature branch from the current fork `dev`; the older
+`feat/engineering-platform` branch is historical, not a continuation target.
+Never work directly on `main` or protected `dev`. When ready, PR review and
+merges target `MILTONADINA/graph-engineering:dev`; synchronization with Kevin's
+repository is a separate later partner action. Commits use the configured
+human identity, without AI co-author trailers.
 
 ## Initial AI integrations
 
@@ -21,14 +22,19 @@ verification is deliberately reported separately:
 | Codex       | Project MCP client; managed App Server worker only when restricted read roots are available.    | Live MCP retrieval passed. Installed `0.156.0` does not meet the managed-worker read-isolation gate.                                                                                                                                            |
 | Cursor      | Separate project MCP client and optional text-only SDK proposal worker.                         | Direct stdio `template_list` passed with 61 entries. The owner reports an in-app project-MCP call in this workspace; no Cursor tool trace was retained. SDK controls pass mocked tests; no Cursor user key or live proposal call is configured. |
 
-The default checked-in project policy remains local-only with `qwen` and `laya`
-enabled. That does not disable Claude Code, Codex, or Cursor as MCP clients; it
-does prevent unreviewed native-worker inference through the engine. MCP cloud
+The default checked-in project policy uses `allowlisted` inference/network
+mode but permits only local `qwen` and `laya` providers and no outbound hosts.
+That does not disable Claude Code, Codex, or Cursor as MCP clients; it does
+prevent unreviewed native-worker inference through the engine. MCP cloud
 exports remain subject to their separate selected-source/docs filter.
 The four starting AIs are distinct from optional metered OpenAI, Anthropic, or
 TypeSafe Jev API accounts.
 
 ## Start and inspect
+
+For a fresh clone, install and build first. In this existing checkout, skip
+`npm ci` and `npm run build` when dependencies and source have not changed and
+the prior build is available; inspect state rather than repeating passed work.
 
 ```sh
 npm ci
