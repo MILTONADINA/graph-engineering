@@ -219,7 +219,9 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
   const controller = new AbortController();
   const signal = AbortSignal.any([
     controller.signal,
-    AbortSignal.timeout(policy.timeoutSeconds * 1000),
+    ...(policy.timeoutSeconds === null
+      ? []
+      : [AbortSignal.timeout(policy.timeoutSeconds * 1000)]),
     ...(options.signal ? [options.signal] : []),
   ]);
   const checkCancelled = () => {
