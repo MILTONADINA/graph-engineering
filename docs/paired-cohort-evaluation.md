@@ -89,7 +89,8 @@ original declared-v2 population manifest and a closed, vault-backed aggregate.
 It reruns the signed selection, full-cohort preflight, held-out row-review and
 original-byte aggregate inspectors from their supplied originals; an optional
 current-witness callback brackets the aggregate and any optional identity-byte
-audit. With a witness, readiness requires a version 2 checkpoint that also
+or caller-pinned whole-cohort signed worker-delivery audit. With a witness,
+readiness requires a version 2 checkpoint that also
 compares the declared source-inventory digest, signed population bundle and
 selector/auditor trust with a population revision before the ledger's first
 attempt-reservation event. The frozen plan digest already commits the selection
@@ -99,6 +100,9 @@ the real run. It rejects changed
 registration, plan, registry, assignments, task order, signer-key reuse across
 registries, target identity, signatures, or original-byte pins. A successful
 receipt lists remaining blockers and always has `promotionEligible: false`.
+Worker-delivery coverage only checks signatures and retained request/response
+bytes; it does not prove an independently controlled signer, loaded model, or
+public-packet delivery when a call has no public-dispatch claim.
 Neither its input reader nor an optional witness callback is authenticated by
 this API. Without the optional byte audit it does not check source-population
 artifacts or configuration, model and label-evidence bytes. It cannot prove

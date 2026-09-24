@@ -32,6 +32,7 @@ import {
   sealedPopulationManifestTrustSchema,
   sealedSourceInventorySchema,
 } from "./sealed-population-manifest.js";
+import { inspectSignedSealedWorkerDeliveryCohort } from "./sealed-worker-delivery.js";
 
 type OriginalReader = Parameters<
   typeof inspectPrivateSealedAggregateFromManifest
@@ -54,6 +55,8 @@ export interface SealedEvidenceReadinessInput {
     manifestSha256: unknown;
     readChunk: IdentityChunkReader;
   };
+  /** Caller-pinned claims only; no signer, runtime or model authentication. */
+  workerDeliveries?: unknown;
   /** Testable signature cutoff, not an independently attested clock. */
   nowMs?: number;
 }
@@ -194,7 +197,7 @@ export async function inspectSealedEvidenceReadiness(
   const fields = ownData(
     input,
     ["population", "aggregate"],
-    ["witness", "identityBytes", "nowMs"],
+    ["witness", "identityBytes", "workerDeliveries", "nowMs"],
   );
   const populationFields = ownData(fields.population, [
     "input",
@@ -298,6 +301,9 @@ export async function inspectSealedEvidenceReadiness(
   const auditedIdentities: Awaited<
     ReturnType<typeof inspectPrivateSealedIdentityOriginalBytes>
   >[] = [];
+  const auditedWorkerDeliveries: Awaited<
+    ReturnType<typeof inspectSignedSealedWorkerDeliveryCohort>
+  >[] = [];
   const audit = async () => {
     const receipt = await inspectPrivateSealedAggregateFromManifest(
       aggregate,
@@ -307,6 +313,18 @@ export async function inspectSealedEvidenceReadiness(
       { nowMs },
     );
     auditedAggregates.push(receipt);
+    if (fields.workerDeliveries !== undefined)
+      auditedWorkerDeliveries.push(
+        await inspectSignedSealedWorkerDeliveryCohort(
+          cohort.inspection,
+          cohort.pins,
+          manifest,
+          manifestSha256,
+          aggregateFields.reader as OriginalReader,
+          fields.workerDeliveries,
+          { nowMs },
+        ),
+      );
     if (identityFields)
       auditedIdentities.push(
         await inspectPrivateSealedIdentityOriginalBytes(
@@ -358,7 +376,15 @@ export async function inspectSealedEvidenceReadiness(
     throw new Error(
       "Sealed readiness identity-byte audit did not complete exactly once",
     );
+  if (
+    auditedWorkerDeliveries.length !==
+    (fields.workerDeliveries !== undefined ? 1 : 0)
+  )
+    throw new Error(
+      "Sealed readiness worker-delivery audit did not complete exactly once",
+    );
   const originalAggregate = auditedAggregates[0]!;
+  const workerDelivery = auditedWorkerDeliveries[0];
   const payload = z
     .object({
       policySha256: digestSchema,
@@ -430,6 +456,28 @@ export async function inspectSealedEvidenceReadiness(
     manifestSha256,
     payload.originalByteManifestSha256,
   );
+  if (workerDelivery) {
+    same(
+      "worker-delivery project",
+      workerDelivery.projectId,
+      originalAggregate.projectId,
+    );
+    same(
+      "worker-delivery collection",
+      workerDelivery.collectionId,
+      originalAggregate.collectionId,
+    );
+    same(
+      "worker-delivery plan",
+      workerDelivery.planSha256,
+      originalAggregate.planSha256,
+    );
+    same(
+      "worker-delivery manifest",
+      workerDelivery.originalByteManifestSha256,
+      originalAggregate.originalByteManifestSha256,
+    );
+  }
   if (governance) {
     same(
       "governance plan",
@@ -484,6 +532,12 @@ export async function inspectSealedEvidenceReadiness(
       ? "Matching raw digest bytes do not authenticate source artifact meaning, model loading, or provider snapshot identity"
       : "Source artifacts and configuration/model/label-evidence identity-only bytes are not audited",
     "Original-byte reader, worker/oracle execution and provider billing are not authenticated",
+    workerDelivery
+      ? "Caller-pinned worker signatures do not authenticate signer governance, worker runtime or loaded model"
+      : "Whole-cohort signed worker-delivery coverage was not supplied",
+    workerDelivery?.completedCallsWithoutPublicDispatch
+      ? "Some completed calls lack a public-dispatch claim; worker delivery does not prove public packet delivery"
+      : "Worker-delivery signatures do not prove public packet delivery",
     "Signer actor identities, current trust and operator approval are not independently governed",
     "Independent unseen reviews and paired measured model outcomes are not established by this join",
     governance
@@ -516,6 +570,14 @@ export async function inspectSealedEvidenceReadiness(
     identityBytesCompared: identityBytes !== undefined,
     identityByteManifestSha256: identityBytes?.manifestSha256 ?? null,
     identityReaderAuthenticated: false as const,
+    workerDeliveryCoverageCompared: workerDelivery !== undefined,
+    verifiedWorkerDeliveryCount:
+      workerDelivery?.verifiedWorkerDeliveryCount ?? 0,
+    workerDeliveryInventorySha256:
+      workerDelivery?.workerDeliveryInventorySha256 ?? null,
+    workerCompletedCallsWithoutPublicDispatch:
+      workerDelivery?.completedCallsWithoutPublicDispatch ?? 0,
+    workerModelExecutionAuthenticated: false as const,
     accountingMetricsSatisfied: preflight.accountingMetricsSatisfied,
     blockers,
     promotionEligible: false as const,

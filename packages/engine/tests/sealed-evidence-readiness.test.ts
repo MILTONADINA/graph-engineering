@@ -12,6 +12,11 @@ import { inspectSealedEvidenceReadiness } from "../src/sealed-evidence-readiness
 import { inspectSealedDeclaredInventorySelection } from "../src/sealed-population-manifest.js";
 import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
 import {
+  inspectSignedSealedWorkerDelivery,
+  inspectSignedSealedWorkerDeliveryCohort,
+  SIGNED_WORKER_DELIVERY_DOMAIN,
+} from "../src/sealed-worker-delivery.js";
+import {
   declaredSelectionAggregateFixture,
   nowMs,
 } from "./sealed-aggregate-fixture.js";
@@ -341,6 +346,307 @@ function identityBytesFor(value: Awaited<ReturnType<typeof scenario>>) {
   });
   return { manifest, manifestSha256: hashJson(manifest), readChunk };
 }
+
+function signedWorkerDeliveries(
+  request: Awaited<ReturnType<typeof scenario>>["request"],
+) {
+  const inspection = request.aggregate.input.cohort.inspection;
+  const entries = request.aggregate.manifest.entries;
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const publicKeyPem = publicKey
+    .export({ type: "spki", format: "pem" })
+    .toString();
+  const pin = {
+    version: "1.0.0",
+    kind: "sealed-worker-key-pin",
+    projectId: inspection.plan.projectId,
+    collectionId: inspection.plan.collectionId,
+    workerId: "fixture-worker",
+    keyId: "fixture-worker-key",
+    publicKeyPem,
+    publicKeySha256: createHash("sha256")
+      .update(publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex"),
+  };
+  return inspection.assignments.flatMap((item) =>
+    item.calls
+      .filter((call) => call.receipt?.status === "completed")
+      .map((call) => {
+        const provider = inspection.plan.configurations[
+          item.assignment.arm
+        ].providers.find(
+          (candidate) => candidate.providerId === call.reservation.providerId,
+        )!;
+        const requestEntry = entries.find(
+          (entry) => entry.role === `call/${call.reservation.callId}/request`,
+        )!;
+        const responseEntry = entries.find(
+          (entry) => entry.role === `call/${call.reservation.callId}/response`,
+        )!;
+        const payload = {
+          version: "1.0.0",
+          kind: "sealed-worker-delivery",
+          projectId: pin.projectId,
+          collectionId: pin.collectionId,
+          planSha256: inspection.planSha256,
+          assignmentId: item.assignment.assignmentId,
+          reservationId: item.reservation!.reservationId,
+          publicDispatchSha256: item.publicDispatch
+            ? hashJson(item.publicDispatch)
+            : null,
+          callId: call.reservation.callId,
+          callReservationSha256: hashJson(call.reservation),
+          callReceiptSha256: hashJson(call.receipt),
+          providerId: provider.providerId,
+          providerSha256: hashJson(provider),
+          requestedModel: call.reservation.requestedModel,
+          reportedModel: call.receipt!.reportedModel!,
+          requestSha256: call.reservation.requestSha256,
+          requestBytes: requestEntry.bytes,
+          responseSha256: call.receipt!.responseSha256!,
+          responseBytes: responseEntry.bytes,
+          deliveredAt: call.receipt!.finishedAt,
+        };
+        const unsigned = {
+          version: "1.0.0",
+          kind: "signed-sealed-worker-delivery",
+          workerId: pin.workerId,
+          keyId: pin.keyId,
+          payload,
+        };
+        return {
+          callId: call.reservation.callId,
+          pin,
+          envelope: {
+            ...unsigned,
+            signature: sign(
+              null,
+              Buffer.from(
+                SIGNED_WORKER_DELIVERY_DOMAIN + canonicalJson(unsigned),
+              ),
+              privateKey,
+            ).toString("base64"),
+          },
+        };
+      }),
+  );
+}
+
+it("joins whole-cohort signed worker deliveries inside the readiness audit without authority", async () => {
+  const { request } = await scenario();
+  const deliveries = signedWorkerDeliveries(request);
+  expect(deliveries).toHaveLength(2);
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    workerDeliveries: deliveries,
+  });
+  expect(receipt).toMatchObject({
+    workerDeliveryCoverageCompared: true,
+    verifiedWorkerDeliveryCount: 2,
+    promotionEligible: false,
+  });
+  expect(receipt.workerDeliveryInventorySha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(receipt.workerModelExecutionAuthenticated).toBe(false);
+  expect(receipt.blockers).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/do not authenticate signer governance/),
+    ]),
+  );
+});
+
+it("rejects missing, duplicated, foreign and altered worker-delivery claims", async () => {
+  const cases: {
+    name: string;
+    change: (deliveries: ReturnType<typeof signedWorkerDeliveries>) => void;
+    error: RegExp;
+  }[] = [
+    {
+      name: "missing",
+      change: (deliveries) => {
+        deliveries.pop();
+      },
+      error: /coverage is incomplete/,
+    },
+    {
+      name: "duplicate",
+      change: (deliveries) => {
+        deliveries[1] = deliveries[0]!;
+      },
+      error: /unknown or repeated call/,
+    },
+    {
+      name: "foreign",
+      change: (deliveries) => {
+        deliveries[1]!.callId = "foreign-call";
+      },
+      error: /unknown or repeated call/,
+    },
+    {
+      name: "swapped envelope",
+      change: (deliveries) => {
+        deliveries[1]!.envelope = deliveries[0]!.envelope;
+      },
+      error: /frozen call/,
+    },
+    {
+      name: "signature",
+      change: (deliveries) => {
+        deliveries[0]!.envelope.signature = deliveries[1]!.envelope.signature;
+      },
+      error: /signature/,
+    },
+    {
+      name: "pin",
+      change: (deliveries) => {
+        deliveries[0]!.pin = {
+          ...deliveries[0]!.pin,
+          publicKeySha256: "0".repeat(64),
+        };
+      },
+      error: /fingerprint/,
+    },
+  ];
+  for (const { name, change, error } of cases) {
+    const { request } = await scenario();
+    const deliveries = signedWorkerDeliveries(request);
+    change(deliveries);
+    await expect(
+      inspectSealedEvidenceReadiness({
+        ...request,
+        workerDeliveries: deliveries,
+      }),
+      name,
+    ).rejects.toThrow(error);
+  }
+});
+
+it("checks worker originals afresh and runs coverage inside the witness bracket", async () => {
+  const { request, checkpoint } = await scenario();
+  const deliveries = signedWorkerDeliveries(request);
+  const callId = deliveries[0]!.callId;
+  await expect(
+    inspectSignedSealedWorkerDeliveryCohort(
+      request.aggregate.input.cohort.inspection,
+      request.aggregate.input.cohort.pins,
+      request.aggregate.manifest,
+      request.aggregate.manifestSha256,
+      async (reference) =>
+        reference.role === `call/${callId}/request`
+          ? new Uint8Array(Buffer.from("tampered request"))
+          : request.aggregate.reader(reference),
+      deliveries,
+      { nowMs },
+    ),
+  ).rejects.toThrow(/pinned byte bounds|differs from commitment/);
+
+  const events: string[] = [];
+  const originalReader = request.aggregate.reader;
+  request.aggregate.reader = vi.fn(async (reference) => {
+    events.push(`read:${reference.role}`);
+    return originalReader(reference);
+  });
+  const readCurrent = vi.fn(async (query: Parameters<typeof checkpoint>[0]) => {
+    events.push("checkpoint");
+    return checkpoint(query);
+  });
+  const receipt = await inspectSealedEvidenceReadiness({
+    ...request,
+    workerDeliveries: deliveries,
+    witness: { witnessId: "test-witness", readCurrent },
+  });
+  expect(events[0]).toBe("checkpoint");
+  expect(events.at(-1)).toBe("checkpoint");
+  expect(events.filter((event) => event === "checkpoint")).toHaveLength(2);
+  expect(events).toContain(`read:call/${callId}/request`);
+  expect(receipt.workerDeliveryCoverageCompared).toBe(true);
+  expect(receipt.witnessAuthenticationVerified).toBe(false);
+  expect(receipt.promotionEligible).toBe(false);
+});
+
+it("keeps the one-call verifier strict when a completed baseline has no public dispatch", async () => {
+  const { request } = await scenario();
+  const inspection = request.aggregate.input.cohort.inspection;
+  const deliveries = signedWorkerDeliveries(request);
+  const baseline = inspection.assignments.find((item) => !item.publicDispatch)!;
+  const delivery = deliveries.find(
+    (entry) => entry.callId === baseline.calls[0]!.reservation.callId,
+  )!;
+  const original = async (role: string) =>
+    request.aggregate.reader(
+      request.aggregate.manifest.entries.find((entry) => entry.role === role)!,
+    );
+  const requestBytes = await original(`call/${delivery.callId}/request`);
+  const responseBytes = await original(`call/${delivery.callId}/response`);
+  try {
+    expect(() =>
+      inspectSignedSealedWorkerDelivery(
+        inspection,
+        request.aggregate.input.cohort.pins,
+        delivery.pin,
+        delivery.envelope,
+        { requestBytes, responseBytes },
+        { nowMs },
+      ),
+    ).toThrow();
+  } finally {
+    requestBytes.fill(0);
+    responseBytes.fill(0);
+  }
+  const coverage = await inspectSignedSealedWorkerDeliveryCohort(
+    inspection,
+    request.aggregate.input.cohort.pins,
+    request.aggregate.manifest,
+    request.aggregate.manifestSha256,
+    request.aggregate.reader,
+    deliveries,
+    { nowMs },
+  );
+  expect(coverage.completedCallsWithoutPublicDispatch).toBe(2);
+  expect(coverage.publicDispatchProvenForEveryCall).toBe(false);
+  expect(coverage.promotionEligible).toBe(false);
+});
+
+it("rejects a separately pinned worker manifest with missing or extra roles", async () => {
+  const { request } = await scenario();
+  const deliveries = signedWorkerDeliveries(request);
+  for (const entries of [
+    request.aggregate.manifest.entries.slice(1),
+    [
+      ...request.aggregate.manifest.entries,
+      { role: "unexpected/extra", sha256: "a".repeat(64), bytes: 1 },
+    ],
+  ]) {
+    const manifest = { ...request.aggregate.manifest, entries };
+    await expect(
+      inspectSignedSealedWorkerDeliveryCohort(
+        request.aggregate.input.cohort.inspection,
+        request.aggregate.input.cohort.pins,
+        manifest,
+        hashJson(manifest),
+        request.aggregate.reader,
+        deliveries,
+        { nowMs },
+      ),
+    ).rejects.toThrow(/original role inventory is incomplete/);
+  }
+  const changedDigest = {
+    ...request.aggregate.manifest,
+    entries: request.aggregate.manifest.entries.map((entry, index) =>
+      index === 0 ? { ...entry, sha256: "b".repeat(64) } : entry,
+    ),
+  };
+  await expect(
+    inspectSignedSealedWorkerDeliveryCohort(
+      request.aggregate.input.cohort.inspection,
+      request.aggregate.input.cohort.pins,
+      changedDigest,
+      hashJson(changedDigest),
+      request.aggregate.reader,
+      deliveries,
+      { nowMs },
+    ),
+  ).rejects.toThrow(/original role or digest differs/);
+});
 
 it("joins matching signed declared selection and original-byte aggregate without granting authority", async () => {
   const { request } = await scenario();

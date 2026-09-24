@@ -438,6 +438,20 @@ receipt, and one verified call is not whole-cohort provenance. The verifier
 must be joined to independently governed key control, protected transport,
 oracle receipts and a current witness before any held-out authority claim.
 
+The private `inspectSignedSealedWorkerDeliveryCohort()` additionally requires
+one caller-pinned signed claim for **every completed call** in a closed cohort.
+It derives call identities from the validated ledger, checks the exact pinned
+original-artifact role inventory, and re-reads and verifies each call's original
+request and response bytes. Missing, duplicated, foreign or altered claims fail.
+The existing one-call verifier still requires a public-dispatch claim; only the
+cohort inspector can bind an explicit `null` when the ledger has no such claim.
+Its receipt reports that count and never claims public-packet delivery. Passing
+these claims as `workerDeliveries` to `inspectSealedEvidenceReadiness()` runs the
+coverage check inside that API's optional before/after witness comparison. The
+result remains private, analysis-only and `promotionEligible: false`: there is
+still no production signer, independently governed worker key, attested loaded
+model, authenticated source/oracle runtime, or anti-rollback witness.
+
 `inspectSealedCurrentGovernance()` in the engine also compares that signed
 aggregate with two fresh, challenge-bound checkpoints from a caller-configured
 current-witness reader. It fails on changed ledger heads, registrations, trust
