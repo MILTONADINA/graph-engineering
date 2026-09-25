@@ -41,7 +41,7 @@ npm run graph -- -C /path/to/project memory-accept MEMORY_ID
 npm run graph -- -C /path/to/project memory-share MEMORY_ID
 ```
 
-New memories are private proposals. Acceptance makes a record usable as project knowledge; sharing writes a reviewable `.graph/knowledge/<id>.json` file without committing it. Explicit supersession keeps history; competing/cyclic imported successors remain unresolved. Stale or conflicted mandatory constraints are preserved for review, never silently removed. Private mandatory memories block cloud context export rather than disappearing from a task. Sharing is not export authorization: a cloud consumer receives shared mandatory memory only after an operator reviews its exact text with `graph-engine memory-export-authorize <id>` and records consent with `--sha256 <hash>`; until then the whole packet is refused.
+New memories are private proposals. Acceptance makes a record usable as project knowledge; sharing writes a reviewable `.graph/knowledge/<id>.json` file without committing it. Explicit supersession keeps history; competing/cyclic imported successors remain unresolved. Stale or conflicted mandatory constraints are preserved for review, never silently removed. Private mandatory memories block cloud context export rather than disappearing from a task. Sharing is not export authorization: a cloud consumer receives shared mandatory memory only after an operator reviews its exact text with `graph-engine memory-export-authorize <id>` and records consent with `--sha256 <hash>`; until then the whole packet is refused. `graph-engine memory-export-revoke <id>` withdraws that consent.
 
 ### Storage lifecycle
 

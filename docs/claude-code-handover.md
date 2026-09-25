@@ -92,6 +92,14 @@ tests fail both against an earlier draft that rejected workspace-imported
 text outright (it broke ordinary local runs) and against a version that
 forwarded that text without provenance to a cloud worker.
 
+[Fork PR #21](https://github.com/MILTONADINA/graph-engineering/pull/21)
+proposed the [promotion trust boundary](promotion-trust-boundary.md) design
+(item 3) with bypass tripwires and engine-level shadow tests. The owner then
+authorized heavy TypeSafe Jev use under a per-session cap and had the local
+Qwen and Laya stack started; the first engine Jev decisions and a failed,
+bounded Qwen pilot are recorded in
+[local validation](local-validation.md#local-stack-pilot-with-jev-routing--2026-09-25-utc).
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.
@@ -384,9 +392,9 @@ prove its failure path with focused tests before running long suites.
    from the private context database each time a run executes, resume
    included; mandatory text that only a run workspace's knowledge import adds
    stays mandatory for local workers and is refused for cloud dispatch.
-   Follow-ons, not done: a revocation command, and rebuilding
-   `packages/engine/dist` plus restarting MCP clients, which the running
-   server needs before it enforces any of this.
+   `memory-export-revoke <id>` withdraws an authorization. Follow-on, not
+   done here: rebuilding `packages/engine/dist` plus restarting MCP clients,
+   which the running server needs before it enforces any of this.
 2. **Preserve the current safety boundary.** Keep `decisionMode: "shadow"`,
    `promotedCategories: []`, and `maxCostUsd: 0` by default. The existing
    `evaluate --promote` intentionally rejects; the runtime authority loader
