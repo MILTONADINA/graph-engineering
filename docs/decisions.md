@@ -346,7 +346,10 @@ sealed held-out collection, and complete assignment accounting. Failed attempts,
 abstentions and unknown-confidence records must not disappear from task-cost or
 failure totals merely because they cannot become scored decision rows. Unknown
 cost blocks cost-based promotion. The existing known-history intake cannot be
-reclassified as held-out to satisfy these requirements.
+reclassified as held-out to satisfy these requirements. The
+[promotion trust boundary](promotion-trust-boundary.md) design describes the
+intended issuer, runtime grant and per-route checks, the tests that keep every
+route shadow until then, and the decisions still open.
 
 The original-review signature primitive verifies Ed25519 envelopes, signer
 independence, role/revocation/chronology and unambiguous JSON payload identities.

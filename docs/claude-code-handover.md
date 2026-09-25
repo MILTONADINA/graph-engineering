@@ -75,8 +75,11 @@ differs from the 2026-09-23 receipt only in timestamps and the lock hash, with
 zero model calls. `npm run verify:image` needs a rebuild because root
 dependency metadata changed.
 
-Item 1, the cloud export-scope guard, is implemented on
-`fix/cloud-export-guard-20260925`. Export authorization is an operator-only
+Item 1, the cloud export-scope guard, was rebase-merged into `dev` at
+`dae73fa` by [fork PR #20](https://github.com/MILTONADINA/graph-engineering/pull/20)
+after all nine required checks passed on its exact tip; the
+[post-merge `dev` run](https://github.com/MILTONADINA/graph-engineering/actions/runs/36161179770)
+also passed all nine. Export authorization is an operator-only
 record (`memory-export-authorize`, migration 4→5) bound to a memory's ID and
 the SHA-256 of its exact text; sharing alone never authorizes export, and
 `.graph/knowledge` files cannot carry it. Cloud `context_get`, the MCP
@@ -402,7 +405,12 @@ prove its failure path with focused tests before running long suites.
    design and adversarial focused tests; do not enable grants while provenance is
    caller-controlled. The owner previously chose to leave the independently
    controlled witness integration point for later, so make it pluggable and
-   fail closed until a real controller is selected.
+   fail closed until a real controller is selected. **Status:** the design is
+   proposed in [promotion trust boundary](promotion-trust-boundary.md), with
+   bypass tripwires and engine-level shadow tests and no runtime change. Its
+   owner decisions (trust anchor, policy identity, grant lifetime, review of
+   trust-boundary files, witness, model-identity evidence) need the owner and
+   Kevin before the next PR builds on them.
 4. **Connect protected collection provenance.** The current signed source,
    worker-delivery, oracle-execution, row-review, aggregate, witness and
    approval inspectors are useful but mostly caller-pinned analysis. A real
