@@ -71,6 +71,7 @@ export const deploymentTemplates: Record<string, AuditedTemplateExtension> = {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         throw new Error(
           "Apply and review devops.docker before composing an ECS Express Mode request",
+          { cause: error },
         );
       }
       if (installedDockerfile !== reviewedDockerfile)

@@ -8,7 +8,6 @@ import type {
   ProjectConfig,
   ProviderConfig,
   RunRecord,
-  Usage,
 } from "@graph-engineering/contracts";
 import { ContextEngine } from "./context/index.js";
 import { loadProject, loadProviders, projectDataDir } from "./project.js";

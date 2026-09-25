@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import path from "node:path";
-import { readFile, mkdir } from "node:fs/promises";
 import { z } from "zod";
 import {
   assertProjectConfig,

@@ -23,7 +23,7 @@ const inside = (path: string, directory = SNAPSHOT_ROOT.slice(0, -1)) =>
   path === directory || path.startsWith(directory + "/");
 const safeRelative = (value: string) =>
   value.length <= 512 &&
-  !/^[\/]|[\\\0?#:%]/.test(value) &&
+  !/^[/]|[\\\0?#:%]/.test(value) &&
   !value.split("/").includes("node_modules");
 const joined = (directory: string, value: string): string | undefined => {
   if (!safeRelative(value)) return undefined;
