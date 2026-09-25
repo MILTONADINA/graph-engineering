@@ -37,6 +37,7 @@ export {
   SIGNED_PROMOTION_APPROVAL_DOMAIN,
 } from "./signed-promotion-approval.js";
 export { backupProject, restoreProject } from "./operations.js";
+export { readRunReceipt } from "./store.js";
 export { runDag, validateDag } from "./execution/dag.js";
 export {
   renderTemplateProposal,

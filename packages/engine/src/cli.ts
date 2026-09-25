@@ -24,6 +24,7 @@ import { evaluateDecisions, type EvaluationRow } from "./decisions.js";
 import { PROMOTION_IMPORT_BLOCKED } from "./promotion-authority.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 import { backupProject, restoreProject } from "./operations.js";
+import { readRunReceipt } from "./store.js";
 import {
   exportEvaluationDraft,
   importEvaluationLabels,
@@ -341,6 +342,19 @@ cli.command("inspect <runId>").action((runId) =>
     events: engine.store.events(runId),
   })),
 );
+cli
+  .command("run-receipt <runId>")
+  .description("Read a retained run and its events without triggering recovery")
+  .action(async (runId) => {
+    const project = await loadProject(root());
+    print(
+      readRunReceipt(
+        projectDataDir(project.projectId),
+        project.projectId,
+        runId,
+      ),
+    );
+  });
 cli
   .command("cancel <runId>")
   .action((runId) => withEngine(async (engine) => engine.cancel(runId)));

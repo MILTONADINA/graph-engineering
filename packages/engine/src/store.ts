@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { lstat, chmod } from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -39,9 +39,46 @@ function legacyOwnerState(pid: number | undefined): "dead" | "unknown" {
   }
 }
 
+const RUN_SCHEMA_VERSION = 4;
+
+/**
+ * Reads a retained run and its ordered events read-only, without opening the
+ * engine or running crash recovery. Local CLI use only: it returns run
+ * metadata that cloud MCP clients do not receive by default.
+ */
+export function readRunReceipt(
+  dataDir: string,
+  projectId: string,
+  runId: string,
+): { run: RunRecord; events: RunEvent[] } {
+  const file = path.join(dataDir, "runs.sqlite");
+  if (!existsSync(file)) throw new Error("Run receipt database does not exist");
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    const version = db.pragma("user_version", { simple: true }) as number;
+    if (version > RUN_SCHEMA_VERSION)
+      throw new Error("Run database is newer than this engine");
+    return db.transaction(() => {
+      const row = db
+        .prepare("SELECT json FROM runs WHERE project_id=? AND id=?")
+        .get(projectId, runId) as { json: string } | undefined;
+      if (!row) throw new Error("Run receipt does not exist for this project");
+      const events = db
+        .prepare(
+          "SELECT json FROM run_events WHERE project_id=? AND run_id=? ORDER BY seq",
+        )
+        .all(projectId, runId)
+        .map((item) => JSON.parse((item as { json: string }).json) as RunEvent);
+      return { run: JSON.parse(row.json) as RunRecord, events };
+    })();
+  } finally {
+    db.close();
+  }
+}
+
 /** Small operational records only. Context DB/index work lives in the context worker. */
 export class RunStore {
-  readonly schemaVersion = 4;
+  readonly schemaVersion = RUN_SCHEMA_VERSION;
   private db: Database.Database;
   constructor(
     dataDir: string,
@@ -52,7 +89,7 @@ export class RunStore {
     this.db.pragma("busy_timeout = 5000");
     this.db.pragma("journal_mode = WAL");
     const version = this.db.pragma("user_version", { simple: true }) as number;
-    if (version > 4) {
+    if (version > RUN_SCHEMA_VERSION) {
       this.db.close();
       throw new Error(
         "Run database is newer than this engine; refusing a downgrade",

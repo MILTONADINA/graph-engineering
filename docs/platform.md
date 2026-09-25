@@ -105,7 +105,7 @@ Verification runs against a separate source view in a provisioned container with
 
 Verification resolves local image tags to immutable image IDs and records that identity. Detailed failure excerpts stay local; cloud/native workers receive generic check-failure feedback because logs may contain non-exportable source. They may request additional explicitly exportable files. This trades some debugging convenience for an enforceable export boundary.
 
-Runs preserve structured events and failures. A changed policy or source snapshot invalidates dispatch. Cancellation stops further work. After a crash or failed attempt, inspect the retained worktree and events before `resume RUN_ID --reconciled`; ambiguous external effects are never blindly repeated. Automated completion leaves human acceptance pending and records required review scope. A test pass or classifier confidence is not human acceptance, a completed security audit, or merge approval.
+Runs preserve structured events and failures. A changed policy or source snapshot invalidates dispatch. Cancellation stops further work. After a crash or failed attempt, inspect the retained worktree and events before `resume RUN_ID --reconciled` (`run-receipt RUN_ID` reads them without opening the engine or triggering recovery); ambiguous external effects are never blindly repeated. Automated completion leaves human acceptance pending and records required review scope. A test pass or classifier confidence is not human acceptance, a completed security audit, or merge approval.
 
 ## Publication
 
