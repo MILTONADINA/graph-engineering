@@ -4,8 +4,8 @@ Before working in this repository, read the full
 [Claude Code handover](docs/claude-code-handover.md). It records the owner's
 requirements, the current fork and evidence state, the safety boundaries, and
 the next engineering work. Follow its linked primary documents and inspect
-the current Git state before acting. The handover was integrated into fork
-`dev` by PR #17; verify the live branch and checks before continuing.
+the current Git state, the live fork `dev` tip, open PRs and checks before
+acting.
 
 Privacy priority: do not call cloud MCP `context_get` or `run_status`, or
 dispatch Graph-managed cloud worker packets, until the pre-return and

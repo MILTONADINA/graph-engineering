@@ -26,7 +26,7 @@ consumes:
   artifacts: [architecture.schema, api.schema, auth.schema]
 produces:
   artifacts: [frontend.schema]
-tools: [read_template_registry, read_artifact, write_artifact, resolve_dependencies]
+tools: [read_template_registry, read_artifact, write_artifact, resolve_dependencies, invoke_node]
 handoff_to: [ai.testing-agent]
 validation:
   checks:

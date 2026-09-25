@@ -465,11 +465,9 @@ model. In particular:
 ## Git and test discipline for Claude Code
 
 1. Inspect `pwd`, `git status --short --branch`, `git log -1`, `git remote -v`,
-   the live fork `dev` tip and open PRs. [PR #17](https://github.com/MILTONADINA/graph-engineering/pull/17)
-   merged the initial handover at the dated commit recorded above; do not
-   reopen it or treat its old branch as the starting point for new work.
-   Preserve `.serena/` and every ignored private path; do not commit directly
-   on `dev`.
+   the live fork `dev` tip and open PRs. Start new work from the live fork
+   `dev` tip, never from an older handover or feature branch. Preserve
+   `.serena/` and every ignored private path; do not commit directly on `dev`.
 2. For subsequent changes, fetch/fast-forward the fork `dev`, then create a
    focused `feat/`, `fix/`, or `chore/` branch. Push only to `fork`; PRs target
    `MILTONADINA/graph-engineering:dev`. The owner explicitly authorized the
@@ -520,8 +518,8 @@ npm run typecheck -w @graph-engineering/engine
 Run the sealed JavaScript tests (`node --test evaluation/sealed/tests/*.test.mjs`)
 only for affected collector/protocol code. `npm run check` and Docker/native
 verification are proportionate later checks for changed implementation, not
-routine reconfirmation of an unchanged green commit. This docs-only handover
-needs a Markdown formatting/link check, not the full engine suite.
+routine reconfirmation of an unchanged green commit. Docs-only changes need
+a Markdown formatting/link check, not the full engine suite.
 
 The remaining work separates into three authorities:
 

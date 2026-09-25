@@ -64,7 +64,9 @@ export const DEFAULT_POLICY: ProjectPolicy = {
   maxWorkers: 2,
   maxAttempts: 3,
   maxContextTokens: 16000,
-  maxOutputTokens: 4000,
+  // Thinking counts toward this per-response cap on always-thinking models;
+  // the API worker does not stream, so keep it near 16K.
+  maxOutputTokens: 16000,
   maxTurns: 12,
   timeoutSeconds: 600,
   maxCostUsd: null,

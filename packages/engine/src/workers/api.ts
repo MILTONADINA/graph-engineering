@@ -224,16 +224,10 @@ export async function invokeApiWorker(
       system: WORKER_INSTRUCTIONS,
       messages: [{ role: "user", content: user }],
       max_tokens: policy.maxOutputTokens,
-      tools: [
-        {
-          name: "propose_changes",
-          description:
-            "Submit an engineering patch or requests for missing source",
-          input_schema: proposalJsonSchema,
-        },
-      ],
-      tool_choice: { type: "tool", name: "propose_changes" },
-      ...(input.effort ? { output_config: { effort: input.effort } } : {}),
+      output_config: {
+        format: { type: "json_schema", schema: proposalJsonSchema },
+        ...(input.effort ? { effort: input.effort } : {}),
+      },
     };
   } else if (provider.kind === "local") {
     endpoint = `${(provider.endpoint ?? "http://127.0.0.1:11434/v1").replace(/\/$/, "")}/chat/completions`;
@@ -298,24 +292,29 @@ export async function invokeApiWorker(
   }
   const raw = Buffer.concat(chunks).toString("utf8");
   const result = JSON.parse(raw) as Record<string, any>;
-  let proposal: unknown;
-  if (provider.kind === "anthropic")
-    proposal = result.content?.find(
-      (c: any) => c.type === "tool_use" && c.name === "propose_changes",
-    )?.input;
-  else {
-    const text =
-      provider.kind === "openai"
+  // Refused or truncated structured output need not match the schema.
+  if (provider.kind === "anthropic" && result.stop_reason === "refusal")
+    throw new Error(`Provider ${provider.id} declined the request`);
+  if (provider.kind === "anthropic" && result.stop_reason === "max_tokens")
+    throw new Error(
+      `Provider ${provider.id} output reached maxOutputTokens; the proposal may be truncated`,
+    );
+  const text =
+    provider.kind === "anthropic"
+      ? result.content
+          ?.filter((c: any) => c.type === "text")
+          .map((c: any) => c.text)
+          .join("")
+      : provider.kind === "openai"
         ? result.output
             ?.flatMap((o: any) => o.content ?? [])
             .filter((c: any) => c.type === "output_text")
             .map((c: any) => c.text)
             .join("")
         : result.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text)
-      throw new Error("Provider returned no structured patch");
-    proposal = JSON.parse(text);
-  }
+  if (typeof text !== "string" || !text)
+    throw new Error("Provider returned no structured patch");
+  const proposal: unknown = JSON.parse(text);
   const count = (value: unknown): number | null =>
     typeof value === "number" && Number.isSafeInteger(value) && value >= 0
       ? value
