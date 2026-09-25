@@ -56,6 +56,39 @@ the live branch, PR and `dev` tip rather than treating this dated snapshot as
 live status. Before that docs merge, local `dev` and `fork/dev` were both
 `02220e2b4f16bf27a7f6d26ab7c6b8d1b5293de8`.
 
+## Continuation update — 2026-09-25
+
+Claude Code took over from Codex on 2026-09-25.
+
+[Fork PR #19](https://github.com/MILTONADINA/graph-engineering/pull/19) was
+rebase-merged into `dev` at `48b28b9` after all nine required checks passed
+on its exact tip ([PR run](https://github.com/MILTONADINA/graph-engineering/actions/runs/36154507467));
+the [post-merge `dev` run](https://github.com/MILTONADINA/graph-engineering/actions/runs/36156777146)
+also passed all nine. It applied a prompt audit for Claude Opus 5.5 (the
+Anthropic API worker requests structured output instead of a forced tool
+call, which Opus 5.5 rejects; code-checked MCP tool contracts; agent-prompt
+corrections), added ESLint with a CI lint step and a Claude Code format hook,
+and extended CLAUDE.md. The lint dev dependencies changed the root lockfile,
+so the documented cloud-graph replay was re-run into
+`evaluation/isolated-cloud-graph-fixture-validation-2026-09-25.json`; it
+differs from the 2026-09-23 receipt only in timestamps and the lock hash, with
+zero model calls. `npm run verify:image` needs a rebuild because root
+dependency metadata changed.
+
+Item 1, the cloud export-scope guard, is implemented on
+`fix/cloud-export-guard-20260925`. Export authorization is an operator-only
+record (`memory-export-authorize`, migration 4→5) bound to a memory's ID and
+the SHA-256 of its exact text; sharing alone never authorizes export, and
+`.graph/knowledge` files cannot carry it. Cloud `context_get`, the MCP
+handler and `contextForProvider` refuse a whole packet whose mandatory memory
+is private, unsourced, outside `exportPaths`, altered or unauthorized, and a
+cloud packet with no memory provenance. Cloud `run_status` needs
+`--allow-run-status`. On the pre-guard code the new MCP regression test fails
+because cloud `context_get` returned the shared constraint. The managed-run
+tests fail both against an earlier draft that rejected workspace-imported
+text outright (it broke ordinary local runs) and against a version that
+forwarded that text without provenance to a cloud worker.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.
@@ -95,18 +128,15 @@ the existing template ecosystem. The shared project policy and stores support:
 1. Repository syntax/limited static graph, SQLite full-text search, optional
    offline Jina embeddings, structural summaries, and reviewed memory.
 2. Export-filtered context packets through a project MCP server for Claude
-   Code, Codex, and Cursor. The current cloud `context_get` can include
-   reviewed **shared** mandatory requirement/constraint memory tied to
-   exportable sources. This is implementation behavior, **not blanket user
-   authorization**: the owner allowed selected source/docs, not arbitrary
-   memory. The MCP tool returns its packet directly to a cloud client, so
-   inspecting it afterward cannot reliably prevent an unauthorized export.
-   Suspend cloud `context_get` until a tested, pre-return guard rejects mandatory
-   memory outside the owner's explicit permission; use local retrieval in the
-   meantime. Cloud `run_status` also returns operational metadata outside the
-   selected source/docs scope and needs its own output gate. Cloud worker
-   dispatch through `contextForProvider` has the same shared-memory boundary.
-   Private mandatory memory already causes rejection,
+   Code, Codex, and Cursor. Sharing a memory is **not** export authorization:
+   the owner allowed selected source/docs, not arbitrary memory. Cloud
+   `context_get` and cloud worker dispatch through `contextForProvider` refuse
+   the whole packet, before it is returned or dispatched, when any mandatory
+   requirement/constraint memory is private, unsourced, outside `exportPaths`,
+   or not authorized by an operator for its exact text (`memory-export-authorize`,
+   bound to the memory ID and the text's SHA-256 in the private context
+   database). Cloud clients see `run_status` only when the server runs with
+   `--allow-run-status`. Private mandatory memory also causes rejection,
    and other private memory is excluded from cloud retrieval. Secrets **must**
    be excluded, but current path/content filters recognize patterns rather
    than prove that arbitrary allowlisted source or shared memory contains no
@@ -154,16 +184,14 @@ instructions. Preserve the distinction between a **product goal**, an
 2. **Explicit cloud boundary.** Claude Code, Codex, and Cursor may receive
    selected repository **source and docs** through the project MCP server.
    Private memory and secrets must never be exported to their cloud models or
-   to hosted Jev. The current MCP can also include reviewed shared
-   requirement/constraint memory sourced from exportable files. Shared status
-   does not itself expand this owner's selected-source/docs permission. The
-   current `context_get` returns such memory directly to the cloud client;
-   post-return inspection is too late. The cloud worker packet path can do the
-   same before model dispatch. Suspend those paths until pre-return/pre-dispatch
-   rejection is implemented and tested. Cloud `run_status` returns run metadata
-   rather than selected source/docs; do not call it from a cloud client until
-   its output is explicitly scoped or separately authorized. A local preflight
-   may help review, but alone is not a race-free enforcement boundary. Filters
+   to hosted Jev. Shared requirement/constraint memory sourced from exportable
+   files reaches a cloud client or worker only after the operator authorizes
+   export of its exact text; shared status alone does not expand this owner's
+   selected-source/docs permission, and an unauthorized packet is refused
+   before return or dispatch. Cloud `run_status` returns run metadata rather
+   than selected source/docs, so cloud clients see it only when the server is
+   started with `--allow-run-status`. Never authorize memory export or enable
+   cloud run status on the owner's behalf. Filters
    cannot prove arbitrary allowlisted files contain no embedded secret. Local
    storage does not make those clients' inference offline.
    Their native indexing, open-file, terminal and subscription paths are
@@ -259,22 +287,22 @@ The numbered items are those in the [completion checklist](completion-checklist.
 "Implemented" means code and relevant checks exist, not that every production
 or independent-evaluation claim is established.
 
-| #   | Area                                            | Current status / remaining boundary                                                                                                                                                                                                                                                                                                                                 |
-| --- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Partner review and integration                  | The implementation PR stack through #16 and docs PR #17 were merged into fork `dev`; their recorded CI passed. Kevin's review of integrated `dev`, and any parent sync, remain separate.                                                                                                                                                                            |
-| 2   | Git workflow and protection                     | Fork `main`/`dev` protection and the fork-only push guard are set; keep feature branches, PRs, linear history, and no direct protected-branch pushes.                                                                                                                                                                                                               |
-| 3   | Real workers and verification                   | Existing oMLX Qwen and offline verifier exercised. One Claude Max subscription-backed structured proposal succeeded. Metered API worker tests await provider-specific policy and budget.                                                                                                                                                                            |
-| 4   | Local Jina/Laya/Qwen                            | Offline Jina retrieval, pinned Laya on MPS, and the existing oMLX Qwen endpoint exercised. Do **not** install/download another Qwen.                                                                                                                                                                                                                                |
-| 5   | MCP clients                                     | Claude Code and Codex live project-MCP retrieval passed. Direct project MCP `template_list` returned 61 entries; owner reports it works in Cursor in this exact workspace, but no Cursor in-app trace was retained. Serena is a separate shared server. Cloud `context_get` needs a fail-closed memory-scope guard; cloud `run_status` needs a scope gate.          |
-| 6   | Real end-to-end task                            | One unassisted real UTF-8 subprocess repair by Qwen+Laya passed unchanged offline verification; the owner reported acceptance after review. The separate cloud-export autonomous repair pilots **failed** and must not be relabeled as successes.                                                                                                                   |
-| 7   | Batched typed decisions                         | Implemented with an observed two-question, one-forward-pass Laya call; not autonomously promoted.                                                                                                                                                                                                                                                                   |
-| 8   | Context/tool/test/retry/stop/memory controllers | Integrated with deterministic floors, bounded actions, and shadow defaults; model scores cannot skip safety gates.                                                                                                                                                                                                                                                  |
-| 9   | Summaries and safe reuse                        | Content-addressed summaries and exact cache reuse exist; cached proposals still require fresh checks.                                                                                                                                                                                                                                                               |
-| 10  | DAG and fine templates                          | Validated scheduling and 50 audited implemented nodes; six planned IDs unavailable. AWS ECS Express Mode work is an **offline descriptor**, not a deployment or AWS spend.                                                                                                                                                                                          |
-| 11  | Memory and semantic graph                       | Bounded TS/JS, Python, Go, Java, C#, and Rust declaration evidence exists, with explicit heuristic/unsupported fallbacks. It is not a whole-program runtime call graph.                                                                                                                                                                                             |
-| 12  | Native clients and cost controls                | Claude Max managed proposal tested; Codex managed proposals disabled because the installed binary lacks restricted read roots; Cursor SDK proposal adapter mocked but not live-key-tested. Jev metering needs operator price/cap. MCP use is independent of these managed-worker paths.                                                                             |
-| 13  | Calibration, held-out evidence, promotion       | Extensive synthetic/retrospective fixtures, sealed bookkeeping, signed inspection and analysis-only projections exist. **Not complete as a real held-out or promotion capability:** independent source/review/key/witness governance, protected provenance, measured paired outcomes/costs, and a trusted grant issuer remain. This is the principal promotion gap. |
-| 14  | Tests and operations                            | Cross-language synthetic fixtures, indexing benchmark, migrations, watch, pruning, backup/restore and focused native checks exist. Their receipts are not production accuracy or cost-saving evidence.                                                                                                                                                              |
+| #   | Area                                            | Current status / remaining boundary                                                                                                                                                                                                                                                                                                                                                                |
+| --- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Partner review and integration                  | The implementation PR stack through #16 and docs PR #17 were merged into fork `dev`; their recorded CI passed. Kevin's review of integrated `dev`, and any parent sync, remain separate.                                                                                                                                                                                                           |
+| 2   | Git workflow and protection                     | Fork `main`/`dev` protection and the fork-only push guard are set; keep feature branches, PRs, linear history, and no direct protected-branch pushes.                                                                                                                                                                                                                                              |
+| 3   | Real workers and verification                   | Existing oMLX Qwen and offline verifier exercised. One Claude Max subscription-backed structured proposal succeeded. Metered API worker tests await provider-specific policy and budget.                                                                                                                                                                                                           |
+| 4   | Local Jina/Laya/Qwen                            | Offline Jina retrieval, pinned Laya on MPS, and the existing oMLX Qwen endpoint exercised. Do **not** install/download another Qwen.                                                                                                                                                                                                                                                               |
+| 5   | MCP clients                                     | Claude Code and Codex live project-MCP retrieval passed. Direct project MCP `template_list` returned 61 entries; owner reports it works in Cursor in this exact workspace, but no Cursor in-app trace was retained. Serena is a separate shared server. Cloud `context_get` and cloud worker dispatch refuse unauthorized mandatory memory; cloud `run_status` is off unless `--allow-run-status`. |
+| 6   | Real end-to-end task                            | One unassisted real UTF-8 subprocess repair by Qwen+Laya passed unchanged offline verification; the owner reported acceptance after review. The separate cloud-export autonomous repair pilots **failed** and must not be relabeled as successes.                                                                                                                                                  |
+| 7   | Batched typed decisions                         | Implemented with an observed two-question, one-forward-pass Laya call; not autonomously promoted.                                                                                                                                                                                                                                                                                                  |
+| 8   | Context/tool/test/retry/stop/memory controllers | Integrated with deterministic floors, bounded actions, and shadow defaults; model scores cannot skip safety gates.                                                                                                                                                                                                                                                                                 |
+| 9   | Summaries and safe reuse                        | Content-addressed summaries and exact cache reuse exist; cached proposals still require fresh checks.                                                                                                                                                                                                                                                                                              |
+| 10  | DAG and fine templates                          | Validated scheduling and 50 audited implemented nodes; six planned IDs unavailable. AWS ECS Express Mode work is an **offline descriptor**, not a deployment or AWS spend.                                                                                                                                                                                                                         |
+| 11  | Memory and semantic graph                       | Bounded TS/JS, Python, Go, Java, C#, and Rust declaration evidence exists, with explicit heuristic/unsupported fallbacks. It is not a whole-program runtime call graph.                                                                                                                                                                                                                            |
+| 12  | Native clients and cost controls                | Claude Max managed proposal tested; Codex managed proposals disabled because the installed binary lacks restricted read roots; Cursor SDK proposal adapter mocked but not live-key-tested. Jev metering needs operator price/cap. MCP use is independent of these managed-worker paths.                                                                                                            |
+| 13  | Calibration, held-out evidence, promotion       | Extensive synthetic/retrospective fixtures, sealed bookkeeping, signed inspection and analysis-only projections exist. **Not complete as a real held-out or promotion capability:** independent source/review/key/witness governance, protected provenance, measured paired outcomes/costs, and a trusted grant issuer remain. This is the principal promotion gap.                                |
+| 14  | Tests and operations                            | Cross-language synthetic fixtures, indexing benchmark, migrations, watch, pruning, backup/restore and focused native checks exist. Their receipts are not production accuracy or cost-saving evidence.                                                                                                                                                                                             |
 
 ## Evidence you can safely claim
 
@@ -339,29 +367,23 @@ labels, or renamed historical tasks. There is still code-side work to do while
 the partners choose the external trust arrangement. Keep each change scoped and
 prove its failure path with focused tests before running long suites.
 
-1. **Close the cloud export-scope gaps before further affected calls.** Inspect
-   [`context/index.ts`](../packages/engine/src/context/index.ts) and
-   [`mcp.ts`](../packages/engine/src/mcp.ts): export-only retrieval currently
-   adds accepted/conflicted shared requirement/constraint memory to `mandatory`
-   and returns it in the tool result. The owner authorized selected source/docs,
-   not blanket memory export. Make the cloud tool reject a packet containing
-   shared mandatory memory unless export of that exact memory text has been
-   separately and explicitly authorized **before** returning it. Do not
-   silently remove a mandatory constraint to make export succeed. Preserve
-   local-worker mandatory constraints and private-memory rejection. Apply the
-   same fail-closed check to [`contextForProvider`](../packages/engine/src/policy.ts)
-   before any cloud API/managed worker receives the packet; audit all cloud MCP
-   tool outputs, especially `run_status`, which currently returns run IDs,
-   status, usage, commit and PR metadata outside selected source/docs. Gate
-   that tool from cloud use by default unless separately authorized. Update
-   the MCP server instruction that currently tells cloud clients to use
-   `context_get` before engineering work. Add a
-   focused [MCP regression test](../packages/engine/tests/mcp.test.ts) that
-   creates export-eligible shared mandatory memory and proves the cloud call
-   rejects it by default; add a
-   [cloud worker packet test](../packages/engine/tests/policy-export.test.ts)
-   and a cloud `run_status` test. Test local behavior separately. Do not
-   treat client-side packet inspection or regex secret detection as the guard.
+1. **Cloud export-scope guard — implemented (see the 2026-09-25 continuation).**
+   Export-only `getContext` ([`context/index.ts`](../packages/engine/src/context/index.ts)),
+   the cloud [`mcp.ts`](../packages/engine/src/mcp.ts) handler and
+   [`contextForProvider`](../packages/engine/src/policy.ts) share one
+   fail-closed rule: a packet whose mandatory memory is private, unsourced,
+   outside `exportPaths`, altered, or not authorized for its exact text is
+   refused whole, and a cloud packet without memory provenance is refused too.
+   Authorization is an operator-only `memory-export-authorize` record in the
+   private context database, never in `.graph/knowledge`. Cloud `run_status`
+   is registered only with `--allow-run-status`, and cloud instructions no
+   longer point at `context_get`. Provenance and authorization are recomputed
+   from the private context database each time a run executes, resume
+   included; mandatory text that only a run workspace's knowledge import adds
+   stays mandatory for local workers and is refused for cloud dispatch.
+   Follow-ons, not done: a revocation command, and rebuilding
+   `packages/engine/dist` plus restarting MCP clients, which the running
+   server needs before it enforces any of this.
 2. **Preserve the current safety boundary.** Keep `decisionMode: "shadow"`,
    `promotedCategories: []`, and `maxCostUsd: 0` by default. The existing
    `evaluate --promote` intentionally rejects; the runtime authority loader
@@ -417,8 +439,9 @@ prove its failure path with focused tests before running long suites.
    **not** been supplied. Codex managed proposal mode requires a binary that
    actually exposes restricted read roots. Cursor managed SDK proposals need
    an explicit user key and authorized live validation. These paid/managed-worker
-   gaps do not remove the project MCP configuration; the separate cloud
-   `context_get`/`run_status` suspension above still applies. AWS deployment is
+   gaps do not remove the project MCP configuration; cloud `context_get` still
+   refuses unauthorized mandatory memory and cloud `run_status` stays off by
+   default. AWS deployment is
    also not authorized merely by generating an ECS descriptor. Before any
    future hosted Jev dispatch, review the caller-supplied `cloudState` and
    question text locally; `exportable` flags and pattern checks do not prove
@@ -446,9 +469,9 @@ model. In particular:
   with other sessions/projects. Do not reconfigure or deactivate Serena or
   global client servers. `.cursorignore` is defense in depth, not a guarantee
   that a cloud client's terminal, open files, or native indexing cannot see
-  private paths. Once the pre-return MCP memory guard is in place, use only
-  reviewed selected-source packets for cloud work and inspect attachments and
-  native tool calls separately.
+  private paths. With the pre-return MCP memory guard in a rebuilt `dist`, use
+  only reviewed selected-source packets for cloud work and inspect attachments
+  and native tool calls separately.
 - Managed runs use isolated workspaces and do not edit this checkout. Review a
   run's patch before importing it into a feature branch. The verification
   image must be rebuilt if dependency metadata, `scripts/verify-project.mjs`,
@@ -457,8 +480,9 @@ model. In particular:
 - The default project config [`.graph/project.json`](../.graph/project.json)
   has local Qwen/Laya, no allowed outbound hosts, no publication, a zero
   external-API dollar ceiling, and shadow decisions. Cloud MCP source/docs
-  export is a separate path, but cloud `context_get` and `run_status` are
-  suspended pending the output-scope guards above. Claude/Codex/Cursor
+  export is a separate path; cloud `context_get` refuses unauthorized mandatory
+  memory and cloud `run_status` is off unless the server runs with
+  `--allow-run-status`. Claude/Codex/Cursor
   subscriptions have their own account usage, outside the engine's ledger and
   budget.
 

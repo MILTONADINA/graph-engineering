@@ -629,9 +629,25 @@ export class GraphEngine {
             mandatory: originalPacket.mandatory,
             retrieval: retrieval.scope,
           });
+          // Provenance and export authorization come from the main context
+          // database each time the run executes. Text that only the run
+          // workspace's knowledge import adds (a stale or edited committed
+          // file) stays mandatory for local workers but is recorded as
+          // unreviewed, so cloud dispatch refuses the packet.
+          const unreviewed = current.mandatory.filter(
+            (text) => !originalPacket.mandatory.includes(text),
+          );
           return {
             ...current,
-            mandatorySources: originalPacket.mandatorySources,
+            mandatorySources: [
+              ...(originalPacket.mandatorySources ?? []),
+              ...unreviewed.map((text) => ({
+                text,
+                visibility: "private" as const,
+                sources: [],
+                exportAuthorized: false,
+              })),
+            ],
           };
         } finally {
           await latest.close();

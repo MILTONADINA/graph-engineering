@@ -159,9 +159,13 @@ export interface ContextPacket {
   query: string;
   mandatory: string[];
   mandatorySources?: {
+    memoryId?: string;
     text: string;
+    textSha256?: string;
     visibility: "private" | "shared";
     sources: SourceReference[];
+    /** An operator authorized cloud export of this exact text before the packet was built. */
+    exportAuthorized?: boolean;
   }[];
   items: ContextItem[];
   estimatedTokens: number;

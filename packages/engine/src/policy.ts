@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { lstat, realpath } from "node:fs/promises";
 import picomatch from "picomatch";
@@ -263,6 +264,58 @@ export function assertProvider(
       "This provider cannot support the configured cost budget; configure pricing or use a metered API worker",
     );
 }
+/**
+ * Gate for memory-derived mandatory context leaving for a cloud consumer.
+ * Missing provenance, private or out-of-policy memory, and any text an
+ * operator has not authorized for export reject the whole packet; mandatory
+ * text is never dropped to make an export succeed. With attributedOnly, every
+ * mandatory string must come from memory (no caller-supplied acceptance text).
+ */
+export function assertMandatoryExport(
+  packet: ContextPacket,
+  policy: ProjectPolicy,
+  options: { attributedOnly: boolean },
+): void {
+  const entries = packet.mandatorySources;
+  if (!entries)
+    throw new Error(
+      "Mandatory context has no memory provenance; cloud export is refused",
+    );
+  if (
+    entries.some(
+      (entry) =>
+        entry.visibility !== "shared" ||
+        entry.sources.length === 0 ||
+        entry.sources.some(
+          (source) =>
+            !isAllowedPath(source.path, policy, true) ||
+            containsSecret(source.path),
+        ),
+    )
+  )
+    throw new Error(
+      "Mandatory memory is not exportable to this client; use a local worker or share eligible knowledge",
+    );
+  if (
+    entries.some(
+      (entry) =>
+        entry.exportAuthorized !== true ||
+        entry.textSha256 !==
+          createHash("sha256").update(entry.text).digest("hex"),
+    )
+  )
+    throw new Error(
+      "Mandatory memory has not been authorized for export to this client",
+    );
+  const attributed = new Set(entries.map((entry) => entry.text));
+  if (
+    options.attributedOnly &&
+    packet.mandatory.some((text) => !attributed.has(text))
+  )
+    throw new Error(
+      "Mandatory context has no memory provenance; cloud export is refused",
+    );
+}
 export function contextForProvider(
   packet: ContextPacket,
   provider: ProviderConfig,
@@ -272,19 +325,8 @@ export function contextForProvider(
   if (provider.kind === "local") return packet;
   if (containsSecret(packet.query) || packet.mandatory.some(containsSecret))
     throw new Error("Task or mandatory context contains a potential secret");
-  if (
-    packet.mandatorySources?.some(
-      (item) =>
-        item.visibility !== "shared" ||
-        item.sources.length === 0 ||
-        item.sources.some(
-          (source) => !isAllowedPath(source.path, policy, true),
-        ),
-    )
-  )
-    throw new Error(
-      "Mandatory project memory is private or has unexportable provenance; use a local worker or explicitly share eligible knowledge",
-    );
+  // Worker packets also carry the plan's acceptance criteria as mandatory text.
+  assertMandatoryExport(packet, policy, { attributedOnly: false });
   return {
     ...packet,
     items: packet.items.filter(

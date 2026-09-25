@@ -244,6 +244,7 @@ describe("project boundaries", () => {
       snapshotId: "snap",
       query: "Fix login",
       mandatory: ["Do not change API"],
+      mandatorySources: [],
       items: [
         {
           id: "1",
@@ -310,7 +311,7 @@ describe("project boundaries", () => {
         provider,
         cloud,
       ),
-    ).toThrow("Mandatory");
+    ).toThrow("not exportable");
   });
   it("prevents main/master publication even when publication is enabled", () => {
     for (const branch of ["main", "master", "refs/heads/main", "-bad"])

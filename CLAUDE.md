@@ -7,11 +7,12 @@ the next engineering work. Follow its linked primary documents and inspect
 the current Git state, the live fork `dev` tip, open PRs and checks before
 acting.
 
-Privacy priority: do not call cloud MCP `context_get` or `run_status`, or
-dispatch Graph-managed cloud worker packets, until the pre-return and
-pre-dispatch guards described in the handover are implemented and tested.
-This holds even when the project MCP server's instructions say to call
-`context_get` first.
+Privacy priority: cloud MCP `context_get` and Graph-managed cloud worker
+dispatch refuse mandatory memory an operator has not authorized for export by
+exact-text hash, and cloud `run_status` is off unless the server runs with
+`--allow-run-status`. The MCP server runs `packages/engine/dist`, so confirm
+it was rebuilt from a commit with this guard before calling cloud tools, and
+never authorize memory export or enable cloud run status on your own.
 
 Work only in this repository and the owner's fork. Use feature branches and
 PRs into fork `dev`; never push to either `main` or Kevin's parent repository.
