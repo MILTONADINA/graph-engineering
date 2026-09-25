@@ -12,9 +12,11 @@ import {
   assertPublication,
   contextForProvider,
   containsSecret,
+  introducesSecret,
   isAllowedPath,
   redact,
   safePath,
+  secretFindings,
 } from "../src/policy.js";
 
 const cloud = {
@@ -80,6 +82,92 @@ describe("project boundaries", () => {
       containsSecret("const token=authorization===undefined?cookie:header;"),
     ).toBe(false);
   });
+  it("counts only secret matches a change adds to existing text", () => {
+    const value = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const samples = [
+      "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature",
+      `SERVICE_TOKEN=${value}`,
+      `const serviceApiKey = "${value}";`,
+      "-----BEGIN " + "PRIVATE KEY-----",
+      "AKIA" + "ABCDEFGHIJKLMNOP",
+      "const accessToken = generateAccessToken(user.id);",
+      "DATABASE_PASSWORD=<placeholder>",
+      "plain text",
+    ];
+    for (const sample of samples) {
+      expect(secretFindings(sample).size > 0, sample).toBe(
+        containsSecret(sample),
+      );
+      expect(introducesSecret("", sample), sample).toBe(containsSecret(sample));
+      expect(introducesSecret(sample, sample), sample).toBe(false);
+    }
+    const existing = `SERVICE_TOKEN=${value}\n`;
+    expect(introducesSecret(existing, `${existing}plain text\n`)).toBe(false);
+    expect(introducesSecret(existing, existing + existing)).toBe(true);
+    expect(
+      introducesSecret(existing, existing.replace(value, `${value}0`)),
+    ).toBe(true);
+    expect(
+      introducesSecret(existing, `const accessToken =\n  "${value}";`),
+    ).toBe(true);
+  });
+  it("treats a changed credential as added when a detector matches only part of it", () => {
+    const header = "-----BEGIN " + "PRIVATE KEY-----";
+    const footer = "-----END " + "PRIVATE KEY-----";
+    const pem = (body: string) => `${header}\n${body}\n${footer}`;
+    const jwtHeader = "eyJhbGciOiJIUzI1NiJ9";
+    const value = "abcdefghijklmnopqrstuv";
+    for (const [name, before, after] of [
+      [
+        "private key body swap",
+        `const key = \`${pem("fixturebody")}\`;\n`,
+        `const key = \`${pem("replacementbody")}\`;\n`,
+      ],
+      [
+        "private key moved under a removed bare header",
+        `check("${header}");\nexport {};\n`,
+        `check("x");\nconst key = \`${pem("replacementbody")}\`;\nexport {};\n`,
+      ],
+      [
+        "token changed after its first dot",
+        `SERVICE_TOKEN=${jwtHeader}.eyJzdWIiOiJmIn0.fixturesig\n`,
+        `SERVICE_TOKEN=${jwtHeader}.eyJzdWIiOiJhIn0.replacementsig\n`,
+      ],
+      [
+        "password changed after punctuation",
+        `const password = "sixteencharprefix!fixture";\n`,
+        `const password = "sixteencharprefix!replacement";\n`,
+      ],
+      [
+        "repeat matched by fewer detectors",
+        `API_TOKEN=${value}\n`,
+        `API_TOKEN=${value}.\nAPI_TOKEN=${value}.\n`,
+      ],
+    ])
+      expect(introducesSecret(before!, after!), name).toBe(true);
+    const block = `const key = \`${pem("fixturebody")}\`;\n`;
+    expect(introducesSecret(block, `a();\n${block}b();\n`)).toBe(false);
+    expect(
+      introducesSecret(
+        `SERVICE_TOKEN=${value}\nmodule.exports = {};\n`,
+        `SERVICE_TOKEN=${value}\nmodule.exports = { ready: true };\n`,
+      ),
+    ).toBe(false);
+  });
+  it(
+    "compares secret findings in long single-line and footer-less files quickly",
+    {
+      timeout: 10_000,
+    },
+    () => {
+      const size = 1_600_000;
+      const line = "password=aaaaaaaaaaaaaaaaaaaa ".repeat(size / 30);
+      expect(introducesSecret(line, line)).toBe(false);
+      expect(introducesSecret(line, `${line}x`)).toBe(true);
+      const headers = ("-----BEGIN " + "PRIVATE KEY-----\n").repeat(size / 28);
+      expect(introducesSecret(headers, `${headers}plain\n`)).toBe(false);
+    },
+  );
   it("requires explicit opt-in for only the public root template ledger", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "graph-public-ledger-"));
     directories.push(root);

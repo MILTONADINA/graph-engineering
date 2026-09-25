@@ -12,7 +12,7 @@ import type { ProjectPolicy } from "@graph-engineering/contracts";
 import type { WorkerProposal } from "../workers/api.js";
 import { hash } from "../util.js";
 import { checkedGit, managedGit } from "./git.js";
-import { containsSecret, isAllowedPath, safePath } from "../policy.js";
+import { introducesSecret, isAllowedPath, safePath } from "../policy.js";
 import {
   awsDescriptorForSecretScan,
   isAwsDescriptorPath,
@@ -127,6 +127,8 @@ export async function prepareProposal(
   policy: ProjectPolicy,
 ): Promise<Map<string, { absolute: string; content: string }>> {
   const staged = new Map<string, { absolute: string; content: string }>();
+  // Workspace content before this proposal, for judging only what it adds.
+  const baselines = new Map<string, string>();
   for (const change of proposal.changes) {
     const absolute = await safePath(workspace, change.path, policy);
     let content = staged.get(change.path)?.content;
@@ -137,6 +139,7 @@ export async function prepareProposal(
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
+    if (!baselines.has(change.path)) baselines.set(change.path, content ?? "");
     if (change.before === null) {
       if (content !== undefined)
         throw new Error(
@@ -155,6 +158,7 @@ export async function prepareProposal(
       content = content.replace(change.before, () => change.after);
     }
     let scannerContent = content;
+    let scannerBaseline = baselines.get(change.path)!;
     if (
       isAwsDescriptorPath(change.path) &&
       !isAllowedPath(change.path, policy, true)
@@ -166,8 +170,10 @@ export async function prepareProposal(
         policy,
       );
       scannerContent = awsDescriptorForSecretScan(content);
+      // Generated descriptors are still scanned whole.
+      scannerBaseline = "";
     }
-    if (containsSecret(scannerContent))
+    if (introducesSecret(scannerBaseline, scannerContent))
       throw new Error(`Patch includes a potential secret in ${change.path}`);
     staged.set(change.path, { absolute, content });
   }

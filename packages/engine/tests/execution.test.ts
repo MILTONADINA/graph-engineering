@@ -240,6 +240,61 @@ describe("managed execution", () => {
       ),
     ).rejects.toThrow("scope");
   });
+  it("judges an edit to a file with existing credential-like fixtures by what it adds", async () => {
+    const { root } = await fixture();
+    // Assembled so this test source does not itself look like a credential.
+    const existing = "Zq7Lm2Xp" + "9Rt4Vb8Nc3Kd";
+    const added = "Hw5Tj8Qe" + "2Ys6Ua1Fg7Pm";
+    const file = "fixtures.test.cjs";
+    const baseline =
+      `const serviceToken = "${existing}";\n` +
+      "const accessToken =\n  undefined;\n" +
+      "module.exports = {};\n";
+    await writeFile(path.join(root, file), baseline);
+    const edit = (before: string, after: string) =>
+      applyProposal(
+        root,
+        {
+          summary: "edit",
+          requests: [],
+          changes: [{ path: file, before, after }],
+        },
+        DEFAULT_POLICY,
+      );
+    await expect(
+      edit("module.exports = {};", "module.exports = { ready: true };"),
+    ).resolves.toEqual([file]);
+    expect(await readFile(path.join(root, file), "utf8")).toContain(
+      `const serviceToken = "${existing}";`,
+    );
+    for (const [before, after] of [
+      ["module.exports", `const backupToken = "${added}";\nmodule.exports`],
+      ["module.exports", `const serviceToken = "${existing}";\nmodule.exports`],
+      [existing, added],
+      ["  undefined;", `  "${added}";`],
+    ])
+      await expect(edit(before!, after!), after).rejects.toThrow(
+        `Patch includes a potential secret in ${file}`,
+      );
+    await expect(
+      applyProposal(
+        root,
+        {
+          summary: "create",
+          requests: [],
+          changes: [
+            {
+              path: "created.cjs",
+              before: null,
+              after: `const serviceToken = "${existing}";\n`,
+            },
+          ],
+        },
+        DEFAULT_POLICY,
+      ),
+    ).rejects.toThrow("Patch includes a potential secret in created.cjs");
+    expect(await readFile(path.join(root, file), "utf8")).not.toContain(added);
+  });
   it("retains the original worktree and persists independent verification evidence", async () => {
     const { root } = await fixture();
     const engine = await GraphEngine.open(root, {
