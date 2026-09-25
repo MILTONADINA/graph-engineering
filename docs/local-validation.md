@@ -223,8 +223,13 @@ policy still allows no hosts and caps external spend at $0.
   - One re-scoped retry, run `8f356a3b` with a local 131k budget, took three
     worker turns (about 94k input and 1.4k output tokens). Qwen produced a
     three-file patch, which the engine refused before applying because its
-    secret scanner flagged the new test. The proposal body is not retained,
-    so whether that was a true or false positive is unknown.
+    secret scanner flagged `packages/engine/tests/mcp.test.ts`. The proposal
+    body is not retained, but the refusal was structural: the patch check
+    scanned the whole resulting file, and that file already matched the
+    scanner at the run's baseline `88267ad` because of existing test
+    fixtures, so no edit to it could have been applied. The patch check now
+    refuses only matches a patch adds or alters; export checks still scan
+    whole files.
   - Both failures are kept in the private run store. The revocation command
     was then written directly and reviewed in a normal PR.
 

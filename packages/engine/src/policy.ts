@@ -161,19 +161,98 @@ function hasAssignedCredential(text: string): boolean {
   return false;
 }
 
+const knownKey =
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b/i;
+const namedToken =
+  /\b[A-Z][A-Z0-9_]*_TOKEN\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_-]{16,}={0,2}/;
+const bearerHeader =
+  /\bauthorization\s*:\s*bearer\s+(?!<|example|placeholder|your[-_]|test[-_])[A-Za-z0-9._~+/-]{16,}={0,2}(?=\s|$|["'])/i;
 export function containsSecret(text: string): boolean {
-  const knownKey =
-    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b/i;
-  const namedToken =
-    /\b[A-Z][A-Z0-9_]*_TOKEN\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_-]{16,}={0,2}/;
-  const bearerHeader =
-    /\bauthorization\s*:\s*bearer\s+(?!<|example|placeholder|your[-_]|test[-_])[A-Za-z0-9._~+/-]{16,}={0,2}(?=\s|$|["'])/i;
   return (
     knownKey.test(text) ||
     hasAssignedCredential(text) ||
     namedToken.test(text) ||
     bearerHeader.test(text)
   );
+}
+const privateKeyFooter = /-----END [^-]*PRIVATE KEY-----/gi;
+// The same detectors as containsSecret, counted per finding; the map is
+// non-empty exactly when containsSecret(text) is true. Detectors can match
+// only part of a credential (a key header, a token cut at "."), so a finding
+// is the detector plus the whole lines the match touches, and a private key
+// header extends through its END marker. Line and footer lookups are shared
+// across matches so long minified lines stay linear.
+export function secretFindings(text: string): Map<string, number> {
+  const newlines: number[] = [];
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1))
+    newlines.push(at);
+  const firstNewlineAtOrAfter = (offset: number) => {
+    let low = 0;
+    let high = newlines.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (newlines[middle]! < offset) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  const ranges = new Map<string, number>();
+  const add = (detector: string, start: number, end: number) => {
+    const previous = firstNewlineAtOrAfter(start) - 1;
+    const next = firstNewlineAtOrAfter(end);
+    const lineStart = previous < 0 ? 0 : newlines[previous]! + 1;
+    const lineEnd = next < newlines.length ? newlines[next]! : text.length;
+    const range = `${detector}:${lineStart}:${lineEnd}`;
+    ranges.set(range, (ranges.get(range) ?? 0) + 1);
+  };
+  // The first footer starting at or after `searchedFrom` answers every later
+  // offset up to that footer's start, and a failed search answers all later
+  // offsets.
+  let searchedFrom = -1;
+  let footer: RegExpExecArray | null = null;
+  const footerEnd = (offset: number) => {
+    if (
+      searchedFrom === -1 ||
+      offset < searchedFrom ||
+      (footer && footer.index < offset)
+    ) {
+      privateKeyFooter.lastIndex = offset;
+      footer = privateKeyFooter.exec(text);
+      searchedFrom = offset;
+    }
+    return footer ? footer.index + footer[0].length : undefined;
+  };
+  for (const [detector, pattern] of [
+    ["key", knownKey],
+    ["token", namedToken],
+    ["bearer", bearerHeader],
+  ] as const)
+    for (const match of text.matchAll(
+      new RegExp(pattern.source, `${pattern.flags}g`),
+    )) {
+      let end = match.index + match[0].length;
+      if (/^-----BEGIN/i.test(match[0])) end = footerEnd(end) ?? end;
+      add(detector, match.index, end);
+    }
+  for (const match of text.matchAll(assignedCredential))
+    if (credentialName(match[2]!))
+      add("assigned", match.index, match.index + match[0].length);
+  const findings = new Map<string, number>();
+  for (const [range, count] of ranges) {
+    const [detector, start, end] = range.split(":");
+    const finding = `${detector}\0${text.slice(Number(start), Number(end))}`;
+    findings.set(finding, (findings.get(finding) ?? 0) + count);
+  }
+  return findings;
+}
+// True when `after` has a secret finding that `before` lacks, or has more
+// copies of one, so an edit is judged by what it adds rather than by
+// fixtures already in the file. A finding whose lines changed counts as added.
+export function introducesSecret(before: string, after: string): boolean {
+  const existing = secretFindings(before);
+  for (const [finding, count] of secretFindings(after))
+    if ((existing.get(finding) ?? 0) < count) return true;
+  return false;
 }
 export function redact(text: string): string {
   return text
