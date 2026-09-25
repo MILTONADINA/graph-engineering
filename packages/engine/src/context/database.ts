@@ -211,5 +211,8 @@ export const CONTEXT_MIGRATIONS = [
    CREATE TABLE chunk_embeddings (snapshot_id TEXT NOT NULL,chunk_id TEXT NOT NULL,cache_key TEXT NOT NULL REFERENCES embeddings(cache_key),PRIMARY KEY(snapshot_id,chunk_id),FOREIGN KEY(chunk_id,snapshot_id) REFERENCES chunks(id,snapshot_id));
    INSERT INTO chunk_embeddings SELECT ce.snapshot_id,ce.chunk_id,ce.cache_key FROM old_chunk_embeddings ce JOIN chunks c ON c.id=ce.chunk_id AND c.snapshot_id=ce.snapshot_id;
    DROP TABLE old_chunk_embeddings;`,
+  // Operator-recorded consent to export one memory's exact text to cloud
+  // consumers. Kept out of .graph/knowledge so a repository write cannot grant it.
+  "CREATE TABLE memory_export_authorizations (memory_id TEXT NOT NULL REFERENCES memories(id), text_sha256 TEXT NOT NULL, authorized_at TEXT NOT NULL, PRIMARY KEY(memory_id,text_sha256));",
 ];
 export const CONTEXT_SCHEMA_VERSION = CONTEXT_MIGRATIONS.length;

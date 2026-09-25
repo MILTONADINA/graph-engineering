@@ -132,6 +132,9 @@ async function main() {
       snapshotId: snapshot.id,
       query: task.objective,
       mandatory: task.acceptance,
+      // Acceptance criteria only; an explicit empty list records that no
+      // project memory is present, which cloud export requires.
+      mandatorySources: [],
       items,
       estimatedTokens: Buffer.byteLength(
         JSON.stringify(items) + task.objective + task.acceptance.join("\n"),

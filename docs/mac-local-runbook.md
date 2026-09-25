@@ -114,20 +114,21 @@ branch. Publication is disabled in this checkout.
 
 The shared policy permits selected source/docs exports and filters private
 memory, credential patterns, private runtime data, and non-allowlisted paths.
-This is not a proof that arbitrary source contains no secret. The current cloud
-`context_get` can also return shared mandatory memory before anyone reviews
-the tool result; cloud worker packets can carry it too. Until the handover's
-pre-return/pre-dispatch memory guard is implemented and tested, use local
-retrieval rather than cloud `context_get`, and do not dispatch Graph-managed
-cloud worker packets. Cloud `run_status` returns operational metadata outside the
-selected source/docs approval and should not be used without a scope gate or
-separate authorization.
+This is not a proof that arbitrary source contains no secret. Cloud
+`context_get` and Graph-managed cloud worker packets refuse mandatory memory
+unless an operator has authorized export of its exact text:
+`npm run graph:local -- memory-export-authorize <id>` prints the text and its
+SHA-256, and re-running with `--sha256 <hash>` records consent in the private
+context database. Cloud `run_status` returns operational metadata outside the
+selected source/docs approval, so it is withheld unless the MCP server runs
+with `--allow-run-status`. `.mcp.json` runs `packages/engine/dist`: rebuild the
+engine and restart MCP clients before relying on these guards.
 
 Client-local MCP files are ignored by Git. Codex recognizes the configured
 stdio server. A constrained Claude Code call using the explicit project MCP
 configuration retrieved exportable source; normal project-wide approval is
-complete for that project server only. After the pre-return guard is in place,
-cloud `context_get` defaults to lexical retrieval for bounded cold latency.
+complete for that project server only. Cloud `context_get` defaults to
+lexical retrieval for bounded cold latency.
 Request `retrieval: "hybrid"` explicitly when the local embedding index is
 prepared and semantic recall is needed.
 Cursor has activated Serena in this workspace under the registered project

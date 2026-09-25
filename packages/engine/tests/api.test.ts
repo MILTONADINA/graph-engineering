@@ -182,6 +182,7 @@ it("requests Anthropic structured output and rejects refusal or truncation", asy
         snapshotId: "snapshot",
         query: "fix",
         mandatory: ["tests pass"],
+        mandatorySources: [],
         items: [],
         estimatedTokens: 20,
         budgetTokens: 1000,

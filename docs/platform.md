@@ -41,7 +41,7 @@ npm run graph -- -C /path/to/project memory-accept MEMORY_ID
 npm run graph -- -C /path/to/project memory-share MEMORY_ID
 ```
 
-New memories are private proposals. Acceptance makes a record usable as project knowledge; sharing writes a reviewable `.graph/knowledge/<id>.json` file without committing it. Explicit supersession keeps history; competing/cyclic imported successors remain unresolved. Stale or conflicted mandatory constraints are preserved for review, never silently removed. Private mandatory memories block cloud context export rather than disappearing from a task.
+New memories are private proposals. Acceptance makes a record usable as project knowledge; sharing writes a reviewable `.graph/knowledge/<id>.json` file without committing it. Explicit supersession keeps history; competing/cyclic imported successors remain unresolved. Stale or conflicted mandatory constraints are preserved for review, never silently removed. Private mandatory memories block cloud context export rather than disappearing from a task. Sharing is not export authorization: a cloud consumer receives shared mandatory memory only after an operator reviews its exact text with `graph-engine memory-export-authorize <id>` and records consent with `--sha256 <hash>`; until then the whole packet is refused.
 
 ### Storage lifecycle
 
@@ -78,9 +78,9 @@ Configure the installed CLI as a stdio MCP server:
 }
 ```
 
-Use `--client local` only for a consumer whose inference actually stays local. Cloud-backed clients are refused for offline projects. Cloud graph lookups apply the export allowlist to seeds and both resolved endpoints before traversal, so non-exportable files cannot disclose target identifiers or connect otherwise separate public nodes. MCP exposes context, symbols, graph relationships, templates, memory proposals, and run status. `--allow-run` separately enables starting existing managed plans. MCP does not replace a native client's own permissions or intercept all its model calls.
+Use `--client local` only for a consumer whose inference actually stays local. Cloud-backed clients are refused for offline projects. Cloud graph lookups apply the export allowlist to seeds and both resolved endpoints before traversal, so non-exportable files cannot disclose target identifiers or connect otherwise separate public nodes. MCP exposes context, symbols, graph relationships, templates, memory proposals, and run status; cloud clients see run status only when the server runs with `--allow-run-status`. `--allow-run` separately enables starting existing managed plans. MCP does not replace a native client's own permissions or intercept all its model calls.
 
-The owner currently authorizes selected source/docs, not blanket shared-memory or operational-metadata export. Cloud `context_get` may return shared mandatory memory before client-side review, and cloud `run_status` returns run metadata. Do not use those cloud tools until pre-return scope guards are implemented and tested; see the [handover's immediate privacy task](claude-code-handover.md#the-next-engineering-phase). Suspend Graph-managed cloud worker packet dispatch until the same pre-dispatch mandatory-memory guard is tested. Path and credential-pattern filters cannot prove arbitrary allowlisted source is secret-free.
+The owner currently authorizes selected source/docs, not blanket shared-memory or operational-metadata export. Cloud `context_get` and Graph-managed cloud worker dispatch refuse, before returning or dispatching anything, a packet whose mandatory memory is private, unsourced, outside `exportPaths`, altered, or not authorized for its exact text, and a cloud packet with no memory provenance. Path and credential-pattern filters cannot prove arbitrary allowlisted source is secret-free.
 
 ## Configure workers
 

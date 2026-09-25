@@ -1,9 +1,11 @@
 import { it, expect, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { ExecutionPlan, RunRecord } from "@graph-engineering/contracts";
 import { GraphEngine } from "../src/service.js";
 import { initializeProject, projectDataDir } from "../src/project.js";
 import { createMcpServer } from "../src/mcp.js";
@@ -452,5 +454,192 @@ it("cloud graph traversal cannot expose resolved private targets or bridge throu
       recursive: true,
       force: true,
     });
+  }
+}, 20000);
+
+async function exportFixture(prefix: string) {
+  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+  const config = await initializeProject(root);
+  config.policy.inference = "allowlisted";
+  config.policy.network = "allowlisted";
+  config.policy.exportPaths = ["public/**"];
+  await writeFile(
+    path.join(root, ".graph", "project.json"),
+    JSON.stringify(config),
+  );
+  await mkdir(path.join(root, "public"));
+  await writeFile(
+    path.join(root, "public", "rule.ts"),
+    "export const rule = true;\n",
+  );
+  const engine = await GraphEngine.open(root);
+  const cleanup = async () => {
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(projectDataDir(config.projectId), {
+      recursive: true,
+      force: true,
+    });
+  };
+  return { engine, cleanup };
+}
+
+async function connect(
+  engine: GraphEngine,
+  options: Parameters<typeof createMcpServer>[1],
+) {
+  const server = createMcpServer(engine, options);
+  const client = new Client({ name: "export-guard-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  return {
+    client,
+    close: async () => {
+      await client.close();
+      await server.close();
+    },
+  };
+}
+
+const sha256 = (text: string) =>
+  createHash("sha256").update(text).digest("hex");
+
+it("cloud context_get refuses shared mandatory memory until its exact text is authorized", async () => {
+  const { engine, cleanup } = await exportFixture("graph-mcp-memory-export-");
+  const canary = "SHARED_MANDATORY_EXPORT_CANARY must stay local";
+  try {
+    await engine.context.index();
+    const source = (await engine.context.searchSymbols("public/rule.ts"))[0]!
+      .source;
+    const memory = await engine.context.createMemory({
+      kind: "constraint",
+      text: canary,
+      sources: [source],
+    });
+    await engine.context.acceptMemory(memory.id);
+    await engine.context.promoteMemory(memory.id);
+    const call = async (client: "local" | "cloud") => {
+      const connection = await connect(engine, { client });
+      try {
+        return await connection.client.callTool({
+          name: "context_get",
+          arguments: { query: "rule" },
+        });
+      } finally {
+        await connection.close();
+      }
+    };
+
+    const refused = await call("cloud");
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused)).toContain("authorized for export");
+    expect(JSON.stringify(refused)).not.toContain(canary);
+    const local = await call("local");
+    expect(local.isError).not.toBe(true);
+    expect(JSON.stringify(local)).toContain(canary);
+
+    await expect(
+      engine.context.authorizeMemoryExport(memory.id, sha256(canary + " ")),
+    ).rejects.toThrow("exact text");
+    await engine.context.authorizeMemoryExport(memory.id, sha256(canary));
+    const exported = await call("cloud");
+    expect(exported.isError).not.toBe(true);
+    const packet = JSON.parse(
+      (exported.content as { text: string }[])[0]!.text,
+    );
+    expect(packet.mandatory).toEqual([canary]);
+    expect(packet.mandatorySources).toEqual([
+      expect.objectContaining({
+        memoryId: memory.id,
+        textSha256: sha256(canary),
+        exportAuthorized: true,
+      }),
+    ]);
+  } finally {
+    await cleanup();
+  }
+}, 20000);
+
+it("cloud context_get refuses private mandatory memory and it cannot be authorized", async () => {
+  const { engine, cleanup } = await exportFixture("graph-mcp-memory-private-");
+  const canary = "PRIVATE_MANDATORY_EXPORT_CANARY";
+  try {
+    await engine.context.index();
+    const source = (await engine.context.searchSymbols("public/rule.ts"))[0]!
+      .source;
+    const memory = await engine.context.createMemory({
+      kind: "requirement",
+      text: canary,
+      sources: [source],
+    });
+    await engine.context.acceptMemory(memory.id);
+    await expect(
+      engine.context.authorizeMemoryExport(memory.id, sha256(canary)),
+    ).rejects.toThrow("Share the memory");
+    const connection = await connect(engine, { client: "cloud" });
+    try {
+      const refused = await connection.client.callTool({
+        name: "context_get",
+        arguments: { query: "rule" },
+      });
+      expect(refused.isError).toBe(true);
+      expect(JSON.stringify(refused)).toContain("not exportable");
+      expect(JSON.stringify(refused)).not.toContain(canary);
+    } finally {
+      await connection.close();
+    }
+  } finally {
+    await cleanup();
+  }
+}, 20000);
+
+it("run_status is withheld from cloud clients unless explicitly allowed", async () => {
+  const { engine, cleanup } = await exportFixture("graph-mcp-run-status-");
+  try {
+    engine.store.saveRun({
+      id: "status-run",
+      plan: { id: "status-plan" } as ExecutionPlan,
+      status: "succeeded",
+      usage: {
+        inputTokens: 1,
+        outputTokens: 2,
+        cachedTokens: null,
+        costUsd: null,
+        estimated: true,
+      },
+      commit: "RUN_STATUS_COMMIT_CANARY",
+    } as RunRecord);
+    for (const [options, exposed] of [
+      [{ client: "cloud" }, false],
+      [{ client: "cloud", allowRunStatus: true }, true],
+      [{ client: "local" }, true],
+    ] as const) {
+      const connection = await connect(engine, options);
+      try {
+        const names = (await connection.client.listTools()).tools.map(
+          (tool) => tool.name,
+        );
+        expect(names.includes("run_status")).toBe(exposed);
+        const status = await connection.client.callTool({
+          name: "run_status",
+          arguments: { runId: "status-run" },
+        });
+        if (exposed) {
+          expect(status.isError).not.toBe(true);
+          expect(JSON.stringify(status)).toContain("RUN_STATUS_COMMIT_CANARY");
+        } else {
+          expect(status.isError).toBe(true);
+          expect(JSON.stringify(status)).not.toContain(
+            "RUN_STATUS_COMMIT_CANARY",
+          );
+        }
+      } finally {
+        await connection.close();
+      }
+    }
+  } finally {
+    await cleanup();
   }
 }, 20000);

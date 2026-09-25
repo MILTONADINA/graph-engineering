@@ -399,6 +399,22 @@ cli
   .command("memory-share <id>")
   .action((id) => withEngine((engine) => engine.context.promoteMemory(id)));
 cli
+  .command("memory-export-authorize <id>")
+  .description(
+    "Authorize cloud export of one accepted, shared memory's exact text; without --sha256, print the text and its SHA-256 for review",
+  )
+  .option(
+    "--sha256 <hex>",
+    "SHA-256 of the exact memory text, echoed back after review",
+  )
+  .action((id, options) =>
+    withEngine((engine) =>
+      options.sha256
+        ? engine.context.authorizeMemoryExport(id, options.sha256)
+        : engine.context.memoryExportReview(id),
+    ),
+  );
+cli
   .command("memory-import")
   .action(() => withEngine((engine) => engine.context.importSharedMemories()));
 cli
@@ -500,11 +516,16 @@ cli
     "cloud",
   )
   .option("--allow-run", "Expose managed run start capability")
+  .option(
+    "--allow-run-status",
+    "Expose run status, usage, commit and PR metadata to a cloud client",
+  )
   .action(async (options) => {
     const engine = await GraphEngine.open(root());
     const server = await serveMcp(engine, {
       client: z.enum(["local", "cloud"]).parse(options.client),
       allowRun: options.allowRun,
+      allowRunStatus: options.allowRunStatus,
     });
     process.once(
       "SIGINT",

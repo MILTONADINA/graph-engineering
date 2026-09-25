@@ -340,7 +340,7 @@ describe("storage and maintenance safety", () => {
     await engine.close();
     const db = new Database(join(dataDir, "context.sqlite"));
     db.exec(
-      "DROP TABLE summaries; DROP TABLE solution_cache; DROP TABLE memory_reviews; DROP INDEX files_reusable_parse; DELETE FROM context_metadata WHERE key='schemaVersion';",
+      "DROP TABLE memory_export_authorizations; DROP TABLE summaries; DROP TABLE solution_cache; DROP TABLE memory_reviews; DROP INDEX files_reusable_parse; DELETE FROM context_metadata WHERE key='schemaVersion';",
     );
     db.exec(CONTEXT_SCHEMA);
     db.close();

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -503,5 +504,103 @@ describe("managed DAG safety boundaries", () => {
     expect(run.error).toMatch(/no exportable evidence/);
     expect(worker).toHaveBeenCalledTimes(1);
     expect(run.error).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+  });
+});
+
+describe("workspace knowledge during managed runs", () => {
+  const reviewed = "REVIEWED shared constraint";
+  const edited = "EDITED shared constraint";
+  // Shares a reviewed constraint, commits it, then lands a teammate's edit to
+  // the committed knowledge file. The project database keeps the reviewed
+  // text in force; only the run workspace imports the edited text.
+  async function shareThenEditCommitted(
+    engine: GraphEngine,
+    root: string,
+    sourcePath?: string,
+    authorize = false,
+  ) {
+    await engine.context.index();
+    const sources = sourcePath
+      ? [(await engine.context.searchSymbols(sourcePath))[0]!.source]
+      : [];
+    const memory = await engine.context.createMemory({
+      kind: "constraint",
+      text: reviewed,
+      sources,
+    });
+    await engine.context.acceptMemory(memory.id);
+    await engine.context.promoteMemory(memory.id);
+    if (authorize)
+      await engine.context.authorizeMemoryExport(
+        memory.id,
+        createHash("sha256").update(reviewed).digest("hex"),
+      );
+    await checked("git", ["add", "."], { cwd: root });
+    await checked("git", ["commit", "-m", "test: share constraint"], {
+      cwd: root,
+    });
+    const file = path.join(root, ".graph", "knowledge", `${memory.id}.json`);
+    const record = JSON.parse(await readFile(file, "utf8"));
+    record.text = edited;
+    await writeFile(file, JSON.stringify(record, null, 2) + "\n");
+    await checked("git", ["commit", "-am", "test: edit shared constraint"], {
+      cwd: root,
+    });
+    await engine.context.index();
+  }
+
+  it("keeps local runs working when a committed shared constraint was later edited", async () => {
+    const { root } = await fixture();
+    const seen: string[][] = [];
+    const engine = await open(root, {
+      worker: async (input) => {
+        seen.push(input.context.mandatory);
+        return result(input.objective);
+      },
+    });
+    await shareThenEditCommitted(engine, root);
+    const planned = await engine.createPlan({
+      objective: "Update first and second exports",
+      acceptance: ["Both constants are updated"],
+      providerId: "local",
+      steps: [step("one"), step("two", ["one"])],
+    });
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(seen).toHaveLength(2);
+    for (const mandatory of seen) expect(mandatory).toContain(reviewed);
+  });
+
+  it("refuses cloud dispatch of mandatory text that only the run workspace imported", async () => {
+    const { root, data } = await fixture((config) => {
+      config.policy.inference = "allowlisted";
+      config.policy.network = "allowlisted";
+      config.policy.allowedHosts = ["api.openai.com"];
+      config.policy.exportPaths = ["first.js"];
+      config.policy.providers = ["cloud"];
+    });
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+    });
+    const seen: string[] = [];
+    const engine = await open(root, {
+      worker: async (input) => {
+        seen.push(JSON.stringify(input.context));
+        return result(input.objective);
+      },
+    });
+    await shareThenEditCommitted(engine, root, "first.js", true);
+    const planned = await engine.createPlan({
+      objective: "Update first and second exports",
+      acceptance: ["Both constants are updated"],
+      providerId: "cloud",
+      steps: [step("one", [], "cloud"), step("two", ["one"], "cloud")],
+    });
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/Mandatory memory is not exportable/);
+    expect(seen.join("\n")).not.toContain(edited);
   });
 });

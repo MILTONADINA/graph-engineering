@@ -8,6 +8,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -437,9 +438,12 @@ describe("local context indexing", () => {
     });
     expect(context.mandatory).toContain(rule.text);
     expect(context.mandatorySources).toContainEqual({
+      memoryId: rule.id,
       text: rule.text,
+      textSha256: createHash("sha256").update(rule.text).digest("hex"),
       visibility: "private",
       sources: [],
+      exportAuthorized: false,
     });
     await expect(
       engine.getContext({

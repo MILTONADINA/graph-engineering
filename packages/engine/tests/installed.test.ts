@@ -91,6 +91,7 @@ function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
       snapshotId: "snapshot-test",
       query: "boolean",
       mandatory: ["Preserve public API"],
+      mandatorySources: [],
       items: [
         {
           id: "public",

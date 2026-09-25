@@ -945,17 +945,30 @@ export class ContextEngine {
       )
     )
       throw new Error("Mandatory memory is not exportable to this client");
+    const authorizations = await this.exportAuthorizations();
+    const mandatorySources = mandatoryMemories.map((memory) => {
+      const textSha256 = hash(memory.text);
+      return {
+        memoryId: memory.id,
+        text: memory.text,
+        textSha256,
+        visibility: memory.visibility,
+        sources: memory.sources,
+        exportAuthorized: authorizations.has(`${memory.id}:${textSha256}`),
+      };
+    });
+    // Every contributing record must be authorized, including duplicates of
+    // the same text, and nothing is dropped to make the export succeed.
+    if (exportOnly && mandatorySources.some((entry) => !entry.exportAuthorized))
+      throw new Error(
+        "Mandatory memory has not been authorized for export to this client",
+      );
     const mandatory = [
       ...new Set([
         ...(input.mandatory ?? []),
         ...mandatoryMemories.map((memory) => memory.text),
       ]),
     ];
-    const mandatorySources = mandatoryMemories.map((memory) => ({
-      text: memory.text,
-      visibility: memory.visibility,
-      sources: memory.sources,
-    }));
     let used =
       estimateTokens(input.query) +
       mandatory.reduce((total, text) => total + estimateTokens(text), 0) +
@@ -1287,18 +1300,7 @@ export class ContextEngine {
     };
     this.validateMemory(record);
     if (record.supersedes) await this.memory(record.supersedes);
-    for (const source of record.sources) {
-      await this.snapshot(source.snapshotId);
-      const file = await this.db.get<Payload>(
-        "SELECT payload FROM files WHERE snapshot_id=? AND path=? AND content_hash=?",
-        [source.snapshotId, source.path, source.contentHash],
-      );
-      if (
-        !file ||
-        source.endLine > json<ParsedFile>(file).text.split("\n").length
-      )
-        throw new Error("Memory source does not match indexed evidence");
-    }
+    await this.verifyMemorySources(record.sources);
     await this.db.batch(
       [
         {
@@ -1314,6 +1316,92 @@ export class ContextEngine {
       [...new Set(record.sources.map((source) => source.snapshotId))],
     );
     return record;
+  }
+  private async verifyMemorySources(sources: SourceReference[]): Promise<void> {
+    for (const source of sources) {
+      await this.snapshot(source.snapshotId);
+      const file = await this.db.get<Payload>(
+        "SELECT payload FROM files WHERE snapshot_id=? AND path=? AND content_hash=?",
+        [source.snapshotId, source.path, source.contentHash],
+      );
+      if (
+        !file ||
+        source.endLine > json<ParsedFile>(file).text.split("\n").length
+      )
+        throw new Error("Memory source does not match indexed evidence");
+    }
+  }
+  private async exportAuthorizations(): Promise<Set<string>> {
+    const rows = await this.db.all<{ memory_id: string; text_sha256: string }>(
+      "SELECT memory_id,text_sha256 FROM memory_export_authorizations",
+    );
+    return new Set(rows.map((row) => `${row.memory_id}:${row.text_sha256}`));
+  }
+  /** Shows exactly what memoryExportAuthorize would release, without recording consent. */
+  async memoryExportReview(id: string): Promise<{
+    id: string;
+    kind: MemoryKind;
+    status: MemoryRecord["status"];
+    visibility: MemoryRecord["visibility"];
+    text: string;
+    textSha256: string;
+    sources: SourceReference[];
+    exportAuthorized: boolean;
+  }> {
+    await this.ready;
+    const record = await this.memory(id);
+    this.validateMemory(record);
+    const textSha256 = hash(record.text);
+    return {
+      id: record.id,
+      kind: record.kind,
+      status: record.status,
+      visibility: record.visibility,
+      text: record.text,
+      textSha256,
+      sources: record.sources,
+      exportAuthorized: (await this.exportAuthorizations()).has(
+        `${record.id}:${textSha256}`,
+      ),
+    };
+  }
+  /**
+   * Records operator consent to export one accepted, shared memory's exact
+   * text to cloud consumers. The caller must echo the SHA-256 of the text it
+   * reviewed; sharing alone never authorizes export.
+   */
+  async authorizeMemoryExport(
+    id: string,
+    textSha256: string,
+  ): Promise<{ id: string; textSha256: string; authorizedAt: string }> {
+    await this.ready;
+    const record = await this.memory(id);
+    this.validateMemory(record);
+    if (record.status !== "accepted")
+      throw new Error("Only accepted memories can be authorized for export");
+    if (record.visibility !== "shared")
+      throw new Error("Share the memory before authorizing its export");
+    if (
+      record.sources.length === 0 ||
+      containsSecret(record.text) ||
+      record.sources.some(
+        (source) =>
+          !isAllowedPath(source.path, this.policy, true) ||
+          containsSecret(source.path),
+      )
+    )
+      throw new Error(
+        "Memory needs source evidence inside the export policy before it can be exported",
+      );
+    await this.verifyMemorySources(record.sources);
+    if (textSha256 !== hash(record.text))
+      throw new Error("The SHA-256 does not match this memory's exact text");
+    const authorizedAt = new Date().toISOString();
+    await this.db.run(
+      "INSERT OR IGNORE INTO memory_export_authorizations(memory_id,text_sha256,authorized_at) VALUES(?,?,?)",
+      [record.id, textSha256, authorizedAt],
+    );
+    return { id: record.id, textSha256, authorizedAt };
   }
   private async memoryPayload(id: string): Promise<string> {
     const row = await this.db.get<Payload>(
