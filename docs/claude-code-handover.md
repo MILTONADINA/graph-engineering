@@ -117,6 +117,29 @@ required checks on its exact tip before merge. At the owner's request the
 superseded side-branch PRs (#1 and #15) were closed and their branches and
 worktrees removed; nothing else from them is planned.
 
+Two engine fixes then addressed the recorded Qwen pilot failures, each after
+adversarial review found and removed a defect in its first draft:
+
+- [Fork PR #26](https://github.com/MILTONADINA/graph-engineering/pull/26)
+  (`51969d5`): the worker patch check refused any edit to a file that
+  already matched the secret scanner, so run `8f356a3b` could never edit
+  `packages/engine/tests/mcp.test.ts`. A patch is now refused only when it
+  adds a finding (detector plus the whole lines it touches, a private key
+  header through its `END` marker) or more copies of one. Export checks still
+  scan whole content. The known limits (a credential continued onto a later
+  line that is the only one changed) are in the PR.
+- [Fork PR #27](https://github.com/MILTONADINA/graph-engineering/pull/27)
+  (`c820668`): Node's `fetch` stops waiting for provider headers or body data
+  after 300 s whatever `timeoutSeconds` allows. Provider calls now use a
+  plain `node:http`/`node:https` request bounded only by cancellation and the
+  policy timeout. The `undici` package's own `fetch` was rejected because
+  6.28.1 can lose a cancellation after response headers.
+
+Both passed all nine required checks on their exact tips and after merge.
+The `windows-2025` job once timed out at 60 s in `tests/context.test.ts`
+("parses all launch languages…") on a commit that did not touch indexing and
+passed on re-run; treat a repeat as a flaky-test lead, not a regression.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.
