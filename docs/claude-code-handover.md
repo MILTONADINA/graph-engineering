@@ -465,11 +465,14 @@ prove its failure path with focused tests before running long suites.
    looping through speculative runs. A passing candidate would still need
    human acceptance and would not itself satisfy held-out promotion gates.
 7. **Optional integrations only after prerequisites.** Jev has a private
-   ignored key-source pointer and an opt-in launcher, but no metered Jev call
-   is recorded in the work described here. Each open-source operator chooses
-   supported providers, reviewed account-specific pricing and a numeric
-   spending cap; this owner's cap has
-   **not** been supplied. Codex managed proposal mode requires a binary that
+   ignored key-source pointer and an opt-in launcher. On 2026-09-25 the owner
+   authorized metered Jev for one session under a numeric cap chosen for that
+   session, and the first engine Jev decisions (shadow only) are recorded in
+   [local validation](local-validation.md#local-stack-pilot-with-jev-routing--2026-09-25-utc).
+   That authorization does not carry over: each open-source operator, and this
+   owner in each new session, chooses supported providers, reviewed
+   account-specific pricing and a numeric spending cap, which stay out of
+   tracked files. Codex managed proposal mode requires a binary that
    actually exposes restricted read roots. Cursor managed SDK proposals need
    an explicit user key and authorized live validation. These paid/managed-worker
    gaps do not remove the project MCP configuration; cloud `context_get` still
