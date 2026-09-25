@@ -142,37 +142,39 @@ describe("bounded command transport", () => {
   it("refuses a worker configured with a decision-provider key", async () => {
     vi.stubEnv("GRAPH_JEV_API_KEY", "JEV_CANARY_NOT_A_REAL_KEY");
     const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
     await expect(
-      invokeApiWorker({
-        provider: {
-          id: "cloud",
-          kind: "anthropic",
-          model: "fixture",
-          apiKeyEnv: "GRAPH_JEV_API_KEY",
-          endpoint: "http://127.0.0.1:9",
+      invokeApiWorker(
+        {
+          provider: {
+            id: "cloud",
+            kind: "anthropic",
+            model: "fixture",
+            apiKeyEnv: "GRAPH_JEV_API_KEY",
+            endpoint: "http://127.0.0.1:9",
+          },
+          policy: {
+            ...DEFAULT_POLICY,
+            providers: ["cloud"],
+            inference: "allowlisted",
+            network: "allowlisted",
+          },
+          context: {
+            version: "1.0.0",
+            projectId: "project",
+            snapshotId: "snapshot",
+            query: "fix",
+            mandatory: [],
+            mandatorySources: [],
+            items: [],
+            estimatedTokens: 20,
+            budgetTokens: 1000,
+            coverage: { semantic: false, graph: "syntactic", warnings: [] },
+          },
+          objective: "Fix",
+          acceptance: ["done"],
         },
-        policy: {
-          ...DEFAULT_POLICY,
-          providers: ["cloud"],
-          inference: "allowlisted",
-          network: "allowlisted",
-        },
-        context: {
-          version: "1.0.0",
-          projectId: "project",
-          snapshotId: "snapshot",
-          query: "fix",
-          mandatory: [],
-          mandatorySources: [],
-          items: [],
-          estimatedTokens: 20,
-          budgetTokens: 1000,
-          coverage: { semantic: false, graph: "syntactic", warnings: [] },
-        },
-        objective: "Fix",
-        acceptance: ["done"],
-      }),
+        fetch,
+      ),
     ).rejects.toThrow("cannot use decision credential GRAPH_JEV_API_KEY");
     expect(fetch).not.toHaveBeenCalled();
   });

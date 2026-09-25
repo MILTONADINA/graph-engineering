@@ -232,6 +232,16 @@ policy still allows no hosts and caps external spend at $0.
     whole files.
   - Both failures are kept in the private run store. The revocation command
     was then written directly and reviewed in a normal PR.
+- Large local prompts can take minutes before the first response byte.
+  Provider calls used Node's built-in `fetch`, which stops waiting for
+  response headers or body data after 300 s whatever `policy.timeoutSeconds`
+  allows: on Node 26.3 (undici 8.3.0) a call with a 600 s abort signal failed
+  after 301 s with `UND_ERR_HEADERS_TIMEOUT` against a loopback server that
+  answered after 305 s. Provider calls now use a plain `node:http`/`node:https`
+  request bounded only by the caller's cancellation and the policy timeout;
+  an opt-in test (`GRAPH_ENGINE_SLOW_PROVIDER_TIMEOUT=1`) repeats the 305 s
+  case. The undici package's own `fetch` was rejected because version 6.28.1
+  can lose a cancellation or timeout that arrives after response headers.
 
 Laya's checkpoint warns at start-up that some confidence buckets were clamped
 and are uncalibrated; its shadow confidences carry that caveat.
