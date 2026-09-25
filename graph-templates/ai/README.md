@@ -29,7 +29,7 @@ Promoted from the narrower tier in v2.0.0 once `frontend.nextjs`/`authentication
 | [`ai.devops-agent`](devops-agent/) | Invokes `devops.*`, runs after testing |
 | [`ai.documentation-agent`](documentation-agent/) | Invokes `documentation.*` |
 | [`ai.code-review-agent`](code-review-agent/) | Convention conformance, terminal step |
-| [`ai.integration-agent`](integration-agent/) | `integrations.*` nodes are entirely `planned` — plans only |
+| [`ai.integration-agent`](integration-agent/) | No `integrations.*` nodes are registered — plans only |
 
 ## Planned
 
