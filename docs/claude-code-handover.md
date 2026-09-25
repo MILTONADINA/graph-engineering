@@ -93,12 +93,29 @@ text outright (it broke ordinary local runs) and against a version that
 forwarded that text without provenance to a cloud worker.
 
 [Fork PR #21](https://github.com/MILTONADINA/graph-engineering/pull/21)
-proposed the [promotion trust boundary](promotion-trust-boundary.md) design
-(item 3) with bypass tripwires and engine-level shadow tests. The owner then
+(merged at `88267ad`) records the
+[promotion trust boundary](promotion-trust-boundary.md) design (item 3) with
+bypass tripwires and engine-level shadow tests; its owner decisions remain
+open. The owner then
 authorized heavy TypeSafe Jev use under a per-session cap and had the local
 Qwen and Laya stack started; the first engine Jev decisions and a failed,
 bounded Qwen pilot are recorded in
 [local validation](local-validation.md#local-stack-pilot-with-jev-routing--2026-09-25-utc).
+
+Later the same day [fork PR #22](https://github.com/MILTONADINA/graph-engineering/pull/22)
+cleared lint warnings outside hash-pinned files (`d05f551`),
+[fork PR #23](https://github.com/MILTONADINA/graph-engineering/pull/23) added
+`memory-export-revoke` (`857f283`), and
+[fork PR #24](https://github.com/MILTONADINA/graph-engineering/pull/24)
+(`83f1bee`) ported the generic fixes from older unmerged side branches:
+decision-provider credentials (built-in names and any `apiKeyEnv` from
+`decisions.json`) are stripped from every engine subprocess, `apiKeyEnv` may
+not reuse system or worker variables, decision call usage records
+`"unreported"` when a provider omits its model, and `run-receipt RUN_ID`
+reads a retained run and its events without recovery. Each passed all nine
+required checks on its exact tip before merge. At the owner's request the
+superseded side-branch PRs (#1 and #15) were closed and their branches and
+worktrees removed; nothing else from them is planned.
 
 ## Where the work stands
 
