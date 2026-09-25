@@ -1,3 +1,6 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { Readable } from "node:stream";
 import { z } from "zod";
 import type {
   ContextPacket,
@@ -167,8 +170,67 @@ export function fitWorkerContext(input: WorkerInput): WorkerInput {
     );
   return prepared;
 }
+// The part of fetch a provider call uses; tests pass a stub.
+export type ProviderFetch = (
+  url: string,
+  init: {
+    method: "POST";
+    headers: Record<string, string>;
+    body: string;
+    redirect: "error";
+    signal: AbortSignal;
+  },
+) => Promise<{
+  ok: boolean;
+  status: number;
+  body: ReadableStream<Uint8Array> | null;
+}>;
+// Node's fetch stops waiting for response headers or body data after 300 s
+// whatever the abort signal allows, which cuts off slow local models. A plain
+// node:http request has no such limit, so the signal is the only bound. It
+// follows no redirects (a 3xx is refused as a non-2xx status) and asks for
+// an uncompressed body, since it does not decode content encodings.
+export const nodeProviderFetch: ProviderFetch = (url, init) =>
+  new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const send =
+      target.protocol === "https:"
+        ? httpsRequest
+        : target.protocol === "http:"
+          ? httpRequest
+          : undefined;
+    if (!send) {
+      reject(new Error(`Unsupported provider protocol ${target.protocol}`));
+      return;
+    }
+    const request = send(
+      target,
+      {
+        method: init.method,
+        headers: {
+          "User-Agent": "node",
+          "Accept-Encoding": "identity",
+          ...init.headers,
+          "Content-Length": String(Buffer.byteLength(init.body)),
+        },
+        agent: false,
+        signal: init.signal,
+      },
+      (response) => {
+        const status = response.statusCode ?? 0;
+        resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          body: Readable.toWeb(response) as ReadableStream<Uint8Array>,
+        });
+      },
+    );
+    request.on("error", reject);
+    request.end(init.body);
+  });
 export async function invokeApiWorker(
   input: WorkerInput,
+  providerFetch: ProviderFetch = nodeProviderFetch,
 ): Promise<WorkerResult> {
   const { provider, policy, signal } = input;
   assertProvider(provider, policy, input.effort);
@@ -266,36 +328,48 @@ export async function invokeApiWorker(
     };
   } else throw new Error("Installed agents require their dedicated adapter");
   assertEndpoint(endpoint, policy, provider.kind === "local");
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    redirect: "error",
-    signal: AbortSignal.any([
-      signal ?? new AbortController().signal,
-      AbortSignal.timeout(policy.timeoutSeconds * 1000),
-    ]),
-  });
-  if (!response.ok)
-    throw new Error(`Provider ${provider.id} returned HTTP ${response.status}`);
-  if (!response.body) throw new Error("Provider returned an empty response");
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
+  const callSignal = AbortSignal.any([
+    signal ?? new AbortController().signal,
+    AbortSignal.timeout(policy.timeoutSeconds * 1000),
+  ]);
+  let raw: string;
   try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      bytes += next.value.byteLength;
-      if (bytes > 2_000_000)
-        throw new Error("Provider response exceeded output limit");
-      chunks.push(next.value);
+    const response = await providerFetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      redirect: "error",
+      signal: callSignal,
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw new Error(
+        `Provider ${provider.id} returned HTTP ${response.status}`,
+      );
     }
-  } finally {
-    await reader.cancel();
-    reader.releaseLock();
+    if (!response.body) throw new Error("Provider returned an empty response");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        bytes += next.value.byteLength;
+        if (bytes > 2_000_000)
+          throw new Error("Provider response exceeded output limit");
+        chunks.push(next.value);
+      }
+    } finally {
+      await reader.cancel();
+      reader.releaseLock();
+    }
+    raw = Buffer.concat(chunks).toString("utf8");
+  } catch (error) {
+    // Report cancellation and timeout as their signal reason, as fetch did.
+    if (callSignal.aborted) throw callSignal.reason;
+    throw error;
   }
-  const raw = Buffer.concat(chunks).toString("utf8");
   const result = JSON.parse(raw) as Record<string, any>;
   // Refused or truncated structured output need not match the schema.
   if (provider.kind === "anthropic" && result.stop_reason === "refusal")

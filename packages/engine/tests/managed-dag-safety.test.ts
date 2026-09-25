@@ -379,9 +379,8 @@ describe("managed DAG safety boundaries", () => {
     });
     vi.stubEnv("GRAPH_TEST_API_KEY", "fixture-only-not-a-real-key");
     const sent: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url, init) => {
+    const providerFetch = vi.fn(
+      async (_url: string, init: { body: string }) => {
         sent.push(String(init.body));
         return new Response(
           JSON.stringify({
@@ -403,10 +402,10 @@ describe("managed DAG safety boundaries", () => {
             usage: { input_tokens: 10, output_tokens: 5 },
           }),
         );
-      }),
+      },
     );
     const engine = await open(root, {
-      worker: (input) => invokeApiWorker(input),
+      worker: (input) => invokeApiWorker(input, providerFetch),
     });
     const planned = await engine.createPlan({
       objective: "Update first and second exports",
