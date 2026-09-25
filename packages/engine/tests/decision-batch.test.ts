@@ -589,6 +589,7 @@ describe("decision accounting reservations", () => {
     const result = await decideBatch(input);
     expect(result.usage[0]).toMatchObject({
       outcome: "failed",
+      model: "unreported",
       chargedUsd: 0.004,
       reservedUsd: 0.004,
       reportedCostUsd: null,

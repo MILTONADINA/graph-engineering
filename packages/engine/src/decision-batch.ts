@@ -362,8 +362,9 @@ export async function decideBatch(
       callUsage = {
         callId,
         provider: provider.id,
-        model:
-          typeof result?.model === "string" ? result.model : provider.model,
+        // A failed or model-less response is never attributed to the
+        // configured model; the record's modelVersion says the same.
+        model: typeof result?.model === "string" ? result.model : "unreported",
         questionCount: pending.length,
         inputTokens,
         outputTokens,
