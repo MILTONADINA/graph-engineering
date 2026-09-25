@@ -39,6 +39,7 @@ jobs:
           # onnxruntime-node fetches a native archive in postinstall, outside npm's fetch retry.
           npm ci || { sleep 5; npm ci; }
       - run: npm run format:check
+      - run: npm run lint
       - name: Git branch and push safety
         run: node --test scripts/git-safety.test.mjs
       - name: Cursor private-context exclusions

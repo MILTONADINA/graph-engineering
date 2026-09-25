@@ -87,6 +87,7 @@ function parseModule(file: ParsedFile): Module {
       validModule(words[1]!) &&
       /^v[0-9]/.test(words[2]!)
     ) {
+      // A single-line require directive is valid and needs no state.
     } else result.valid = false;
   }
   if (block || !result.name) result.valid = false;
