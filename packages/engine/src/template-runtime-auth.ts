@@ -6,12 +6,6 @@ import type {
 } from "./template-runtime-extension.js";
 import { createPasswordTemplates } from "./template-runtime-auth-password.js";
 
-const foundation = [
-  "error-handler",
-  "middleware",
-  "api-response",
-  "validation",
-];
 const code = (
   path: string,
   content: string,

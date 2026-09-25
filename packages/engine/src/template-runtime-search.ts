@@ -3,7 +3,6 @@ import { z } from "zod";
 import type {
   AuditedTemplateExtension,
   TemplateArtifact,
-  TemplateRenderContext,
 } from "./template-runtime-extension.js";
 
 const inputSchema = z
