@@ -7,7 +7,10 @@ import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { proposalJsonSchema, type WorkerInput } from "../src/workers/api.js";
 
 const mocks = vi.hoisted(() => ({ command: vi.fn(), spawn: vi.fn() }));
-vi.mock("../src/util.js", () => ({ command: mocks.command }));
+vi.mock("../src/util.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/util.js")>()),
+  command: mocks.command,
+}));
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
   spawn: mocks.spawn,

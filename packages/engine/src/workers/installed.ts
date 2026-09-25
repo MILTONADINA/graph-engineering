@@ -11,7 +11,7 @@ import {
   containsSecret,
   contextForProvider,
 } from "../policy.js";
-import { command } from "../util.js";
+import { command, isDecisionCredentialEnvName } from "../util.js";
 import {
   proposalJsonSchema,
   proposalSchema,
@@ -948,6 +948,10 @@ async function invokeCursorWorker(input: WorkerInput): Promise<WorkerResult> {
     throw new Error(
       "Cursor SDK requires an explicit apiKeyEnv; it does not reuse the desktop login",
     );
+  if (isDecisionCredentialEnvName(provider.apiKeyEnv))
+    throw new Error(
+      `Cursor worker cannot use decision credential ${provider.apiKeyEnv}`,
+    );
   const key = process.env[provider.apiKeyEnv];
   if (!key)
     throw new Error(
@@ -1069,6 +1073,10 @@ export async function invokeInstalledWorker(
   const endpoint = provider.endpoint ?? "https://api.anthropic.com";
   assertEndpoint(endpoint, policy);
   if (subscription) assertEndpoint("https://claude.ai", policy);
+  if (provider.apiKeyEnv && isDecisionCredentialEnvName(provider.apiKeyEnv))
+    throw new Error(
+      `Claude worker cannot use decision credential ${provider.apiKeyEnv}`,
+    );
   const key = provider.apiKeyEnv ? process.env[provider.apiKeyEnv] : undefined;
   if (!subscription && !key)
     throw new Error(

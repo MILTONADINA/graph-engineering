@@ -11,6 +11,7 @@ import {
   containsSecret,
   contextForProvider,
 } from "../policy.js";
+import { isDecisionCredentialEnvName } from "../util.js";
 
 export const proposalSchema = z
   .object({
@@ -78,6 +79,10 @@ function getKey(provider: ProviderConfig): string | undefined {
         ? "ANTHROPIC_API_KEY"
         : undefined);
   if (!name) return undefined;
+  if (isDecisionCredentialEnvName(name))
+    throw new Error(
+      `Provider ${provider.id} cannot use decision credential ${name}`,
+    );
   const key = process.env[name];
   if (!key)
     throw new Error(
