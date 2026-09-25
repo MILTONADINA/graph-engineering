@@ -414,6 +414,14 @@ cli
     ),
   );
 cli
+  .command("memory-export-revoke <id>")
+  .description(
+    "Withdraw every recorded cloud-export authorization for one memory",
+  )
+  .action((id) =>
+    withEngine((engine) => engine.context.revokeMemoryExport(id)),
+  );
+cli
   .command("memory-import")
   .action(() => withEngine((engine) => engine.context.importSharedMemories()));
 cli

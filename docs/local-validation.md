@@ -1,9 +1,11 @@
-# Local validation — 2026-09-22–24 UTC
+# Local validation — 2026-09-22–25 UTC
 
 These are development observations, not production calibration or a claimed
 percentage reduction in model cost. Private run databases retain detailed
-events and failures. No metered API model calls were authorized or made; one
-bounded Claude Max subscription-backed proposal call is recorded below.
+events and failures. Until 2026-09-25 no metered API model calls were
+authorized or made; one bounded Claude Max subscription-backed proposal call is
+recorded below. From 2026-09-25 the owner authorized TypeSafe Jev under an
+owner-selected per-session cap, recorded in the next section.
 
 ## Complete-cohort accounting and crash consistency
 
@@ -196,6 +198,38 @@ about two seconds, before the 180-second deadline; the adapter withheld raw
 stderr because it may contain context or credentials. It returned no proposal
 or usage, made no patch, and was not retried. This short-packet result does not
 explain the earlier longer native failure or justify a full managed run.
+
+## Local-stack pilot with Jev routing — 2026-09-25 UTC
+
+The owner asked for heavy TypeSafe Jev use under an owner-selected
+per-session cap. The reviewed public rate (docs.typesafe.ai, 2026-09-25) is
+$0.042 per million input tokens with free output; the model is pinned to
+`jev-1.13.0`. That rate lives only in the private `decisions.json` entry.
+Engine Jev routing ran with a local, uncommitted policy edit (host
+`api.typesafe.ai` allowed, `jev` permitted, a small per-run cap); the tracked
+policy still allows no hosts and caps external spend at $0.
+
+- The first metered engine Jev decisions were recorded in shadow during
+  planning: context budget and workflow in one call of 516 input tokens,
+  settled at $0.0000217 against a $0.00067 reservation. Jev chose the
+  `investigate` workflow (confidence 0.76) where Laya and the baseline chose
+  `feature`; the baseline was kept.
+- A bounded pilot with the existing oMLX Qwen worker, Laya and Jev routing
+  tried to add the export-authorization revocation command.
+  - Run `f856978f` failed: the worker requested
+    `packages/engine/src/context/index.ts` (about 70 KB), which exceeds the
+    default 16k-token context budget. Workers receive whole files, so large
+    core files cannot be edited within that budget.
+  - One re-scoped retry, run `8f356a3b` with a local 131k budget, took three
+    worker turns (about 94k input and 1.4k output tokens). Qwen produced a
+    three-file patch, which the engine refused before applying because its
+    secret scanner flagged the new test. The proposal body is not retained,
+    so whether that was a true or false positive is unknown.
+  - Both failures are kept in the private run store. The revocation command
+    was then written directly and reviewed in a normal PR.
+
+Laya's checkpoint warns at start-up that some confidence buckets were clamped
+and are uncalibrated; its shadow confidences carry that caveat.
 
 ## Fresh cloud-export repair pilots — 2026-09-24 UTC
 

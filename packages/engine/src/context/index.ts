@@ -1403,6 +1403,22 @@ export class ContextEngine {
     );
     return { id: record.id, textSha256, authorizedAt };
   }
+  /** Withdraws every recorded cloud-export consent for one memory. */
+  async revokeMemoryExport(
+    id: string,
+  ): Promise<{ id: string; removed: number }> {
+    await this.ready;
+    const record = await this.memory(id);
+    const rows = await this.db.all<{ text_sha256: string }>(
+      "SELECT text_sha256 FROM memory_export_authorizations WHERE memory_id=?",
+      [record.id],
+    );
+    await this.db.run(
+      "DELETE FROM memory_export_authorizations WHERE memory_id=?",
+      [record.id],
+    );
+    return { id: record.id, removed: rows.length };
+  }
   private async memoryPayload(id: string): Promise<string> {
     const row = await this.db.get<Payload>(
       "SELECT payload FROM memories WHERE id=? AND project_id=?",

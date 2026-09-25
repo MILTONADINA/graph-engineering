@@ -506,7 +506,7 @@ async function connect(
 const sha256 = (text: string) =>
   createHash("sha256").update(text).digest("hex");
 
-it("cloud context_get refuses shared mandatory memory until its exact text is authorized", async () => {
+it("cloud context_get refuses shared mandatory memory unless its exact text is currently authorized", async () => {
   const { engine, cleanup } = await exportFixture("graph-mcp-memory-export-");
   const canary = "SHARED_MANDATORY_EXPORT_CANARY must stay local";
   try {
@@ -557,6 +557,18 @@ it("cloud context_get refuses shared mandatory memory until its exact text is au
         exportAuthorized: true,
       }),
     ]);
+
+    expect(await engine.context.revokeMemoryExport(memory.id)).toEqual({
+      id: memory.id,
+      removed: 1,
+    });
+    const revoked = await call("cloud");
+    expect(revoked.isError).toBe(true);
+    expect(JSON.stringify(revoked)).not.toContain(canary);
+    expect(await engine.context.revokeMemoryExport(memory.id)).toEqual({
+      id: memory.id,
+      removed: 0,
+    });
   } finally {
     await cleanup();
   }

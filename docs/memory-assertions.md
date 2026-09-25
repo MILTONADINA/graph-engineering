@@ -16,7 +16,8 @@ graph memory-share <memory-id>
 Attachment is only allowed while a record is `proposed`; acceptance and sharing
 are separate, explicit operations. Sharing does not release a memory to cloud
 consumers: `graph memory-export-authorize <memory-id>` shows its exact text and
-SHA-256, and re-running with `--sha256 <hash>` records that consent. To revise accepted knowledge, create a new
+SHA-256, and re-running with `--sha256 <hash>` records that consent;
+`graph memory-export-revoke <memory-id>` withdraws it. To revise accepted knowledge, create a new
 proposal. The review timestamp must not predate that proposal. The authenticated
 local API equivalent is `POST /api/memories/:id/assertions` with the JSON document
 as its body, followed separately by `/accept` and, if intended, `/promote`.
