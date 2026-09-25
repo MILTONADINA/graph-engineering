@@ -21,15 +21,20 @@
     "verify:image": "docker build -f infra/verification.Dockerfile -t graph-engineering-verify:local .",
     "dev": "npm run dev -w @graph-engineering/dashboard",
     "setup:git": "node scripts/setup-git.mjs",
-    "format": "prettier --write packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json README.md CONTRIBUTING.md docs",
-    "format:check": "prettier --check packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json README.md CONTRIBUTING.md docs"
+    "format": "prettier --write packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs",
+    "format:check": "prettier --check packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "@connectrpc/connect-node": "1.7.0",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.0.0",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
     "prettier": "^3.6.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.1",
     "vitest": "^4.1.11"
   },
   "overrides": {
