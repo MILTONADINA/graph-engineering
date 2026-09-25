@@ -104,7 +104,10 @@ export class GraphEngine {
     deps: EngineDependencies = {},
   ): Promise<GraphEngine> {
     const absolute = path.resolve(root);
-    const engine = new GraphEngine(absolute, await loadProject(absolute), deps);
+    const config = await loadProject(absolute);
+    // Register configured decision keys before any project subprocess starts.
+    await decisionProviders(projectDataDir(config.projectId));
+    const engine = new GraphEngine(absolute, config, deps);
     try {
       await engine.store.recoverInterrupted();
       return engine;

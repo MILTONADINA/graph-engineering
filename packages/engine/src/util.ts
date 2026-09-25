@@ -27,6 +27,29 @@ export interface CommandResult {
   stdout: string;
   stderr: string;
 }
+// Decision-provider credentials are used only by in-process HTTPS calls. No
+// subprocess (git, Docker, gh, compilers, installed coding clients) gets them.
+const decisionCredentialEnvNames = new Set([
+  "GRAPH_JEV_API_KEY",
+  "TYPESAFE_API_KEY",
+  "GRAPH_LAYA_TOKEN",
+]);
+export function registerDecisionCredentialEnvNames(
+  names: readonly (string | undefined)[],
+): void {
+  for (const name of names) if (name) decisionCredentialEnvNames.add(name);
+}
+export function isDecisionCredentialEnvName(name: string): boolean {
+  return decisionCredentialEnvNames.has(name);
+}
+/** A copy of `base` without any decision-provider credential. */
+export function subprocessEnvironment(
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment = { ...base };
+  for (const name of decisionCredentialEnvNames) delete environment[name];
+  return environment;
+}
 export function command(
   executable: string,
   argv: string[],
@@ -44,10 +67,7 @@ export function command(
     // Include spawn time and reject late exits even when the event loop delivers
     // child completion before an overdue timeout callback.
     const expiresAt = performance.now() + (options.timeoutMs ?? 60000);
-    const environment = { ...(options.env ?? process.env) };
-    // Jev is consumed only by in-process HTTPS dispatch. Never pass its bearer
-    // credential to git, Docker, compilers, or installed coding clients.
-    delete environment.GRAPH_JEV_API_KEY;
+    const environment = subprocessEnvironment(options.env ?? process.env);
     const child = spawn(executable, argv, {
       cwd: options.cwd,
       env: environment,

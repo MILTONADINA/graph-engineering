@@ -61,6 +61,7 @@ import {
   type ParsedFile,
 } from "./parser.js";
 import { containsSecret, isAllowedPath } from "../policy.js";
+import { subprocessEnvironment } from "../util.js";
 import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
 import {
   pythonRuntime,
@@ -297,6 +298,7 @@ export class ContextEngine {
           "git",
           ["-c", "core.fsmonitor=false", "-C", this.root, ...args],
           {
+            env: subprocessEnvironment(),
             maxBuffer: 32 * 1024 * 1024,
             timeout: 10000,
           },
