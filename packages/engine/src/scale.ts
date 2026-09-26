@@ -66,7 +66,9 @@ export async function repositoryProfile(
   const advice: string[] = [];
   if (size === "beyond-index")
     advice.push(
-      `The graph indexes at most ${INDEX_FILE_LIMIT} files; set policy.workingSet to the directories you are working on.`,
+      policy.workingSet
+        ? `The working set still holds more than ${INDEX_FILE_LIMIT} files, the most the graph indexes; narrow policy.workingSet.`
+        : `The graph indexes at most ${INDEX_FILE_LIMIT} files; set policy.workingSet to the directories you are working on.`,
     );
   else if (size === "large" && !policy.workingSet)
     advice.push(

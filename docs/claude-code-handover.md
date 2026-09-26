@@ -179,10 +179,13 @@ were fixed before merge; the PR descriptions list them.
   the raw-byte review diff failed only on `windows-2025` because it passed
   the platform null device to `git diff --no-index`; empty scratch files
   replaced it.
-- #38: working sets and a size profile ([scaling](scaling.md)).
+- [#38](https://github.com/MILTONADINA/graph-engineering/pull/38)
+  (`4ee2da5`): working sets and a size profile ([scaling](scaling.md)).
+- #39: a planner proposes steps that a person approves
+  ([proposed decomposition](decomposition.md)).
 
 The [full wiring roadmap](full-wiring-roadmap.md) holds the remaining
-items: worker-proposed decomposition with human approval, outcome labels,
+items: outcome labels,
 knowledge packs and cited research, a live project overview in the
 dashboard, and a fresh bounded local pilot. Jev and Laya promotion, live
 target testing and paid tools stay owner-gated.

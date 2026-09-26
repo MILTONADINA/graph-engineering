@@ -47,6 +47,8 @@ a working set:
 - workers may read and write only those paths, enforced by the same path
   check as `excludedPaths`, which still applies inside the working set;
 - `.graph/CONTEXT.md` stays readable, as before;
+- template steps whose target directory is outside the working set are
+  refused;
 - required checks and security scans still run on the whole repository,
   because a change inside the working set can break code outside it. The
   run workspace copies, verifies, fingerprints and publishes the whole
@@ -60,9 +62,8 @@ after changing it.
 
 ## Not yet
 
-- Breaking a large objective into epics, stories and steps is the
-  worker-proposed decomposition item on the
-  [roadmap](full-wiring-roadmap.md); today the caller supplies multi-step
-  plans.
+- A planner can propose one level of steps for an objective
+  ([proposed decomposition](decomposition.md)); breaking a very large
+  objective into epics and stories first is not automated yet.
 - Parallelism applies to multi-step plans only; a single-step plan uses one
   worker.

@@ -22,6 +22,7 @@ import { ContextEngine } from "./context/index.js";
 import { loadProject, loadProviders, projectDataDir } from "./project.js";
 import { RunStore } from "./store.js";
 import {
+  assertMandatoryExport,
   assertProvider,
   containsSecret,
   isAllowedPath,
@@ -70,6 +71,11 @@ import {
   type ReviewInput,
   type WorkerReview,
 } from "./workers/review.js";
+import {
+  invokePlanWorker,
+  type Decomposition,
+  type PlanInput,
+} from "./workers/plan.js";
 import type { ProjectProfile } from "./security/catalog.js";
 import {
   BASELINE_FILE,
@@ -117,6 +123,12 @@ export interface EngineDependencies {
   /** Reviews a verified change; defaults to the configured reviewer's API. */
   review?: (input: ReviewInput) => Promise<{
     review: WorkerReview;
+    model: string;
+    usage: Usage;
+  }>;
+  /** Proposes plan steps; defaults to the planner provider's API. */
+  planner?: (input: PlanInput) => Promise<{
+    decomposition: Decomposition;
     model: string;
     usage: Usage;
   }>;
@@ -237,6 +249,171 @@ export class GraphEngine {
       selections: result.selections,
       callUsage: result.usage,
     });
+  }
+  // Configured workers the policy permits and, for installed agents, that
+  // are installed.
+  private async availableWorkers(): Promise<ProviderConfig[]> {
+    const configured = await this.providers();
+    const installed = configured.some((p) =>
+      ["codex", "claude", "cursor"].includes(p.kind),
+    )
+      ? await discoverInstalledWorkers()
+      : [];
+    return configured.filter((p) => {
+      try {
+        assertProvider(p, this.config.policy);
+        return (
+          !["codex", "claude", "cursor"].includes(p.kind) ||
+          installed.some(
+            (capability) => capability.kind === p.kind && capability.available,
+          )
+        );
+      } catch {
+        return false;
+      }
+    });
+  }
+  /**
+   * Asks a planner to break an objective into dependency-ordered steps. The
+   * result is only a proposal: nothing runs until a person creates a plan
+   * from the steps (`graph-engine plan --steps`), which validates them again.
+   */
+  async proposeSteps(input: {
+    objective: string;
+    acceptance: string[];
+    plannerId: string;
+    providerId?: string;
+    effort?: string;
+    /** Use only exportable context and return only exportable text. */
+    exportOnly?: boolean;
+    signal?: AbortSignal;
+  }): Promise<{
+    steps: ExecutionStep[];
+    rationale: string;
+    planner: { id: string; model: string };
+    usage: Usage;
+    snapshotId: string;
+  }> {
+    await this.refresh();
+    if (
+      !input.objective.trim() ||
+      input.acceptance.length === 0 ||
+      input.acceptance.some((a) => !a.trim())
+    )
+      throw new Error(
+        "An objective and explicit acceptance criteria are required",
+      );
+    const policy = this.config.policy;
+    const planner = (await this.providers()).find(
+      (provider) => provider.id === input.plannerId,
+    );
+    if (!planner)
+      throw new Error(
+        `Planner ${input.plannerId} is not a configured provider`,
+      );
+    if (!["openai", "anthropic", "local"].includes(planner.kind))
+      throw new Error(
+        `Planner ${planner.id} must be an API or local provider; installed agents cannot plan yet`,
+      );
+    assertProvider(planner, policy);
+    const available = await this.availableWorkers();
+    const implementer = input.providerId
+      ? available.find((provider) => provider.id === input.providerId)
+      : available[0];
+    if (!implementer)
+      throw new Error(
+        input.providerId
+          ? "Selected worker is unavailable under project policy"
+          : "No permitted worker is configured to implement the steps",
+      );
+    assertProvider(implementer, policy, input.effort);
+    const exportOnly = input.exportOnly === true || planner.kind !== "local";
+    const snapshot = await this.context.index({ semantic: false });
+    const context = await this.context.getContext({
+      query: input.objective,
+      snapshotId: snapshot.id,
+      mandatory: input.acceptance,
+      exportOnly,
+      budgetTokens: Math.min(
+        policy.maxContextTokens,
+        planner.maxContextTokens ?? policy.maxContextTokens,
+      ),
+    });
+    if (exportOnly) {
+      // As for cloud context_get: only authorized memory and exportable,
+      // secret-free excerpts, whichever planner reads them.
+      assertMandatoryExport(context, policy, { attributedOnly: false });
+      context.items = context.items.filter(
+        (item) =>
+          item.source &&
+          isAllowedPath(item.source.path, policy, true) &&
+          !containsSecret(item.text),
+      );
+    }
+    // Decompositions share one cost owner per project and UTC day, so
+    // maxCostUsd and maxTurns bound a day's planner calls, however many.
+    const ownerId = `decompose-${now().slice(0, 10)}`;
+    const callId = `worker-plan-${id()}`;
+    const started = Date.now();
+    while (!(await this.store.tryAcquireWorker(callId, policy.maxWorkers))) {
+      if (Date.now() - started > policy.timeoutSeconds * 1000)
+        throw new Error("Worker concurrency wait timed out");
+      await delay(50, undefined, { signal: input.signal });
+    }
+    let result: Awaited<ReturnType<typeof invokePlanWorker>>;
+    try {
+      if (input.signal?.aborted) throw new Error("Decomposition cancelled");
+      this.store.reserveCall(
+        ownerId,
+        callId,
+        planner.id,
+        estimateRequestCost(
+          planner,
+          policy.maxContextTokens,
+          policy.maxOutputTokens,
+        ),
+        policy.maxCostUsd,
+        policy.maxTurns,
+      );
+      result = await (this.deps.planner ?? invokePlanWorker)({
+        provider: planner,
+        policy,
+        objective: input.objective,
+        acceptance: input.acceptance,
+        context,
+        signal: input.signal,
+      });
+      this.store.settleCall(ownerId, callId, planner.id, result.usage);
+    } finally {
+      this.store.releaseWorker(callId);
+    }
+    if (
+      exportOnly &&
+      [
+        result.decomposition.rationale,
+        ...result.decomposition.steps.map((step) => step.objective),
+      ].some(containsSecret)
+    )
+      throw new Error(
+        "The proposed steps contain a potential secret and cannot be returned",
+      );
+    const steps = validateDag(
+      result.decomposition.steps.map((step) => ({
+        id: step.id,
+        kind: "worker" as const,
+        objective: step.objective,
+        dependsOn: step.dependsOn,
+        providerId: implementer.id,
+        ...(input.effort ? { effort: input.effort } : {}),
+      })),
+    ).steps;
+    return {
+      steps,
+      rationale: result.decomposition.rationale,
+      planner: { id: planner.id, model: result.model },
+      usage: result.usage,
+      snapshotId: snapshot.id,
+    };
   }
   // The project's configured reviewer, which must be an API or local worker.
   private async reviewer(
@@ -389,25 +566,7 @@ export class GraphEngine {
         return plan;
       }
     }
-    const configured = await this.providers();
-    const installed = configured.some((p) =>
-      ["codex", "claude", "cursor"].includes(p.kind),
-    )
-      ? await discoverInstalledWorkers()
-      : [];
-    const available = configured.filter((p) => {
-      try {
-        assertProvider(p, this.config.policy);
-        return (
-          !["codex", "claude", "cursor"].includes(p.kind) ||
-          installed.some(
-            (capability) => capability.kind === p.kind && capability.available,
-          )
-        );
-      } catch {
-        return false;
-      }
-    });
+    const available = await this.availableWorkers();
     if (!available.length)
       throw new Error(
         "No permitted worker is configured. Add a local provider or explicitly enable a cloud provider in project policy.",
