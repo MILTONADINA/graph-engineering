@@ -219,7 +219,8 @@ policy still allows no hosts and caps external spend at $0.
   - Run `f856978f` failed: the worker requested
     `packages/engine/src/context/index.ts` (about 70 KB), which exceeds the
     default 16k-token context budget. Workers receive whole files, so large
-    core files cannot be edited within that budget.
+    core files cannot be edited within that budget; a fix is proposed in
+    [worker context excerpts](worker-context-excerpts.md).
   - One re-scoped retry, run `8f356a3b` with a local 131k budget, took three
     worker turns (about 94k input and 1.4k output tokens). Qwen produced a
     three-file patch, which the engine refused before applying because its

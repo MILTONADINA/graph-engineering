@@ -140,6 +140,11 @@ The `windows-2025` job once timed out at 60 s in `tests/context.test.ts`
 ("parses all launch languages…") on a commit that did not touch indexing and
 passed on re-run; treat a repeat as a flaky-test lead, not a regression.
 
+The remaining recorded pilot limit, workers receiving whole files that
+exceed the default context budget, has a proposed design in
+[worker context excerpts](worker-context-excerpts.md); its owner decisions
+come before any implementation PR.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.

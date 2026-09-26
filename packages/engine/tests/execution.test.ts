@@ -122,6 +122,62 @@ describe("managed execution", () => {
     expect(calls).toBe(2);
     expect(result.error).toMatch(/repeated.*source request/i);
   });
+  // Current behaviour described in docs/worker-context-excerpts.md; the
+  // excerpt design changes both deliberately.
+  it("replaces retrieved excerpts with whole requested files and refuses files over the budget", async () => {
+    const { root } = await fixture();
+    await writeFile(
+      path.join(root, "large.cjs"),
+      `// padding\n${"exports.value = 1;\n".repeat(1200)}`,
+    );
+    await checked("git", ["add", "large.cjs"], { cwd: root });
+    await checked("git", ["commit", "-m", "test: large file"], { cwd: root });
+    const received: { paths: string[]; whole: boolean[] }[] = [];
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async (input) => {
+        received.push({
+          paths: input.context.items.map((item) => item.source?.path ?? ""),
+          whole: input.context.items.map(
+            (item) =>
+              item.source?.startLine === 1 &&
+              item.text.split("\n").length === item.source.endLine,
+          ),
+        });
+        return {
+          model: "fixture",
+          proposal: {
+            summary: "Request sources",
+            requests: received.length === 1 ? ["math.test.cjs"] : ["large.cjs"],
+            changes: [],
+          },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+      verify: async () => {
+        throw new Error("Oversized requests must stop before verification");
+      },
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix the addition bug in math.cjs",
+      acceptance: ["The addition test passes"],
+    });
+    const result = await engine.wait((await engine.start(plan.id)).id);
+    expect(received).toHaveLength(2);
+    expect(received[0]!.paths).toContain("math.cjs");
+    expect(received[1]).toEqual({ paths: ["math.test.cjs"], whole: [true] });
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe(
+      "Requested file is too large for the context budget: large.cjs",
+    );
+  });
 
   it("reports a missing source request without exposing the private workspace path", async () => {
     const { root } = await fixture();
