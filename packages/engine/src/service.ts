@@ -3,6 +3,7 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   stat,
   writeFile,
@@ -29,6 +30,7 @@ import {
   isAllowedPath,
   redact,
   safePath,
+  wholeRepository,
 } from "./policy.js";
 import {
   command,
@@ -96,6 +98,7 @@ import {
 import { checkedGit, gitBlob } from "./execution/git.js";
 import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
 import { dagParallelism } from "./scale.js";
+import { parseSpec, planFromSpec, SPECS_DIR } from "./specs.js";
 import {
   renderTemplateProposal,
   templateRuntimeCapability,
@@ -535,12 +538,43 @@ export class GraphEngine {
     this.context.updatePolicy(config.policy);
     return this.config;
   }
+  /**
+   * Plans a feature from its spec: the objective comes from the spec's title,
+   * problem, security considerations and non-goals, and the acceptance
+   * criteria are the spec's, in order.
+   */
+  async createPlanFromSpec(
+    specPath: string,
+    options: {
+      providerId?: string;
+      effort?: string;
+      steps?: ExecutionStep[];
+    } = {},
+  ): Promise<ExecutionPlan> {
+    await this.refresh();
+    const relative = specPath.split(path.sep).join("/");
+    if (!relative.startsWith(`${SPECS_DIR}/`) || !relative.endsWith(".md"))
+      throw new Error(`A spec is a Markdown file under ${SPECS_DIR}/`);
+    const text = await readFile(
+      await safePath(this.root, relative, wholeRepository(this.config.policy)),
+      "utf8",
+    );
+    const spec = parseSpec(relative, text);
+    const { objective, acceptance } = planFromSpec(spec);
+    return this.createPlan({
+      ...options,
+      objective,
+      acceptance,
+      spec: { id: spec.id, path: relative, sha256: hash(text) },
+    });
+  }
   async createPlan(input: {
     objective: string;
     acceptance: string[];
     providerId?: string;
     effort?: string;
     steps?: ExecutionStep[];
+    spec?: ExecutionPlan["spec"];
   }): Promise<ExecutionPlan> {
     await this.refresh();
     if (
@@ -571,6 +605,7 @@ export class GraphEngine {
           steps: validated,
           verification: structuredClone(this.config.verification),
           publication: this.config.policy.publication,
+          ...(input.spec ? { spec: input.spec } : {}),
         };
         this.store.savePlan(plan);
         return plan;
@@ -675,6 +710,7 @@ export class GraphEngine {
       },
       verification: structuredClone(this.config.verification),
       publication: this.config.policy.publication,
+      ...(input.spec ? { spec: input.spec } : {}),
     };
     for (const step of plan.steps) {
       if (step.kind === "worker") {

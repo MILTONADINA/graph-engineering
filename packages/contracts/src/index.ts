@@ -247,6 +247,8 @@ export interface ExecutionPlan {
     contextBudgetTokens: number;
     decisionIds: string[];
   };
+  /** The feature spec this plan implements, as read when planning. */
+  spec?: { id: string; path: string; sha256: string };
 }
 export interface Usage {
   inputTokens: number | null;

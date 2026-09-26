@@ -36,6 +36,13 @@ unchanged install merely because a new branch was created.
 
 Make small, coherent commits with descriptive subjects such as `feat(context): index repository symbols` or `fix(runtime): retain failed verification evidence`. Use your own configured Git identity. Do not add AI co-author trailers or generated attribution footers.
 
+Work is spec-driven. A new feature starts as a spec under `specs/<area>/`
+(`graph-engine spec-new`, see [specs/README.md](specs/README.md)) with its
+problem, acceptance criteria, security considerations and non-goals, agreed
+before it is built. A change to an existing feature updates its spec. Before a
+feature is marked `implemented`, every acceptance criterion links the tests
+that prove it; `graph-engine spec-check` enforces this in CI.
+
 Before a code pull request, inspect the relevant source and prove a changed
 failure path with focused checks before running `npm run check` or other broad
 subsystem checks when warranted. A docs-only change needs proportionate
