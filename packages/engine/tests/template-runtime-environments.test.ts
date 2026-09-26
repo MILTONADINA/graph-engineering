@@ -132,7 +132,7 @@ it("honors default and custom exclusions without automatically weakening secret 
 it("refuses unknown/planned catalog identities and preserves custom or populated environment examples", async () => {
   const root = await fixture(["../../outside"]);
   await expect(render(root)).rejects.toThrow(/implemented catalog/);
-  await architecture(root, ["authentication.session"]);
+  await architecture(root, ["api.sorting"]);
   await expect(render(root)).rejects.toThrow(/implemented catalog/);
   await architecture(root, ["project.node-express"]);
   await writeFile(path.join(root, ".env.example"), "PORT=4545\n");
