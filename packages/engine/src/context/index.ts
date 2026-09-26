@@ -60,7 +60,12 @@ import {
   parseFile,
   type ParsedFile,
 } from "./parser.js";
-import { containsSecret, isAllowedPath } from "../policy.js";
+import {
+  containsSecret,
+  inWorkingSet,
+  isAllowedPath,
+  reachesWorkingSet,
+} from "../policy.js";
 import { subprocessEnvironment } from "../util.js";
 import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
 import {
@@ -275,8 +280,18 @@ export class ContextEngine {
       throw error;
     }
   }
-  private excluded(path: string, policy: ProjectPolicy = this.policy): boolean {
+  private excluded(
+    path: string,
+    policy: ProjectPolicy = this.policy,
+    directory = false,
+  ): boolean {
     if (!safePath(path)) return true;
+    if (
+      !(directory
+        ? reachesWorkingSet(path, policy)
+        : inWorkingSet(path, policy))
+    )
+      return true;
     const segments = path.split("/");
     const prefixes = segments.map((_, index) =>
       segments.slice(0, index + 1).join("/"),
@@ -348,13 +363,18 @@ export class ContextEngine {
           if (result.ignored) ignored = true;
           else if (result.unignored) ignored = false;
         }
-        if (entry.isSymbolicLink() || this.excluded(path) || ignored) continue;
+        if (
+          entry.isSymbolicLink() ||
+          this.excluded(path, this.policy, entry.isDirectory()) ||
+          ignored
+        )
+          continue;
         if (entry.isDirectory()) await walk(absolute, rules);
         else if (entry.isFile()) {
           result.push(path);
           if (result.length > 100_000)
             throw new Error(
-              "Index limit exceeded: at most 100000 candidate files per snapshot",
+              "Index limit exceeded: at most 100000 candidate files per snapshot. Set policy.workingSet to the directories you are working on.",
             );
         }
       }
@@ -396,7 +416,7 @@ export class ContextEngine {
     const worktreeId = hash(canonicalRoot);
     if (paths.length > 100_000)
       throw new Error(
-        "Index limit exceeded: at most 100000 candidate files per snapshot",
+        "Index limit exceeded: at most 100000 candidate files per snapshot. Set policy.workingSet to the directories you are working on.",
       );
     const files: {
       path: string;
@@ -425,7 +445,7 @@ export class ContextEngine {
         totalBytes += bytes.length;
         if (totalBytes > 256 * 1024 * 1024)
           throw new RangeError(
-            "Index limit exceeded: at most 256 MiB source bytes per snapshot",
+            "Index limit exceeded: at most 256 MiB source bytes per snapshot. Set policy.workingSet to the directories you are working on.",
           );
         if (bytes.includes(0)) continue;
         const text = bytes.toString("utf8");
@@ -755,6 +775,10 @@ export class ContextEngine {
       ["currentSnapshot"],
     );
     return current ? this.snapshot(current.value) : null;
+  }
+  /** A stored snapshot of this project. */
+  async snapshotById(id: string): Promise<RepositorySnapshot> {
+    return this.snapshot(id);
   }
   private async snapshot(id?: string): Promise<RepositorySnapshot> {
     await this.ready;

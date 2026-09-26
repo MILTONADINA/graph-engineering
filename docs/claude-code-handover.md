@@ -153,6 +153,40 @@ repositories. The [full wiring roadmap](full-wiring-roadmap.md) maps that
 goal to capabilities, the PR closing each gap, and the items only the owner
 or a third party can unblock; continue from it.
 
+## Continuation update — 2026-09-26
+
+Each PR below passed all nine required checks on its exact tip before a
+rebase merge into `dev`, and each had an adversarial review whose findings
+were fixed before merge; the PR descriptions list them.
+
+- Worker context: the excerpt design and its decisions ([#29](https://github.com/MILTONADINA/graph-engineering/pull/29)
+  `f1b9933`, [#30](https://github.com/MILTONADINA/graph-engineering/pull/30) `a41963a`), one budget measure and progress guard
+  ([#31](https://github.com/MILTONADINA/graph-engineering/pull/31) `3d58376`), and line ranges, outlines and patch feedback
+  ([#32](https://github.com/MILTONADINA/graph-engineering/pull/32) `6a0b73d`). Large files no longer stop a run.
+- [#33](https://github.com/MILTONADINA/graph-engineering/pull/33) (`7c6695d`): MCP `plan_create`, `run_start`, `run_cancel`
+  (behind `--allow-run`; cloud planning only with publication `none`) and
+  `run_list`, `run_events` (local, or cloud with `--allow-run-status`).
+  Resuming stays with a person.
+- [#34](https://github.com/MILTONADINA/graph-engineering/pull/34) (`9b21573`): the security tool catalog, `security-plan` and
+  an offline, baseline-aware `security-scan` in a pinned image
+  ([security scanning](security-scanning.md)).
+- [#35](https://github.com/MILTONADINA/graph-engineering/pull/35) (`e4cedd7`): multi-step plans repair failed combined checks
+  with a `dag-repair` step within `maxAttempts`.
+- [#36](https://github.com/MILTONADINA/graph-engineering/pull/36) (`be02781`): managed runs of a project with a committed
+  security baseline are scanned before they can succeed.
+- [#37](https://github.com/MILTONADINA/graph-engineering/pull/37) (`22e950f`): an optional reviewer provider must approve a
+  run before it succeeds ([code review](code-review.md)). Its first push of
+  the raw-byte review diff failed only on `windows-2025` because it passed
+  the platform null device to `git diff --no-index`; empty scratch files
+  replaced it.
+- #38: working sets and a size profile ([scaling](scaling.md)).
+
+The [full wiring roadmap](full-wiring-roadmap.md) holds the remaining
+items: worker-proposed decomposition with human approval, outcome labels,
+knowledge packs and cited research, a live project overview in the
+dashboard, and a fresh bounded local pilot. Jev and Laya promotion, live
+target testing and paid tools stay owner-gated.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.

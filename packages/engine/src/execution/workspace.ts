@@ -12,7 +12,12 @@ import type { ProjectPolicy } from "@graph-engineering/contracts";
 import type { WorkerProposal } from "../workers/api.js";
 import { hash } from "../util.js";
 import { checkedGit, managedGit } from "./git.js";
-import { introducesSecret, isAllowedPath, safePath } from "../policy.js";
+import {
+  introducesSecret,
+  isAllowedPath,
+  safePath,
+  wholeRepository,
+} from "../policy.js";
 import {
   awsDescriptorForSecretScan,
   isAwsDescriptorPath,
@@ -94,12 +99,15 @@ export async function createWorkspace(
       ]);
     else throw new Error("Cannot inspect execution branch");
   }
-  // Capture permitted dirty/untracked files without stashing or modifying the user's worktree.
+  // Capture permitted dirty/untracked files without stashing or modifying the
+  // user's worktree. The copy covers the whole repository, whatever the
+  // working set, so checks see the operator's full state.
+  const whole = wholeRepository(policy);
   for (const relative of await gitFiles(root)) {
-    if (!isAllowedPath(relative, policy)) continue;
+    if (!isAllowedPath(relative, whole)) continue;
     try {
-      const source = await safePath(root, relative, policy);
-      const target = await safePath(workspace, relative, policy);
+      const source = await safePath(root, relative, whole);
+      const target = await safePath(workspace, relative, whole);
       if ((await stat(source)).isFile()) {
         await mkdir(path.dirname(target), { recursive: true });
         await copyFile(source, target);
@@ -112,9 +120,9 @@ export async function createWorkspace(
   const deleted = await checkedGit(root, ["ls-files", "-d", "-z"]);
   const { unlink } = await import("node:fs/promises");
   for (const relative of deleted.split("\0").filter(Boolean))
-    if (isAllowedPath(relative, policy)) {
+    if (isAllowedPath(relative, whole)) {
       try {
-        await unlink(await safePath(workspace, relative, policy));
+        await unlink(await safePath(workspace, relative, whole));
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
@@ -197,6 +205,7 @@ export async function workspaceFingerprint(
   policy: ProjectPolicy,
 ): Promise<string> {
   const pieces: string[] = [];
+  policy = wholeRepository(policy);
   for (const relative of await gitFiles(workspace))
     if (isAllowedPath(relative, policy)) {
       try {
@@ -220,6 +229,7 @@ export async function assertVerificationPaths(
   policy: ProjectPolicy,
 ): Promise<void> {
   if (!paths.length) return;
+  policy = wholeRepository(policy);
   const visible = new Set(await gitFiles(workspace));
   for (const relative of new Set(paths)) {
     if (!visible.has(relative) || !isAllowedPath(relative, policy))

@@ -88,6 +88,7 @@ import {
 } from "./execution/requested-sources.js";
 import { checkedGit, gitBlob } from "./execution/git.js";
 import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
+import { dagParallelism } from "./scale.js";
 import {
   renderTemplateProposal,
   templateRuntimeCapability,
@@ -1116,8 +1117,12 @@ export class GraphEngine {
           policy: this.config.policy,
           signal,
           checkpoint,
-          // Strict paid reservations are cross-process; each DAG uses the configured bound.
-          maxParallel: this.config.policy.maxWorkers,
+          // Strict paid reservations are cross-process; each DAG stays within
+          // the configured bound, and small repositories use at most two.
+          maxParallel: dagParallelism(
+            (await this.context.snapshotById(run.plan.snapshotId)).fileCount,
+            this.config.policy,
+          ),
           saveCheckpoint: (value) => writeJson(checkpointPath, value),
           beforeApply: async () => {
             await this.refresh();
