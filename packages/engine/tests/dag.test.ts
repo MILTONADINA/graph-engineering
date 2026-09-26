@@ -8,6 +8,7 @@ import {
 } from "@graph-engineering/contracts";
 import {
   runDag,
+  untilAborted,
   validateDag,
   type DagCheckpoint,
 } from "../src/execution/dag.js";
@@ -390,5 +391,22 @@ describe("step write scopes and timeouts", () => {
       },
     });
     expect(result.appliedStepIds).toEqual(["one", "two"]);
+  });
+});
+
+describe("step time limits", () => {
+  it("stops a step that ignores its signal at the step's time limit", async () => {
+    const never = new Promise<string>(() => {});
+    await expect(
+      untilAborted(never, AbortSignal.timeout(20)),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(
+      untilAborted(Promise.resolve("done"), AbortSignal.timeout(1000)),
+    ).resolves.toBe("done");
+    const cancelled = new AbortController();
+    cancelled.abort(new Error("cancelled"));
+    await expect(untilAborted(never, cancelled.signal)).rejects.toThrow(
+      "cancelled",
+    );
   });
 });

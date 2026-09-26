@@ -40,6 +40,8 @@ Teams need security tools chosen for what their repository actually contains, wi
   - Test: packages/engine/tests/security-catalog.test.ts :: downloads the database only when the policy allows the OSV host
 - AC11: Dependency advisories gate a run only for lockfiles the run changed; others are recorded as advisory.
   - Test: packages/engine/tests/execution.test.ts :: gates dependency advisories only on lockfiles the run changed
+- AC12: Without a downloaded OSV database, a skipped dependency scan is recorded, and a run that changed a lockfile fails instead of passing unscanned.
+  - Test: packages/engine/tests/execution.test.ts :: does not pass a run that changed a lockfile when no dependency database was downloaded
 
 ## Security considerations
 
