@@ -49,4 +49,7 @@ What this feature deliberately does not do.
   contains the named test. `spec-check` enforces this.
 
 A test link proves a named test exists; it does not prove the test is
-thorough. Review the tests like any other code.
+thorough. Review the tests like any other code. In a repository with CI
+workflows, a test that only runs behind an environment switch
+(`it.runIf(process.env.NAME === "1")`) counts only when a workflow step runs
+its file with that switch set.

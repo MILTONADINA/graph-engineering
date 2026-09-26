@@ -168,6 +168,41 @@ export function definesTest(text: string, name: string): boolean {
   ).test(code);
 }
 
+/**
+ * The environment switch a linked test needs to run, when it is declared as
+ * `it.runIf(process.env.NAME === "1")("name", ...)` (or `test.`/`skipIf(!...)`).
+ */
+export function testSwitch(text: string, name: string): string | undefined {
+  const quoted = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(
+    `(?:^|[^.\\w])(?:it|test)\\.(runIf|skipIf)\\(\\s*(!?)\\(?\\s*process\\.env\\.([A-Za-z0-9_]+)\\s*===\\s*["'\`]1["'\`]\\s*\\)?\\s*\\)\\(\\s*(["'\`])${quoted}\\4`,
+    "m",
+  ).exec(text);
+  if (!match) return undefined;
+  const [, kind, negated, variable] = match;
+  // runIf(X === "1") and skipIf(!(X === "1")) both need X set.
+  return (kind === "runIf") !== (negated === "!") ? variable : undefined;
+}
+
+/**
+ * Whether a workflow step runs a test file with an environment switch set:
+ * the step's text names the file (as its package-relative tests/ path) and
+ * sets the variable to "1". A light reading of the workflow text, not YAML.
+ */
+export function ciRunsWithSwitch(
+  workflows: readonly string[],
+  file: string,
+  variable: string,
+): boolean {
+  const local = file.replace(/^.*?(?=tests\/)/, "");
+  const setting = new RegExp(`\\b${variable}:\\s*["']?1["']?\\s*$`, "m");
+  return workflows.some((workflow) =>
+    workflow
+      .split(/\n\s*- (?=name:|uses:|run:)/)
+      .some((step) => step.includes(local) && setting.test(step)),
+  );
+}
+
 export interface SpecReport {
   specs: {
     path: string;
@@ -209,6 +244,18 @@ export async function checkSpecs(
     }
     return fileText.get(file)!;
   };
+  // CI workflows, when the repository has any, decide whether a test that
+  // only runs behind an environment switch counts as proof.
+  const workflowDir = path.join(root, ".github", "workflows");
+  const workflows = await readdir(workflowDir)
+    .then((names) =>
+      Promise.all(
+        names
+          .filter((name) => /\.ya?ml$/.test(name))
+          .map((name) => readFile(path.join(workflowDir, name), "utf8")),
+      ),
+    )
+    .catch(() => undefined);
   for (const file of await specFiles(root)) {
     const spec = parseSpec(file, await readFile(path.join(root, file), "utf8"));
     const problem = (message: string) => errors.push(`${file}: ${message}`);
@@ -237,6 +284,7 @@ export async function checkSpecs(
     let linked = 0;
     for (const criterion of spec.criteria) {
       let verified = 0;
+      const unrun: string[] = [];
       for (const test of criterion.tests) {
         const text = await readTestFile(test.path);
         if (text === null)
@@ -245,11 +293,20 @@ export async function checkSpecs(
           problem(
             `${criterion.id} links "${test.name}", which ${test.path} does not contain`,
           );
-        else verified++;
+        else {
+          const variable = workflows && testSwitch(text, test.name);
+          if (variable && !ciRunsWithSwitch(workflows, test.path, variable))
+            unrun.push(`"${test.name}" (needs ${variable}=1)`);
+          else verified++;
+        }
       }
       if (verified) linked++;
       else if (spec.status === "implemented")
-        problem(`${criterion.id} has no verified test link`);
+        problem(
+          unrun.length
+            ? `${criterion.id} links only tests that no CI step runs: ${unrun.join(", ")}`
+            : `${criterion.id} has no verified test link`,
+        );
     }
     specs.push({
       path: file,

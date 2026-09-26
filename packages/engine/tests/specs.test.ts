@@ -5,10 +5,12 @@ import path from "node:path";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import {
   checkSpecs,
+  ciRunsWithSwitch,
   definesTest,
   parseSpec,
   planFromSpec,
   specTemplate,
+  testSwitch,
 } from "../src/specs.js";
 
 const directories: string[] = [];
@@ -277,5 +279,75 @@ describe("test link verification", () => {
       "AC1",
       "AC2",
     ]);
+  });
+});
+
+describe("tests that only run behind an environment switch", () => {
+  const gated = [
+    `it("lists invoices", () => {});`,
+    `it.runIf(process.env.BILLING_DB_TESTS === "1")("refuses anonymous users", async () => {});`,
+  ].join("\n");
+  const workflow = (step: string) =>
+    [
+      "jobs:",
+      "  platform:",
+      "    steps:",
+      "      - name: Unit tests",
+      "        run: npm test",
+      step,
+    ].join("\n");
+
+  it("reads the switch a linked test needs", () => {
+    expect(testSwitch(gated, "refuses anonymous users")).toBe(
+      "BILLING_DB_TESTS",
+    );
+    expect(testSwitch(gated, "lists invoices")).toBeUndefined();
+    expect(
+      testSwitch(
+        `test.skipIf(!(process.env.X_TESTS === "1"))("slow", () => {});`,
+        "slow",
+      ),
+    ).toBe("X_TESTS");
+  });
+
+  it("fails a criterion proven only by a switched-off test that no CI step runs", async () => {
+    const files = {
+      "specs/billing/invoice-list.md": spec({}),
+      "tests/invoices.test.ts": gated,
+    };
+    const unrun = await repo({
+      ...files,
+      ".github/workflows/ci.yml": workflow(""),
+    });
+    expect((await checkSpecs(unrun, DEFAULT_POLICY)).errors).toEqual([
+      'specs/billing/invoice-list.md: AC2 links only tests that no CI step runs: "refuses anonymous users" (needs BILLING_DB_TESTS=1)',
+    ]);
+    const run = await repo({
+      ...files,
+      ".github/workflows/ci.yml": workflow(
+        [
+          "      - name: Billing database",
+          "        run: npm test -- --run tests/invoices.test.ts",
+          "        env:",
+          '          BILLING_DB_TESTS: "1"',
+        ].join("\n"),
+      ),
+    });
+    expect((await checkSpecs(run, DEFAULT_POLICY)).errors).toEqual([]);
+    // Without CI workflows there is nothing to check against.
+    expect(
+      (await checkSpecs(await repo(files), DEFAULT_POLICY)).errors,
+    ).toEqual([]);
+    expect(
+      ciRunsWithSwitch(
+        [
+          workflow(
+            '      - name: Other\n        env:\n          BILLING_DB_TESTS: "1"',
+          ),
+        ],
+        "tests/invoices.test.ts",
+        "BILLING_DB_TESTS",
+      ),
+    ).toBe(false);
   });
 });
