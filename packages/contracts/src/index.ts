@@ -146,7 +146,8 @@ export interface GraphEdge {
 }
 export interface ContextItem {
   id: string;
-  kind: "code" | "memory" | "document";
+  // An outline lists a file's symbols and line ranges, not its code.
+  kind: "code" | "memory" | "document" | "outline";
   text: string;
   score: number;
   source?: SourceReference;

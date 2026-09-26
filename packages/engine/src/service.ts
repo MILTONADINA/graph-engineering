@@ -40,8 +40,11 @@ import {
 } from "./execution/docker.js";
 import { publishRun } from "./execution/publish.js";
 import {
+  patchFeedbackFor,
+  recordShown,
   requestedSourcePacket,
   SuppliedLines,
+  unseenPatchLocation,
 } from "./execution/requested-sources.js";
 import { checkedGit } from "./execution/git.js";
 import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
@@ -810,20 +813,25 @@ export class GraphEngine {
               throw new Error("DAG worker is no longer configured");
             let stepPacket: ContextPacket = await currentContext();
             const supplied = new SuppliedLines();
+            const shown = new SuppliedLines();
+            let patchFeedback = "";
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
                 throw new Error("Policy changed during DAG execution");
+              const stepInput: WorkerInput = {
+                provider,
+                policy: this.config.policy,
+                context: stepPacket,
+                objective: step.objective,
+                acceptance: run.plan.acceptance,
+                effort: step.effort,
+                ...(patchFeedback ? { feedback: patchFeedback } : {}),
+                signal: state.signal,
+              };
+              recordShown(shown, fitWorkerContext(stepInput).context);
               const result = await this.invokeWorker(
-                {
-                  provider,
-                  policy: this.config.policy,
-                  context: stepPacket,
-                  objective: step.objective,
-                  acceptance: run.plan.acceptance,
-                  effort: step.effort,
-                  signal: state.signal,
-                },
+                stepInput,
                 workspace,
                 run.plan.id,
               );
@@ -838,18 +846,27 @@ export class GraphEngine {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
                 throw new Error("Policy changed before DAG patch application");
-              if (!result.proposal.requests.length) return result;
+              if (!result.proposal.requests.length) {
+                const unseen = await unseenPatchLocation(
+                  workspace,
+                  result.proposal,
+                  shown,
+                  supplied.partial,
+                  this.config.policy,
+                );
+                if (!unseen) return result;
+                patchFeedback = patchFeedbackFor(
+                  unseen,
+                  result.proposal,
+                  provider,
+                  this.config.policy,
+                );
+                continue;
+              }
+              patchFeedback = "";
               stepPacket = await requestedSourcePacket({
                 workspace,
-                input: {
-                  provider,
-                  policy: this.config.policy,
-                  context: stepPacket,
-                  objective: step.objective,
-                  acceptance: run.plan.acceptance,
-                  effort: step.effort,
-                  signal: state.signal,
-                },
+                input: stepInput,
                 requests: result.proposal.requests,
                 snapshotId: stepPacket.snapshotId,
                 supplied,
@@ -940,6 +957,8 @@ export class GraphEngine {
             );
             let proposalApplied = false;
             const supplied = new SuppliedLines();
+            const shown = new SuppliedLines();
+            let patchFeedback = "";
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
@@ -973,12 +992,16 @@ export class GraphEngine {
               );
               // Test logs may quote private source even when they contain no key-like
               // strings. They stay local; remote workers get only a generic failure.
-              const workerFeedback =
+              const workerFeedback = [
                 provider.kind === "local"
                   ? feedback
                   : feedback
                     ? "Required verification failed. Request explicitly exportable source to investigate."
-                    : "";
+                    : "",
+                patchFeedback,
+              ]
+                .filter(Boolean)
+                .join("\n\n");
               const input: WorkerInput = {
                 provider,
                 policy: this.config.policy,
@@ -989,6 +1012,7 @@ export class GraphEngine {
                 feedback: workerFeedback,
                 signal,
               };
+              recordShown(shown, fitWorkerContext(input).context);
               const result = await this.invokeWorker(
                 input,
                 workspace,
@@ -1020,13 +1044,44 @@ export class GraphEngine {
                   worker: "Worker",
                   routedBudget: run.plan.routing?.contextBudgetTokens,
                 });
+                patchFeedback = "";
                 continue;
               }
-              const changed = await applyProposal(
+              const unseen = await unseenPatchLocation(
                 workspace,
                 result.proposal,
+                shown,
+                supplied.partial,
                 this.config.policy,
               );
+              if (unseen) {
+                patchFeedback = patchFeedbackFor(
+                  unseen,
+                  result.proposal,
+                  provider,
+                  this.config.policy,
+                );
+                continue;
+              }
+              let changed: string[];
+              try {
+                changed = await applyProposal(
+                  workspace,
+                  result.proposal,
+                  this.config.policy,
+                );
+              } catch (error) {
+                const message = errorMessage(error);
+                if (!message.startsWith("Patch precondition failed"))
+                  throw error;
+                patchFeedback = patchFeedbackFor(
+                  `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`,
+                  result.proposal,
+                  provider,
+                  this.config.policy,
+                );
+                continue;
+              }
               reusableProposal =
                 attempt === 1 && !cached && !resuming
                   ? result.proposal

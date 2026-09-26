@@ -206,9 +206,30 @@ review's pick is recorded where they disagree.
    context budget tighter than the default still bounds each file. A file
    that returns to content already supplied in the attempt no longer counts
    as new evidence.
-3. Line-range requests, outlines for oversized files, accumulation and
-   precondition feedback (sections 1–3, 5, 7), with tests for every row of
-   the threat table using the same fixtures as `managed-dag-safety.test.ts`.
+3. **Done:** line-range requests, outlines for oversized files,
+   accumulation and precondition feedback (sections 1–3, 5, 7) in
+   `execution/requested-sources.ts` and both request loops. Two deliberate
+   narrowings of the design, both to keep today's successful runs working:
+   - Outlines carry symbol names, kinds and line ranges only, without the
+     best-matching chunks section 2 suggested; the worker requests ranges
+     from the outline instead. An outline counts as progress once per file
+     content and never counts as lines seen.
+   - The "edit only lines you were shown" check (section 5) applies to files
+     the worker saw only in part in the attempt (an outline or a range).
+     Applied to every file, it refused edits that runs make today from
+     retrieval excerpts, which cost turns and broke seven existing tests.
+     A violation, and an ambiguous or missing `before`, returns feedback in
+     the single-step loop; in a DAG step the location check returns feedback
+     and the wave-level precondition check is unchanged.
+     Review hardening: a cloud worker gets no range or outline of a file that
+     contains a potential secret (a range could separate a secret from the
+     context the filter needs), requested evidence always outranks retrieval
+     in eviction, and an oversized range returns its longest fitting prefix.
+     Tests: `requested-sources.test.ts` (ranges, invalid ranges, outlines,
+     accumulation and eviction order, partial-file location check, cloud
+     feedback redaction), end-to-end flows in `execution.test.ts` and
+     `managed-dag-safety.test.ts`, and the existing export, secret and
+     repeated-request tests unchanged.
 4. A fresh bounded local Qwen pilot on a new real task that edits a file over
    the default budget, recorded in local validation. Not a re-run of an
    already-solved task.
