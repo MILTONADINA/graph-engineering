@@ -2611,3 +2611,47 @@ input::placeholder {
   overflow-wrap: anywhere;
   user-select: all;
 }
+
+/* Run outcome insights */
+.insights-panel {
+  margin: 0 0 20px;
+}
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px 20px;
+  padding: 0 23px 18px;
+  margin: 0;
+}
+.insights-grid dt {
+  font-size: 10px;
+  color: var(--muted);
+}
+.insights-grid dd {
+  margin: 3px 0 0;
+  font-size: 12px;
+}
+.insights-table {
+  width: calc(100% - 46px);
+  margin: 0 23px 20px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.insights-table caption {
+  text-align: left;
+  font-size: 10px;
+  color: var(--muted);
+  padding-bottom: 6px;
+}
+.insights-table th,
+.insights-table td {
+  text-align: left;
+  padding: 5px 8px 5px 0;
+  border-top: 1px solid var(--border);
+}
+@media (max-width: 900px) {
+  .insights-table {
+    display: block;
+    overflow-x: auto;
+  }
+}

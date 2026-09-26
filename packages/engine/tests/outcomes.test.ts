@@ -12,6 +12,7 @@ import {
 } from "../src/project.js";
 import { checked, writeJson } from "../src/util.js";
 import type { WorkerInput } from "../src/workers/api.js";
+import { summarizeOutcomes } from "../src/insights.js";
 
 const directories: string[] = [],
   engines: GraphEngine[] = [];
@@ -430,5 +431,41 @@ describe("planning from a spec", () => {
     await expect(engine.createPlanFromSpec("math.cjs")).rejects.toThrow(
       "A spec is a Markdown file under specs/",
     );
+  });
+});
+
+describe("outcome summary of real runs", () => {
+  it("counts real runs once each, with gates, acceptance and cost", async () => {
+    const { root } = await fixture((config) => {
+      config.policy.maxAttempts = 1;
+    });
+    const { engine, result: first } = await run(root);
+    await engine.recordAcceptance(first.id, { accepted: true });
+    const plan = await engine.createPlan({
+      objective: "Fix addition in math.cjs again",
+      acceptance: ["2 + 3 is 5"],
+    });
+    const failing = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker,
+      verify: verifyWith(() => false),
+    });
+    engines.push(failing);
+    const second = await failing.wait((await failing.start(plan.id)).id);
+    expect(second.status).toBe("failed");
+    const summary = summarizeOutcomes(
+      failing.store.outcomes(),
+      failing.store.decisions(),
+    );
+    expect(summary).toMatchObject({
+      runs: 2,
+      byStatus: { succeeded: 1, failed: 1 },
+      acceptance: { accepted: 1, pending: 0, rejected: 0 },
+      gates: {
+        checks: { passed: 1, failed: 1, notRun: 0 },
+        security: { notRun: 2 },
+      },
+      cost: { knownUsd: 0, runsWithUnknownCost: 0 },
+    });
   });
 });

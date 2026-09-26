@@ -10,6 +10,7 @@ import {
 } from "@graph-engineering/contracts";
 import { GraphEngine } from "./service.js";
 import { repositoryProfile } from "./scale.js";
+import { summarizeOutcomes } from "./insights.js";
 import { checkSpecs, specTemplate, SPECS_DIR } from "./specs.js";
 import {
   addKnowledgePack,
@@ -713,17 +714,24 @@ cli
     "--memory <id>",
     "Only outcomes of runs whose context held this memory",
   )
+  .option(
+    "--summary",
+    "Count how runs ended: statuses, gates, acceptance, cost, and per decision option and memory",
+  )
   .action((runId, options) =>
-    withEngine(async (engine) =>
-      engine.store
+    withEngine(async (engine) => {
+      const outcomes = engine.store
         .outcomes(runId)
         .filter(
           (outcome) =>
             (!options.decision ||
               outcome.decisionIds.includes(options.decision)) &&
             (!options.memory || outcome.memoryIds.includes(options.memory)),
-        ),
-    ),
+        );
+      return options.summary
+        ? summarizeOutcomes(outcomes, engine.store.decisions())
+        : outcomes;
+    }),
   );
 cli.command("run <planId>").action((planId) =>
   withEngine(async (engine) => {
