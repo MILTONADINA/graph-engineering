@@ -142,8 +142,9 @@ passed on re-run; treat a repeat as a flaky-test lead, not a regression.
 
 The remaining recorded pilot limit, workers receiving whole files that
 exceed the default context budget, has a proposed design in
-[worker context excerpts](worker-context-excerpts.md); its owner decisions
-come before any implementation PR.
+[worker context excerpts](worker-context-excerpts.md). Its five decisions
+were recorded on 2026-09-25, delegated by the owner; the next step is its
+delivery step 2 (one budget measure and the lines-seen progress guard).
 
 ## Where the work stands
 
