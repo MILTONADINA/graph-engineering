@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { DecisionRecord } from "@graph-engineering/contracts";
-import type { AccountingSummary } from "./types";
+import type { AccountingSummary, OutcomeSummary } from "./types";
+import { InsightsPanel } from "./InsightsPanel";
 import type { Api } from "./api";
 import {
   Badge,
@@ -24,6 +25,10 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
   const accounting = useResource<AccountingSummary>(
     api,
     active ? "/api/usage" : null,
+  );
+  const insights = useResource<OutcomeSummary>(
+    api,
+    active ? "/api/insights" : null,
   );
   const [mode, setMode] = useState("all");
   const [category, setCategory] = useState("all");
@@ -51,6 +56,7 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
             onClick={() => {
               decisions.reload();
               accounting.reload();
+              insights.reload();
             }}
           >
             <Icon name="refresh" size={16} />
@@ -63,6 +69,7 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
       </PageHeading>
       <ErrorNotice message={decisions.error} retry={decisions.reload} />
       <ErrorNotice message={accounting.error} retry={accounting.reload} />
+      <ErrorNotice message={insights.error} retry={insights.reload} />
       <div className="metric-grid">
         <div className="metric">
           <span className="metric-label">
@@ -98,6 +105,7 @@ export function DecisionsPage({ api, active }: { api: Api; active: boolean }) {
           <span className="metric-foot">{usage.detail}</span>
         </div>
       </div>
+      {insights.data && <InsightsPanel summary={insights.data} />}
       {accounting.data && <UsagePanel summary={accounting.data} />}
       <div className="notice notice-subtle">
         <Icon name="shield" size={18} />

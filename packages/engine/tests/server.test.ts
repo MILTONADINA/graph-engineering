@@ -52,6 +52,13 @@ it("requires a local token, rejects hostile origins, and returns real persisted 
       ).statusCode,
     ).toBe(401);
     expect(
+      (await app.inject({ url: "/api/insights", headers })).json(),
+    ).toMatchObject({
+      runs: 0,
+      decisions: [],
+      note: expect.stringContaining("not scores"),
+    });
+    expect(
       (await app.inject({ url: "/api/overview", headers })).json(),
     ).toEqual({
       counts: { "needs-you": 0, "in-progress": 0, done: 0 },

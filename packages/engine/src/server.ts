@@ -9,6 +9,7 @@ import type { GraphEngine } from "./service.js";
 import { dockerAvailable } from "./execution/docker.js";
 import { listTemplates } from "./templates.js";
 import { projectOverview } from "./overview.js";
+import { summarizeOutcomes } from "./insights.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 
 export function createServer(
@@ -123,6 +124,9 @@ export function createServer(
   app.get("/api/templates", () => listTemplates());
   app.get("/api/decisions", async () => engine.store.decisions());
   app.get("/api/usage", async () => engine.store.accountingSummary());
+  app.get("/api/insights", async () =>
+    summarizeOutcomes(engine.store.outcomes(), engine.store.decisions()),
+  );
   app.get("/api/runs", async () => engine.store.runs());
   // The project board: what each run is doing, its gates, and who acts next.
   app.get("/api/overview", async () => {

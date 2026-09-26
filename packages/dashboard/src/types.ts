@@ -95,3 +95,30 @@ export interface OverviewResponse {
     decisionMode: string;
   };
 }
+
+export interface OutcomeTally {
+  runs: number;
+  succeeded: number;
+  failed: number;
+  accepted: number;
+  rejected: number;
+}
+export interface OutcomeSummary {
+  runs: number;
+  byStatus: Record<string, number>;
+  acceptance: { pending: number; accepted: number; rejected: number };
+  gates: {
+    checks: { passed: number; failed: number; notRun: number };
+    review: { approved: number; changesRequested: number; notRun: number };
+    security: { passed: number; failed: number; notRun: number };
+  };
+  cost: { knownUsd: number; runsWithUnknownCost: number };
+  decisions: {
+    category: string;
+    option: string;
+    mode: string;
+    tally: OutcomeTally;
+  }[];
+  memories: { memoryId: string; tally: OutcomeTally }[];
+  note: string;
+}

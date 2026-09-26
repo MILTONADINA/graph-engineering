@@ -13,6 +13,15 @@ graph-engine accept <runId> [--note ...] # you accept a succeeded result
 graph-engine reject <runId> --note ...   # you reject it, saying why
 ```
 
+## Looking back
+
+`graph-engine outcomes --summary` (and the Decisions & usage page of the
+dashboard) counts each run once by its latest outcome: statuses, your
+acceptance decisions, how the checks, review and security gate went, known
+cost, and how runs went per decision option actually used and per memory in
+their context ([outcome insights spec](../specs/quality/outcome-insights.md)).
+The counts are for people to read; they are not scores and change nothing.
+
 ## What an outcome records
 
 Each time a run ends (`succeeded`, `failed`, `cancelled` or
