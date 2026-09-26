@@ -447,8 +447,9 @@ describe("managed DAG safety boundaries", () => {
     const run = await engine.wait((await engine.start(planned.id)).id);
     expect(run.status).toBe("failed");
     expect(run.error).toMatch(/repeated source requests without new evidence/);
-    expect(worker).toHaveBeenCalledTimes(2);
-    expect(run.usage.inputTokens).toBe(20);
+    // The first repeat is answered with feedback; the second stops the step.
+    expect(worker).toHaveBeenCalledTimes(3);
+    expect(run.usage.inputTokens).toBe(30);
     expect(verify).not.toHaveBeenCalled();
     await assertUnchanged(run.workspace!);
   });
@@ -656,6 +657,30 @@ describe("managed DAG safety boundaries", () => {
       plan(engine, [step("dag-repair"), step("two")]),
     ).rejects.toThrow("Step ID dag-repair is reserved");
   });
+  it("applies a DAG proposal that repeats a request but also proposes changes", async () => {
+    const { root } = await fixture();
+    let turns = 0;
+    const worker = vi.fn(async () => {
+      turns++;
+      return {
+        ...result("one"),
+        proposal: {
+          summary: "Edit while asking again",
+          requests: turns === 1 ? ["first.js"] : ["first.js"],
+          changes:
+            turns === 1
+              ? []
+              : [{ path: "one.txt", before: null, after: "one\n" }],
+        },
+      };
+    });
+    const engine = await open(root, { worker, verify: vi.fn(passing) });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(worker).toHaveBeenCalledTimes(2);
+    expect(run.status).toBe("succeeded");
+  });
+
   it("does not leak a private DAG workspace path when requested source is missing", async () => {
     const { root } = await fixture();
     const worker = vi.fn(async () => ({
@@ -670,9 +695,11 @@ describe("managed DAG safety boundaries", () => {
     const planned = await plan(engine, [step("one"), step("two", ["one"])]);
     const run = await engine.wait((await engine.start(planned.id)).id);
     expect(run.status).toBe("failed");
-    expect(run.error).toMatch(/Requested source is unavailable: missing\.js/);
+    // The worker is shown the files it can read instead; asking for the
+    // same missing file again stops the step without leaking the path.
+    expect(run.error).toMatch(/repeated source requests without new evidence/);
     expect(run.error).not.toContain(run.workspace!);
-    expect(worker).toHaveBeenCalledTimes(1);
+    expect(worker).toHaveBeenCalledTimes(3);
     await assertUnchanged(run.workspace!);
   });
 
@@ -710,7 +737,8 @@ describe("managed DAG safety boundaries", () => {
     const run = await engine.wait((await engine.start(planned.id)).id);
     expect(run.status).toBe("failed");
     expect(run.error).toMatch(/no exportable evidence/);
-    expect(worker).toHaveBeenCalledTimes(1);
+    // Told once that the request added nothing, then stopped.
+    expect(worker).toHaveBeenCalledTimes(2);
     expect(run.error).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
   });
 });
@@ -1127,7 +1155,7 @@ describe("scoped steps in managed runs", () => {
 });
 
 describe("tester role", () => {
-  it("adds a tester step after implementation that may write only tests", async () => {
+  it("puts a tester step first that may write only new tests", async () => {
     const { root, config } = await fixture((value) => {
       value.policy.providers = ["local", "tester"];
       value.tester = { providerId: "tester" };
@@ -1159,21 +1187,92 @@ describe("tester role", () => {
       }),
     });
     const planned = await plan(engine, [step("one")]);
-    expect(planned.steps.map((item) => item.id)).toEqual(["one", "tester"]);
-    expect(planned.steps[1]).toMatchObject({
+    expect(planned.steps.map((item) => item.id)).toEqual(["tester", "one"]);
+    expect(planned.steps[0]).toMatchObject({
       providerId: "tester",
-      dependsOn: ["one"],
+      dependsOn: [],
       writes: expect.arrayContaining(["**/*.test.*", "**/tests/**"]),
     });
-    expect(planned.steps[1]!.objective).toContain(
+    expect(planned.steps[0]!.objective).toContain(
       "- Both constants are updated",
     );
+    expect(planned.steps[1]!.dependsOn).toEqual(["tester"]);
     const run = await engine.wait((await engine.start(planned.id)).id);
     expect(run.status).toBe("succeeded");
-    expect(seen).toEqual(["local", "tester"]);
+    expect(seen).toEqual(["tester", "local"]);
     expect(
       await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
     ).toContain("first is 3");
+  });
+
+  it("keeps test-first roles apart: the tester only creates tests, implementers may not change them", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    await writeFile(path.join(root, "old.test.js"), "expect 1\n");
+    await checked("git", ["add", "old.test.js"], { cwd: root });
+    await checked("git", ["commit", "-m", "test: existing test"], {
+      cwd: root,
+    });
+    const testerFeedback: (string | undefined)[] = [];
+    const implementer: { objective: string; feedback?: string }[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (input.provider.id === "tester") {
+          testerFeedback.push(input.feedback);
+          const changes = [
+            [],
+            [{ path: "old.test.js", before: "expect 1", after: "" }],
+            [{ path: "first.test.js", before: null, after: "expect 3\n" }],
+          ][testerFeedback.length - 1]!;
+          return {
+            ...result("one"),
+            proposal: { summary: "Tests", requests: [], changes },
+          };
+        }
+        implementer.push({
+          objective: input.objective,
+          feedback: input.feedback,
+        });
+        return implementer.length === 1
+          ? {
+              ...result("one"),
+              proposal: {
+                summary: "Weaken the test",
+                requests: [],
+                changes: [
+                  { path: "first.test.js", before: "expect 3", after: "" },
+                ],
+              },
+            }
+          : result("one");
+      }),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(testerFeedback[1]).toContain(
+      "Write at least one new test file that proves the acceptance criteria",
+    );
+    expect(testerFeedback[2]).toContain(
+      "As the tester, create new test files only; do not edit existing files (old.test.js)",
+    );
+    expect(implementer[0]!.objective).toContain(
+      "The tester has written tests for the acceptance criteria in first.test.js",
+    );
+    expect(implementer[1]!.feedback).toContain(
+      "The tester wrote first.test.js to prove the acceptance criteria. Do not change those tests",
+    );
+    expect(
+      await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
+    ).toBe("expect 3\n");
   });
 
   it("never lets a repair weaken the tests the tester wrote", async () => {
@@ -1247,6 +1346,241 @@ describe("tester role", () => {
     expect(
       await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
     ).toBe("expect 5\n");
+  });
+
+  it("sends a failure in the tester's own tests back to the tester, limited to test files", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.policy.maxAttempts = 3;
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const repairs: { provider: string; objective: string }[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (!input.objective.includes("required checks fail")) {
+          if (input.provider.id !== "tester") return result("one");
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "A test that does not compile",
+              requests: [],
+              changes: [
+                { path: "first.test.js", before: null, after: "broken(\n" },
+              ],
+            },
+          };
+        }
+        repairs.push({
+          provider: input.provider.id,
+          objective: input.objective,
+        });
+        return {
+          ...result("one"),
+          proposal: {
+            summary: "Fix my test",
+            requests: [],
+            changes: [
+              { path: "first.test.js", before: "broken(", after: "expect 3" },
+            ],
+          },
+        };
+      }),
+      verify: async (workspace, checks, _policy, snapshotHash) => {
+        const test = await readFile(
+          path.join(workspace, "first.test.js"),
+          "utf8",
+        ).catch(() => "");
+        const broken = test.includes("broken(");
+        return checks.map((check) => ({
+          ...check,
+          code: broken ? 1 : 0,
+          stdout: broken ? "SyntaxError in first.test.js:1" : "",
+          stderr: "",
+          snapshotHash,
+        }));
+      },
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(repairs).toHaveLength(1);
+    expect(repairs[0]!.provider).toBe("tester");
+    expect(repairs[0]!.objective).toContain(
+      "The required checks fail in tests you wrote (first.test.js)",
+    );
+    expect(
+      engine.store
+        .events(run.id)
+        .find((event) => event.type === "dag.repair_started")?.data,
+    ).toMatchObject({ providerId: "tester", role: "tester" });
+  });
+
+  it("recognises the tester's file when a test runner names its class, and trims stack traces", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.policy.maxAttempts = 3;
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const repairs: { provider: string; feedback?: string }[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (!input.objective.includes("required checks fail")) {
+          if (input.provider.id !== "tester") return result("one");
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "Wrong test data",
+              requests: [],
+              changes: [
+                {
+                  path: "tests/FirstTest.java",
+                  before: null,
+                  after: "expect 13 digits\n",
+                },
+              ],
+            },
+          };
+        }
+        repairs.push({ provider: input.provider.id, feedback: input.feedback });
+        return {
+          ...result("one"),
+          proposal: {
+            summary: "Fix my test data",
+            requests: [],
+            changes: [
+              {
+                path: "tests/FirstTest.java",
+                before: "13 digits",
+                after: "12 digits",
+              },
+            ],
+          },
+        };
+      }),
+      verify: async (workspace, checks, _policy, snapshotHash) => {
+        const test = await readFile(
+          path.join(workspace, "tests/FirstTest.java"),
+          "utf8",
+        ).catch(() => "");
+        const failing = test.includes("13 digits");
+        const frames = Array.from(
+          { length: 400 },
+          (_, i) => `\tat pkg.Frame${i}.call(Frame.java:${i})`,
+        ).join("\n");
+        return checks.map((check) => ({
+          ...check,
+          code: failing ? 1 : 0,
+          stdout: failing
+            ? `[ERROR] pkg.FirstTest.valid FAILURE: expected 12 digits\n${frames}\n[ERROR] Tests run: 3, Failures: 1`
+            : "",
+          stderr: "",
+          snapshotHash,
+        }));
+      },
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(repairs.map((repair) => repair.provider)).toEqual(["tester"]);
+    expect(repairs[0]!.feedback).toContain(
+      "pkg.FirstTest.valid FAILURE: expected 12 digits",
+    );
+    expect(repairs[0]!.feedback).toContain("(more stack frames omitted)");
+    expect(repairs[0]!.feedback).not.toContain("Frame399");
+  });
+
+  it("hands the repair to the implementer after the tester's one attempt at its own tests", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.policy.maxAttempts = 3;
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const repairs: string[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        const repairing =
+          input.objective.includes("required checks fail") ||
+          input.objective.startsWith("Repair");
+        if (!repairing) {
+          if (input.provider.id !== "tester") return result("one");
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "A broken test for first = 5",
+              requests: [],
+              changes: [
+                { path: "first.test.js", before: null, after: "broken(\n" },
+              ],
+            },
+          };
+        }
+        repairs.push(input.provider.id);
+        return {
+          ...result("one"),
+          proposal: {
+            summary: "Repair",
+            requests: [],
+            changes: [
+              input.provider.id === "tester"
+                ? {
+                    path: "first.test.js",
+                    before: "broken(",
+                    after: "expect 5",
+                  }
+                : { path: "first.js", before: "= 3", after: "= 5" },
+            ],
+          },
+        };
+      }),
+      verify: async (workspace, checks, _policy, snapshotHash) => {
+        const first = await readFile(path.join(workspace, "first.js"), "utf8");
+        const test = await readFile(
+          path.join(workspace, "first.test.js"),
+          "utf8",
+        ).catch(() => "");
+        const broken = test.includes("broken(");
+        const passing =
+          !broken && (!test.includes("expect 5") || first.includes("= 5"));
+        return checks.map((check) => ({
+          ...check,
+          code: passing ? 0 : 1,
+          stdout: broken
+            ? "SyntaxError in first.test.js:1"
+            : passing
+              ? ""
+              : "first.test.js: expected 5",
+          stderr: "",
+          snapshotHash,
+        }));
+      },
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(repairs).toEqual(["tester", "local"]);
+    expect(
+      engine.store
+        .events(run.id)
+        .find((event) => event.type === "dag.repair_handoff")?.data,
+    ).toMatchObject({ providerId: "local", role: "implementer" });
   });
 
   it("reserves the tester's step ID", async () => {

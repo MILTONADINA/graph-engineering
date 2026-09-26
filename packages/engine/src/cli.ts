@@ -72,9 +72,14 @@ async function withEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
 cli
   .command("init")
   .option("--name <name>")
-  .action(async (options) =>
-    print(await initializeProject(root(), options.name)),
-  );
+  .action(async (options) => {
+    const project = await initializeProject(root(), options.name);
+    print(project);
+    if (project.policy.maxCostUsd === null)
+      console.error(
+        "No spending cap is set (policy.maxCostUsd is null). The default policy allows only local models, so nothing is spent; set a numeric cap before permitting metered workers.",
+      );
+  });
 cli
   .command("index")
   .option(
@@ -429,6 +434,22 @@ cli
       }),
     );
   });
+// Setting a role to a worker plans cannot use would otherwise only fail
+// later, at planning time.
+async function warnIfUnusable(
+  project: Awaited<ReturnType<typeof loadProject>>,
+  providerId: string,
+): Promise<void> {
+  const configured = await loadProviders(projectDataDir(project.projectId));
+  if (!configured.some((provider) => provider.id === providerId))
+    console.error(
+      `${providerId} is not a configured worker yet; add it with graph-engine provider-add.`,
+    );
+  else if (!project.policy.providers.includes(providerId))
+    console.error(
+      `${providerId} is not permitted by the project policy; add it to policy.providers (graph-engine provider-add ... --enable) before planning.`,
+    );
+}
 cli
   .command("reviewer [providerId]")
   .description(
@@ -443,6 +464,7 @@ cli
       assertProjectConfig(project);
       await writeJson(path.join(root(), PROJECT_FILE), project);
     }
+    if (providerId) await warnIfUnusable(project, providerId);
     print({ review: project.review ?? null });
   });
 cli
@@ -464,6 +486,7 @@ cli
       assertProjectConfig(project);
       await writeJson(path.join(root(), PROJECT_FILE), project);
     }
+    if (providerId) await warnIfUnusable(project, providerId);
     print({ tester: project.tester ?? null });
   });
 cli
@@ -521,13 +544,23 @@ cli
         : {}),
     };
     await configureProvider(projectDataDir(project.projectId), provider);
-    if (options.enable) {
+    // A local worker runs on this machine at no cost, so adding one permits
+    // it; a cloud or installed worker is permitted only with --enable.
+    if (options.enable || kind === "local") {
       project.policy.providers = [
         ...new Set([...project.policy.providers, id]),
       ];
       assertProjectConfig(project);
       await writeJson(path.join(root(), PROJECT_FILE), project);
     }
+    if (!project.policy.providers.includes(id))
+      console.error(
+        `${id} is configured but not permitted by the project policy; rerun with --enable, or add it to policy.providers, to let plans use it.`,
+      );
+    if (kind !== "local" && project.policy.maxCostUsd === null)
+      console.error(
+        "This project has no spending cap (policy.maxCostUsd is null). Set a numeric cap before running metered workers.",
+      );
     print(provider);
   });
 cli.command("providers").action(async () => {

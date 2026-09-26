@@ -1,11 +1,18 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import type {
   ContextItem,
   ContextPacket,
   SourceReference,
 } from "@graph-engineering/contracts";
+import { excludedFromIndex } from "../context/index.js";
 import { parseFile } from "../context/parser.js";
-import { containsSecret, isAllowedPath, safePath } from "../policy.js";
+import {
+  containsSecret,
+  isAllowedPath,
+  NOT_INCLUDED_WARNING,
+  safePath,
+} from "../policy.js";
 import { hash } from "../util.js";
 import {
   fitWorkerContext,
@@ -189,8 +196,35 @@ export async function requestedSourcePacket(options: {
     let content: string;
     try {
       content = await readFile(absolute, "utf8");
-    } catch {
-      throw new Error(`Requested source is unavailable: ${relative}`);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EISDIR" && code !== "ENOENT")
+        throw new Error(`Requested source is unavailable: ${relative}`);
+      // A directory, or a path that does not exist, gets the files of the
+      // nearest directory instead of ending the run, so the worker can ask
+      // again for a real file.
+      const listing = await directoryListing(options.workspace, relative, {
+        policy,
+        exportOnly: provider.kind !== "local",
+        missing: code === "ENOENT",
+      });
+      if (!listing)
+        throw new Error(`Requested source is unavailable: ${relative}`);
+      const item: ContextItem = {
+        id: hash(`${listing.path}/:${listing.text}`),
+        kind: "outline",
+        text: listing.text,
+        score: supplied.nextScore(),
+        source: {
+          path: `${listing.path}/`,
+          startLine: 1,
+          endLine: listing.count,
+          contentHash: hash(listing.text),
+          snapshotId: options.snapshotId,
+        },
+      };
+      if (!requested.some((next) => next.id === item.id)) requested.push(item);
+      continue;
     }
     // A cloud worker gets nothing from a file with a potential secret, as a
     // whole-file request would: a range could cut a secret away from the
@@ -289,6 +323,17 @@ export async function requestedSourcePacket(options: {
     )
       partialIds.add(item.id);
   }
+  // Rank what adds new evidence above what the worker already has, and
+  // earlier requests above later ones, so a tight budget drops repeats and
+  // later extras rather than the first file the worker asked for.
+  const adds = (item: ContextItem) =>
+    item.source &&
+    (item.kind === "outline"
+      ? supplied.addsOutline(item.source)
+      : supplied.addsLines(item.source));
+  const fresh = requested.filter(adds);
+  for (const item of [...fresh].reverse())
+    item.score = NEW_EVIDENCE_SCORE + supplied.nextScore();
   const carried = input.context.items.filter(
     (item) => !requested.some((next) => next.id === item.id),
   );
@@ -298,8 +343,22 @@ export async function requestedSourcePacket(options: {
   const delivered = packet.items.filter((item) =>
     requested.some((next) => next.id === item.id),
   );
+  const left = fresh.filter(
+    (item) => !delivered.some((next) => next.id === item.id),
+  );
+  packet.coverage.warnings = packet.coverage.warnings.filter(
+    (warning) => !warning.startsWith(NOT_INCLUDED_WARNING),
+  );
+  if (left.length && delivered.some(adds))
+    packet.coverage.warnings.push(
+      `${NOT_INCLUDED_WARNING}${left
+        .map((item) => item.source!.path)
+        .join(
+          ", ",
+        )}. Request each one alone next, or a line range such as path#L1-L80.`,
+    );
   if (!delivered.length)
-    throw new Error(
+    throw new RepeatedRequestError(
       "Requested sources yielded no exportable evidence within context budget; stopped to avoid no-progress model turns",
     );
   if (
@@ -309,7 +368,7 @@ export async function requestedSourcePacket(options: {
         : item.source && supplied.addsLines(item.source),
     )
   )
-    throw new Error(
+    throw new RepeatedRequestError(
       `${options.worker} repeated source requests without new evidence; stopped to avoid no-progress model turns`,
     );
   for (const item of delivered) {
@@ -376,3 +435,84 @@ export function patchFeedbackFor(
     return message;
   return "A proposed change did not apply to lines you were shown. Request the exact exportable lines you intend to edit, then propose again.";
 }
+
+const LISTING_LIMIT = 200;
+// Above any retrieved or carried evidence score.
+const NEW_EVIDENCE_SCORE = 1_000;
+
+/**
+ * The files under the requested directory, or under the nearest existing
+ * parent of a path that does not exist, as the worker may see them: never
+ * ignored, build or policy-excluded paths, and only exportable ones for a
+ * cloud worker. Bounded to 200 entries.
+ */
+async function directoryListing(
+  workspace: string,
+  requested: string,
+  options: {
+    policy: WorkerInput["policy"];
+    exportOnly: boolean;
+    missing: boolean;
+  },
+): Promise<{ path: string; text: string; count: number } | undefined> {
+  let directory = requested.replace(/\/+$/, "");
+  for (;;) {
+    const info = await stat(path.join(workspace, directory)).catch(() => null);
+    if (info?.isDirectory()) break;
+    if (!directory || directory === ".") return undefined;
+    const parent = path.posix.dirname(directory);
+    directory = parent === "." ? "" : parent;
+  }
+  const files: string[] = [];
+  let truncated = false;
+  const walk = async (relative: string): Promise<void> => {
+    const entries = await readdir(path.join(workspace, relative), {
+      withFileTypes: true,
+    });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (truncated) return;
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      if (entry.name === ".git" || entry.isSymbolicLink()) continue;
+      if (
+        excludedFromIndex(child, options.policy, {
+          directory: entry.isDirectory(),
+        })
+      )
+        continue;
+      if (entry.isDirectory()) await walk(child);
+      else if (entry.isFile()) {
+        if (options.exportOnly && !isAllowedPath(child, options.policy, true))
+          continue;
+        if (files.length >= LISTING_LIMIT) {
+          truncated = true;
+          return;
+        }
+        files.push(child);
+      }
+    }
+  };
+  await walk(directory);
+  const shown = directory || ".";
+  const text = [
+    options.missing
+      ? `${requested} does not exist. Files under ${shown}:`
+      : `${shown} is a directory. Its files:`,
+    ...files.map((file) => `- ${file}`),
+    ...(truncated
+      ? [`(first ${LISTING_LIMIT} files; request a subdirectory to see more)`]
+      : []),
+    "Request one of these files, or a line range of one, to read it.",
+  ].join("\n");
+  return { path: shown, text, count: Math.max(1, files.length) };
+}
+
+/**
+ * A request added no new evidence: the worker already has every source it
+ * asked for, or none of them fits the context budget.
+ */
+export class RepeatedRequestError extends Error {}
+
+/** What a worker is told the first time it repeats a request. */
+export const REPEATED_REQUEST_FEEDBACK =
+  "Your last request added nothing new: you already have those sources, or they do not fit the context budget. Propose your change now from the context you have, or request a different file or a smaller line range such as path#L1-L80. Another request that adds nothing stops the run.";

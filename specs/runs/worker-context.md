@@ -28,8 +28,16 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/requested-sources.test.ts :: refuses a non-exportable request for a cloud worker before reading it
   - Test: packages/engine/tests/requested-sources.test.ts :: gives a cloud worker no range or outline of a file with a potential secret
   - Test: packages/engine/tests/requested-sources.test.ts :: gives cloud workers patch details only for exportable paths
-- AC7: A request for a missing file is reported without revealing the private workspace path.
-  - Test: packages/engine/tests/execution.test.ts :: reports a missing source request without exposing the private workspace path
+- AC7: A request for a directory or a missing file is answered with the files the worker may read under the nearest directory (never ignored, excluded or unexportable ones), without revealing the private workspace path.
+  - Test: packages/engine/tests/execution.test.ts :: answers a directory or missing source request with the files the worker may read
+  - Test: packages/engine/tests/execution.test.ts :: stops a worker that keeps requesting the same missing source
+- AC8: A request that adds nothing new is answered once with feedback and stops the step the second time; a proposal that repeats a request but also proposes changes is applied.
+  - Test: packages/engine/tests/execution.test.ts :: stops repeated source requests when the worker receives no new evidence
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: applies a DAG proposal that repeats a request but also proposes changes
+- AC9: When a tight budget cannot fit every requested file, new evidence and earlier requests win, and the worker is told which files were left out.
+  - Test: packages/engine/tests/requested-sources.test.ts :: keeps the first requested file when a tight budget cannot fit them all, and says what was left out
+- AC10: A failing check's feedback includes both its standard output and its error output.
+  - Test: packages/engine/tests/execution.test.ts :: gives the worker a failing check's stdout even when stderr has unrelated warnings
 
 ## Security considerations
 

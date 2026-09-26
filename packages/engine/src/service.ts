@@ -92,6 +92,8 @@ import {
 import {
   patchFeedbackFor,
   recordShown,
+  RepeatedRequestError,
+  REPEATED_REQUEST_FEEDBACK,
   requestedSourcePacket,
   SuppliedLines,
   unseenPatchLocation,
@@ -259,9 +261,10 @@ export class GraphEngine {
       decisionIds: result.records.map((record) => record.id),
     });
   }
-  // A configured tester's step follows every other step: it writes tests
-  // for the acceptance criteria, limited to test files, and the combined
-  // result is verified, reviewed and scanned like any multi-step plan.
+  // A configured tester's step comes first: it writes tests for the
+  // acceptance criteria, limited to new test files, before the implementing
+  // steps run; the combined result is verified, reviewed and scanned like
+  // any multi-step plan.
   private async withTester(
     steps: ExecutionStep[],
     acceptance: string[],
@@ -284,19 +287,68 @@ export class GraphEngine {
       throw new Error(
         `Tester ${tester.providerId} is not a configured provider the policy permits`,
       );
+    // Test first: the tester's step runs before every other step.
     return validateDag([
-      ...steps,
       testerStep({
         providerId: provider.id,
         acceptance,
-        dependsOn: steps.map((step) => step.id),
         writes: tester.writes,
         spec,
       }),
+      ...steps.map((step) =>
+        step.dependsOn.length ? step : { ...step, dependsOn: [TESTER_STEP_ID] },
+      ),
     ]).steps;
   }
   // Configured workers the policy permits and, for installed agents, that
   // are installed.
+  /**
+   * Each configured worker and why it cannot be used, if it cannot, so an
+   * error can say exactly what to change.
+   */
+  async workerReasons(): Promise<{ id: string; reason: string | null }[]> {
+    const configured = await this.providers();
+    const installed = configured.some((p) =>
+      ["codex", "claude", "cursor"].includes(p.kind),
+    )
+      ? await discoverInstalledWorkers()
+      : [];
+    return configured.map((p) => {
+      try {
+        assertProvider(p, this.config.policy);
+      } catch (error) {
+        return {
+          id: p.id,
+          reason: `${(error as Error).message}${
+            (error as Error).message.startsWith(
+              "Project policy does not allow provider",
+            )
+              ? ` (add it to policy.providers, for example with graph-engine provider-add ${p.id} ${p.kind} ${p.model} --enable)`
+              : ""
+          }`,
+        };
+      }
+      if (
+        ["codex", "claude", "cursor"].includes(p.kind) &&
+        !installed.some((c) => c.kind === p.kind && c.available)
+      )
+        return {
+          id: p.id,
+          reason: `the installed ${p.kind} client is not available (see graph-engine capabilities)`,
+        };
+      return { id: p.id, reason: null };
+    });
+  }
+  private async unavailableWorkersMessage(prefix: string): Promise<string> {
+    const reasons = (await this.workerReasons()).filter(
+      (entry) => entry.reason,
+    );
+    return reasons.length
+      ? `${prefix} Configured workers that cannot be used: ${reasons
+          .map((entry) => `${entry.id}: ${entry.reason}`)
+          .join("; ")}.`
+      : `${prefix} No worker is configured; add one with graph-engine provider-add.`;
+  }
   private async availableWorkers(): Promise<ProviderConfig[]> {
     const configured = await this.providers();
     const installed = configured.some((p) =>
@@ -368,8 +420,15 @@ export class GraphEngine {
     if (!implementer)
       throw new Error(
         input.providerId
-          ? "Selected worker is unavailable under project policy"
-          : "No permitted worker is configured to implement the steps",
+          ? `Selected worker ${input.providerId} is unavailable under project policy: ${
+              (await this.workerReasons()).find(
+                (entry) => entry.id === input.providerId,
+              )?.reason ??
+              "it is not configured; add it with graph-engine provider-add"
+            }`
+          : await this.unavailableWorkersMessage(
+              "No permitted worker is available to implement the steps.",
+            ),
       );
     assertProvider(implementer, policy, input.effort);
     const exportOnly = input.exportOnly === true || planner.kind !== "local";
@@ -653,13 +712,21 @@ export class GraphEngine {
     const available = await this.availableWorkers();
     if (!available.length)
       throw new Error(
-        "No permitted worker is configured. Add a local provider or explicitly enable a cloud provider in project policy.",
+        await this.unavailableWorkersMessage(
+          "No permitted worker is available.",
+        ),
       );
     let provider = input.providerId
       ? available.find((p) => p.id === input.providerId)
       : available[0];
-    if (!provider)
-      throw new Error("Selected worker is unavailable under project policy");
+    if (!provider) {
+      const reason = (await this.workerReasons()).find(
+        (entry) => entry.id === input.providerId,
+      )?.reason;
+      throw new Error(
+        `Selected worker ${input.providerId} is unavailable under project policy: ${reason ?? "it is not configured; add it with graph-engine provider-add"}`,
+      );
+    }
     const workerDecisionIds: string[] = [];
     if (!input.providerId) {
       const promotion = await loadPromotionAuthority(this.dataDir, {
@@ -1466,6 +1533,25 @@ export class GraphEngine {
           ),
         };
       };
+      // Files the plan's tester step wrote in this run.
+      const testerWrittenFiles = () => [
+        ...new Set(
+          this.store
+            .events(run.id)
+            .filter(
+              (event) =>
+                event.type === "dag.step.completed" &&
+                event.stepId === TESTER_STEP_ID,
+            )
+            .flatMap((event) =>
+              Array.isArray(event.data.paths)
+                ? (event.data.paths as string[])
+                : [],
+            ),
+        ),
+      ];
+      let repairedByTester = false;
+      let implementerRepair: ExecutionStep | undefined;
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
         save("verifying");
@@ -1652,6 +1738,11 @@ export class GraphEngine {
             const supplied = new SuppliedLines();
             const shown = new SuppliedLines();
             let patchFeedback = "";
+            let repeatedRequests = 0;
+            // Tests the tester wrote earlier in this plan, which implementing
+            // steps must make pass and may not change.
+            const testsWritten =
+              step.id === TESTER_STEP_ID ? [] : testerWrittenFiles();
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
@@ -1660,7 +1751,9 @@ export class GraphEngine {
                 provider,
                 policy: this.config.policy,
                 context: stepPacket,
-                objective: step.objective,
+                objective: testsWritten.length
+                  ? `${step.objective}\n\nThe tester has written tests for the acceptance criteria in ${testsWritten.join(", ")}. Request them, and make them pass without changing them.`
+                  : step.objective,
                 acceptance: run.plan.acceptance,
                 effort: step.effort,
                 ...(patchFeedback ? { feedback: patchFeedback } : {}),
@@ -1683,7 +1776,32 @@ export class GraphEngine {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
                 throw new Error("Policy changed before DAG patch application");
-              if (!result.proposal.requests.length) {
+              if (result.proposal.requests.length) {
+                try {
+                  stepPacket = await requestedSourcePacket({
+                    workspace,
+                    input: stepInput,
+                    requests: result.proposal.requests,
+                    snapshotId: stepPacket.snapshotId,
+                    supplied,
+                    worker: "DAG worker",
+                    routedBudget: run.plan.routing?.contextBudgetTokens,
+                  });
+                  patchFeedback = "";
+                  repeatedRequests = 0;
+                  continue;
+                } catch (error) {
+                  // A repeated request with changes is a proposal; a bare
+                  // repeat is told so once before it stops the step.
+                  if (!(error instanceof RepeatedRequestError)) throw error;
+                  if (!result.proposal.changes.length) {
+                    if (++repeatedRequests > 1) throw error;
+                    patchFeedback = REPEATED_REQUEST_FEEDBACK;
+                    continue;
+                  }
+                }
+              }
+              {
                 const unseen = await unseenPatchLocation(
                   workspace,
                   result.proposal,
@@ -1698,6 +1816,15 @@ export class GraphEngine {
                   patchFeedback = writeScopeFeedback(step, outside);
                   continue;
                 }
+                const testerFeedback = testFirstFeedback(
+                  step,
+                  result.proposal,
+                  testsWritten,
+                );
+                if (testerFeedback) {
+                  patchFeedback = testerFeedback;
+                  continue;
+                }
                 if (!unseen) return result;
                 patchFeedback = patchFeedbackFor(
                   unseen,
@@ -1707,16 +1834,6 @@ export class GraphEngine {
                 );
                 continue;
               }
-              patchFeedback = "";
-              stepPacket = await requestedSourcePacket({
-                workspace,
-                input: stepInput,
-                requests: result.proposal.requests,
-                snapshotId: stepPacket.snapshotId,
-                supplied,
-                worker: "DAG worker",
-                routedBudget: run.plan.routing?.contextBudgetTokens,
-              });
             }
             throw new Error(
               "DAG worker exhausted its context-request turn budget",
@@ -1728,7 +1845,10 @@ export class GraphEngine {
           // Iterate like a single-step run: a repair worker gets the combined
           // result and the failure feedback, within the remaining attempts.
           const worker = run.plan.steps.find(
-            (step) => step.kind === "worker" && step.providerId,
+            (step) =>
+              step.kind === "worker" &&
+              step.providerId &&
+              step.id !== TESTER_STEP_ID,
           );
           if (!worker || this.config.policy.maxAttempts < 2)
             throw new Error(
@@ -1738,21 +1858,49 @@ export class GraphEngine {
                   ? "Code review requested changes on the combined result; inspect the review and create a repair plan"
                   : "DAG checks failed; inspect retained per-step evidence and create a repair plan",
             );
+          // Tests the tester wrote are changed only by the tester: when the
+          // failing checks name one of its files (a test that does not
+          // compile, say), the tester repairs its own tests, limited to test
+          // files; otherwise the implementer repairs the code.
+          const testerStepPlan = run.plan.steps.find(
+            (step) => step.id === TESTER_STEP_ID,
+          );
+          const brokenTests = testerStepPlan
+            ? testerWrittenFiles().filter((file) => namesFile(feedback, file))
+            : [];
+          repairedByTester = brokenTests.length > 0;
+          implementerRepair = {
+            id: DAG_REPAIR_STEP,
+            kind: "worker",
+            objective: `Repair the combined result of this plan so every required check passes, keeping the work its steps completed. First decide from the failure whether the code or a test is wrong: fix the code when it misses an acceptance criterion; fix a test's expectation only when the test is wrong and was not written by the tester. The plan's objective: ${run.plan.objective}`,
+            dependsOn: [],
+            providerId: worker.providerId,
+            ...(worker.effort ? { effort: worker.effort } : {}),
+          };
           singleSteps = [
-            {
-              id: DAG_REPAIR_STEP,
-              kind: "worker",
-              objective: `Repair the combined result of this plan so every required check passes, keeping the work its steps completed. The plan's objective: ${run.plan.objective}`,
-              dependsOn: [],
-              providerId: worker.providerId,
-              ...(worker.effort ? { effort: worker.effort } : {}),
-            },
+            repairedByTester
+              ? {
+                  id: DAG_REPAIR_STEP,
+                  kind: "worker",
+                  objective: [
+                    `Act as the team's tester. The required checks fail in tests you wrote (${brokenTests.join(", ")}).`,
+                    "Fix those tests so they compile and run, keeping a test that proves every acceptance criterion. Change only test files; do not weaken or delete a criterion's test.",
+                    `The plan's objective: ${run.plan.objective}`,
+                  ].join(" "),
+                  dependsOn: [],
+                  providerId: testerStepPlan!.providerId,
+                  writes: testerStepPlan!.writes,
+                }
+              : { ...implementerRepair },
           ];
           firstAttempt = 2;
           this.store.event(
             run.id,
             "dag.repair_started",
-            { providerId: worker.providerId },
+            {
+              providerId: singleSteps[0]!.providerId,
+              ...(repairedByTester ? { role: "tester" } : {}),
+            },
             DAG_REPAIR_STEP,
           );
         }
@@ -1822,6 +1970,30 @@ export class GraphEngine {
             throw new Error(
               "Policy changed during execution; dispatch stopped",
             );
+          // The tester gets one attempt at its own tests; if the checks
+          // still fail, the implementer repairs the code.
+          if (
+            step.id === DAG_REPAIR_STEP &&
+            repairedByTester &&
+            attempt > firstAttempt &&
+            implementerRepair
+          ) {
+            repairedByTester = false;
+            delete step.writes;
+            Object.assign(step, implementerRepair);
+            const implementer = (await this.providers()).find(
+              (candidate) => candidate.id === step.providerId,
+            );
+            if (!implementer)
+              throw new Error("The planned provider is no longer configured");
+            provider = implementer;
+            this.store.event(
+              run.id,
+              "dag.repair_handoff",
+              { providerId: provider.id, role: "implementer" },
+              step.id,
+            );
+          }
           assertProvider(provider, this.config.policy, step.effort);
           save("running");
           this.store.event(
@@ -1834,6 +2006,7 @@ export class GraphEngine {
           const supplied = new SuppliedLines();
           const shown = new SuppliedLines();
           let patchFeedback = "";
+          let repeatedRequests = 0;
           for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
@@ -1918,17 +2091,27 @@ export class GraphEngine {
             if (hash(this.config.policy) !== run.plan.policyHash)
               throw new Error("Policy changed before patch application");
             if (result.proposal.requests.length) {
-              stepPacket = await requestedSourcePacket({
-                workspace,
-                input,
-                requests: result.proposal.requests,
-                snapshotId: run.plan.snapshotId,
-                supplied,
-                worker: "Worker",
-                routedBudget: run.plan.routing?.contextBudgetTokens,
-              });
-              patchFeedback = "";
-              continue;
+              try {
+                stepPacket = await requestedSourcePacket({
+                  workspace,
+                  input,
+                  requests: result.proposal.requests,
+                  snapshotId: run.plan.snapshotId,
+                  supplied,
+                  worker: "Worker",
+                  routedBudget: run.plan.routing?.contextBudgetTokens,
+                });
+                patchFeedback = "";
+                repeatedRequests = 0;
+                continue;
+              } catch (error) {
+                if (!(error instanceof RepeatedRequestError)) throw error;
+                if (!result.proposal.changes.length) {
+                  if (++repeatedRequests > 1) throw error;
+                  patchFeedback = REPEATED_REQUEST_FEEDBACK;
+                  continue;
+                }
+              }
             }
             const unseen = await unseenPatchLocation(
               workspace,
@@ -1945,21 +2128,8 @@ export class GraphEngine {
             }
             // A repair must fix the implementation, never weaken the tests
             // the tester wrote for the acceptance criteria.
-            if (step.id === DAG_REPAIR_STEP) {
-              const testerFiles = new Set(
-                this.store
-                  .events(run.id)
-                  .filter(
-                    (event) =>
-                      event.type === "dag.step.completed" &&
-                      event.stepId === TESTER_STEP_ID,
-                  )
-                  .flatMap((event) =>
-                    Array.isArray(event.data.paths)
-                      ? (event.data.paths as string[])
-                      : [],
-                  ),
-              );
+            if (step.id === DAG_REPAIR_STEP && !repairedByTester) {
+              const testerFiles = new Set(testerWrittenFiles());
               const touched = [
                 ...new Set(
                   result.proposal.changes
@@ -2256,13 +2426,83 @@ function outsideWriteScope(
 function writeScopeFeedback(step: ExecutionStep, outside: string[]): string {
   return `This step may only write files matching ${step.writes!.join(", ")}. Your proposal also changed ${outside.join(", ")}; propose only changes within that scope.`;
 }
+// Whether check output names a file: by its path, or by its name without
+// the extension, as test runners that report classes or modules do.
+function namesFile(output: string, file: string): boolean {
+  if (output.includes(file)) return true;
+  const stem = path.posix.basename(file).replace(/\.[^.]+$/, "");
+  return (
+    stem.length >= 4 &&
+    new RegExp(
+      `(?:^|[^A-Za-z0-9_])${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^A-Za-z0-9_]|$)`,
+    ).test(output)
+  );
+}
+
+// Stack traces can fill the output; keep the first two frames of each so
+// the error messages around them survive the size limit.
+function collapseStackFrames(text: string): string {
+  const frame = /^\s*(?:at |File "|\.\.\. \d+ more)/;
+  const lines: string[] = [];
+  let run = 0;
+  for (const line of text.split("\n")) {
+    if (frame.test(line)) {
+      run++;
+      if (run <= 2) lines.push(line);
+      else if (run === 3) lines.push("    (more stack frames omitted)");
+    } else {
+      run = 0;
+      lines.push(line);
+    }
+  }
+  return lines.join("\n");
+}
+
+// Both streams: many build tools print errors on stdout and unrelated
+// warnings on stderr, so either alone can hide the failure.
 function compactFailures(checks: VerificationResult[]): string {
   return checks
     .filter((c) => c.code !== 0)
-    .map(
-      (c) =>
-        `${c.argv.join(" ")} exited ${c.code}\n${redact(c.stderr || c.stdout).slice(-6000)}`,
+    .map((c) =>
+      [
+        `${c.argv.join(" ")} exited ${c.code}`,
+        c.stdout.trim() &&
+          `stdout:\n${redact(collapseStackFrames(c.stdout)).slice(-6000)}`,
+        c.stderr.trim() &&
+          `stderr:\n${redact(collapseStackFrames(c.stderr)).slice(-3000)}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
     )
     .join("\n")
     .slice(-12000);
+}
+
+// Test first: the tester only creates new test files, and writes at least
+// one; implementing steps make those tests pass without changing them.
+function testFirstFeedback(
+  step: ExecutionStep,
+  proposal: WorkerResult["proposal"],
+  testsWritten: readonly string[],
+): string | undefined {
+  if (step.id === TESTER_STEP_ID) {
+    if (!proposal.changes.length)
+      return "Write at least one new test file that proves the acceptance criteria before anyone implements them.";
+    const edits = proposal.changes
+      .filter((change) => change.before !== null)
+      .map((change) => change.path);
+    return edits.length
+      ? `As the tester, create new test files only; do not edit existing files (${[...new Set(edits)].join(", ")}). Put your tests in a new file.`
+      : undefined;
+  }
+  const touched = [
+    ...new Set(
+      proposal.changes
+        .map((change) => change.path)
+        .filter((file) => testsWritten.includes(file)),
+    ),
+  ];
+  return touched.length
+    ? `The tester wrote ${touched.join(", ")} to prove the acceptance criteria. Do not change those tests; change the implementation so they pass.`
+    : undefined;
 }
