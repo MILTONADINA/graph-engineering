@@ -428,6 +428,49 @@ export function createMcpServer(
       },
     );
     server.registerTool(
+      "plan_decompose",
+      {
+        description:
+          "Asks the project's planner provider to break an objective into dependency-ordered worker steps and returns JSON with the proposed steps, the planner's rationale, its model and usage, and the snapshotId it planned from. Nothing is created or run: show the steps to the person, and create a plan with plan_create passing the approved steps (plan_create validates them again). The planner is a paid or local model call bounded by the project's cost and turn limits. For a cloud-backed client, the planner sees only exportable context, the call fails while the project's publication policy is not none, and proposed text containing a potential secret is refused.",
+        inputSchema: {
+          objective: z
+            .string()
+            .min(1)
+            .max(16000)
+            .describe("What the change must achieve."),
+          acceptance: z
+            .array(z.string().min(1).max(4000))
+            .min(1)
+            .max(50)
+            .describe("Checkable acceptance criteria the steps must satisfy."),
+          plannerId: z
+            .string()
+            .min(1)
+            .describe("Configured API or local provider that proposes steps."),
+          providerId: z
+            .string()
+            .optional()
+            .describe("Configured worker provider for every step."),
+          effort: z.string().optional().describe("Worker effort level."),
+        },
+      },
+      async (args) => {
+        await allowed();
+        if (
+          options.client !== "local" &&
+          engine.config.policy.publication !== "none"
+        )
+          throw new Error(
+            "A cloud-backed client can decompose plans only while project publication is none",
+          );
+        const proposal = await engine.proposeSteps({
+          ...args,
+          exportOnly: options.client !== "local",
+        });
+        return result(proposal);
+      },
+    );
+    server.registerTool(
       "run_cancel",
       {
         description:

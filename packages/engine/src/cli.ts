@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -443,6 +444,37 @@ cli
           : {}),
       }),
     ),
+  );
+cli
+  .command("decompose <objective>")
+  .description(
+    "Ask a planner to propose dependency-ordered steps; review or edit the steps file, then create the plan with plan --steps",
+  )
+  .requiredOption("--accept <criterion...>", "Acceptance criteria")
+  .requiredOption("--planner <id>", "API or local provider that proposes steps")
+  .requiredOption("--out <file>", "New file to write the proposed steps to")
+  .option("--provider <id>", "Worker provider for every step")
+  .option("--effort <effort>")
+  .action(async (objective, options) =>
+    withEngine(async (engine) => {
+      const proposal = await engine.proposeSteps({
+        objective,
+        acceptance: options.accept,
+        plannerId: options.planner,
+        providerId: options.provider,
+        effort: options.effort,
+      });
+      // Never overwrite: the file is what a person reviews and approves.
+      await writeFile(
+        path.resolve(options.out),
+        `${JSON.stringify(proposal.steps, null, 2)}\n`,
+        { flag: "wx", mode: 0o600 },
+      );
+      return {
+        ...proposal,
+        next: `Review ${options.out}, then: graph-engine plan ${JSON.stringify(objective)} --accept ... --steps ${options.out}`,
+      };
+    }),
   );
 cli.command("run <planId>").action((planId) =>
   withEngine(async (engine) => {

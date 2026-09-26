@@ -681,8 +681,26 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     kind: "local",
     model: "fixture",
   });
+  const plannerSaw: string[][] = [];
   const engine = await GraphEngine.open(root, {
     dockerAvailable: async () => true,
+    planner: async (input) => {
+      plannerSaw.push(input.context.items.map((item) => item.text));
+      return {
+        decomposition: {
+          rationale: "One change",
+          steps: [{ id: "fix", objective: "Fix addition", dependsOn: [] }],
+        },
+        model: "planner-fixture",
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedTokens: 0,
+          costUsd: 0,
+          estimated: false,
+        },
+      };
+    },
     worker: async () => ({
       model: "fixture",
       proposal: {
@@ -730,9 +748,8 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(await names(readOnly.client)).toEqual(
       expect.arrayContaining(["run_status", "run_list", "run_events"]),
     );
-    expect(await names(readOnly.client)).not.toEqual(
-      expect.arrayContaining(["plan_create"]),
-    );
+    expect(await names(readOnly.client)).not.toContain("plan_create");
+    expect(await names(readOnly.client)).not.toContain("plan_decompose");
     const cloudDefault = await connect({ client: "cloud", allowRun: true });
     connections.push(cloudDefault);
     expect(await names(cloudDefault.client)).not.toContain("run_events");
@@ -753,6 +770,25 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(plan.steps).toEqual([
       expect.objectContaining({ id: "implement", kind: "worker" }),
     ]);
+    const decompose = {
+      name: "plan_decompose",
+      arguments: {
+        objective: "Fix addition in math.cjs",
+        acceptance: ["2 + 3 is 5"],
+        plannerId: "local",
+      },
+    };
+    const proposal = json(await local.client.callTool(decompose));
+    expect(proposal.steps).toEqual([
+      {
+        id: "fix",
+        kind: "worker",
+        objective: "Fix addition",
+        dependsOn: [],
+        providerId: "local",
+      },
+    ]);
+    expect(plannerSaw[0]!.join("\n")).toContain("exports.add");
     const started = json(
       await local.client.callTool({
         name: "run_start",
@@ -840,12 +876,24 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(JSON.stringify(refusedCloudPlan)).toContain(
       "only while project publication is none",
     );
+    const refusedCloudDecompose = await cloudPlanner.client.callTool(decompose);
+    expect(refusedCloudDecompose.isError).toBe(true);
+    expect(JSON.stringify(refusedCloudDecompose)).toContain(
+      "only while project publication is none",
+    );
     await writeJson(path.join(root, PROJECT_FILE), config);
     const cloudPlan = await cloudPlanner.client.callTool({
       name: "plan_create",
       arguments: { objective: "Fix addition", acceptance: ["2 + 3 is 5"] },
     });
     expect(cloudPlan.isError).not.toBe(true);
+    // A cloud-backed client's planner sees only exportable context, and this
+    // project exports nothing.
+    const calls = plannerSaw.length;
+    const cloudProposal = await cloudPlanner.client.callTool(decompose);
+    expect(cloudProposal.isError).not.toBe(true);
+    expect(plannerSaw).toHaveLength(calls + 1);
+    expect(plannerSaw.at(-1)).toEqual([]);
   } finally {
     for (const { client, server } of connections) {
       await client.close();

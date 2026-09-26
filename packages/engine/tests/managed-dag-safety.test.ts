@@ -923,3 +923,158 @@ describe("repository scale in managed runs", () => {
     await expect(engine.start(planned.id)).rejects.toThrow(/Policy changed/);
   });
 });
+
+describe("proposed decomposition", () => {
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    cachedTokens: 0,
+    costUsd: 0,
+    estimated: false,
+  };
+  const planner =
+    (
+      steps: { id: string; objective: string; dependsOn: string[] }[],
+      seen: string[][] = [],
+      rationale = "Two constants",
+    ): NonNullable<EngineDependencies["planner"]> =>
+    async (input) => {
+      seen.push(input.context.items.map((item) => item.source?.path ?? ""));
+      return {
+        decomposition: { rationale, steps },
+        model: "planner-fixture",
+        usage,
+      };
+    };
+
+  it("proposes steps a person turns into a plan that runs", async () => {
+    const { root } = await fixture();
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      planner: planner([
+        { id: "one", objective: "one", dependsOn: [] },
+        { id: "two", objective: "two", dependsOn: ["one"] },
+      ]),
+    });
+    const proposal = await engine.proposeSteps({
+      objective: "Change constants",
+      acceptance: ["Both constants are updated"],
+      plannerId: "local",
+    });
+    expect(proposal.steps).toEqual([step("one"), step("two", ["one"])]);
+    expect(proposal.planner).toEqual({ id: "local", model: "planner-fixture" });
+    // Nothing runs until a plan is created from the approved steps.
+    expect(engine.store.runs()).toHaveLength(0);
+    const run = await engine.wait(
+      (await engine.start((await plan(engine, proposal.steps)).id)).id,
+    );
+    expect(run.status).toBe("succeeded");
+  });
+
+  it("rejects cycles, reserved IDs, unknown dependencies and agent planners", async () => {
+    const { root, data } = await fixture();
+    await configureProvider(data, { id: "agent", kind: "claude", model: "m" });
+    const propose = async (
+      steps: { id: string; objective: string; dependsOn: string[] }[],
+      plannerId = "local",
+    ) => {
+      const engine = await open(root, { planner: planner(steps) });
+      return engine.proposeSteps({
+        objective: "Change constants",
+        acceptance: ["Both constants are updated"],
+        plannerId,
+      });
+    };
+    await expect(
+      propose([
+        { id: "a", objective: "a", dependsOn: ["b"] },
+        { id: "b", objective: "b", dependsOn: ["a"] },
+      ]),
+    ).rejects.toThrow("Dependency cycle");
+    await expect(
+      propose([{ id: "dag-repair", objective: "a", dependsOn: [] }]),
+    ).rejects.toThrow("reserved");
+    await expect(
+      propose([{ id: "a", objective: "a", dependsOn: ["missing"] }]),
+    ).rejects.toThrow("Unknown dependency");
+    await expect(
+      propose([{ id: "a", objective: "a", dependsOn: [] }], "agent"),
+    ).rejects.toThrow("installed agents cannot plan yet");
+  });
+
+  it("gives an export-only planner exportable context and refuses secrets in its answer", async () => {
+    const { root } = await fixture((config) => {
+      config.policy.exportPaths = ["first.js"];
+    });
+    const seen: string[][] = [];
+    const engine = await open(root, {
+      planner: planner([{ id: "one", objective: "one", dependsOn: [] }], seen),
+    });
+    const request = {
+      objective: "Change export const first and export const second",
+      acceptance: ["Both constants are updated"],
+      plannerId: "local",
+    };
+    await engine.proposeSteps(request);
+    expect(seen[0]).toContain("second.js");
+    await engine.proposeSteps({ ...request, exportOnly: true });
+    expect(seen[1]).toContain("first.js");
+    expect(seen[1]).not.toContain("second.js");
+    const leaking = await open(root, {
+      planner: planner(
+        [{ id: "one", objective: "one", dependsOn: [] }],
+        [],
+        `const serviceToken = "${"Zq7Lm2Xp" + "9Rt4Vb8Nc3Kd"}";`,
+      ),
+    });
+    await expect(
+      leaking.proposeSteps({ ...request, exportOnly: true }),
+    ).rejects.toThrow("contain a potential secret");
+  });
+
+  it("bounds a day's decompositions together by the turn limit", async () => {
+    const { root } = await fixture((config) => {
+      config.policy.maxTurns = 1;
+    });
+    const call = vi.fn(
+      planner([{ id: "one", objective: "one", dependsOn: [] }]),
+    );
+    const engine = await open(root, { planner: call });
+    const request = {
+      objective: "Change constants",
+      acceptance: ["Both constants are updated"],
+      plannerId: "local",
+    };
+    await engine.proposeSteps(request);
+    await expect(engine.proposeSteps(request)).rejects.toThrow(
+      "exhausted its shared worker-turn budget",
+    );
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds a paid planner by the project's cost limit before calling it", async () => {
+    const { root, data } = await fixture((config) => {
+      config.policy.providers = ["local", "paid"];
+      config.policy.maxCostUsd = 0;
+    });
+    await configureProvider(data, {
+      id: "paid",
+      kind: "local",
+      model: "m",
+      inputCostPerMillion: 5,
+      outputCostPerMillion: 15,
+    });
+    const call = vi.fn(
+      planner([{ id: "one", objective: "one", dependsOn: [] }]),
+    );
+    const engine = await open(root, { planner: call });
+    await expect(
+      engine.proposeSteps({
+        objective: "Change constants",
+        acceptance: ["Both constants are updated"],
+        plannerId: "paid",
+      }),
+    ).rejects.toThrow("exceeds the configured estimated cost budget");
+    expect(call).not.toHaveBeenCalled();
+  });
+});

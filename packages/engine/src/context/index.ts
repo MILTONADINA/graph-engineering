@@ -168,6 +168,7 @@ export class ContextEngine {
         excludedPaths: policy.excludedPaths,
         exportPaths: policy.exportPaths,
         allowPublicTemplateLedger: policy.allowPublicTemplateLedger,
+        workingSet: policy.workingSet,
       }),
     );
     const eviction = this.exportEvictions.get(scope);
