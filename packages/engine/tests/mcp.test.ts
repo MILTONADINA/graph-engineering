@@ -894,6 +894,38 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(cloudProposal.isError).not.toBe(true);
     expect(plannerSaw).toHaveLength(calls + 1);
     expect(plannerSaw.at(-1)).toEqual([]);
+
+    // A plan that publishes needs a person's approval before an AI starts it.
+    const publishing2 = {
+      ...config,
+      policy: { ...config.policy, publication: "commit" as const },
+    };
+    await writeJson(path.join(root, PROJECT_FILE), publishing2);
+    await checked("git", ["add", "."], { cwd: root });
+    await checked("git", ["commit", "-m", "test: publish commits"], {
+      cwd: root,
+    });
+    const publishingPlan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["2 + 3 is 5"],
+    });
+    const unapproved = await local.client.callTool({
+      name: "run_start",
+      arguments: { planId: publishingPlan.id },
+    });
+    expect(unapproved.isError).toBe(true);
+    expect(JSON.stringify(unapproved)).toContain(
+      `graph-engine plan-approve ${publishingPlan.id}`,
+    );
+    expect(engine.store.planApproved(publishingPlan.id)).toBe(false);
+    engine.store.approvePlan(publishingPlan.id);
+    expect(engine.store.planApproved(publishingPlan.id)).toBe(true);
+    const approved = await local.client.callTool({
+      name: "run_start",
+      arguments: { planId: publishingPlan.id },
+    });
+    expect(JSON.stringify(approved)).not.toContain("plan-approve");
+    if (!approved.isError) await engine.wait(json(approved).id);
   } finally {
     for (const { client, server } of connections) {
       await client.close();

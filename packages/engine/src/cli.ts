@@ -406,6 +406,27 @@ cli
     print({ review: project.review ?? null });
   });
 cli
+  .command("tester [providerId]")
+  .description(
+    "Set the worker provider that writes tests for each acceptance criterion after implementation (test files only), or show the current tester",
+  )
+  .option("--writes <glob...>", "Test-file globs the tester may write")
+  .option("--clear", "Stop adding a tester step to plans")
+  .action(async (providerId, options) => {
+    const project = await loadProject(root());
+    if (options.clear) delete project.tester;
+    else if (providerId)
+      project.tester = {
+        providerId,
+        ...(options.writes?.length ? { writes: options.writes } : {}),
+      };
+    if (options.clear || providerId) {
+      assertProjectConfig(project);
+      await writeJson(path.join(root(), PROJECT_FILE), project);
+    }
+    print({ tester: project.tester ?? null });
+  });
+cli
   .command("provider-add <id> <kind> <model>")
   .option("--endpoint <url>")
   .option("--key-env <name>")
@@ -527,6 +548,41 @@ cli
     }),
   );
 cli
+  .command("plan-approve <planId>")
+  .description(
+    "Show a plan in full; with --yes, approve it as it stands (bound to its content) so a connected AI client or the dashboard may start it even when it publishes",
+  )
+  .option("--yes", "Approve the plan shown")
+  .action((planId, options) =>
+    withEngine(async (engine) => {
+      const plan = engine.store.plan(planId);
+      const shown = {
+        planId,
+        objective: plan.objective,
+        acceptance: plan.acceptance,
+        steps: plan.steps.map((step) => ({
+          id: step.id,
+          kind: step.kind,
+          objective: step.objective,
+          dependsOn: step.dependsOn,
+          providerId: step.providerId ?? null,
+          templateId: step.templateId ?? null,
+          writes: step.writes ?? null,
+        })),
+        verification: plan.verification,
+        publication: plan.publication,
+        spec: plan.spec ?? null,
+      };
+      if (!options.yes)
+        return {
+          ...shown,
+          approved: false,
+          next: `Review the plan above, then run graph-engine plan-approve ${planId} --yes`,
+        };
+      return { ...shown, approved: true, ...engine.store.approvePlan(planId) };
+    }),
+  );
+cli
   .command("spec-new <area> <id>")
   .description(
     "Write a draft feature spec at specs/<area>/<id>.md to fill in: problem, acceptance criteria, security considerations, non-goals",
@@ -632,7 +688,8 @@ cli
   );
 cli.command("run <planId>").action((planId) =>
   withEngine(async (engine) => {
-    const run = await engine.start(planId);
+    // Starting a run from the command line is the person's own approval.
+    const run = await engine.start(planId, { approvedByPerson: true });
     process.stderr.write(`Run ${run.id}\n`);
     return engine.wait(run.id);
   }),

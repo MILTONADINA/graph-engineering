@@ -88,6 +88,11 @@ export interface ProjectConfig {
   github?: { repository: string; baseBranch: string; remote: string };
   /** A reviewer worker that must approve a run before it completes. */
   review?: { providerId: string };
+  /**
+   * A tester worker that adds tests for each acceptance criterion after the
+   * implementation, changing only test files (default globs unless `writes`).
+   */
+  tester?: { providerId: string; writes?: string[] };
 }
 export interface ProviderConfig {
   id: string;
@@ -417,6 +422,20 @@ export const projectSchema = {
       additionalProperties: false,
       required: ["providerId"],
       properties: { providerId: nonempty },
+    },
+    tester: {
+      type: "object",
+      additionalProperties: false,
+      required: ["providerId"],
+      properties: {
+        providerId: nonempty,
+        writes: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          items: { type: "string", minLength: 1, maxLength: 200 },
+        },
+      },
     },
   },
 };

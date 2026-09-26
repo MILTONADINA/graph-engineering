@@ -1125,3 +1125,173 @@ describe("scoped steps in managed runs", () => {
     expect(feedback[1]).toContain("first.js");
   });
 });
+
+describe("tester role", () => {
+  it("adds a tester step after implementation that may write only tests", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const seen: string[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        seen.push(input.provider.id);
+        if (input.provider.id !== "tester") return result("one");
+        return {
+          ...result("one"),
+          proposal: {
+            summary: "Tests for the criteria",
+            requests: [],
+            changes: [
+              {
+                path: "first.test.js",
+                before: null,
+                after: "test('first is 3', () => {});\n",
+              },
+            ],
+          },
+        };
+      }),
+    });
+    const planned = await plan(engine, [step("one")]);
+    expect(planned.steps.map((item) => item.id)).toEqual(["one", "tester"]);
+    expect(planned.steps[1]).toMatchObject({
+      providerId: "tester",
+      dependsOn: ["one"],
+      writes: expect.arrayContaining(["**/*.test.*", "**/tests/**"]),
+    });
+    expect(planned.steps[1]!.objective).toContain(
+      "- Both constants are updated",
+    );
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(seen).toEqual(["local", "tester"]);
+    expect(
+      await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
+    ).toContain("first is 3");
+  });
+
+  it("never lets a repair weaken the tests the tester wrote", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.policy.maxAttempts = 3;
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const repairs: (string | undefined)[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (input.provider.id === "tester")
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "Test first is 5",
+              requests: [],
+              changes: [
+                { path: "first.test.js", before: null, after: "expect 5\n" },
+              ],
+            },
+          };
+        if (!input.objective.startsWith("Repair")) return result("one");
+        repairs.push(input.feedback);
+        // First the repair tries to edit the test, then fixes the code.
+        return {
+          ...result("one"),
+          proposal: {
+            summary: "Repair",
+            requests: [],
+            changes: [
+              repairs.length === 1
+                ? {
+                    path: "first.test.js",
+                    before: "expect 5",
+                    after: "expect 3",
+                  }
+                : { path: "first.js", before: "= 3", after: "= 5" },
+            ],
+          },
+        };
+      }),
+      verify: async (workspace, checks, _policy, snapshotHash) => {
+        const first = await readFile(path.join(workspace, "first.js"), "utf8");
+        const test = await readFile(
+          path.join(workspace, "first.test.js"),
+          "utf8",
+        ).catch(() => "");
+        const passing = !test.includes("expect 5") || first.includes("= 5");
+        return checks.map((check) => ({
+          ...check,
+          code: passing ? 0 : 1,
+          stdout: "",
+          stderr: passing ? "" : "expected 5",
+          snapshotHash,
+        }));
+      },
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(repairs[1]).toContain(
+      "The tester wrote first.test.js to prove the acceptance criteria. Do not change those tests",
+    );
+    expect(
+      await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
+    ).toBe("expect 5\n");
+  });
+
+  it("reserves the tester's step ID", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const engine = await open(root, {});
+    await expect(plan(engine, [step("tester")])).rejects.toThrow(
+      "Step ID tester is reserved for the configured tester",
+    );
+  });
+
+  it("refuses to plan with a tester the policy does not permit", async () => {
+    const { root } = await fixture((value) => {
+      value.tester = { providerId: "absent" };
+    });
+    const engine = await open(root, {});
+    await expect(plan(engine, [step("one")])).rejects.toThrow(
+      "Tester absent is not a configured provider the policy permits",
+    );
+  });
+});
+
+describe("approval of publishing plans", () => {
+  it("refuses to start a plan that publishes until a person approves it", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+    });
+    const planned = await plan(engine, [step("one")]);
+    await expect(engine.start(planned.id)).rejects.toThrow(
+      `a person must approve it first with graph-engine plan-approve ${planned.id} --yes`,
+    );
+    expect(engine.store.planApproved(planned.id)).toBe(false);
+    // Starting from the command line is the person's approval, recorded.
+    const run = await engine.start(planned.id, { approvedByPerson: true });
+    expect(engine.store.planApproved(planned.id)).toBe(true);
+    await engine.wait(run.id);
+  });
+});
