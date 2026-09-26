@@ -286,7 +286,7 @@ parent repository is prepared on the fork branch
 `align/kevin-templates-20260926` (the template kit only) for Kevin to
 review; nothing is pushed to the parent repository.
 
-## Continuation update — 2026-09-26 (improvement loop, rounds 2–3)
+## Continuation update — 2026-09-26 (improvement loop, rounds 2–4)
 
 The owner asked for an improvement loop: apply every recommendation from
 the advisor, Jev, Laya and audits, then audit again, until only owner-gated
@@ -308,10 +308,13 @@ real-world pilot, and offer privacy-safe feedback reports.
   - check feedback that keeps stdout and collapses stack frames;
   - provider setup errors that name the fix;
   - the [verification images](verification-images.md) guide.
-    The final pilot runs reached the designed flow and stopped on a
-    test-data disagreement named for a person to decide. That is correct
-    behaviour when the local model's tests are wrong.
-- **The team developing itself.** Run `4d386a16` on this repository built
+
+  The final pilot runs reached the designed flow and stopped on a
+  test-data disagreement named for a person to decide. That is correct
+  behaviour when the local model's tests are wrong.
+
+- **The team developing itself.** Run `80586c65` (plan `4d386a16`) on this
+  repository built
   the dashboard's memory-reject route and its tests, test-first, with the
   local model; the combined result passed the full verification image.
   Human review added one fix. The run then used up its turn budget in
@@ -331,9 +334,9 @@ real-world pilot, and offer privacy-safe feedback reports.
 All of it landed through
 [#57](https://github.com/MILTONADINA/graph-engineering/pull/57).
 
-Still for the owner: pilot run `ee0166fc`'s acceptance, the self-built run
-`4d386a16` (inspect it; it failed in review, and its code was taken into
-#57), the security baseline in #44, promotion evidence, live security
+Still for the owner: the acceptance of the `context/index.ts` refactor run
+`ee0166fc` (above), the self-built run `80586c65` (inspect it; it failed
+in review, and its code was taken into #57), the security baseline in #44, promotion evidence, live security
 targets, and Kevin's review of `align/kevin-templates-20260926`.
 
 ## Where the work stands
