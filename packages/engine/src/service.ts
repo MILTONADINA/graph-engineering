@@ -59,6 +59,7 @@ import {
   applyProposal,
   assertVerificationPaths,
   createWorkspace,
+  prepareProposal,
   workspaceFingerprint,
   gitFiles,
 } from "./execution/workspace.js";
@@ -1550,8 +1551,8 @@ export class GraphEngine {
             ),
         ),
       ];
-      // Why a worker's proposal went back to it, for people reading the run
-      // and for difficulty reports: a reason code, never the proposal.
+      // Why a worker's proposal went back to it, for people reading the
+      // run's events: a reason code, never the proposal.
       const returned = (stepId: string, reason: string) =>
         this.store.event(run.id, "proposal.returned", { reason }, stepId);
       let repairedByTester = false;
@@ -1837,7 +1838,29 @@ export class GraphEngine {
                   patchFeedback = testerFeedback;
                   continue;
                 }
-                if (!unseen) return result;
+                if (!unseen) {
+                  // A patch that cannot apply goes back to the worker, as in
+                  // single-step runs, instead of failing the whole plan.
+                  try {
+                    await prepareProposal(
+                      workspace,
+                      result.proposal,
+                      this.config.policy,
+                    );
+                  } catch (error) {
+                    const feedback = patchErrorFeedback(errorMessage(error));
+                    if (!feedback) throw error;
+                    returned(step.id, "unseen-or-ambiguous-edit");
+                    patchFeedback = patchFeedbackFor(
+                      feedback,
+                      result.proposal,
+                      provider,
+                      this.config.policy,
+                    );
+                    continue;
+                  }
+                  return result;
+                }
                 returned(step.id, "unseen-or-ambiguous-edit");
                 patchFeedback = patchFeedbackFor(
                   unseen,
@@ -2205,10 +2228,11 @@ export class GraphEngine {
               );
             } catch (error) {
               const message = errorMessage(error);
-              if (!message.startsWith("Patch precondition failed")) throw error;
+              const feedback = patchErrorFeedback(message);
+              if (!feedback) throw error;
               returned(step.id, "unseen-or-ambiguous-edit");
               patchFeedback = patchFeedbackFor(
-                `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`,
+                feedback,
                 result.proposal,
                 provider,
                 this.config.policy,
@@ -2571,4 +2595,14 @@ function testFirstFeedback(
   return touched.length
     ? `The tester wrote ${touched.join(", ")} to prove the acceptance criteria. Do not change those tests; change the implementation so they pass.`
     : undefined;
+}
+
+// What a worker is told when its patch cannot apply, or undefined for
+// errors that are not the worker's to fix.
+function patchErrorFeedback(message: string): string | undefined {
+  if (message.startsWith("Patch precondition failed"))
+    return `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`;
+  if (message.startsWith("Refusing to replace existing file"))
+    return `${message}: that file already exists. Edit it with a before that matches its content, or create a file with a different name.`;
+  return undefined;
 }

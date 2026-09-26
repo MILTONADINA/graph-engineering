@@ -7,9 +7,9 @@ and you decide whether to send each one.
 
 ## What happens
 
-- When a command fails, or a run fails, at a terminal, the graph records the
-  kind of difficulty in a private log on your machine and asks whether you
-  want to send a report. It shows you the exact text first.
+- When a command or a run fails, the graph records the kind of difficulty
+  in a private log on your machine. At a terminal, it then asks whether you
+  want to send a report, and shows you the exact text first.
 - If you answer yes, it opens a prefilled GitHub issue for the maintainers
   in your own browser. You review it there and submit it under your own
   account, or close the tab. The graph holds no token and sends nothing
@@ -37,7 +37,8 @@ graph-engine feedback-log                      # see the local log
 graph-engine feedback-log --clear              # delete it
 ```
 
-Set `GRAPH_ENGINE_NO_FEEDBACK=1` to turn the offer off. The local log is
+Set `GRAPH_ENGINE_NO_FEEDBACK=1` to turn off both the offer and the local
+log. The local log is
 `feedback/difficulties.json` in the graph's private data directory, readable
 only by you. AI clients connected over MCP cannot build or send reports.
 See the [spec](../specs/quality/feedback-reports.md).

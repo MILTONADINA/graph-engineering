@@ -308,6 +308,20 @@ describe("tests that only run behind an environment switch", () => {
         "slow",
       ),
     ).toBe("X_TESTS");
+    expect(
+      testSwitch(
+        `it.skipIf(process.env.Y_TESTS !== "1")("fast", () => {});`,
+        "fast",
+      ),
+    ).toBe("Y_TESTS");
+    const block = [
+      `describe.runIf(process.env.DB_TESTS === "1")("database", () => {`,
+      `  it("stores rows", async () => {});`,
+      `});`,
+      `it("runs everywhere", () => {});`,
+    ].join("\n");
+    expect(testSwitch(block, "stores rows")).toBe("DB_TESTS");
+    expect(testSwitch(block, "runs everywhere")).toBeUndefined();
   });
 
   it("fails a criterion proven only by a switched-off test that no CI step runs", async () => {

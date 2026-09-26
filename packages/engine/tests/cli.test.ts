@@ -19,26 +19,39 @@ async function project() {
   directories.push(root, data);
   await checked("git", ["init", "-q"], { cwd: root });
   // No terminal, no CI switch: a person could never be prompted here.
-  const graph = (...args: string[]) =>
-    new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-      execFile(
-        process.execPath,
-        ["--import", "tsx", CLI, "-C", root, ...args],
-        {
-          cwd: fileURLToPath(new URL("../", import.meta.url)),
-          env: { ...process.env, GRAPH_ENGINE_DATA_DIR: data, CI: "" },
-          timeout: 60_000,
-          maxBuffer: 1_000_000,
-          windowsHide: true,
+  const run =
+    (extra: Record<string, string>) =>
+    (...args: string[]) =>
+      new Promise<{ code: number; stdout: string; stderr: string }>(
+        (resolve) => {
+          execFile(
+            process.execPath,
+            ["--import", "tsx", CLI, "-C", root, ...args],
+            {
+              cwd: fileURLToPath(new URL("../", import.meta.url)),
+              env: {
+                ...process.env,
+                GRAPH_ENGINE_DATA_DIR: data,
+                CI: "",
+                GRAPH_ENGINE_NO_FEEDBACK: "",
+                ...extra,
+              },
+              timeout: 60_000,
+              maxBuffer: 1_000_000,
+              windowsHide: true,
+            },
+            (error, stdout, stderr) =>
+              resolve({
+                code: error
+                  ? Number((error as { code?: number }).code ?? 1)
+                  : 0,
+                stdout,
+                stderr,
+              }),
+          );
         },
-        (error, stdout, stderr) =>
-          resolve({
-            code: error ? Number((error as { code?: number }).code ?? 1) : 0,
-            stdout,
-            stderr,
-          }),
       );
-    });
+  const graph = Object.assign(run({}), { with: run });
   return { root, data, graph };
 }
 
@@ -104,6 +117,19 @@ describe("command line", () => {
     expect((await graph("feedback-log", "--clear")).stdout).toContain(
       '"kinds": {}',
     );
+  }, 120_000);
+
+  it("records nothing when feedback is turned off", async () => {
+    const { graph } = await project();
+    await graph("init");
+    const plan = await graph.with({ GRAPH_ENGINE_NO_FEEDBACK: "1" })(
+      "plan",
+      "Fix addition",
+      "--accept",
+      "The addition test passes",
+    );
+    expect(plan.code).toBe(1);
+    expect(JSON.parse((await graph("feedback-log")).stdout).kinds).toEqual({});
   }, 120_000);
 
   it("scaffolds a draft spec and checks specs", async () => {

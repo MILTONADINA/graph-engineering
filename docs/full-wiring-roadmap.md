@@ -95,6 +95,13 @@ with design text only, and the answers are recorded in the PR.
 - tests that drive the CLI, a stored audit log for the roles template, and
   specs for the capabilities that have none.
 
+**Round 3** (from the audit of round 2's result): multi-step steps get a
+patch that cannot apply back as feedback, as single-step runs do (a
+test-first tester makes this likely); `spec-check` also recognises gates on
+`describe` blocks and `skipIf(X !== "1")`; `GRAPH_ENGINE_NO_FEEDBACK=1`
+also stops the local difficulty log; four documentation drifts fixed.
+Issues were enabled on the fork so feedback reports have somewhere to land.
+
 Deferred with reasons: epics above one level of decomposition (L; needs a
 planner design of its own); verifying OAuth ID token signatures in the
 generated app (changes the generated app's network behaviour, so the owner

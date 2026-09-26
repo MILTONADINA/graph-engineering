@@ -168,20 +168,54 @@ export function definesTest(text: string, name: string): boolean {
   ).test(code);
 }
 
+// A gate's condition: runIf(X === "1"), skipIf(!(X === "1")) or
+// skipIf(X !== "1") all need X set to "1".
+const GATE =
+  "\\.(runIf|skipIf)\\(\\s*(!?)\\(?\\s*process\\.env\\.([A-Za-z0-9_]+)\\s*(===|!==)\\s*[\"'`]1[\"'`]\\s*\\)?\\s*\\)";
+function switchOf(kind: string, negated: string, variable: string, op: string) {
+  const needsSet =
+    kind === "runIf"
+      ? negated !== "!" && op === "==="
+      : (negated === "!" && op === "===") || (negated !== "!" && op === "!==");
+  return needsSet ? variable : undefined;
+}
+
 /**
- * The environment switch a linked test needs to run, when it is declared as
- * `it.runIf(process.env.NAME === "1")("name", ...)` (or `test.`/`skipIf(!...)`).
+ * The environment switch a linked test needs to run: declared on the test
+ * (`it.runIf(process.env.NAME === "1")("name", ...)`, or `test.`, or the
+ * `skipIf` forms), or on a `describe` block that contains it.
  */
 export function testSwitch(text: string, name: string): string | undefined {
   const quoted = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(
-    `(?:^|[^.\\w])(?:it|test)\\.(runIf|skipIf)\\(\\s*(!?)\\(?\\s*process\\.env\\.([A-Za-z0-9_]+)\\s*===\\s*["'\`]1["'\`]\\s*\\)?\\s*\\)\\(\\s*(["'\`])${quoted}\\4`,
+  const own = new RegExp(
+    `(?:^|[^.\\w])(?:it|test)${GATE}\\(\\s*(["'\`])${quoted}\\5`,
     "m",
   ).exec(text);
-  if (!match) return undefined;
-  const [, kind, negated, variable] = match;
-  // runIf(X === "1") and skipIf(!(X === "1")) both need X set.
-  return (kind === "runIf") !== (negated === "!") ? variable : undefined;
+  if (own) return switchOf(own[1]!, own[2]!, own[3]!, own[4]!);
+  const at = new RegExp(
+    `(?:^|[^.\\w])(?:it|test)(?:\\.\\w+(?:\\([^)]*\\))?)?\\(\\s*(["'\`])${quoted}\\1`,
+    "m",
+  ).exec(text)?.index;
+  if (at === undefined) return undefined;
+  // The innermost gated describe block whose braces enclose the test.
+  const blocks = new RegExp(`(?:^|[^.\\w])describe${GATE}\\(`, "gm");
+  let found: string | undefined;
+  for (const match of text.matchAll(blocks)) {
+    const open = text.indexOf("{", match.index + match[0].length);
+    if (open < 0 || open > at) continue;
+    let depth = 0;
+    let close = -1;
+    for (let index = open; index < text.length; index++) {
+      if (text[index] === "{") depth++;
+      else if (text[index] === "}" && --depth === 0) {
+        close = index;
+        break;
+      }
+    }
+    if (close > at)
+      found = switchOf(match[1]!, match[2]!, match[3]!, match[4]!) ?? found;
+  }
+  return found;
 }
 
 /**
