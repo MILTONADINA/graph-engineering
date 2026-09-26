@@ -155,6 +155,8 @@ function fakeStore() {
     grants: [] as { roleId: string; permission: string }[],
     events: [] as string[],
     suspended: new Set<string>(),
+    audit: [] as Record<string, unknown>[],
+    failAuditWrites: false,
   };
   const find = (name: string) =>
     store.roles.find((role) => role.name === name) ?? null;
@@ -220,6 +222,16 @@ function fakeStore() {
     countPermissions: async () => 0,
     insertPermission: async () => undefined,
     deletePermission: async () => false,
+    // Rows written through a transaction are buffered and committed only if its work succeeds.
+    insertAuditEntry: async (
+      db: { pending?: Record<string, unknown>[] },
+      entry: Record<string, unknown>,
+    ) => {
+      if (store.failAuditWrites) throw new Error("audit storage unavailable");
+      (db.pending ?? store.audit).push({ ...entry });
+    },
+    listAuditEntries: async (_db: unknown, limit: number) =>
+      [...store.audit].reverse().slice(0, limit),
   };
   return { store, repository };
 }
@@ -230,8 +242,12 @@ async function loadService(workspace: string) {
   const service = execute(file("src/services/roleService.ts"), {
     "../config/database": {
       database: {
-        transaction: async (work: (tx: unknown) => Promise<unknown>) =>
-          work({}),
+        transaction: async (work: (tx: unknown) => Promise<unknown>) => {
+          const tx = { pending: [] as Record<string, unknown>[] };
+          const result = await work(tx);
+          fake.store.audit.push(...tx.pending);
+          return result;
+        },
       },
     },
     "../middlewares/errorMiddleware": { APIError },
@@ -527,10 +543,10 @@ describe("audited runtime-defined roles template", () => {
     expect(guard).toBeLessThan(routes.indexOf("router.get("));
     expect(guard).toBeLessThan(routes.indexOf("function roleParam"));
     expect(routes.match(/router\.(get|post|patch|put|delete)\(/g)).toHaveLength(
-      8,
+      9,
     );
     expect(routes).not.toMatch(/bootstrapInitialAdmin|ensureBuiltInRoles/);
-    const denialAudit = routes.lastIndexOf("router.use((error: unknown");
+    const denialAudit = routes.lastIndexOf("router.use(async (error: unknown");
     expect(denialAudit).toBeGreaterThan(routes.lastIndexOf("router.delete("));
     expect(routes.slice(denialAudit)).toContain(
       "console.warn('Role administration', { action: attemptedAction(req), actorId, outcome, status });",
@@ -544,6 +560,150 @@ describe("audited runtime-defined roles template", () => {
     const service = file("src/services/roleService.ts");
     expect(service).toContain(
       "countActiveAssignments(tx, role.id, userId)) < 1)\n      throw new APIError('The last active administrator cannot be removed', 409)",
+    );
+  });
+
+  it("stores an append-only audit log written with each change and readable only by administrators", async () => {
+    const workspace = await fixture();
+    const { result, file } = await generated(workspace);
+    expect(result.manifest.outputs.routes).toContain("GET /api/roles/audit");
+    expect(result.manifest.outputs.exports).toEqual(
+      expect.arrayContaining([
+        "recordRoleAuditAttempt",
+        "listRoleAudit",
+        "roleAuditLogTable",
+      ]),
+    );
+    const schema = file("src/config/schema.ts");
+    const table = schema.slice(schema.indexOf("pgTable('role_audit_log'"));
+    for (const column of [
+      "uuid('id').primaryKey()",
+      "timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow()",
+      "uuid('actor_id'),",
+      "varchar('action', { length: 32 }).notNull()",
+      "varchar('target', { length: 64 }),",
+      "varchar('outcome', { length: 16 }).notNull()",
+      "integer('status'),",
+    ])
+      expect(table).toContain(column);
+    expect(
+      table.slice(0, table.indexOf("});")).match(/^\s+\w+:/gm),
+    ).toHaveLength(7);
+    const repository = file("src/repository/Roles.ts");
+    expect(repository).not.toMatch(
+      /(update|delete)\(roleAuditLogTable|\.execute\([^)]*audit/,
+    );
+    expect(repository).toContain(
+      "orderBy(desc(roleAuditLogTable.occurredAt), desc(roleAuditLogTable.id)).limit(bounded)",
+    );
+    const routes = file("src/routes/roleRoutes.ts");
+    expect(routes.indexOf("router.get('/audit'")).toBeGreaterThan(
+      routes.indexOf(
+        "router.use(authMiddleware, requireAssignedRole(ADMIN_ROLE));",
+      ),
+    );
+    const handler = routes.slice(
+      routes.lastIndexOf("router.use(async (error: unknown"),
+    );
+    expect(handler.indexOf("console.warn(")).toBeLessThan(
+      handler.indexOf("await recordRoleAuditAttempt("),
+    );
+    expect(handler.indexOf("await recordRoleAuditAttempt(")).toBeLessThan(
+      handler.indexOf("next(error);"),
+    );
+    expect(handler).not.toMatch(/req\.(body|headers|query|cookies)/);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { service, store } = await loadService(workspace);
+    await service.bootstrapInitialAdmin(admin);
+    await service.createRole(admin, "editor");
+    await service.assignRole(admin, member, "editor");
+    expect(store.audit).toEqual([
+      {
+        actorId: null,
+        action: "admin.bootstrap",
+        target: admin,
+        outcome: "succeeded",
+        status: null,
+      },
+      {
+        actorId: admin,
+        action: "role.create",
+        target: "editor",
+        outcome: "succeeded",
+        status: null,
+      },
+      {
+        actorId: admin,
+        action: "role.assign",
+        target: member,
+        outcome: "succeeded",
+        status: null,
+      },
+    ]);
+    store.audit.length = 0;
+    // The last-admin refusal rolls back inside the transaction and leaves no success row.
+    expect(await status(service.revokeRole(admin, admin, "admin"))).toBe(409);
+    expect(await status(service.listRoleAudit(member, 50))).toBe(403);
+    expect(await status(service.listRoleAudit(admin, 201))).toBe(400);
+    expect(store.audit).toEqual([]);
+    await service.recordRoleAuditAttempt({
+      actorId: admin,
+      action: "role.revoke",
+      target: admin,
+      status: 409,
+    });
+    await service.recordRoleAuditAttempt({
+      actorId: "forged",
+      action: "anything<script>",
+      target: "Bearer secret-token",
+      status: 200,
+    });
+    expect(store.audit).toEqual([
+      {
+        actorId: admin,
+        action: "role.revoke",
+        target: admin,
+        outcome: "failed",
+        status: 409,
+      },
+      {
+        actorId: null,
+        action: "role.unknown",
+        target: null,
+        outcome: "failed",
+        status: 500,
+      },
+    ]);
+    expect((await service.listRoleAudit(admin, 1))[0].action).toBe(
+      "role.unknown",
+    );
+    // A failed row write never throws and never leaks the storage error; a failed
+    // success write fails the change instead of committing it unaudited.
+    store.failAuditWrites = true;
+    await expect(
+      service.recordRoleAuditAttempt({
+        actorId: member,
+        action: "role.delete",
+        target: "admin",
+        status: 403,
+      }),
+    ).resolves.toBeUndefined();
+    expect(JSON.stringify(error.mock.calls)).not.toContain("audit storage");
+    await expect(service.createRole(admin, "support")).rejects.toThrow();
+    expect(await status(service.bootstrapInitialAdmin(second))).toBe(409);
+    expect(warn).toHaveBeenCalled();
+    vi.restoreAllMocks();
+    const schemaPath = path.join(workspace, "src/config/schema.ts");
+    await writeFile(
+      schemaPath,
+      (await readFile(schemaPath, "utf8")).replace(/^\s+integer,\n/m, ""),
+    );
+    await expect(renderTemplateProposal(options(workspace))).rejects.toThrow(
+      "integer",
     );
   });
 
@@ -586,7 +746,7 @@ describe("audited runtime-defined roles template", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "")).toMatch(
-        /Tests\s+25 passed/,
+        /Tests\s+31 passed/,
       );
     },
     180000,
@@ -657,7 +817,7 @@ describe("audited runtime-defined roles template", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "")).toMatch(
-        /Tests\s+4 passed/,
+        /Tests\s+5 passed/,
       );
     },
     180000,

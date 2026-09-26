@@ -43,6 +43,10 @@ Teams want common building blocks (project scaffold, backend entities, authentic
 - AC12: Non-administrators receive one identical generic denial from the role management routes, so they cannot learn which roles exist.
   - Test: packages/engine/tests/template-runtime-roles.test.ts :: hides which roles exist from non-administrators behind one generic denial
   - Test: packages/engine/tests/template-runtime-roles.test.ts :: typechecks and executes the emitted role tests offline in the pinned backend image
+- AC34: Generated role administration stores an append-only audit log (actor, action, target, outcome, status only) whose success rows are written in the same transaction as the change, so a rolled-back change leaves no success row but a denied or failed row, and only administrators can read it through a bounded endpoint.
+  - Test: packages/engine/tests/template-runtime-roles.test.ts :: stores an append-only audit log written with each change and readable only by administrators
+  - Test: packages/engine/tests/template-runtime-roles.test.ts :: enforces lockout, built-in rows and database-only decisions against real isolated PostgreSQL
+  - Test: packages/engine/tests/template-runtime-roles.test.ts :: typechecks and executes the emitted role tests offline in the pinned backend image
 - AC13: The OAuth login template renders only on top of the authentication.jwt prerequisites and an application-owned account directory, deterministically and idempotently.
   - Test: packages/engine/tests/template-runtime-oauth.test.ts :: refuses to render without the authentication.jwt prerequisites
   - Test: packages/engine/tests/template-runtime-oauth.test.ts :: renders deterministically and idempotently

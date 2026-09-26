@@ -1,13 +1,35 @@
-import { and, asc, count, eq, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
 import { database } from '../config/database';
-import { roleTable, rolePermissionTable, userRoleTable, userTable } from '../config/schema';
-import { MAX_PERMISSIONS_PER_ROLE, MAX_ROLES } from '../utils/roleNames';
+import { roleAuditLogTable, roleTable, rolePermissionTable, userRoleTable, userTable } from '../config/schema';
+import { AUDIT_PAGE_MAX, MAX_PERMISSIONS_PER_ROLE, MAX_ROLES, type RoleAuditOutcome } from '../utils/roleNames';
 
 /** The pool or a transaction. Every statement is built by Drizzle and sends values as bound parameters. */
 export type RoleExecutor = Pick<typeof database, 'select' | 'insert' | 'update' | 'delete' | 'execute'>;
 export interface RoleRecord { id: string; name: string; builtIn: boolean }
+/** One audit row as written: identifiers, a fixed action name and the outcome; never free text. */
+export interface RoleAuditEntry {
+  actorId: string | null;
+  action: string;
+  target: string | null;
+  outcome: RoleAuditOutcome;
+  status: number | null;
+}
+export interface RoleAuditRecord {
+  id: string;
+  occurredAt: Date;
+  actorId: string | null;
+  action: string;
+  target: string | null;
+  outcome: string;
+  status: number | null;
+}
 
 const roleColumns = { id: roleTable.id, name: roleTable.name, builtIn: roleTable.builtIn };
+const auditColumns = {
+  id: roleAuditLogTable.id, occurredAt: roleAuditLogTable.occurredAt, actorId: roleAuditLogTable.actorId,
+  action: roleAuditLogTable.action, target: roleAuditLogTable.target, outcome: roleAuditLogTable.outcome,
+  status: roleAuditLogTable.status,
+};
 
 export const roleRepository = {
   /** Serializes every role mutation, so last-administrator checks cannot race. */
@@ -99,5 +121,15 @@ export const roleRepository = {
       .where(and(eq(rolePermissionTable.roleId, roleId), eq(rolePermissionTable.permission, permission)))
       .returning({ id: rolePermissionTable.id });
     return rows.length === 1;
+  },
+  /** Append-only: there is deliberately no update or delete for audit rows. */
+  async insertAuditEntry(db: RoleExecutor, entry: RoleAuditEntry): Promise<void> {
+    await db.insert(roleAuditLogTable).values(entry);
+  },
+  /** Newest first, bounded to 1..AUDIT_PAGE_MAX rows whatever the caller passes. */
+  async listAuditEntries(db: RoleExecutor, limit: number): Promise<RoleAuditRecord[]> {
+    const bounded = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), AUDIT_PAGE_MAX) : 1;
+    return db.select(auditColumns).from(roleAuditLogTable)
+      .orderBy(desc(roleAuditLogTable.occurredAt), desc(roleAuditLogTable.id)).limit(bounded);
   },
 };

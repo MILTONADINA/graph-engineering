@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-26T17:28:28.453Z",
+  "generatedAt": "2026-09-26T21:57:46.218Z",
   "templateCount": 56,
   "templates": [
     {
@@ -790,7 +790,7 @@
       "category": "authorization",
       "subcategory": "roles",
       "status": "implemented",
-      "description": "Application-defined, runtime-configurable roles: roles, user_roles and role_permissions tables, a repository and service, admin-only management routes (create, rename and delete roles, assign and revoke them, grant and revoke resource:action permissions) and requireAssignedRole/requireAssignedPermission middleware that read the caller's current roles from the database on every request. Unlike authorization.rbac's fixed customer/admin enum (and its requireRole, which reads users.role), an administrator can add roles without a code change. The JWT role claim is never used for these decisions.",
+      "description": "Application-defined, runtime-configurable roles: roles, user_roles, role_permissions and an append-only role_audit_log table, a repository and service, admin-only management routes (create, rename and delete roles, assign and revoke them, grant and revoke resource:action permissions, read the audit log) and requireAssignedRole/requireAssignedPermission middleware that read the caller's current roles from the database on every request. Unlike authorization.rbac's fixed customer/admin enum (and its requireRole, which reads users.role), an administrator can add roles without a code change. The JWT role claim is never used for these decisions.",
       "tags": [
         "authorization",
         "roles",

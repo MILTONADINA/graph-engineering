@@ -26,3 +26,15 @@ export const rolePermissionTable = pgTable('role_permissions', {
 }, (table) => ({
   rolePermissionIndex: uniqueIndex('role_permissions_role_permission_idx').on(table.roleId, table.permission),
 }));
+
+// Append-only audit trail of role administration. Identifiers and outcomes only: no request
+// bodies, headers, tokens or free text. The repository exposes insert and select, never update or delete.
+export const roleAuditLogTable = pgTable('role_audit_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  actorId: uuid('actor_id'),
+  action: varchar('action', { length: 32 }).notNull(),
+  target: varchar('target', { length: 64 }),
+  outcome: varchar('outcome', { length: 16 }).notNull(),
+  status: integer('status'),
+});

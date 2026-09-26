@@ -23,7 +23,12 @@ const tests = [
 ];
 const importLine = "import { roleRoutes } from './routes/roleRoutes';";
 const mountLine = "app.use('/api/roles', roleRoutes);";
-const tableExports = ["roleTable", "userRoleTable", "rolePermissionTable"];
+const tableExports = [
+  "roleTable",
+  "userRoleTable",
+  "rolePermissionTable",
+  "roleAuditLogTable",
+];
 const schemaMarker =
   "// backend.repository nodes append one exported pgTable block per entity below this line.";
 
@@ -83,6 +88,7 @@ async function appendSchema(
     "varchar",
     "timestamp",
     "boolean",
+    "integer",
     "uniqueIndex",
   ])
     if (!imports.has(name))
@@ -195,6 +201,8 @@ export const roleTemplates: Record<string, AuditedTemplateExtension> = {
         "ensureBuiltInRoles",
         "bootstrapInitialAdmin",
         "assertNotLastActiveAdmin",
+        "recordRoleAuditAttempt",
+        "listRoleAudit",
         ...tableExports,
       ];
       const actual = new Set(
@@ -212,6 +220,7 @@ export const roleTemplates: Record<string, AuditedTemplateExtension> = {
           exports,
           routes: [
             "GET /api/roles",
+            "GET /api/roles/audit",
             "POST /api/roles",
             "PATCH /api/roles/:role",
             "DELETE /api/roles/:role",
