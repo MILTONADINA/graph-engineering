@@ -99,6 +99,11 @@ function RunCard({ card }: { card: OverviewCard }) {
   );
 }
 
+/** How often the board refreshes: live while work runs, slower when idle. */
+export function overviewRefreshMs(working: boolean): number {
+  return working ? 2500 : 10000;
+}
+
 export function OverviewPage({ api, active }: { api: Api; active: boolean }) {
   const overview = useResource<OverviewResponse>(
     api,
@@ -109,7 +114,7 @@ export function OverviewPage({ api, active }: { api: Api; active: boolean }) {
   // Live while work is running; a slower heartbeat when idle.
   useEffect(() => {
     if (!active) return;
-    const interval = setInterval(reload, working ? 2500 : 10000);
+    const interval = setInterval(reload, overviewRefreshMs(working));
     return () => clearInterval(interval);
   }, [active, working, reload]);
   const data = overview.data;

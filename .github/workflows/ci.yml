@@ -47,6 +47,8 @@ jobs:
       - name: Current synthetic fixture receipt
         run: node --test evaluation/validate-fixtures.test.mjs
       - run: npm run check
+      - name: Feature specs link real tests
+        run: node packages/engine/dist/cli.js spec-check
       - name: Fork branch-protection policy
         run: node --test scripts/branch-protection.test.mjs
       - run: npm ci --prefix graph-templates/tools/validate-templates

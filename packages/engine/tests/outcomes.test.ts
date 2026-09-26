@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ProjectConfig } from "@graph-engineering/contracts";
@@ -368,5 +368,67 @@ describe("run outcomes", () => {
     );
     expect(proposals).toHaveLength(1);
     expect(proposals[0]).toMatchObject({ status: "proposed" });
+  });
+});
+
+describe("planning from a spec", () => {
+  const specText = (status: string) =>
+    [
+      "# Fix addition",
+      "",
+      "- ID: fix-addition",
+      `- Status: ${status}`,
+      "- Area: math",
+      "",
+      "## Problem",
+      "",
+      "add returns the difference instead of the sum.",
+      "",
+      "## Acceptance criteria",
+      "",
+      "- AC1: add(2, 3) is 5",
+      "",
+      "## Security considerations",
+      "",
+      "None: a pure function with no inputs from outside.",
+      "",
+      "## Non-goals",
+      "",
+      "Changing subtraction.",
+      "",
+    ].join("\n");
+
+  it("takes the objective and criteria from a ready spec and records it on the plan", async () => {
+    const { root } = await fixture();
+    await mkdir(path.join(root, "specs", "math"), { recursive: true });
+    await writeFile(
+      path.join(root, "specs", "math", "fix-addition.md"),
+      specText("ready"),
+    );
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+    });
+    engines.push(engine);
+    const plan = await engine.createPlanFromSpec("specs/math/fix-addition.md");
+    expect(plan.acceptance).toEqual(["AC1: add(2, 3) is 5"]);
+    expect(plan.objective).toContain(
+      "Fix addition (spec specs/math/fix-addition.md)",
+    );
+    expect(plan.objective).toContain("Security considerations: None");
+    expect(plan.spec).toEqual({
+      id: "fix-addition",
+      path: "specs/math/fix-addition.md",
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    await writeFile(
+      path.join(root, "specs", "math", "fix-addition.md"),
+      specText("draft"),
+    );
+    await expect(
+      engine.createPlanFromSpec("specs/math/fix-addition.md"),
+    ).rejects.toThrow("mark it ready before planning");
+    await expect(engine.createPlanFromSpec("math.cjs")).rejects.toThrow(
+      "A spec is a Markdown file under specs/",
+    );
   });
 });

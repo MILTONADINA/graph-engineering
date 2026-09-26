@@ -21,8 +21,8 @@
     "verify:image": "docker build -f infra/verification.Dockerfile -t graph-engineering-verify:local .",
     "dev": "npm run dev -w @graph-engineering/dashboard",
     "setup:git": "node scripts/setup-git.mjs",
-    "format": "prettier --write packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs",
-    "format:check": "prettier --check packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs",
+    "format": "prettier --write packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs specs",
+    "format:check": "prettier --check packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs specs",
     "lint": "eslint ."
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@graph-engineering/contracts";
 import { GraphEngine } from "./service.js";
 import { repositoryProfile } from "./scale.js";
+import { checkSpecs, specTemplate, SPECS_DIR } from "./specs.js";
 import {
   addKnowledgePack,
   citeKnowledge,
@@ -477,8 +478,15 @@ cli
   .description("Probe installed coding clients without starting paid inference")
   .action(async () => print(await discoverInstalledWorkers()));
 cli
-  .command("plan <objective>")
-  .requiredOption("--accept <criterion...>", "Acceptance criteria")
+  .command("plan [objective]")
+  .description(
+    "Plan a change from an objective and acceptance criteria, or from a feature spec with --spec",
+  )
+  .option("--accept <criterion...>", "Acceptance criteria")
+  .option(
+    "--spec <path>",
+    "Plan from a ready or implemented spec under specs/ (objective and criteria come from it)",
+  )
   .option("--provider <id>")
   .option("--effort <effort>")
   .option(
@@ -486,22 +494,67 @@ cli
     "Reviewed dependency DAG steps with per-step providers/templates",
   )
   .action(async (objective, options) =>
-    withEngine(async (engine) =>
-      engine.createPlan({
-        objective,
-        acceptance: options.accept,
+    withEngine(async (engine) => {
+      const steps = options.steps
+        ? ((await readJson(
+            path.resolve(options.steps),
+          )) as import("@graph-engineering/contracts").ExecutionStep[])
+        : undefined;
+      const common = {
         providerId: options.provider,
         effort: options.effort,
-        ...(options.steps
-          ? {
-              steps: (await readJson(
-                path.resolve(options.steps),
-              )) as import("@graph-engineering/contracts").ExecutionStep[],
-            }
-          : {}),
-      }),
-    ),
+        ...(steps ? { steps } : {}),
+      };
+      if (options.spec) {
+        if (objective || options.accept)
+          throw new Error(
+            "With --spec, the objective and acceptance criteria come from the spec",
+          );
+        return engine.createPlanFromSpec(
+          path.relative(root(), path.resolve(root(), options.spec)),
+          common,
+        );
+      }
+      if (!objective || !options.accept?.length)
+        throw new Error(
+          "Give an objective and --accept criteria, or plan from a spec with --spec",
+        );
+      return engine.createPlan({
+        ...common,
+        objective,
+        acceptance: options.accept,
+      });
+    }),
   );
+cli
+  .command("spec-new <area> <id>")
+  .description(
+    "Write a draft feature spec at specs/<area>/<id>.md to fill in: problem, acceptance criteria, security considerations, non-goals",
+  )
+  .requiredOption("--title <title>", "One-line feature title")
+  .option("--epic <name>", "Epic this feature belongs to")
+  .action(async (area, id, options) => {
+    const file = path.join(root(), SPECS_DIR, area, `${id}.md`);
+    const text = specTemplate({
+      id,
+      area,
+      title: options.title,
+      epic: options.epic,
+    });
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, text, { flag: "wx" });
+    print({ path: path.relative(root(), file), status: "draft" });
+  });
+cli
+  .command("spec-check")
+  .description(
+    "Check every spec under specs/: required sections, unique IDs, and that each criterion of an implemented spec links an existing test",
+  )
+  .action(async () => {
+    const report = await checkSpecs(root(), (await loadProject(root())).policy);
+    print(report);
+    if (report.errors.length) process.exitCode = 1;
+  });
 cli
   .command("decompose <objective>")
   .description(
