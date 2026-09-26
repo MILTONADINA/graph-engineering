@@ -20,10 +20,10 @@ exist. It takes no inputs.
 | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `src/utils/roleNames.ts`            | Name rules: `isRoleName`, `isPermissionName`, `ADMIN_ROLE`, `BUILT_IN_ROLES`, limits               |
 | `src/repository/Roles.ts`           | `roleRepository`: Drizzle queries only, all values bound as parameters                            |
-| `src/services/roleService.ts`       | `rolesForUser`, `hasPermission`, management operations, `ensureBuiltInRoles`, `bootstrapInitialAdmin`, `assertNotLastActiveAdmin` |
+| `src/services/roleService.ts`       | `rolesForUser`, `hasPermission`, management operations, `ensureBuiltInRoles`, `bootstrapInitialAdmin`, `assertNotLastActiveAdmin`, `recordRoleAuditAttempt`, `listRoleAudit` |
 | `src/middlewares/roleMiddleware.ts` | `requireAssignedRole(...roles)` and `requireAssignedPermission('resource:action')`                |
 | `src/routes/roleRoutes.ts`          | `roleRoutes`, mounted at `/api/roles`                                                             |
-| `src/config/schema.ts` (append)     | `roleTable` (`roles`), `userRoleTable` (`user_roles`), `rolePermissionTable` (`role_permissions`) |
+| `src/config/schema.ts` (append)     | `roleTable` (`roles`), `userRoleTable` (`user_roles`), `rolePermissionTable` (`role_permissions`), `roleAuditLogTable` (`role_audit_log`) |
 | `src/app.ts` (mount)                | `app.use('/api/roles', roleRoutes);`                                                              |
 | `tests/role*.test.ts`               | Middleware, service, routes and repository tests                                                  |
 
@@ -54,6 +54,7 @@ not exposed over HTTP, and each call is audited as `admin.bootstrap`.
 | `DELETE /:role/users/:userId`                 | Revoke a role                          |
 | `PUT /:role/permissions/:permission`          | Grant `resource:action` to a role      |
 | `DELETE /:role/permissions/:permission`       | Revoke that grant                      |
+| `GET /audit?limit=50`                         | Read the audit log, newest first (`limit` 1-200, default 50) |
 
 **Using the middleware.** Mount `authMiddleware` first:
 
@@ -106,6 +107,34 @@ export { hasPermission } from './roleService';
   failures (`console.warn`, with the action, actor id, `outcome` of
   `unauthenticated`, `denied` or `failed`, and status), including callers
   stopped by the admin gate. Tokens, headers and request bodies are never logged.
+- **Stored audit log.** Every change and every refused or failed attempt is also
+  stored as one row in the append-only `role_audit_log` table: `id`,
+  `occurred_at`, `actor_id` (null for unauthenticated callers and the operator
+  bootstrap), `action` (a closed vocabulary such as `role.create`,
+  `role.assign`, `permission.grant`, `admin.bootstrap`, `audit.read`), `target`
+  (one validated role name, or the user id for `role.assign`, `role.revoke` and
+  `admin.bootstrap`; `role.rename` records the old name), `outcome`
+  (`succeeded`, `denied`, `failed` or `unauthenticated`) and `status` (the HTTP
+  status of a refusal or failure; null on success). Nothing else is stored: no
+  bodies, headers, tokens or free text.
+  - A success row is written **inside** the change's transaction. A change that
+    rolls back (for example the last-administrator refusal) leaves no success
+    row, and a change whose row cannot be written is not committed.
+  - Denied, failed and unauthenticated HTTP attempts, and refused bootstrap
+    attempts, are written **outside** the failed transaction by
+    `recordRoleAuditAttempt`. It never throws: if the row cannot be written it
+    logs `Role audit log write failed` to the console and the original response
+    (a denial or error) is returned unchanged. Service functions called
+    directly from application code, rather than through `/api/roles`, record
+    their successes but not their failures; record those with
+    `recordRoleAuditAttempt` if you need them.
+  - Only administrators can read the log, through `GET /api/roles/audit` behind
+    the same admin gate, bounded by `?limit` (1-200, default 50). Reading it is
+    not itself recorded on success.
+  - The repository exposes insert and select only. To make the table
+    append-only at the database level too, have your migration owner revoke
+    `UPDATE` and `DELETE` on `role_audit_log` from the application role; this
+    node emits no hand-written SQL. Rows are kept until you archive them.
 
 **Limits.** Assignments are user-global; tenant-scoped roles need a separately
 reviewed design. `user_roles.user_id` has no foreign key because the users table
@@ -115,8 +144,10 @@ assignments. This node does not own user suspension or deletion. Whatever code
 suspends or deletes users must call `assertNotLastActiveAdmin(tx, userId)` inside
 the same transaction; it takes the role administration lock and returns 409 if
 the change would leave no active administrator. If that code skips the check
-and locks everyone out, recover with `bootstrapInitialAdmin`. Role changes are logged to the console only; ship those records to durable
-audit storage separately.
+and locks everyone out, recover with `bootstrapInitialAdmin`. The stored audit
+log lives in the application database, so an operator with direct database
+access can still alter it; ship it or the console records to separate
+write-once storage if you need tamper evidence against database operators.
 
 **Test.** `npm test -- roleMiddleware roleService roleRoutes roleRepository` and
 `npm run build` in the generated app.

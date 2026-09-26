@@ -19,3 +19,13 @@ export const isPermissionName = (value: unknown): value is string =>
   typeof value === 'string' && value.length <= 65 && PERMISSION_NAME.test(value);
 
 export const isBuiltInRole = (name: string): boolean => BUILT_IN_ROLES.includes(name);
+
+/** Page bounds for GET /api/roles/audit. */
+export const AUDIT_PAGE_DEFAULT = 50;
+export const AUDIT_PAGE_MAX = 200;
+/** The closed vocabulary stored in role_audit_log.action; anything else is recorded as 'role.unknown'. */
+export const ROLE_AUDIT_ACTIONS: readonly string[] = Object.freeze([
+  'role.list', 'role.create', 'role.rename', 'role.delete', 'role.assign', 'role.revoke',
+  'permission.grant', 'permission.revoke', 'audit.read', 'admin.bootstrap', 'role.unknown',
+]);
+export type RoleAuditOutcome = 'succeeded' | 'denied' | 'failed' | 'unauthenticated';

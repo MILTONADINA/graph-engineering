@@ -8,6 +8,8 @@ const state = vi.hoisted(() => {
     grants: [] as { roleId: string; permission: string }[],
     events: [] as string[],
     active: new Set<string>(),
+    audit: [] as Record<string, unknown>[],
+    failAuditWrites: false,
     nextId: 0,
   };
   const role = (name: string) => store.roles.find((item) => item.name === name) ?? null;
@@ -65,13 +67,26 @@ const state = vi.hoisted(() => {
       store.grants = store.grants.filter((item) => !(item.roleId === roleId && item.permission === permission));
       return store.grants.length !== before;
     },
+    // A transaction buffers its audit rows and commits them only if the work succeeds.
+    insertAuditEntry: async (db: { pending?: Record<string, unknown>[] }, entry: Record<string, unknown>) => {
+      if (store.failAuditWrites) throw new Error('private audit storage detail');
+      (db.pending ?? store.audit).push({ ...entry });
+    },
+    listAuditEntries: async (_db: unknown, limit: number) => [...store.audit].reverse().slice(0, limit),
   };
-  return { store, repository };
+  // The fake transaction discards buffered audit rows when the work throws, like a rollback.
+  const database = {
+    transaction: async (work: (tx: unknown) => Promise<unknown>) => {
+      const tx = { pending: [] as Record<string, unknown>[] };
+      const result = await work(tx);
+      store.audit.push(...tx.pending);
+      return result;
+    },
+  };
+  return { store, repository, database };
 });
 vi.mock('../src/repository/Roles', () => ({ roleRepository: state.repository }));
-vi.mock('../src/config/database', () => ({
-  database: { transaction: async (work: (tx: unknown) => Promise<unknown>) => work({}) },
-}));
+vi.mock('../src/config/database', () => ({ database: state.database }));
 vi.mock('../src/services/authIdentity', () => ({
   resolveAuthenticationIdentity: async (id: string) =>
     state.store.active.has(id) ? { id, email: 'user@example.test', role: 'customer', status: 'active' } : null,
@@ -84,7 +99,7 @@ vi.mock('../src/utils/tokens', () => {
 
 import {
   assertNotLastActiveAdmin, assignRole, bootstrapInitialAdmin, createRole, deleteRole, grantPermission, hasPermission,
-  listRoles, renameRole, revokeRole, rolesForUser,
+  listRoleAudit, listRoles, recordRoleAuditAttempt, renameRole, revokeRole, rolesForUser,
 } from '../src/services/roleService';
 
 const admin = '11111111-1111-4111-8111-111111111111';
@@ -94,7 +109,7 @@ const status = async (promise: Promise<unknown>) => promise.then(() => 0, (error
 
 describe('authorization.roles service', () => {
   beforeEach(async () => {
-    Object.assign(state.store, { roles: [], assignments: [], grants: [], events: [], nextId: 0 });
+    Object.assign(state.store, { roles: [], assignments: [], grants: [], events: [], audit: [], failAuditWrites: false, nextId: 0 });
     state.store.active = new Set([admin, second, member]);
     await bootstrapInitialAdmin(admin);
     state.store.events = [];
@@ -183,6 +198,59 @@ describe('authorization.roles service', () => {
     await deleteRole(admin, 'editor');
     expect(await rolesForUser(member)).toEqual(new Set());
     expect(await hasPermission(member, 'orders:refund')).toBe(false);
+  });
+
+  it('writes a succeeded audit row with each change inside its transaction and none when it rolls back', async () => {
+    expect(state.store.audit).toEqual([
+      { actorId: null, action: 'admin.bootstrap', target: admin, outcome: 'succeeded', status: null },
+    ]);
+    state.store.audit = [];
+    await createRole(admin, 'editor');
+    await assignRole(admin, member, 'editor');
+    await grantPermission(admin, 'editor', 'orders:refund');
+    expect(state.store.audit).toEqual([
+      { actorId: admin, action: 'role.create', target: 'editor', outcome: 'succeeded', status: null },
+      { actorId: admin, action: 'role.assign', target: member, outcome: 'succeeded', status: null },
+      { actorId: admin, action: 'permission.grant', target: 'editor', outcome: 'succeeded', status: null },
+    ]);
+    state.store.audit = [];
+    // Refused inside the transaction: the last-admin check rolls back, so no success row survives.
+    expect(await status(revokeRole(admin, admin, 'admin'))).toBe(409);
+    expect(await status(createRole(member, 'support'))).toBe(403);
+    await listRoles(admin);
+    expect(state.store.audit).toEqual([]);
+    // No change without its audit row: a failed audit write fails the transaction.
+    state.store.failAuditWrites = true;
+    await expect(createRole(admin, 'support')).rejects.toThrow();
+  });
+
+  it('stores refused attempts without ever recording success, and never throws when storage fails', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    state.store.audit = [];
+    await recordRoleAuditAttempt({ actorId: member, action: 'role.delete', target: 'admin', status: 403 });
+    await recordRoleAuditAttempt({ actorId: 'forged', action: 'free text; drop', target: "x'; drop", status: 42 });
+    await recordRoleAuditAttempt({ actorId: undefined, action: 'role.list', target: undefined, status: 401 });
+    expect(state.store.audit).toEqual([
+      { actorId: member, action: 'role.delete', target: 'admin', outcome: 'denied', status: 403 },
+      { actorId: null, action: 'role.unknown', target: null, outcome: 'failed', status: 500 },
+      { actorId: null, action: 'role.list', target: null, outcome: 'unauthenticated', status: 401 },
+    ]);
+    expect(await status(bootstrapInitialAdmin(second))).toBe(409);
+    expect(state.store.audit.at(-1)).toEqual({ actorId: null, action: 'admin.bootstrap', target: second, outcome: 'failed', status: 409 });
+    state.store.failAuditWrites = true;
+    await expect(recordRoleAuditAttempt({ actorId: member, action: 'role.delete', target: 'admin', status: 403 })).resolves.toBeUndefined();
+    expect(await status(bootstrapInitialAdmin(second))).toBe(409);
+    expect(JSON.stringify(error.mock.calls)).not.toContain('private audit storage detail');
+  });
+
+  it('lets only administrators read a bounded, newest-first audit page', async () => {
+    await createRole(admin, 'editor');
+    await createRole(admin, 'support');
+    expect(await status(listRoleAudit(member, 50))).toBe(403);
+    for (const limit of [0, 201, 1.5, Number.NaN]) expect(await status(listRoleAudit(admin, limit))).toBe(400);
+    const page = await listRoleAudit(admin, 2);
+    expect(page.map((row) => row.target)).toEqual(['support', 'editor']);
   });
 
   it('treats malformed identities and permissions as holding nothing', async () => {
