@@ -67,6 +67,7 @@ export function MemoriesPage({ api, active }: { api: Api; active: boolean }) {
       );
       setRejecting(null);
       setReason("");
+      setNotice("Memory rejected. Its reason is kept with it.");
       memories.reload();
     } catch (cause) {
       setError(getError(cause));
@@ -315,6 +316,7 @@ export function MemoriesPage({ api, active }: { api: Api; active: boolean }) {
                       </label>
                       <input
                         id={`reason-${record.id}`}
+                        autoFocus
                         value={reason}
                         maxLength={2000}
                         placeholder="Why is this memory rejected?"
