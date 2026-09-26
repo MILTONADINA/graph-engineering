@@ -5,7 +5,10 @@ import { join } from "node:path";
 import ts from "typescript";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { parseFile, type ParsedFile } from "../src/context/parser.js";
-import { resolveSnapshotBindings } from "../src/context/semantic.js";
+import {
+  PACKAGE_BINDING_LIMITS,
+  resolveSnapshotBindings,
+} from "../src/context/semantic.js";
 import { analyzeSnapshot } from "../src/context/semantic-worker.js";
 import { ContextEngine } from "../src/context/index.js";
 
@@ -245,4 +248,99 @@ describe("hermetic compiler-backed static bindings", () => {
       ),
     ).toBe(false);
   }, 20000);
+});
+
+describe("per-package static bindings", () => {
+  it("binds each package that fits when the whole snapshot is over the limit", async () => {
+    const files = await parse({
+      "packages/a/package.json": '{ "name": "a" }',
+      "packages/a/lib.ts": "export function fromA() { return 1; }",
+      "packages/a/use.ts":
+        "import { fromA } from './lib';\nexport function useA() { return fromA(); }",
+      "packages/b/package.json": '{ "name": "b" }',
+      "packages/b/lib.ts": "export function fromB() { return 2; }",
+      "packages/b/use.ts":
+        "import { fromB } from './lib';\nexport function useB() { return fromB(); }",
+      "packages/big/package.json": '{ "name": "big" }',
+      "packages/big/one.ts": "export const one = 1;",
+      "packages/big/two.ts": "export const two = 2;",
+      "packages/big/three.ts": "export const three = 3;",
+    });
+    // The whole snapshot (7 source files) exceeds a limit of 2 files; the
+    // two-file packages still get compiler bindings, the three-file one not.
+    const result = await resolveSnapshotBindings(files, "snapshot", {
+      maxFiles: 2,
+    });
+    expect(result.resolvedCalls).toBe(2);
+    expect(result.analyzedFiles).toBe(4);
+    expect(result.diagnostics[0]).toBe(
+      "TypeScript static binding ran per package: 2 of 3 bound; skipped as over the file or size limits: packages/big. Imports between packages keep syntax evidence.",
+    );
+  }, 30000);
+
+  it("gives each package its ancestors' configuration, not its siblings', and reports cross-package imports plainly", async () => {
+    const files = await parse({
+      "tsconfig.json":
+        '{ "compilerOptions": { "paths": { "@a/*": ["./packages/a/src/*"] } } }',
+      "packages/a/package.json": '{ "name": "a" }',
+      "packages/a/src/lib.ts": "export function fromA() { return 1; }",
+      "packages/a/use.ts":
+        "import { fromA } from '@a/lib';\nexport function useA() { return fromA(); }",
+      "packages/b/package.json": '{ "name": "b" }',
+      "packages/b/tsconfig.json":
+        '{ "compilerOptions": { "paths": { "@a/*": ["./wrong/*"] } } }',
+      "packages/b/wrong/lib.ts": "export function fromA() { return 3; }",
+      "packages/b/use.ts":
+        "import { fromA } from 'a';\nexport function useB() { return fromA(); }",
+      "packages/c/package.json": '{ "name": "c" }',
+      "packages/c/one.ts": "export const one = 1;",
+      "packages/c/two.ts": "export const two = 2;",
+      "packages/c/three.ts": "export const three = 3;",
+    });
+    const result = await resolveSnapshotBindings(files, "snapshot", {
+      maxFiles: 2,
+    });
+    const aLib = files.find((file) => file.path === "packages/a/src/lib.ts")!;
+    const fromA = aLib.symbols.find((symbol) => symbol.name === "fromA")!;
+    // The root alias binds package a's call to a's own file, not to the
+    // file package b's alias points at.
+    expect(
+      result.updates.find(
+        (edge) => edge.kind === "calls" && edge.target === "fromA",
+      )?.to,
+    ).toBe(fromA.id);
+    expect(result.diagnostics[0]).toContain("2 of 3 bound");
+    expect(result.diagnostics[0]).toContain(
+      "packages importing other packages: packages/b",
+    );
+    expect(
+      result.diagnostics.some((message) =>
+        message.includes("missing, undeclared, or duplicate"),
+      ),
+    ).toBe(false);
+  }, 30000);
+
+  it("names packages left unbound by the package limit separately from oversized ones", async () => {
+    const files = await parse({
+      "packages/a/package.json": '{ "name": "a" }',
+      "packages/a/lib.ts": "export const a = 1;",
+      "packages/b/package.json": '{ "name": "b" }',
+      "packages/b/lib.ts": "export const b = 1;",
+      "packages/c/package.json": '{ "name": "c" }',
+      "packages/c/one.ts": "export const one = 1;",
+      "packages/c/two.ts": "export const two = 2;",
+    });
+    const limit = PACKAGE_BINDING_LIMITS.packages;
+    PACKAGE_BINDING_LIMITS.packages = 1;
+    try {
+      const result = await resolveSnapshotBindings(files, "snapshot", {
+        maxFiles: 1,
+      });
+      expect(result.diagnostics[0]).toBe(
+        "TypeScript static binding ran per package: 1 of 3 bound; skipped as over the file or size limits: packages/c; not reached within 1 packages or 120 seconds: packages/b. Imports between packages keep syntax evidence.",
+      );
+    } finally {
+      PACKAGE_BINDING_LIMITS.packages = limit;
+    }
+  }, 30000);
 });

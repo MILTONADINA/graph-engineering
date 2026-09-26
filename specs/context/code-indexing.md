@@ -33,6 +33,10 @@ Workers and connected AI clients need accurate, bounded context about a reposito
   - Test: packages/engine/tests/context.test.ts :: rejects cross-project databases and snapshots and respects mandatory budgets
   - Test: packages/engine/tests/context-maintenance.test.ts :: migrates legacy context databases atomically and rejects future versions
   - Test: packages/engine/tests/context-maintenance.test.ts :: lexical indexing never loads a model and hybrid lazily repairs missing vectors
+- AC8: When a repository's TypeScript/JavaScript exceeds the compiler-binding limits, each package (by nearest package.json or tsconfig) that fits is bound separately; each sees its own and its ancestors' configuration but not its siblings'. Packages over the limits, or beyond the package and time budget, keep syntax evidence and are named in a diagnostic under the reason they were skipped.
+  - Test: packages/engine/tests/context-semantic.test.ts :: binds each package that fits when the whole snapshot is over the limit
+  - Test: packages/engine/tests/context-semantic.test.ts :: gives each package its ancestors' configuration, not its siblings', and reports cross-package imports plainly
+  - Test: packages/engine/tests/context-semantic.test.ts :: names packages left unbound by the package limit separately from oversized ones
 
 ## Security considerations
 
