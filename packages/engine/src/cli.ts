@@ -1151,7 +1151,12 @@ function terminalIo(): FeedbackIo {
 async function handleDifficulty(message: string): Promise<void> {
   const kind = classifyError(message);
   const command = currentCommand();
-  if (command === "feedback" || command === "feedback-log") return;
+  if (
+    command === "feedback" ||
+    command === "feedback-log" ||
+    process.env.GRAPH_ENGINE_NO_FEEDBACK === "1"
+  )
+    return;
   try {
     await recordDifficulty(kind);
     await offerFeedback(

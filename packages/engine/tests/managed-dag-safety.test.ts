@@ -1561,6 +1561,33 @@ describe("tester role", () => {
     );
   });
 
+  it("returns a DAG patch that cannot apply to the worker instead of failing the plan", async () => {
+    const { root } = await fixture();
+    const feedback: (string | undefined)[] = [];
+    const worker = vi.fn(async (input: WorkerInput) => {
+      feedback.push(input.feedback);
+      return {
+        ...result("one"),
+        proposal: {
+          summary: "Edit",
+          requests: [],
+          changes: [
+            [{ path: "first.js", before: "no such text", after: "= 3" }],
+            [{ path: "first.js", before: null, after: "exports.x = 1;\n" }],
+            [{ path: "first.js", before: "= 1", after: "= 3" }],
+          ][feedback.length - 1]!,
+        },
+      };
+    });
+    const engine = await open(root, { worker, verify: vi.fn(passing) });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(feedback[1]).toContain("Patch precondition failed");
+    expect(feedback[2]).toContain("that file already exists");
+  });
+
   it("reserves the tester's step ID", async () => {
     const { root, config } = await fixture((value) => {
       value.policy.providers = ["local", "tester"];

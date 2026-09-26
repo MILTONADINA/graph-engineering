@@ -27,8 +27,9 @@ reports should land where the maintainers already triage work.
   - Test: packages/engine/tests/feedback.test.ts :: asks a person, shows the exact report, and opens an issue link only after a yes
 - AC5: The graph keeps a local log of difficulty kinds with counts and timestamps in its private data directory, never in the repository, which a person can review, send as one summary report, or clear.
   - Test: packages/engine/tests/feedback.test.ts :: keeps a private local log of difficulty kinds only, outside the repository
-- AC6: Reports are offered only to a person, from the command line (`graph-engine feedback`, `feedback-log`, and after a failed command or run); no AI client tool can list, build or send them. Setting `GRAPH_ENGINE_NO_FEEDBACK=1` turns the offer off.
+- AC6: Reports are offered only to a person, from the command line (`graph-engine feedback`, `feedback-log`, and after a failed command or run); no AI client tool can list, build or send them. Setting `GRAPH_ENGINE_NO_FEEDBACK=1` turns off both the offer and the local log.
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
+  - Test: packages/engine/tests/cli.test.ts :: records nothing when feedback is turned off
 
 ## Security considerations
 

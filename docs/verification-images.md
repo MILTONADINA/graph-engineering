@@ -84,8 +84,8 @@ Check: `graph-engine check-add my-project-verify:local python -m pytest`
   build, as above.
 - **"permission denied" under `/root` or `~`**: the cache is in root's home;
   move it to a readable path and point the tool at it.
-- **"read-only file system"** or **"Verification modified project
-  source"**: the check writes where it may not; work on a copy in `/tmp`.
+- **"read-only file system"** or **"Verification changed a source
+  input"**: the check writes where it may not; work on a copy in `/tmp`.
 
 Warnings a tool prints on stderr (such as an unwritable cache log) are
 harmless when the check passes; the worker sees both stdout and stderr when
