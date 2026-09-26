@@ -117,6 +117,9 @@ export function validateDag(input: ExecutionStep[]): ValidatedDag {
   if (byId.size !== steps.length)
     throw new Error("DAG step IDs must be unique");
   for (const step of steps) {
+    // Reserved for the engine's repair step after failed combined checks.
+    if (step.id === "dag-repair")
+      throw new Error("Step ID dag-repair is reserved");
     if (step.kind === "worker" && !step.providerId)
       throw new Error(`Worker step ${step.id} requires a providerId`);
     if (step.kind === "template" && !step.templateId)

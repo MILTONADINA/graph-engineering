@@ -19,6 +19,10 @@ Before each patch, the scheduler durably records a pending application. Afterwar
 
 The scheduler does not claim tests passed. The service must verify the resulting source in its restricted container before publication.
 
+## Repairing failed combined checks
+
+When the combined result of a multi-step plan fails verification, the service repairs it the way a single-step run retries: a `dag-repair` worker step (a reserved step ID) gets the combined workspace, fresh context, the check failures as feedback (generic feedback for cloud workers) and an objective that includes the plan's objective, using the provider and effort of the plan's first worker step. Repair attempts run from attempt 2 up to `policy.maxAttempts`, sharing the run's turn budget and recovery controller; the controller escalates a failing repair only to another provider the plan already uses. Each repair patch updates the DAG checkpoint, so a run stopped during repair (for example by a verifier failure) resumes into verification and further repair rather than reconciliation. Publication still requires every check to pass on the exact verified snapshot. A plan with only template steps, or a policy with `maxAttempts: 1`, stops as before and asks for a repair plan.
+
 Every completed proposal path must remain in the Git-based verification inventory.
 A new ignored file, or a later `.gitignore` edit hiding an earlier generated file,
 stops acceptance. The DAG retains its pending checkpoint on this post-application
