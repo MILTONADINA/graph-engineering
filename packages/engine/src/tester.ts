@@ -40,7 +40,7 @@ export function testerStep(options: {
     objective: [
       "Act as the team's tester, before anyone implements the change.",
       "Write new automated tests, in this repository's existing test framework and layout, that prove each acceptance criterion below. They should fail now and pass once the change is implemented; read the code they exercise so they compile against the intended interface.",
-      `Create new test files only (matching ${writes.join(", ")}): do not edit existing tests or production code. Check any test data you use (for example check digits or expected totals) by working it out, and keep the tests independent of the implementation's internals.`,
+      `Create new test files only (matching ${writes.join(", ")}): do not edit existing tests or production code. Check any test data you use (for example checksums or expected totals) by working it out, and keep the tests independent of the implementation's internals.`,
       "",
       "Acceptance criteria:",
       ...options.acceptance.map((criterion) => `- ${criterion}`),

@@ -1092,14 +1092,22 @@ function currentCommand(): string | undefined {
 }
 function terminalIo(): FeedbackIo {
   return {
-    interactive: Boolean(process.stdin.isTTY && process.stderr.isTTY),
+    // A person at a terminal, not a CI job or an agent's pseudo-terminal.
+    interactive: Boolean(
+      process.stdin.isTTY && process.stderr.isTTY && !process.env.CI,
+    ),
     ask: async (question) => {
       const prompt = createInterface({
         input: process.stdin,
         output: process.stderr,
       });
       try {
-        return await prompt.question(question);
+        // No answer within two minutes is a no.
+        return await prompt.question(question, {
+          signal: AbortSignal.timeout(120_000),
+        });
+      } catch {
+        return "";
       } finally {
         prompt.close();
       }
@@ -1110,7 +1118,8 @@ function terminalIo(): FeedbackIo {
         process.platform === "darwin"
           ? ["open", [url]]
           : process.platform === "win32"
-            ? ["cmd", ["/c", "start", "", url]]
+            ? // Not through cmd, which would split the URL at each "&".
+              ["rundll32", ["url.dll,FileProtocolHandler", url]]
             : ["xdg-open", [url]];
       const child = spawn(command, args, { detached: true, stdio: "ignore" });
       child.on("error", () => undefined);
