@@ -447,6 +447,53 @@ describe("managed DAG safety boundaries", () => {
     await assertUnchanged(run.workspace!);
   });
 
+  it("returns a DAG edit of unseen lines in a partly seen file as feedback", async () => {
+    const { root } = await fixture((config) => {
+      config.policy.maxTurns = 6;
+    });
+    await writeFile(
+      path.join(root, "many.js"),
+      Array.from({ length: 40 }, (_, i) => `export const v${i + 1} = ${i + 1};`)
+        .join("\n")
+        .concat("\n"),
+    );
+    await checked("git", ["add", "many.js"], { cwd: root });
+    await checked("git", ["commit", "-m", "test: many"], { cwd: root });
+    const edit = {
+      path: "many.js",
+      before: "export const v30 = 30;",
+      after: "export const v30 = 31;",
+    };
+    const feedback: (string | undefined)[] = [];
+    const proposals = [
+      { requests: ["many.js#L1-L3"], changes: [] },
+      { requests: [], changes: [edit] },
+      { requests: ["many.js#L30-L30"], changes: [] },
+      { requests: [], changes: [edit] },
+    ];
+    const worker = vi.fn(async (input: { feedback?: string }) => {
+      feedback.push(input.feedback);
+      return {
+        ...result("one"),
+        proposal: {
+          summary: "Step",
+          ...proposals[feedback.length - 1]!,
+        },
+      };
+    });
+    const engine = await open(root, { worker });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(worker).toHaveBeenCalledTimes(4);
+    expect(feedback[2]).toContain(
+      "The change to many.js edits lines 30-30, which were not shown to you",
+    );
+    expect(feedback[3]).toBeFalsy();
+    expect(run.status).toBe("succeeded");
+    expect(
+      await readFile(path.join(run.workspace!, "many.js"), "utf8"),
+    ).toContain("export const v30 = 31;");
+  });
   it("does not leak a private DAG workspace path when requested source is missing", async () => {
     const { root } = await fixture();
     const worker = vi.fn(async () => ({

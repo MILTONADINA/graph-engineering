@@ -122,34 +122,142 @@ describe("managed execution", () => {
     expect(calls).toBe(2);
     expect(result.error).toMatch(/repeated.*source request/i);
   });
-  // Current behaviour described in docs/worker-context-excerpts.md; the
-  // excerpt design changes both deliberately.
-  it("replaces retrieved excerpts with whole requested files and refuses files over the budget", async () => {
+  // docs/worker-context-excerpts.md: requested evidence accumulates, an
+  // oversized file returns an outline, ranges are served, and an edit to
+  // lines of a partly seen file that were never shown becomes feedback.
+  it("works through outlines, line ranges and patch feedback on a large file", async () => {
     const { root } = await fixture();
-    await writeFile(
-      path.join(root, "large.cjs"),
-      `// padding\n${"exports.value = 1;\n".repeat(1200)}`,
-    );
+    const large = Array.from(
+      { length: 1200 },
+      (_, index) => `exports.value${index + 1} = ${index + 1};`,
+    ).join("\n");
+    await writeFile(path.join(root, "large.cjs"), `${large}\n`);
     await checked("git", ["add", "large.cjs"], { cwd: root });
     await checked("git", ["commit", "-m", "test: large file"], { cwd: root });
-    const received: { paths: string[]; whole: boolean[] }[] = [];
+    const received: {
+      items: { path: string; kind: string; start: number; end: number }[];
+      feedback?: string;
+    }[] = [];
+    const proposals = [
+      { requests: ["math.test.cjs"], changes: [] },
+      { requests: ["large.cjs"], changes: [] },
+      { requests: ["large.cjs#L10-L12"], changes: [] },
+      {
+        requests: [],
+        changes: [
+          {
+            path: "large.cjs",
+            before: "exports.value600 = 600;",
+            after: "exports.value600 = 601;",
+          },
+        ],
+      },
+      { requests: ["large.cjs#L600-L600"], changes: [] },
+      {
+        requests: [],
+        changes: [
+          {
+            path: "large.cjs",
+            before: "exports.value600 = 600;",
+            after: "exports.value600 = 601;",
+          },
+        ],
+      },
+    ];
     const engine = await GraphEngine.open(root, {
       dockerAvailable: async () => true,
       worker: async (input) => {
         received.push({
-          paths: input.context.items.map((item) => item.source?.path ?? ""),
-          whole: input.context.items.map(
-            (item) =>
-              item.source?.startLine === 1 &&
-              item.text.split("\n").length === item.source.endLine,
-          ),
+          items: input.context.items.map((item) => ({
+            path: item.source?.path ?? "",
+            kind: item.kind,
+            start: item.source?.startLine ?? 0,
+            end: item.source?.endLine ?? 0,
+          })),
+          feedback: input.feedback,
         });
         return {
           model: "fixture",
+          proposal: { summary: "Step", ...proposals[received.length - 1]! },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+      verify: async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "passed",
+          stderr: "",
+          snapshotHash,
+        })),
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix the addition bug in math.cjs",
+      acceptance: ["The addition test passes"],
+    });
+    const result = await engine.wait((await engine.start(plan.id)).id);
+    expect(received).toHaveLength(6);
+    const paths = (turn: number) => received[turn]!.items.map((i) => i.path);
+    expect(paths(0)).toContain("math.cjs");
+    // Earlier evidence is carried forward with each request.
+    expect(paths(1)).toEqual(
+      expect.arrayContaining(["math.cjs", "math.test.cjs"]),
+    );
+    expect(received[2]!.items).toContainEqual({
+      path: "large.cjs",
+      kind: "outline",
+      start: 1,
+      end: 1201,
+    });
+    expect(received[3]!.items).toContainEqual({
+      path: "large.cjs",
+      kind: "code",
+      start: 10,
+      end: 12,
+    });
+    expect(received[4]!.feedback).toContain(
+      "The change to large.cjs edits lines 600-600, which were not shown to you",
+    );
+    expect(received[5]!.items).toContainEqual({
+      path: "large.cjs",
+      kind: "code",
+      start: 600,
+      end: 600,
+    });
+    expect(result.status).toBe("succeeded");
+  });
+  it("returns an ambiguous patch to the worker instead of failing the run", async () => {
+    const { root } = await fixture();
+    await writeFile(
+      path.join(root, "twice.cjs"),
+      "exports.a = 1;\nexports.b = 1;\n",
+    );
+    await checked("git", ["add", "twice.cjs"], { cwd: root });
+    await checked("git", ["commit", "-m", "test: twice"], { cwd: root });
+    const feedback: (string | undefined)[] = [];
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async (input) => {
+        feedback.push(input.feedback);
+        return {
+          model: "fixture",
           proposal: {
-            summary: "Request sources",
-            requests: received.length === 1 ? ["math.test.cjs"] : ["large.cjs"],
-            changes: [],
+            summary: "Edit",
+            requests: [],
+            changes: [
+              {
+                path: "twice.cjs",
+                before: feedback.length === 1 ? " = 1;" : "exports.b = 1;",
+                after: feedback.length === 1 ? " = 2;" : "exports.b = 2;",
+              },
+            ],
           },
           usage: {
             inputTokens: 1,
@@ -160,23 +268,26 @@ describe("managed execution", () => {
           },
         };
       },
-      verify: async () => {
-        throw new Error("Oversized requests must stop before verification");
-      },
+      verify: async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "passed",
+          stderr: "",
+          snapshotHash,
+        })),
     });
     engines.push(engine);
     const plan = await engine.createPlan({
-      objective: "Fix the addition bug in math.cjs",
-      acceptance: ["The addition test passes"],
+      objective: "Change b in twice.cjs",
+      acceptance: ["b is 2"],
     });
     const result = await engine.wait((await engine.start(plan.id)).id);
-    expect(received).toHaveLength(2);
-    expect(received[0]!.paths).toContain("math.cjs");
-    expect(received[1]).toEqual({ paths: ["math.test.cjs"], whole: [true] });
-    expect(result.status).toBe("failed");
-    expect(result.error).toBe(
-      "Requested file is too large for the context budget: large.cjs",
+    expect(feedback).toHaveLength(2);
+    expect(feedback[1]).toContain(
+      "Patch precondition failed: twice.cjs must contain exactly one matching substring",
     );
+    expect(result.status).toBe("succeeded");
   });
 
   it("reports a missing source request without exposing the private workspace path", async () => {
