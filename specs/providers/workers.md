@@ -36,6 +36,10 @@ Operators want to use the models they already have: hosted APIs, local OpenAI-co
   - Test: packages/engine/tests/provider-timeouts.test.ts :: refuses error statuses and redirects and closes their connections
   - Test: packages/engine/tests/installed.test.ts :: preserves unknown usage rather than fabricating zeros
 
+- AC8: Adding a local worker permits it in the project policy; a cloud or installed worker needs an explicit `--enable`. Planning names each configured worker that cannot be used, why, and the command that fixes it, and setting a reviewer or tester to an unusable worker warns at once.
+  - Test: packages/engine/tests/cli.test.ts :: sets up a project, permits a local worker when added, and warns about what would fail later
+  - Test: packages/engine/tests/execution.test.ts :: names each configured worker that cannot be used and why
+
 ## Security considerations
 
 Worker output is untrusted and accepted only as a schema-valid patch proposal; native tool execution, approval requests and model rerouting are rejected. Installed clients run in an empty scratch directory with a sanitized environment, receive only export-filtered context through stdin or JSON-RPC (never argv), and never learn the run workspace path. Credentials are explicit per provider: an API key is never silently replaced by a subscription login, and subscription mode requires a verified local check that no administrator-managed policy or hooks can run. Offline policy, cost caps, unsupported effort and secrets are checked before any paid inference, and native stderr is not leaked into results.
