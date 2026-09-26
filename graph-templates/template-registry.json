@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-24T10:01:35.678Z",
+  "generatedAt": "2026-09-26T17:19:57.703Z",
   "templateCount": 56,
   "templates": [
     {
@@ -612,39 +612,75 @@
     {
       "id": "authorization.roles",
       "name": "Dynamic Role Definitions",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "category": "authorization",
       "subcategory": "roles",
-      "status": "planned",
-      "description": "Application-defined, runtime-configurable roles (a roles table + role assignment) as opposed to authorization.rbac's hardcoded customer/admin enum — for applications that need to let an admin create new roles without a code change/migration. Not yet implemented in this library.",
+      "status": "implemented",
+      "description": "Application-defined, runtime-configurable roles: roles, user_roles and role_permissions tables, a repository and service, admin-only management routes (create, rename and delete roles, assign and revoke them, grant and revoke resource:action permissions) and requireAssignedRole/requireAssignedPermission middleware that read the caller's current roles from the database on every request. Unlike authorization.rbac's fixed customer/admin enum (and its requireRole, which reads users.role), an administrator can add roles without a code change. The JWT role claim is never used for these decisions.",
       "tags": [
         "authorization",
         "roles",
+        "express",
+        "drizzle-orm",
+        "zod",
+        "supertest",
+        "vitest",
         "auth",
+        "jwt",
+        "ci",
         "rbac",
-        "migration",
+        "delete",
+        "permission",
         "role"
       ],
       "inputs": [],
-      "outputs": [],
+      "outputs": [
+        "files",
+        "exports",
+        "routes"
+      ],
       "dependsOn": [
         {
-          "id": "authorization.rbac",
-          "relationship": "extends"
+          "id": "authentication.jwt",
+          "relationship": "requires"
+        },
+        {
+          "id": "authentication.password",
+          "relationship": "requires"
         },
         {
           "id": "database.neon-postgres.connection",
           "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.middleware",
+          "relationship": "requires"
+        },
+        {
+          "id": "database.migrations",
+          "relationship": "recommends"
         }
       ],
       "environment": [],
       "testing": {
-        "strategy": "none"
+        "strategy": "unit",
+        "location": "tests/roleMiddleware.test.ts",
+        "command": "npm test -- roleMiddleware roleService roleRoutes roleRepository"
       },
       "compatibleNodes": [
         "authentication.jwt",
+        "authentication.password",
         "database.neon-postgres.connection",
-        "authorization.rbac"
+        "backend.error-handler",
+        "backend.middleware",
+        "authorization.permissions",
+        "backend.express",
+        "api.crud",
+        "database.migrations"
       ],
       "path": "authorization/roles"
     },
