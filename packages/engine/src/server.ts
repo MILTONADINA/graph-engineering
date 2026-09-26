@@ -159,8 +159,8 @@ export function createServer(
     const { id } = z.object({ id: z.string() }).parse(request.params);
     return { run: engine.store.run(id), events: engine.store.events(id) };
   });
-  app.post("/api/plans", (request) =>
-    engine.createPlan(
+  app.post("/api/plans", async (request) => {
+    const plan = await engine.createPlan(
       z
         .object({
           objective: z.string().min(1).max(16000),
@@ -193,8 +193,11 @@ export function createServer(
         })
         .strict()
         .parse(request.body),
-    ),
-  );
+    );
+    // Additive: the dashboard shows it beside the plan.
+    const warning = engine.turnWarning(plan);
+    return warning ? { ...plan, warnings: [warning] } : plan;
+  });
   app.post("/api/runs", (request) =>
     engine.start(
       z.object({ planId: z.string() }).strict().parse(request.body).planId,
