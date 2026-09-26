@@ -32,6 +32,11 @@ A team wants durable project knowledge (requirements, constraints, observations)
 - AC8: A person can reject a proposal with a reason; a rejected memory is kept on record, never retrieved, and can never be accepted.
   - Test: packages/engine/tests/hygiene.test.ts :: declines a proposal with a reason, and it can never be accepted
 
+- AC9: From the dashboard, a person can reject a proposed memory with a reason (at most 2,000 characters); an empty reason is refused, and the rejected memory shows its reason.
+  - Test: packages/engine/tests/server-memory-reject.test.ts :: proposes a memory, rejects it through the route with a reason, and sees status rejected
+  - Test: packages/engine/tests/server-memory-reject.test.ts :: refuses an empty reason when rejecting a memory
+  - Test: packages/dashboard/e2e/fixture-actions.pw.ts :: a person rejects a memory proposal with a reason
+
 ## Security considerations
 
 Memory proposals can come from models and connected AI clients, so they are untrusted until a person accepts them; accepted requirements and constraints become mandatory context, which makes acceptance a trust decision. Export authorization is bound to a hash of the exact text, so editing an authorized memory revokes its authorization, and private memory cannot be authorized at all. Memory text is screened for credentials. Assertion metadata is validated against prototype keys, getters, cycles and oversized input because it is structured data supplied by callers.

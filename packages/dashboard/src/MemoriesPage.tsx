@@ -26,6 +26,8 @@ export function MemoriesPage({ api, active }: { api: Api; active: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
   const records =
     memories.data?.filter(
       (record) =>
@@ -45,6 +47,26 @@ export function MemoriesPage({ api, active }: { api: Api; active: boolean }) {
       await api<MemoryRecord>("/api/memories", { text: text.trim(), kind });
       setText("");
       setAdding(false);
+      memories.reload();
+    } catch (cause) {
+      setError(getError(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function reject(event: FormEvent, record: MemoryRecord) {
+    event.preventDefault();
+    if (!reason.trim()) return;
+    setBusy(record.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api<MemoryRecord>(
+        `/api/memories/${encodeURIComponent(record.id)}/reject`,
+        { reason: reason.trim() },
+      );
+      setRejecting(null);
+      setReason("");
       memories.reload();
     } catch (cause) {
       setError(getError(cause));
@@ -257,16 +279,64 @@ export function MemoriesPage({ api, active }: { api: Api; active: boolean }) {
                       {record.visibility}
                     </Badge>
                   </div>
-                  {record.status === "proposed" && (
-                    <Button
-                      variant="secondary"
-                      busy={busy === record.id}
-                      disabled={busy !== null}
-                      onClick={() => change(record, "accept")}
+                  {record.status === "proposed" && rejecting !== record.id && (
+                    <div className="memory-actions">
+                      <Button
+                        variant="secondary"
+                        busy={busy === record.id}
+                        disabled={busy !== null}
+                        onClick={() => change(record, "accept")}
+                      >
+                        <Icon name="check" size={16} />
+                        Accept
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={busy !== null}
+                        onClick={() => {
+                          setRejecting(record.id);
+                          setReason("");
+                        }}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  )}
+                  {record.status === "proposed" && rejecting === record.id && (
+                    <form
+                      className="memory-actions"
+                      onSubmit={(event) => reject(event, record)}
                     >
-                      <Icon name="check" size={16} />
-                      Accept
-                    </Button>
+                      <label
+                        className="sr-only"
+                        htmlFor={`reason-${record.id}`}
+                      >
+                        Why is this memory rejected?
+                      </label>
+                      <input
+                        id={`reason-${record.id}`}
+                        value={reason}
+                        maxLength={2000}
+                        placeholder="Why is this memory rejected?"
+                        onChange={(event) => setReason(event.target.value)}
+                      />
+                      <Button
+                        type="submit"
+                        variant="secondary"
+                        busy={busy === record.id}
+                        disabled={busy !== null || !reason.trim()}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={busy !== null}
+                        onClick={() => setRejecting(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </form>
                   )}
                   {record.status === "accepted" &&
                     record.visibility === "private" && (
