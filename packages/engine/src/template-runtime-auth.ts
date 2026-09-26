@@ -6,6 +6,7 @@ import type {
 } from "./template-runtime-extension.js";
 import { createPasswordTemplates } from "./template-runtime-auth-password.js";
 import { createOauthTemplates } from "./template-runtime-auth-oauth.js";
+import { createSessionTemplates } from "./template-runtime-auth-session.js";
 
 const code = (
   path: string,
@@ -176,10 +177,11 @@ async function mount(
   context: TemplateRenderContext,
   binding: string,
   moduleName: string,
+  prefix = "/api/auth",
 ): Promise<TemplateArtifact> {
   const before = await context.readTarget("src/app.ts");
   const importLine = `import { ${binding} } from './routes/${moduleName}';`,
-    mountLine = `app.use('/api/auth', ${binding});`;
+    mountLine = `app.use('${prefix}', ${binding});`;
   if (before.includes(importLine) && before.includes(mountLine)) {
     if (
       before.split(importLine).length !== 2 ||
@@ -470,6 +472,12 @@ export const authenticationTemplates: Record<string, AuditedTemplateExtension> =
       assertPackagePins,
     }),
     ...createOauthTemplates({
+      appendSchema,
+      helperEnvironment,
+      mount,
+      assertPackagePins,
+    }),
+    ...createSessionTemplates({
       appendSchema,
       helperEnvironment,
       mount,

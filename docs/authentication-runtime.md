@@ -1,9 +1,9 @@
 # Audited authentication and authorization runtime
 
 The deterministic runtime supports `authentication.jwt`,
-`authentication.password`, `authentication.oauth`, `authorization.rbac`,
-`authorization.tenant-isolation`, and `authorization.permissions`. Planned
-session and roles nodes remain unavailable. These renderers create reviewed patch proposals;
+`authentication.password`, `authentication.session`, `authentication.oauth`,
+`authorization.rbac`, `authorization.tenant-isolation`,
+`authorization.permissions` and `authorization.roles`. These renderers create reviewed patch proposals;
 they do not execute catalog prompts, run migrations, install packages, or send
 email. Existing different code, ambiguous scaffold markers, excluded paths, and
 unreviewed manifest operations fail closed.
@@ -125,6 +125,60 @@ generated code and runs its 19 generated tests (service and Express routes via
 supertest) with the network disabled; CI runs it in the "Generated
 authentication with isolated PostgreSQL races" step.
 
+## Server-side sessions
+
+`authentication.session` renders on top of an applied `authentication.password`:
+it reuses the password node's bcrypt `AuthenticationRepository`, its
+`resolveAuthenticationIdentity` resolver, the `users` table and the `req.user`
+declaration, and additionally requires `cookie-parser` and `supertest`. It adds
+no package. Inputs `idleTimeout` (1 minute to 24 hours, default `30m`) and
+`absoluteTimeout` (1 hour to 30 days, default `12h`) need explicit units. The
+renderer reads the reviewed catalog sources and refuses to render if any of
+them differs from its pinned SHA-256.
+
+| Endpoint under `/api/session` | Input                                 | Result                                                 |
+| ----------------------------- | ------------------------------------- | ------------------------------------------------------ |
+| `POST /login`                 | `email`, `password`; trusted `Origin` | New session cookie; `data.user` and `data.csrfToken`   |
+| `GET /me`                     | Session cookie                        | `data.user`                                            |
+| `GET /csrf`                   | Session cookie                        | `data.csrfToken`                                       |
+| `POST /logout`                | Session cookie and `X-CSRF-Token`     | Destroys the session server-side and clears the cookie |
+| `POST /logout-all`            | Session cookie and `X-CSRF-Token`     | Revokes every session of the account                   |
+
+- The cookie (`__Host-sid`) holds only a 256-bit `randomBytes` id and is
+  HttpOnly, Secure, SameSite=Lax and Path=/. `SESSION_COOKIE_SECURE=false` is
+  accepted only outside `NODE_ENV=production`. The store is keyed by
+  `HMAC-SHA256(SESSION_SECRET, id)`; `SESSION_SECRET` is required, has no
+  default, and must differ from the JWT secrets.
+- Login takes the shared per-account advisory lock, re-reads the password hash
+  inside that transaction and writes a PostgreSQL session inside it. It
+  destroys any presented session and issues a new id. A role change seen on any
+  request rotates the id and CSRF token without extending the absolute
+  deadline, and only if the atomic delete of the old record succeeded;
+  `regenerateSession()` does the same for other privilege changes.
+- The renderer wires revocation into the password node's reset path: with
+  `SESSION_STORE=postgres` the reset transaction deletes the account's
+  sessions, and the reset service calls `revokeUserSessions()` after commit for
+  every store. The password node has no separate password-change endpoint.
+  Re-rendering `authentication.password` over these reviewed edits reports a
+  conflict instead of silently removing them.
+  Idle and absolute timeouts are enforced server-side on every request, and the
+  account is re-resolved each time, so suspension ends sessions immediately.
+- `requireSession` sets `req.user`, so `requireRole` works unchanged.
+  `csrfProtection` requires the per-session token in `X-CSRF-Token` for every
+  method except GET, HEAD and OPTIONS, compared in constant time.
+- `SESSION_STORE` selects `memory` (default; warns at startup and refuses
+  `NODE_ENV=production`), `postgres` (the generated `sessions` table on the
+  existing Drizzle connection; apply its migration separately) or `custom`
+  (call `configureSessionStore()` with a production-ready `SessionStore`, for
+  example Redis). No Redis store is generated. `pruneExpiredSessions()` removes
+  idle-expired and absolute-expired sessions in bounded batches; login also runs
+  it at most once a minute per process.
+- The login limiter keys on `req.ip`: behind a reverse proxy, configure Express
+  `trust proxy` to the exact hops. A full limiter table evicts its oldest
+  windows.
+- The node does not remove the JWT routes the password node mounts under
+  `/api/auth`; applications should expose one browser session mechanism.
+
 ## Security guarantees and limits
 
 - JWT verification restricts algorithm, issuer, audience, discriminator,
@@ -180,7 +234,7 @@ authentication with isolated PostgreSQL races" step.
 Default offline unit checks:
 
 ```sh
-npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts
+npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts tests/template-runtime-session.test.ts
 ```
 
 Opt-in fixture provisioning and execution (builds download pinned dependencies;
@@ -191,8 +245,15 @@ workspaces):
 docker build -t graph-backend-template-test:local packages/engine/tests/fixtures/backend-runtime
 docker build -t graph-testing-template-test:local packages/engine/tests/fixtures/testing-runtime
 docker build -f packages/engine/tests/fixtures/auth-db-runtime/Dockerfile -t graph-auth-template-db-test:local packages/engine/tests/fixtures
-GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1 GRAPH_ENGINE_AUTH_POSTGRES_TESTS=1 npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts
+GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1 GRAPH_ENGINE_AUTH_POSTGRES_TESTS=1 npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts tests/template-runtime-session.test.ts
 ```
+
+The session fixture compiles the generated application under strict TypeScript
+and runs its 14 emitted security tests over real HTTP and bcrypt with the memory
+store. Against a fresh local PostgreSQL instance it then runs 5 tests twice,
+once per store (`postgres` and `memory`): store persistence, atomic destroy,
+per-account revocation, bounded pruning, locked login, and a real password
+reset that ends every session of the account.
 
 The backend fixture runs strict TypeScript checking and 38 generated/security
 tests, including real bcrypt/JWT/HTTP behavior, the global permission gate, and
