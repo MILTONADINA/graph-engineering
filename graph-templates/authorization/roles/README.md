@@ -54,7 +54,7 @@ not exposed over HTTP, and each call is audited as `admin.bootstrap`.
 | `DELETE /:role/users/:userId`                 | Revoke a role                          |
 | `PUT /:role/permissions/:permission`          | Grant `resource:action` to a role      |
 | `DELETE /:role/permissions/:permission`       | Revoke that grant                      |
-| `GET /audit?limit=50`                         | Read the audit log, newest first (`limit` 1-200, default 50) |
+| `GET /audit?limit=50&before=&outcome=&action=` | Read the audit log, newest first (`limit` 1-200, default 50; optional cursor and filters) |
 
 **Using the middleware.** Mount `authMiddleware` first:
 
@@ -107,30 +107,47 @@ export { hasPermission } from './roleService';
   failures (`console.warn`, with the action, actor id, `outcome` of
   `unauthenticated`, `denied` or `failed`, and status), including callers
   stopped by the admin gate. Tokens, headers and request bodies are never logged.
-- **Stored audit log.** Every change and every refused or failed attempt is also
-  stored as one row in the append-only `role_audit_log` table: `id`,
-  `occurred_at`, `actor_id` (null for unauthenticated callers and the operator
-  bootstrap), `action` (a closed vocabulary such as `role.create`,
+- **Stored audit log.** Every change, and every refused or failed attempt by an
+  authenticated caller, is also stored as one row in the append-only
+  `role_audit_log` table: `id`, `occurred_at`, `actor_id` (null only for the
+  operator bootstrap), `action` (a closed vocabulary such as `role.create`,
   `role.assign`, `permission.grant`, `admin.bootstrap`, `audit.read`), `target`
-  (one validated role name, or the user id for `role.assign`, `role.revoke` and
-  `admin.bootstrap`; `role.rename` records the old name), `outcome`
-  (`succeeded`, `denied`, `failed` or `unauthenticated`) and `status` (the HTTP
-  status of a refusal or failure; null on success). Nothing else is stored: no
+  (the role name, or the user id for `role.assign`, `role.revoke` and
+  `admin.bootstrap`; `role.rename` records the old name), `detail` (what
+  changed: the role for `role.assign`/`role.revoke`/`admin.bootstrap`, the
+  permission for `permission.grant`/`permission.revoke`, the new name for
+  `role.rename`), `outcome` (`succeeded`, `denied` or `failed`) and `status`
+  (the HTTP status of a refusal or failure; null on success). `target` must be
+  a role name or user id and `detail` a role or permission name matching the
+  strict patterns, otherwise they are stored as null. Nothing else is stored: no
   bodies, headers, tokens or free text.
   - A success row is written **inside** the change's transaction. A change that
     rolls back (for example the last-administrator refusal) leaves no success
     row, and a change whose row cannot be written is not committed.
-  - Denied, failed and unauthenticated HTTP attempts, and refused bootstrap
-    attempts, are written **outside** the failed transaction by
+  - Refused and failed HTTP attempts by authenticated callers, and refused
+    bootstrap attempts, are written **outside** the failed transaction by
     `recordRoleAuditAttempt`. It never throws: if the row cannot be written it
     logs `Role audit log write failed` to the console and the original response
     (a denial or error) is returned unchanged. Service functions called
     directly from application code, rather than through `/api/roles`, record
     their successes but not their failures; record those with
     `recordRoleAuditAttempt` if you need them.
+  - **Flood protection.** Requests refused before or by `authMiddleware`
+    (missing or invalid credentials, an untrusted Origin, a CSRF failure) and
+    every 401 are logged to the console only and never stored, so anonymous
+    traffic cannot write rows. Denials (403) of authenticated callers are
+    stored at most once per actor and action per minute by an in-process
+    limiter that tracks at most 10,000 actor/action pairs (when it is full,
+    further denials are console-only until windows expire). The limit is per
+    process: N instances store at most N rows per actor, action and minute.
+    Failures by administrators (400/404/409) are not limited.
   - Only administrators can read the log, through `GET /api/roles/audit` behind
-    the same admin gate, bounded by `?limit` (1-200, default 50). Reading it is
-    not itself recorded on success.
+    the same admin gate, newest first. `?limit` is 1-200 (default 50);
+    `?before=<row id>` returns the rows older than that row, so you can page
+    with the last id of the previous page (an unknown id returns an empty
+    page); `?outcome=` and `?action=` filter by one value from the closed
+    lists. Unknown or repeated parameters return 400. Reading the log is not
+    itself recorded on success.
   - The repository exposes insert and select only. To make the table
     append-only at the database level too, have your migration owner revoke
     `UPDATE` and `DELETE` on `role_audit_log` from the application role; this

@@ -12,9 +12,19 @@ import {
 } from '../services/roleService';
 
 const router = express.Router();
+/**
+ * Runs only once authMiddleware has accepted the caller. Refusals raised before this point
+ * (missing or invalid credentials, an untrusted Origin, a CSRF failure) are console-only, so
+ * anonymous traffic can never write audit rows.
+ */
+function markAuthenticated(_req: Request, res: Response, next: NextFunction): void {
+  res.locals.roleAuditAuthenticated = true;
+  next();
+}
+
 // Authentication and the database-backed admin check run before any parameter is parsed or any
 // role is looked up, so callers without the admin role learn nothing about which roles exist.
-router.use(authMiddleware, requireAssignedRole(ADMIN_ROLE));
+router.use(authMiddleware, markAuthenticated, requireAssignedRole(ADMIN_ROLE));
 
 const nameBody = z.object({ name: z.string().max(32).refine(isRoleName) }).strict();
 
@@ -38,14 +48,31 @@ function newName(req: Request): string {
   if (!parsed.success) throw new APIError('Invalid role name', 400);
   return parsed.data.name;
 }
-/** ?limit is optional; when present it must be a plain integer from 1 to AUDIT_PAGE_MAX. */
-function auditLimit(req: Request): number {
-  const value = req.query.limit;
-  if (value === undefined) return AUDIT_PAGE_DEFAULT;
-  if (typeof value !== 'string' || !/^[0-9]{1,3}$/.test(value)) throw new APIError('Invalid limit', 400);
-  const limit = Number(value);
+const AUDIT_QUERY_KEYS: readonly string[] = ['limit', 'before', 'outcome', 'action'];
+/** One optional, non-repeated string query value; arrays and nested objects are refused. */
+function singleQuery(req: Request, name: string): string | undefined {
+  const value = req.query[name];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new APIError('Invalid audit query', 400);
+  return value;
+}
+/**
+ * ?limit (1..AUDIT_PAGE_MAX, default AUDIT_PAGE_DEFAULT), ?before (the id of the last row already
+ * seen), ?outcome and ?action. Unknown keys are refused; the service re-validates every value.
+ */
+function auditQuery(req: Request): { limit: number; before?: string; outcome?: string; action?: string } {
+  if (Object.keys(req.query).some((key) => !AUDIT_QUERY_KEYS.includes(key))) throw new APIError('Invalid audit query', 400);
+  const raw = singleQuery(req, 'limit');
+  if (raw !== undefined && !/^[0-9]{1,3}$/.test(raw)) throw new APIError('Invalid limit', 400);
+  const limit = raw === undefined ? AUDIT_PAGE_DEFAULT : Number(raw);
   if (limit < 1 || limit > AUDIT_PAGE_MAX) throw new APIError('Invalid limit', 400);
-  return limit;
+  const before = singleQuery(req, 'before'), outcome = singleQuery(req, 'outcome'), action = singleQuery(req, 'action');
+  return {
+    limit,
+    ...(before === undefined ? {} : { before }),
+    ...(outcome === undefined ? {} : { outcome }),
+    ...(action === undefined ? {} : { action }),
+  };
 }
 function actor(req: Request): string {
   const id = req.user?.id;
@@ -67,20 +94,27 @@ function attemptedAction(req: Request): string {
   if (kind === 'permissions') return req.method === 'PUT' ? 'permission.grant' : req.method === 'DELETE' ? 'permission.revoke' : 'role.unknown';
   return 'role.unknown';
 }
-/** The attempted target, stored only if it is a well-formed user id or role name; otherwise null. */
-function attemptedTarget(req: Request, action: string): string | null {
+/**
+ * The attempted target and detail from the path only (never the body), each kept only if it is a
+ * well-formed user id, role name or permission name; otherwise null.
+ */
+function attemptedSubject(req: Request, action: string): { target: string | null; detail: string | null } {
   const segments = req.path.split('/').filter(Boolean);
-  if (action === 'audit.read' || segments.length === 0) return null;
-  if (segments.length === 3 && segments[1] === 'users') return isIdentityId(segments[2]) ? segments[2] : null;
-  return isRoleName(segments[0]) ? segments[0] : null;
+  if (action === 'audit.read' || segments.length === 0) return { target: null, detail: null };
+  const role = isRoleName(segments[0]) ? segments[0] : null;
+  if (segments.length === 3 && segments[1] === 'users')
+    return { target: isIdentityId(segments[2]) ? segments[2] : null, detail: role };
+  if (segments.length === 3 && segments[1] === 'permissions')
+    return { target: role, detail: isPermissionName(segments[2]) ? segments[2] : null };
+  return { target: role, detail: null };
 }
 
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ data: await listRoles(actor(req)) });
 }));
 router.get('/audit', asyncHandler(async (req: Request, res: Response) => {
-  const actorId = actor(req), limit = auditLimit(req);
-  res.status(200).json({ data: await listRoleAudit(actorId, limit) });
+  const actorId = actor(req), query = auditQuery(req);
+  res.status(200).json({ data: await listRoleAudit(actorId, query) });
 }));
 router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const actorId = actor(req), name = newName(req);
@@ -125,17 +159,20 @@ router.delete('/:role/permissions/:permission', asyncHandler(async (req: Request
   res.status(204).end();
 }));
 
-// Records every refused or failed attempt, including callers stopped by the admin gate, on the
-// console and as a role_audit_log row written outside the failed transaction, then defers to the
-// application's error handler. The row write never changes the response: a denial stays a denial.
-router.use(async (error: unknown, req: Request, _res: Response, next: NextFunction) => {
+// Records every refused or failed attempt on the console, including callers stopped before or by
+// the admin gate. Attempts by authenticated callers are also stored as role_audit_log rows written
+// outside the failed transaction (denials bounded per actor and action; see recordRoleAuditAttempt),
+// then the application's error handler responds. The row write never changes the response.
+router.use(async (error: unknown, req: Request, res: Response, next: NextFunction) => {
   const status = error instanceof APIError ? error.status : 500;
   const actorId = isIdentityId(req.user?.id) ? req.user!.id : 'anonymous';
   const outcome = status === 401 ? 'unauthenticated' : status === 403 ? 'denied' : 'failed';
   console.warn('Role administration', { action: attemptedAction(req), actorId, outcome, status });
   try {
-    const action = attemptedAction(req);
-    await recordRoleAuditAttempt({ actorId: req.user?.id, action, target: attemptedTarget(req, action), status });
+    if (res.locals.roleAuditAuthenticated === true && status !== 401) {
+      const action = attemptedAction(req);
+      await recordRoleAuditAttempt({ actorId: req.user?.id, action, ...attemptedSubject(req, action), status });
+    }
   } catch {
     console.error('Role audit log write failed', { outcome, status });
   }

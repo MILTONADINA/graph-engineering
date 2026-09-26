@@ -29,3 +29,8 @@ export const ROLE_AUDIT_ACTIONS: readonly string[] = Object.freeze([
   'permission.grant', 'permission.revoke', 'audit.read', 'admin.bootstrap', 'role.unknown',
 ]);
 export type RoleAuditOutcome = 'succeeded' | 'denied' | 'failed' | 'unauthenticated';
+export const ROLE_AUDIT_OUTCOMES: readonly RoleAuditOutcome[] = Object.freeze(['succeeded', 'denied', 'failed', 'unauthenticated']);
+/** A stored denial is kept at most once per actor and action in this window; see recordRoleAuditAttempt. */
+export const DENIED_AUDIT_WINDOW_MS = 60_000;
+/** Upper bound on actor/action pairs the in-process denial limiter tracks at once. */
+export const MAX_TRACKED_DENIALS = 10_000;

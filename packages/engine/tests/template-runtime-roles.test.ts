@@ -230,8 +230,18 @@ function fakeStore() {
       if (store.failAuditWrites) throw new Error("audit storage unavailable");
       (db.pending ?? store.audit).push({ ...entry });
     },
-    listAuditEntries: async (_db: unknown, limit: number) =>
-      [...store.audit].reverse().slice(0, limit),
+    listAuditEntries: async (
+      _db: unknown,
+      query: { limit: number; outcome?: string; action?: string },
+    ) =>
+      [...store.audit]
+        .reverse()
+        .filter(
+          (row) =>
+            (query.outcome === undefined || row.outcome === query.outcome) &&
+            (query.action === undefined || row.action === query.action),
+        )
+        .slice(0, query.limit),
   };
   return { store, repository };
 }
@@ -242,11 +252,22 @@ async function loadService(workspace: string) {
   const service = execute(file("src/services/roleService.ts"), {
     "../config/database": {
       database: {
+        // Behaves like a rollback: a throwing transaction restores roles and
+        // assignments and discards its buffered audit rows.
         transaction: async (work: (tx: unknown) => Promise<unknown>) => {
+          const snapshot = structuredClone({
+            roles: fake.store.roles,
+            assignments: fake.store.assignments,
+          });
           const tx = { pending: [] as Record<string, unknown>[] };
-          const result = await work(tx);
-          fake.store.audit.push(...tx.pending);
-          return result;
+          try {
+            const result = await work(tx);
+            fake.store.audit.push(...tx.pending);
+            return result;
+          } catch (error) {
+            Object.assign(fake.store, snapshot);
+            throw error;
+          }
         },
       },
     },
@@ -537,7 +558,7 @@ describe("audited runtime-defined roles template", () => {
     const { file } = await generated(await fixture());
     const routes = file("src/routes/roleRoutes.ts");
     const guard = routes.indexOf(
-      "router.use(authMiddleware, requireAssignedRole(ADMIN_ROLE));",
+      "router.use(authMiddleware, markAuthenticated, requireAssignedRole(ADMIN_ROLE));",
     );
     expect(guard).toBeGreaterThan(0);
     expect(guard).toBeLessThan(routes.indexOf("router.get("));
@@ -582,13 +603,14 @@ describe("audited runtime-defined roles template", () => {
       "uuid('actor_id'),",
       "varchar('action', { length: 32 }).notNull()",
       "varchar('target', { length: 64 }),",
+      "varchar('detail', { length: 65 }),",
       "varchar('outcome', { length: 16 }).notNull()",
       "integer('status'),",
     ])
       expect(table).toContain(column);
     expect(
       table.slice(0, table.indexOf("});")).match(/^\s+\w+:/gm),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
     const repository = file("src/repository/Roles.ts");
     expect(repository).not.toMatch(
       /(update|delete)\(roleAuditLogTable|\.execute\([^)]*audit/,
@@ -599,7 +621,7 @@ describe("audited runtime-defined roles template", () => {
     const routes = file("src/routes/roleRoutes.ts");
     expect(routes.indexOf("router.get('/audit'")).toBeGreaterThan(
       routes.indexOf(
-        "router.use(authMiddleware, requireAssignedRole(ADMIN_ROLE));",
+        "router.use(authMiddleware, markAuthenticated, requireAssignedRole(ADMIN_ROLE));",
       ),
     );
     const handler = routes.slice(
@@ -612,88 +634,128 @@ describe("audited runtime-defined roles template", () => {
       handler.indexOf("next(error);"),
     );
     expect(handler).not.toMatch(/req\.(body|headers|query|cookies)/);
+    // Rows are attempted only after authMiddleware accepted the caller, and never for a 401.
+    expect(handler).toContain(
+      "if (res.locals.roleAuditAuthenticated === true && status !== 401)",
+    );
+    expect(
+      routes.indexOf("res.locals.roleAuditAuthenticated = true"),
+    ).toBeLessThan(
+      routes.indexOf("router.use(authMiddleware, markAuthenticated"),
+    );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const { service, store } = await loadService(workspace);
+    const row = (
+      actorId: string | null,
+      action: string,
+      target: string | null,
+      detail: string | null,
+      outcome = "succeeded",
+      rowStatus: number | null = null,
+    ) => ({ actorId, action, target, detail, outcome, status: rowStatus });
     await service.bootstrapInitialAdmin(admin);
     await service.createRole(admin, "editor");
     await service.assignRole(admin, member, "editor");
+    await service.renameRole(admin, "editor", "helpdesk");
     expect(store.audit).toEqual([
-      {
-        actorId: null,
-        action: "admin.bootstrap",
-        target: admin,
-        outcome: "succeeded",
-        status: null,
-      },
-      {
-        actorId: admin,
-        action: "role.create",
-        target: "editor",
-        outcome: "succeeded",
-        status: null,
-      },
-      {
-        actorId: admin,
-        action: "role.assign",
-        target: member,
-        outcome: "succeeded",
-        status: null,
-      },
+      row(null, "admin.bootstrap", admin, "admin"),
+      row(admin, "role.create", "editor", null),
+      row(admin, "role.assign", member, "editor"),
+      row(admin, "role.rename", "editor", "helpdesk"),
     ]);
     store.audit.length = 0;
     // The last-admin refusal rolls back inside the transaction and leaves no success row.
     expect(await status(service.revokeRole(admin, admin, "admin"))).toBe(409);
-    expect(await status(service.listRoleAudit(member, 50))).toBe(403);
-    expect(await status(service.listRoleAudit(admin, 201))).toBe(400);
+    expect(await status(service.listRoleAudit(member, { limit: 50 }))).toBe(
+      403,
+    );
+    for (const query of [
+      { limit: 201 },
+      { limit: 5, before: "1; drop" },
+      { limit: 5, outcome: "anything" },
+      { limit: 5, action: "role.drop" },
+    ])
+      expect(await status(service.listRoleAudit(admin, query))).toBe(400);
     expect(store.audit).toEqual([]);
-    await service.recordRoleAuditAttempt({
-      actorId: admin,
-      action: "role.revoke",
-      target: admin,
-      status: 409,
-    });
-    await service.recordRoleAuditAttempt({
-      actorId: "forged",
-      action: "anything<script>",
-      target: "Bearer secret-token",
-      status: 200,
-    });
-    expect(store.audit).toEqual([
-      {
+    expect(
+      await service.recordRoleAuditAttempt({
         actorId: admin,
         action: "role.revoke",
         target: admin,
-        outcome: "failed",
+        detail: "admin",
         status: 409,
-      },
-      {
-        actorId: null,
-        action: "role.unknown",
-        target: null,
-        outcome: "failed",
-        status: 500,
-      },
+      }),
+    ).toBe(true);
+    // Free text is reduced to the closed vocabulary or null.
+    await service.recordRoleAuditAttempt({
+      actorId: admin,
+      action: "anything<script>",
+      target: "Bearer secret-token",
+      detail: "Some Free Text",
+      status: 200,
+    });
+    // Anonymous, forged and 401 attempts store nothing, however many arrive.
+    for (let index = 0; index < 50; index += 1)
+      for (const [actorId, attemptStatus] of [
+        [undefined, 403],
+        ["forged", 403],
+        [member, 401],
+      ] as const)
+        expect(
+          await service.recordRoleAuditAttempt({
+            actorId,
+            action: "role.list",
+            target: undefined,
+            detail: undefined,
+            status: attemptStatus,
+          }),
+        ).toBe(false);
+    // A non-admin's repeated denials store one row per action per window.
+    const denials: boolean[] = [];
+    for (let index = 0; index < 50; index += 1)
+      denials.push(
+        await service.recordRoleAuditAttempt({
+          actorId: member,
+          action: "role.delete",
+          target: "admin",
+          detail: undefined,
+          status: 403,
+        }),
+      );
+    expect(denials.filter(Boolean)).toHaveLength(1);
+    expect(store.audit).toEqual([
+      row(admin, "role.revoke", admin, "admin", "failed", 409),
+      row(admin, "role.unknown", null, null, "failed", 500),
+      row(member, "role.delete", "admin", null, "denied", 403),
     ]);
-    expect((await service.listRoleAudit(admin, 1))[0].action).toBe(
-      "role.unknown",
-    );
+    const denied = await service.listRoleAudit(admin, {
+      limit: 5,
+      outcome: "denied",
+    });
+    expect(denied.map((entry: { actorId: string }) => entry.actorId)).toEqual([
+      member,
+    ]);
     // A failed row write never throws and never leaks the storage error; a failed
-    // success write fails the change instead of committing it unaudited.
+    // success write rolls the change back instead of committing it unaudited.
     store.failAuditWrites = true;
-    await expect(
-      service.recordRoleAuditAttempt({
-        actorId: member,
+    expect(
+      await service.recordRoleAuditAttempt({
+        actorId: admin,
         action: "role.delete",
         target: "admin",
-        status: 403,
+        detail: undefined,
+        status: 409,
       }),
-    ).resolves.toBeUndefined();
+    ).toBe(false);
     expect(JSON.stringify(error.mock.calls)).not.toContain("audit storage");
     await expect(service.createRole(admin, "support")).rejects.toThrow();
+    await expect(service.assignRole(admin, second, "admin")).rejects.toThrow();
+    expect(store.roles.map((role) => role.name)).not.toContain("support");
+    expect([...(await service.rolesForUser(second))]).toEqual([]);
     expect(await status(service.bootstrapInitialAdmin(second))).toBe(409);
     expect(warn).toHaveBeenCalled();
     vi.restoreAllMocks();
@@ -746,7 +808,7 @@ describe("audited runtime-defined roles template", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "")).toMatch(
-        /Tests\s+31 passed/,
+        /Tests\s+33 passed/,
       );
     },
     180000,
@@ -817,7 +879,7 @@ describe("audited runtime-defined roles template", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "")).toMatch(
-        /Tests\s+5 passed/,
+        /Tests\s+7 passed/,
       );
     },
     180000,
