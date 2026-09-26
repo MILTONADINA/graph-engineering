@@ -229,6 +229,63 @@ one-level decomposition for very large objectives, an analysis view of run
 outcomes in the dashboard, and a tester role beside today's planner,
 implementer and reviewer.
 
+## Continuation update — 2026-09-26 (an AI agile team)
+
+The owner asked for the repository to work as "an AI agile team": spec-driven
+development with written features, acceptance criteria and tests, a clean
+structure, best-practice quality, and a usably secure product. The mapping
+from agile roles and practices to commands is in
+[working as an AI agile team](agile-team.md). Each merge below passed all
+nine required checks on the exact tree it put on `dev`: #45, #46, #48 and #49
+on their own tips, #47 as part of #48, and #50–#53 as part of #54, which was
+stacked on them. Each PR had an adversarial review whose findings were fixed
+before merge; the PR descriptions list them.
+
+- [#45](https://github.com/MILTONADINA/graph-engineering/pull/45) (`0d89022`): retries within the attempt budget, per-step
+  write scopes and time limits, and file counting that matches the index.
+- [#46](https://github.com/MILTONADINA/graph-engineering/pull/46) (`23000c9`): memory rejection with a reason, knowledge pack
+  ageing, scans of committed files only, and stale doc and lint fixes.
+- [#47](https://github.com/MILTONADINA/graph-engineering/pull/47) (`c46577a`, landed through #48): feature specs in
+  `specs/` with acceptance criteria linked to tests, `spec-new`,
+  `spec-check` (a CI step) and `plan --spec`.
+- [#48](https://github.com/MILTONADINA/graph-engineering/pull/48) (`6bf82f1`): a tester role that, after the implementing
+  steps, writes tests for each acceptance criterion that later repairs cannot
+  weaken, and a person's hash-bound plan
+  approval before an AI-started run can publish.
+- [#49](https://github.com/MILTONADINA/graph-engineering/pull/49) (`206a7e0`): new security findings go back to the worker as
+  feedback, and dependencies are scanned offline with a pinned OSV-Scanner
+  and a downloaded database (`security-db-update`).
+- [#50](https://github.com/MILTONADINA/graph-engineering/pull/50)–[#54](https://github.com/MILTONADINA/graph-engineering/pull/54) (landed together through #54, `a08f09e`):
+  outcome summaries (`outcomes --summary` and the dashboard's insights,
+  counts rather than scores); per-package TypeScript binding for
+  repositories over the compiler limits; and the `authorization.roles`,
+  `authentication.oauth` and `authentication.session` templates. Each
+  template had an adversarial security review of the code it generates. The
+  catalog is now **53 implemented, three planned**, and the three planned
+  entries are aliases of capabilities `api.crud` and `backend.pagination`
+  already provide.
+
+A re-audit of that `dev` then checked every upgrade against the code. Its
+three concrete gaps were fixed in
+[#56](https://github.com/MILTONADINA/graph-engineering/pull/56), which landed
+with this update:
+
+- a managed run that changed a lockfile no longer passes when no OSV
+  database has been downloaded;
+- template steps stop at their step time limit;
+- CI runs the gated roles and permissions template tests.
+
+Its remaining recommendations are in the audit summary the owner received,
+led by test-first ordering for the tester.
+
+Still for the owner: accepting or rejecting pilot run `ee0166fc` (above),
+reviewing the draft security baseline in
+[#44](https://github.com/MILTONADINA/graph-engineering/pull/44), and the
+owner-gated items listed in the previous update. Aligning with Kevin's
+parent repository is prepared on the fork branch
+`align/kevin-templates-20260926` (the template kit only) for Kevin to
+review; nothing is pushed to the parent repository.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.
@@ -255,9 +312,9 @@ implementer and reviewer.
 The [completion checklist](completion-checklist.md) is the detailed history.
 Read it chronologically: its historical 48-node/seven-planned table and early
 "Vite on a separate branch" paragraph are superseded by later merges. The
-catalog at this snapshot is **50 implemented, six planned**; every implemented fine
-node has an audited deterministic renderer. Planned API filtering, pagination,
-and sorting IDs partly duplicate existing capabilities rather than representing
+catalog at this snapshot is **53 implemented, three planned**; every implemented fine
+node has an audited deterministic renderer. The planned API filtering, pagination
+and sorting IDs duplicate existing capabilities rather than representing
 three missing implementations.
 
 ## What this system is
@@ -443,7 +500,7 @@ or independent-evaluation claim is established.
 | 7   | Batched typed decisions                         | Implemented with an observed two-question, one-forward-pass Laya call; not autonomously promoted.                                                                                                                                                                                                                                                                                                  |
 | 8   | Context/tool/test/retry/stop/memory controllers | Integrated with deterministic floors, bounded actions, and shadow defaults; model scores cannot skip safety gates.                                                                                                                                                                                                                                                                                 |
 | 9   | Summaries and safe reuse                        | Content-addressed summaries and exact cache reuse exist; cached proposals still require fresh checks.                                                                                                                                                                                                                                                                                              |
-| 10  | DAG and fine templates                          | Validated scheduling and 50 audited implemented nodes; six planned IDs unavailable. AWS ECS Express Mode work is an **offline descriptor**, not a deployment or AWS spend.                                                                                                                                                                                                                         |
+| 10  | DAG and fine templates                          | Validated scheduling and 53 audited implemented nodes; three planned alias IDs unavailable. AWS ECS Express Mode work is an **offline descriptor**, not a deployment or AWS spend.                                                                                                                                                                                                                 |
 | 11  | Memory and semantic graph                       | Bounded TS/JS, Python, Go, Java, C#, and Rust declaration evidence exists, with explicit heuristic/unsupported fallbacks. It is not a whole-program runtime call graph.                                                                                                                                                                                                                            |
 | 12  | Native clients and cost controls                | Claude Max managed proposal tested; Codex managed proposals disabled because the installed binary lacks restricted read roots; Cursor SDK proposal adapter mocked but not live-key-tested. Jev metering needs operator price/cap. MCP use is independent of these managed-worker paths.                                                                                                            |
 | 13  | Calibration, held-out evidence, promotion       | Extensive synthetic/retrospective fixtures, sealed bookkeeping, signed inspection and analysis-only projections exist. **Not complete as a real held-out or promotion capability:** independent source/review/key/witness governance, protected provenance, measured paired outcomes/costs, and a trusted grant issuer remain. This is the principal promotion gap.                                |

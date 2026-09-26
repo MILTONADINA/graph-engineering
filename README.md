@@ -1,18 +1,31 @@
 # Graph Engineering
 
-A local-first engineering platform built on the existing Graph Engineering template ecosystem. Keep project context and reviewed memory on your machine, retrieve source-backed context through MCP, and run bounded coding work in isolated Git worktrees.
+An AI agile team for your repository. You are the product owner: you write
+feature specs with acceptance criteria, approve plans and accept results. AI
+workers take the team's roles — developer, tester and reviewer — and every
+change must pass the checks, code review and security scan you configure
+before it is offered to you as done.
+
+The team works locally and in small, checked increments. Project context and
+reviewed memory stay on your machine, connected AI clients retrieve
+source-backed context through MCP, and each step runs in an isolated Git
+worktree, limited to the files it declares.
 
 ```text
-repository → syntax graph + SQLite search + optional local embeddings
-                         ↓
-              context packets + reviewed memory
-                         ↓
-       policy + deterministic baseline + batched Laya/Jev decisions
-                         ↓
-      workers / supported templates → isolated patches → offline checks
-                         ↓
-                 optional commit / draft PR into dev
+feature spec + acceptance criteria        (you)
+                ↓
+   plan: ordered steps with write scopes → your approval
+                ↓
+   developers implement in isolated worktrees → tester adds tests for each criterion
+                ↓
+   offline checks → code review → security scan    (failures go back to the developer)
+                ↓
+   you accept or reject → optional commit / draft PR into dev
 ```
+
+See [working as an AI agile team](docs/agile-team.md) for each role,
+practice and command, and the [documentation index](docs/README.md) for
+every guide.
 
 ## Start
 
@@ -49,13 +62,14 @@ Pruning previews unless `--apply` is supplied. `backup NEW_ARCHIVE_DIRECTORY` in
 
 | Area                 | Purpose                                                                                  |
 | -------------------- | ---------------------------------------------------------------------------------------- |
+| `specs`              | Feature specs: acceptance criteria linked to the tests that prove them                   |
 | `packages/contracts` | Versioned project, context, execution, and decision contracts                            |
 | `packages/engine`    | Context, bounded controllers/DAG, CLI, MCP, loopback API, verified cache, managed runs   |
 | `packages/dashboard` | React context, graph, memory, run, and decision interfaces                               |
 | `sidecars/laya`      | Explicitly provisioned, offline-serving decision sidecar                                 |
 | `evaluation`         | Synthetic smoke fixtures, measured baseline/candidate runner, recorded-evidence workflow |
 | `create-graph-app`   | Existing coarse-grained app scaffolder and six working templates                         |
-| `graph-templates`    | Fine-node contracts and validation; 52 audited deterministic runtime adapters            |
+| `graph-templates`    | Fine-node contracts and validation; 53 audited deterministic runtime adapters            |
 | `reference-app`      | Source application behind the original templates                                         |
 
 The two template systems intentionally retain their different schemas. Existing scaffolding remains usable independently; see [create-graph-app](create-graph-app/README.md), [graph templates](graph-templates/README.md), and the [reference architecture](reference-app/REFERENCE_ARCHITECTURE.md).
