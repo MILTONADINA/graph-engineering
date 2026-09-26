@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-26T17:19:57.703Z",
+  "generatedAt": "2026-09-26T17:26:43.436Z",
   "templateCount": 56,
   "templates": [
     {
@@ -369,6 +369,7 @@
         "backend.error-handler",
         "backend.middleware",
         "authentication.password",
+        "authentication.oauth",
         "backend.express",
         "authorization.rbac",
         "authorization.tenant-isolation"
@@ -377,34 +378,128 @@
     },
     {
       "id": "authentication.oauth",
-      "name": "OAuth2 Login (Google/GitHub)",
-      "version": "0.1.0",
+      "name": "OAuth2 / OIDC Login (Google, GitHub, generic OIDC)",
+      "version": "1.0.0",
       "category": "authentication",
       "subcategory": "oauth",
-      "status": "planned",
-      "description": "Third-party OAuth2 login (Google/GitHub, etc.). Not yet implemented in this library. Once built, it would extend authentication.jwt rather than replace it: after a successful OAuth callback, it issues the same access/refresh tokens authentication.jwt already defines, skipping password verification entirely for that login path.",
+      "status": "implemented",
+      "description": "Third-party sign-in through the OAuth 2.0 authorization-code flow with PKCE (S256), with ready presets for Google (OIDC) and GitHub and one generic OIDC provider configured by static HTTPS endpoints. It extends authentication.jwt rather than replacing it: after a successful callback it issues the same access/refresh tokens authentication.jwt defines. A login may create a new account, but only for a provider-verified email address that no account uses. A first-time login whose verified email already belongs to an account is refused by default; the owner signs in the usual way and links the provider through the authenticated POST /api/auth/oauth/:provider/link flow, which requires the provider-verified email to equal the account's email. The per-provider linkVerifiedEmailToExistingAccount input restores automatic linking as a documented risk. Provider identities are stored as provider + provider subject id in an oauth_accounts table; users themselves stay behind an application-owned account directory adapter.",
       "tags": [
         "authentication",
         "oauth",
         "auth",
         "jwt",
-        "refresh",
-        "password"
+        "ci",
+        "refresh"
       ],
-      "inputs": [],
-      "outputs": [],
+      "inputs": [
+        "providers",
+        "postLoginRedirects",
+        "linkVerifiedEmailToExistingAccount",
+        "oidc"
+      ],
+      "outputs": [
+        "files",
+        "exports",
+        "routes"
+      ],
       "dependsOn": [
         {
           "id": "authentication.jwt",
-          "relationship": "extends"
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.middleware",
+          "relationship": "requires"
+        },
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
         }
       ],
-      "environment": [],
+      "environment": [
+        {
+          "name": "OAUTH_REDIRECT_BASE_URL",
+          "required": true,
+          "secret": false,
+          "description": "Public HTTPS origin of this API (http://localhost allowed outside production). Each provider's registered redirect URI is exactly <origin>/api/auth/oauth/<provider>/callback.",
+          "usedBy": [
+            "authentication.oauth"
+          ]
+        },
+        {
+          "name": "GOOGLE_OAUTH_CLIENT_ID",
+          "required": true,
+          "secret": false,
+          "description": "Google OAuth client id. Required only when providers includes google.",
+          "usedBy": [
+            "authentication.oauth"
+          ]
+        },
+        {
+          "name": "GOOGLE_OAUTH_CLIENT_SECRET",
+          "required": true,
+          "secret": true,
+          "description": "Google OAuth client secret; no default. Required only when providers includes google.",
+          "usedBy": [
+            "authentication.oauth"
+          ]
+        },
+        {
+          "name": "GITHUB_OAUTH_CLIENT_ID",
+          "required": true,
+          "secret": false,
+          "description": "GitHub OAuth app client id. Required only when providers includes github.",
+          "usedBy": [
+            "authentication.oauth"
+          ]
+        },
+        {
+          "name": "GITHUB_OAUTH_CLIENT_SECRET",
+          "required": true,
+          "secret": true,
+          "description": "GitHub OAuth app client secret; no default. Required only when providers includes github.",
+          "usedBy": [
+            "authentication.oauth"
+          ]
+        },
+        {
+          "name": "OIDC_CLIENT_ID",
+          "required": true,
+          "secret": false,
+          "description": "Generic OIDC client id. Required only when providers includes oidc.",
+          "usedBy": [
+            "authentication.oauth"
+          ]
+        },
+        {
+          "name": "OIDC_CLIENT_SECRET",
+          "required": true,
+          "secret": true,
+          "description": "Generic OIDC client secret; no default. Required only when providers includes oidc.",
+          "usedBy": [
+            "authentication.oauth"
+          ]
+        }
+      ],
       "testing": {
-        "strategy": "none"
+        "strategy": "unit",
+        "location": "tests/authenticationOauth.test.ts",
+        "command": "npm test -- authenticationOauth"
       },
       "compatibleNodes": [
-        "authentication.jwt"
+        "authentication.jwt",
+        "authentication.password",
+        "database.neon-postgres.connection",
+        "backend.error-handler",
+        "backend.middleware",
+        "authorization.rbac",
+        "authorization.tenant-isolation",
+        "authorization.permissions"
       ],
       "path": "authentication/oauth"
     },

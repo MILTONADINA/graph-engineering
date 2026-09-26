@@ -6,7 +6,7 @@ The human-readable catalog of every graph node in this library. **This file is a
 node tools/generate-registry/index.js . > template-registry.json
 ```
 
-`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no executable renderer yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 51 implemented, 5 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
+`template-registry.json` is what an orchestrating agent actually queries (by `id`, `tags`, `compatibleNodes`, `dependsOn`); this file is for a human scanning what exists. **I** = `implemented`, **P** = `planned` (registered intent, no executable renderer yet — see `TEMPLATE-SPEC.md` §8), **E** = `experimental`. 52 implemented, 4 planned, 0 experimental, as of this writing (run `node tools/generate-registry/index.js .` for the live count).
 
 ## project
 
@@ -63,7 +63,7 @@ Entity CRUD generation itself lives at `backend.repository`, not a `database.rep
 | I      | `authentication.jwt`      | Access + refresh token issuance/verification. Fills the reference README's promised-but-missing refresh token.           |
 | I      | `authentication.password` | Full register/login/logout/forgot-reset-password/verify-email flow, layered through repository→service→controller→route. |
 | P      | `authentication.session`  | Server-side session store alternative — `conflicts` with `authentication.jwt`.                                           |
-| P      | `authentication.oauth`    | Google/GitHub OAuth2 login — would `extend` `authentication.jwt`.                                                        |
+| I      | `authentication.oauth`    | Google/GitHub/OIDC authorization-code + PKCE login; verified-email linking; issues `authentication.jwt` tokens.          |
 
 ## authorization
 
