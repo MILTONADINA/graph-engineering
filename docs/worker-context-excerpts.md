@@ -1,8 +1,9 @@
 # Worker context excerpts
 
-**Status: design for review.** This document and the test added with it
-change no runtime behavior. Sections marked **owner decision** need the owner
-before an implementation PR builds on them.
+**Status: design accepted; decisions recorded 2026-09-25.** This document
+and the test added with it change no runtime behavior. The decisions each
+section marks as **decided** are listed with their reasons under
+[Decisions](#decisions).
 
 ## The problem
 
@@ -88,8 +89,10 @@ per entry:
 
 A plain `path` keeps meaning "the whole file". Each form resolves to one or
 more items with exact `source` ranges, and the path part goes through the
-same `safePath`/export checks as today. **Owner decision:** whether symbol
-requests are worth adding in the first implementation, or line ranges alone.
+same `safePath`/export checks as today. **Decided:** the first
+implementation supports line ranges only; symbol requests wait until pilots
+show workers cannot use outlines (an outline already gives every symbol's
+line range).
 
 ### 2. An outline instead of a failure for oversized files
 
@@ -102,7 +105,8 @@ An outline does not fit today's `ContextItem.kind` (`code`, `memory`,
 `document`), so it needs an additive kind or a coverage flag in
 `packages/contracts`; the implementation PR must check that change against
 the sealed-packet tests and hash-pinned fixtures before touching the schema.
-**Owner decision:** outline format (symbols only, or symbols plus signatures).
+**Decided:** an outline lists symbol names, kinds and line ranges, without
+signatures.
 
 ### 3. Accumulate evidence across turns
 
@@ -125,12 +129,11 @@ verification) starts a fresh set, as the path-keyed map does now.
 Today only requested items count as supplied, so a worker may request a whole
 file that retrieval already showed, once. Seeding the new set from retrieval
 excerpts too would turn that request into a stop on turn 2 and fail runs that
-succeed today. **Owner decision:** either seed from requested items only
-(keeps today's allowance), or seed from everything the worker was shown and
-answer a request with no new lines with "already supplied" feedback instead
-of stopping (consistent with section 5, but it changes the pinned
-repeated-request behaviour in `execution.test.ts` and
-`managed-dag-safety.test.ts`).
+succeed today. **Decided:** seed the set from requested items only, which
+keeps today's allowance and the pinned repeated-request tests in
+`execution.test.ts` and `managed-dag-safety.test.ts`. Answering a request
+with no new lines with feedback instead of a stop can follow once pilots show
+how workers use outlines.
 
 ### 5. Patch preconditions become feedback
 
@@ -141,7 +144,7 @@ turn from the shared budget, and the DAG path's all-or-nothing wave check is
 unchanged. Also require the unique match to lie inside lines supplied to the
 worker in this attempt (or inside a file it created), so a worker cannot edit
 code it was never shown, even with a `before` that happens to be unique.
-**Owner decision:** whether this belongs in the same PR as range requests.
+**Decided:** this ships in the same PR as range requests.
 
 ### 6. One budget measure
 
@@ -166,15 +169,30 @@ visible, so the worker includes enough surrounding lines.
 | A worker loops on overlapping or shifted ranges                                        | Each turn must add lines not yet supplied in the attempt (section 4); the shared per-run turn budget bounds the rest                                                                          |
 | A patch built from an excerpt edits the wrong occurrence, or code the worker never saw | `prepareProposal` still requires a unique match in the whole file, and the match must lie inside lines supplied in the attempt (section 5); ambiguity becomes feedback, never a silent choice |
 
-## Decisions for the owner
+## Decisions
 
-1. Line ranges only, or line ranges and symbol requests (section 1).
-2. Outline format (section 2).
-3. Whether precondition feedback ships with range requests (section 5).
-4. What seeds the lines-seen progress guard, and whether a request with no
-   new lines stops the run or returns feedback (section 4).
-5. Whether the default `maxContextTokens` stays at 16,000 once excerpts exist.
-   Recommendation: keep it, and measure.
+On 2026-09-25 the owner delegated these decisions to a combination of an
+advisory model review and the project's two decision providers, Jev
+(`jev-1.13.0`) and Laya, each asked the same two-way questions. The advisory
+review's pick is recorded where they disagree.
+
+| Decision                             | Chosen                         | Jev                      | Laya                     |
+| ------------------------------------ | ------------------------------ | ------------------------ | ------------------------ |
+| 1. Request forms (section 1)         | Line ranges only               | Ranges and symbols, 0.59 | Ranges and symbols, 0.63 |
+| 2. Outline format (section 2)        | Symbols, kinds and line ranges | Same, 0.59               | Same, 0.53               |
+| 3. Precondition feedback (section 5) | Same PR as range requests      | Same, 0.58               | Same, 0.71               |
+| 4. Progress-guard seed (section 4)   | Requested items only           | Same, 0.55               | Same, 0.51               |
+| 5. Default `maxContextTokens`        | Keep 16,000 and measure        | Same, 1.00               | Raise, 0.92              |
+
+- **Request forms:** both models leaned towards symbols, but near an even
+  split and without weighing that the symbol form already falls back to an
+  outline, which gives every symbol's line range. Symbols add parser-dependent
+  behaviour to the first PR for little gain; add them only if pilots show
+  workers cannot use outlines.
+- **Budget:** Laya's vote to raise it is its only answer far from an even
+  split and is treated as a calibration observation, not evidence. Raising
+  the default multiplies every call's reservation across providers, which is
+  the spend the design exists to avoid.
 
 ## Delivery sequence
 
@@ -182,10 +200,9 @@ visible, so the worker includes enough surrounding lines.
 2. One budget measure (section 6) and the lines-seen progress guard
    (section 4): no new request forms yet, so existing behaviour changes only
    where it was internally inconsistent.
-3. Line-range requests, outlines for oversized files and accumulation
-   (sections 1–3, 7), with tests for every row of the threat table using the
-   same fixtures as `managed-dag-safety.test.ts`.
-4. Precondition feedback (section 5), if chosen.
-5. A fresh bounded local Qwen pilot on a new real task that edits a file over
+3. Line-range requests, outlines for oversized files, accumulation and
+   precondition feedback (sections 1–3, 5, 7), with tests for every row of
+   the threat table using the same fixtures as `managed-dag-safety.test.ts`.
+4. A fresh bounded local Qwen pilot on a new real task that edits a file over
    the default budget, recorded in local validation. Not a re-run of an
    already-solved task.
