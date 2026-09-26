@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -11,6 +14,18 @@ import {
 import { GraphEngine } from "./service.js";
 import { repositoryProfile } from "./scale.js";
 import { summarizeOutcomes } from "./insights.js";
+import {
+  buildFeedbackReport,
+  classifyError,
+  clearDifficulties,
+  feedbackIssueUrl,
+  feedbackReportText,
+  offerFeedback,
+  readDifficulties,
+  recordDifficulty,
+  type ErrorKind,
+  type FeedbackIo,
+} from "./feedback.js";
 import { checkSpecs, specTemplate, SPECS_DIR } from "./specs.js";
 import {
   addKnowledgePack,
@@ -771,7 +786,7 @@ cli.command("run <planId>").action((planId) =>
     // Starting a run from the command line is the person's own approval.
     const run = await engine.start(planId, { approvedByPerson: true });
     process.stderr.write(`Run ${run.id}\n`);
-    return engine.wait(run.id);
+    return noteFailedRun(await engine.wait(run.id));
   }),
 );
 cli
@@ -808,7 +823,7 @@ cli
   .action((runId, options) =>
     withEngine(async (engine) => {
       await engine.resume(runId, Boolean(options.reconciled));
-      return engine.wait(runId);
+      return noteFailedRun(await engine.wait(runId));
     }),
   );
 cli
@@ -1007,7 +1022,129 @@ cli
       () => void server.close().then(() => engine.close()),
     );
   });
-cli.parseAsync().catch((error) => {
-  process.stderr.write(`${errorMessage(error)}\n`);
-  process.exitCode = 1;
-});
+cli
+  .command("feedback [note...]")
+  .description(
+    "Show an anonymous report for the maintainers (version, command, difficulty kinds, platform, your note) and, if you agree, open it as a GitHub issue",
+  )
+  .option("--log", "Include the difficulty kinds recorded on this machine")
+  .action(async (note: string[], options) => {
+    const log = options.log ? await readDifficulties() : undefined;
+    const report = buildFeedbackReport({
+      engineVersion: ENGINE_VERSION,
+      command: "feedback",
+      commands: commandNames(),
+      kinds: log
+        ? Object.entries(log.kinds).map(([kind, entry]) => ({
+            kind: kind as ErrorKind,
+            count: entry.count,
+          }))
+        : [],
+      note: note.join(" "),
+    });
+    const io = terminalIo();
+    if (!io.interactive) {
+      print({
+        report: feedbackReportText(report),
+        issue: feedbackIssueUrl(report),
+      });
+      return;
+    }
+    await offerFeedback(report, io);
+  });
+cli
+  .command("feedback-log")
+  .description(
+    "Show the difficulty kinds recorded on this machine (kinds, counts and times only)",
+  )
+  .option("--clear", "Delete the local log")
+  .action(async (options) => {
+    if (options.clear) await clearDifficulties();
+    print(await readDifficulties());
+  });
+
+// Feedback: a run that failed, or a command that errored, is recorded as a
+// difficulty kind locally, and a person at a terminal is offered a report.
+let failedRunError: string | undefined;
+function noteFailedRun<T extends { status: string; error?: string | null }>(
+  run: T,
+): T {
+  if (run.status === "failed" && run.error) failedRunError = run.error;
+  return run;
+}
+const ENGINE_VERSION = (() => {
+  try {
+    return (
+      JSON.parse(
+        readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+      ) as { version: string }
+    ).version;
+  } catch {
+    return "unknown";
+  }
+})();
+function commandNames(): string[] {
+  return cli.commands.map((command) => command.name());
+}
+function currentCommand(): string | undefined {
+  const names = new Set(commandNames());
+  return process.argv.slice(2).find((arg) => names.has(arg));
+}
+function terminalIo(): FeedbackIo {
+  return {
+    interactive: Boolean(process.stdin.isTTY && process.stderr.isTTY),
+    ask: async (question) => {
+      const prompt = createInterface({
+        input: process.stdin,
+        output: process.stderr,
+      });
+      try {
+        return await prompt.question(question);
+      } finally {
+        prompt.close();
+      }
+    },
+    write: (text) => process.stderr.write(text),
+    open: async (url) => {
+      const [command, args] =
+        process.platform === "darwin"
+          ? ["open", [url]]
+          : process.platform === "win32"
+            ? ["cmd", ["/c", "start", "", url]]
+            : ["xdg-open", [url]];
+      const child = spawn(command, args, { detached: true, stdio: "ignore" });
+      child.on("error", () => undefined);
+      child.unref();
+    },
+  };
+}
+async function handleDifficulty(message: string): Promise<void> {
+  const kind = classifyError(message);
+  const command = currentCommand();
+  if (command === "feedback" || command === "feedback-log") return;
+  try {
+    await recordDifficulty(kind);
+    await offerFeedback(
+      buildFeedbackReport({
+        engineVersion: ENGINE_VERSION,
+        command,
+        commands: commandNames(),
+        kinds: [{ kind, count: 1 }],
+      }),
+      terminalIo(),
+    );
+  } catch {
+    // Feedback never changes a command's outcome.
+  }
+}
+
+cli
+  .parseAsync()
+  .then(async () => {
+    if (failedRunError) await handleDifficulty(failedRunError);
+  })
+  .catch(async (error) => {
+    process.stderr.write(`${errorMessage(error)}\n`);
+    process.exitCode = 1;
+    await handleDifficulty(errorMessage(error));
+  });

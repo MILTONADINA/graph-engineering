@@ -16,7 +16,7 @@ feature spec + acceptance criteria        (you)
                 ↓
    plan: ordered steps with write scopes → your approval
                 ↓
-   developers implement in isolated worktrees → tester adds tests for each criterion
+   tester writes tests first → developers implement in isolated worktrees
                 ↓
    offline checks → code review → security scan    (failures go back to the developer)
                 ↓

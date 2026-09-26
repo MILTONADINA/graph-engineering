@@ -193,21 +193,26 @@ export async function requestedSourcePacket(options: {
     if (provider.kind !== "local" && !isAllowedPath(relative, policy, true))
       throw new Error(`Source request is not exportable: ${relative}`);
     const absolute = await safePath(options.workspace, relative, policy);
-    let content: string;
+    let content: string | undefined;
+    let unreadable: string | undefined;
     try {
       content = await readFile(absolute, "utf8");
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EISDIR" && code !== "ENOENT")
-        throw new Error(`Requested source is unavailable: ${relative}`);
+      unreadable = (error as NodeJS.ErrnoException).code ?? "unknown";
+    }
+    if (content === undefined) {
       // A directory, or a path that does not exist, gets the files of the
       // nearest directory instead of ending the run, so the worker can ask
-      // again for a real file.
-      const listing = await directoryListing(options.workspace, relative, {
-        policy,
-        exportOnly: provider.kind !== "local",
-        missing: code === "ENOENT",
-      });
+      // again for a real file. The error is not kept: its message holds the
+      // private workspace path.
+      const listing =
+        unreadable === "EISDIR" || unreadable === "ENOENT"
+          ? await directoryListing(options.workspace, relative, {
+              policy,
+              exportOnly: provider.kind !== "local",
+              missing: unreadable === "ENOENT",
+            })
+          : undefined;
       if (!listing)
         throw new Error(`Requested source is unavailable: ${relative}`);
       const item: ContextItem = {
