@@ -10,7 +10,9 @@ import type {
   RunRecord,
   Usage,
 } from "@graph-engineering/contracts";
-import { id, now } from "./util.js";
+import { hash, id, now } from "./util.js";
+
+const hashPlan = (plan: ExecutionPlan): string => hash(plan);
 import { redact } from "./policy.js";
 import {
   summarizeInferenceCalls,
@@ -109,6 +111,7 @@ export class RunStore {
       CREATE INDEX IF NOT EXISTS inference_owner ON inference_calls(project_id,owner_id);
       CREATE TABLE IF NOT EXISTS worker_leases(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,pid INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_proofs(kind TEXT NOT NULL,id TEXT NOT NULL,project_id TEXT NOT NULL,endpoint TEXT NOT NULL,verifier TEXT NOT NULL,PRIMARY KEY(kind,id));
+      CREATE TABLE IF NOT EXISTS plan_approvals(plan_id TEXT PRIMARY KEY,project_id TEXT NOT NULL,json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS run_outcomes(seq INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,project_id TEXT NOT NULL,json TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS outcomes_run ON run_outcomes(project_id,run_id,seq);
       PRAGMA user_version = 4;`);
@@ -365,6 +368,35 @@ export class RunStore {
   }
   plan(id: string): ExecutionPlan {
     return this.one("plans", id);
+  }
+  /** A person's approval of a plan exactly as stored (bound to its hash). */
+  approvePlan(planId: string): {
+    planId: string;
+    approvedAt: string;
+    planSha256: string;
+  } {
+    const approval = {
+      planId,
+      approvedAt: now(),
+      planSha256: hashPlan(this.plan(planId)),
+    };
+    this.db
+      .prepare("INSERT OR REPLACE INTO plan_approvals VALUES(?,?,?)")
+      .run(planId, this.projectId, JSON.stringify(approval));
+    return approval;
+  }
+  /** Whether a person approved this plan in exactly its stored form. */
+  planApproved(planId: string): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT json FROM plan_approvals WHERE plan_id=? AND project_id=?",
+      )
+      .get(planId, this.projectId) as { json: string } | undefined;
+    return (
+      row !== undefined &&
+      (JSON.parse(row.json) as { planSha256: string }).planSha256 ===
+        hashPlan(this.plan(planId))
+    );
   }
   saveRun(run: RunRecord): void {
     this.db

@@ -98,6 +98,7 @@ import {
 import { checkedGit, gitBlob } from "./execution/git.js";
 import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
 import { dagParallelism } from "./scale.js";
+import { TESTER_STEP_ID, testerStep } from "./tester.js";
 import { parseSpec, planFromSpec, SPECS_DIR } from "./specs.js";
 import {
   renderTemplateProposal,
@@ -255,6 +256,42 @@ export class GraphEngine {
       callUsage: result.usage,
       decisionIds: result.records.map((record) => record.id),
     });
+  }
+  // A configured tester's step follows every other step: it writes tests
+  // for the acceptance criteria, limited to test files, and the combined
+  // result is verified, reviewed and scanned like any multi-step plan.
+  private async withTester(
+    steps: ExecutionStep[],
+    acceptance: string[],
+    spec?: ExecutionPlan["spec"],
+  ): Promise<ExecutionStep[]> {
+    const tester = this.config.tester;
+    if (!tester) return steps;
+    if (steps.some((step) => step.id === TESTER_STEP_ID))
+      throw new Error(
+        `Step ID ${TESTER_STEP_ID} is reserved for the configured tester; rename that step`,
+      );
+    if (steps.length >= 100)
+      throw new Error(
+        "A plan with a tester may have at most 99 other steps; split the work",
+      );
+    const provider = (await this.availableWorkers()).find(
+      (candidate) => candidate.id === tester.providerId,
+    );
+    if (!provider)
+      throw new Error(
+        `Tester ${tester.providerId} is not a configured provider the policy permits`,
+      );
+    return validateDag([
+      ...steps,
+      testerStep({
+        providerId: provider.id,
+        acceptance,
+        dependsOn: steps.map((step) => step.id),
+        writes: tester.writes,
+        spec,
+      }),
+    ]).steps;
   }
   // Configured workers the policy permits and, for installed agents, that
   // are installed.
@@ -688,18 +725,22 @@ export class GraphEngine {
       createdAt: now(),
       objective: input.objective,
       acceptance: input.acceptance,
-      steps: input.steps
-        ? validateDag(input.steps).steps
-        : [
-            {
-              id: "implement",
-              kind: "worker",
-              objective: `${input.objective}\n\nWorkflow: ${WORKFLOWS[routing.workflow]}`,
-              dependsOn: [],
-              providerId: provider.id,
-              effort: routing.effort,
-            },
-          ],
+      steps: await this.withTester(
+        input.steps
+          ? validateDag(input.steps).steps
+          : [
+              {
+                id: "implement",
+                kind: "worker",
+                objective: `${input.objective}\n\nWorkflow: ${WORKFLOWS[routing.workflow]}`,
+                dependsOn: [],
+                providerId: provider.id,
+                effort: routing.effort,
+              },
+            ],
+        input.acceptance,
+        input.spec,
+      ),
       routing: {
         workflow: routing.workflow,
         contextBudgetTokens: routing.contextBudgetTokens,
@@ -726,9 +767,24 @@ export class GraphEngine {
     this.store.savePlan(plan);
     return plan;
   }
-  async start(planId: string): Promise<RunRecord> {
+  /**
+   * Starts a run. A plan that publishes (commit or draft PR) needs a person's
+   * approval first; the CLI's `run` counts as that person's approval and
+   * records it, while MCP and dashboard API callers need `plan-approve`.
+   */
+  async start(
+    planId: string,
+    options: { approvedByPerson?: boolean } = {},
+  ): Promise<RunRecord> {
     await this.refresh();
     const plan = this.store.plan(planId);
+    if (plan.publication !== "none") {
+      if (options.approvedByPerson) this.store.approvePlan(planId);
+      else if (!this.store.planApproved(planId))
+        throw new Error(
+          `This plan publishes (${plan.publication}); a person must approve it first with graph-engine plan-approve ${planId} --yes`,
+        );
+    }
     if (plan.policyHash !== hash(this.config.policy))
       throw new Error("Policy changed since planning; create a new plan");
     if (this.active.size >= this.config.policy.maxWorkers)
@@ -1711,6 +1767,35 @@ export class GraphEngine {
             if (outside.length) {
               patchFeedback = writeScopeFeedback(step, outside);
               continue;
+            }
+            // A repair must fix the implementation, never weaken the tests
+            // the tester wrote for the acceptance criteria.
+            if (step.id === DAG_REPAIR_STEP) {
+              const testerFiles = new Set(
+                this.store
+                  .events(run.id)
+                  .filter(
+                    (event) =>
+                      event.type === "dag.step.completed" &&
+                      event.stepId === TESTER_STEP_ID,
+                  )
+                  .flatMap((event) =>
+                    Array.isArray(event.data.paths)
+                      ? (event.data.paths as string[])
+                      : [],
+                  ),
+              );
+              const touched = [
+                ...new Set(
+                  result.proposal.changes
+                    .map((change) => change.path)
+                    .filter((file) => testerFiles.has(file)),
+                ),
+              ];
+              if (touched.length) {
+                patchFeedback = `The tester wrote ${touched.join(", ")} to prove the acceptance criteria. Do not change those tests; fix the implementation so they pass.`;
+                continue;
+              }
             }
             if (unseen) {
               patchFeedback = patchFeedbackFor(

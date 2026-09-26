@@ -14,6 +14,14 @@ The reviewer is a configured API or local provider (installed agents cannot
 review yet), preferably a different model from the one implementing the
 change. It is recorded as `review.providerId` in `.graph/project.json`.
 
+## A tester beside the reviewer
+
+`graph-engine tester <providerId>` adds a `tester` step to every plan after
+the implementation: a separate worker writes or extends tests that prove
+each acceptance criterion, limited to test files (`--writes` narrows the
+globs), and the combined result is then verified and reviewed
+([tester spec](../specs/quality/tester-role.md)).
+
 ## What the reviewer sees and decides
 
 Only after every required check passes, the reviewer receives the change as

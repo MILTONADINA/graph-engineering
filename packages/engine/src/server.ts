@@ -167,6 +167,11 @@ export function createServer(
                   effort: z.string().optional(),
                   templateId: z.string().optional(),
                   inputs: z.record(z.unknown()).optional(),
+                  writes: z
+                    .array(z.string().min(1).max(200))
+                    .min(1)
+                    .max(50)
+                    .optional(),
                 })
                 .strict(),
             )
