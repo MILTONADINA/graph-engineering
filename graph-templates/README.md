@@ -50,6 +50,10 @@ Full detail in `GRAPH-NODE-SPEC.md`. Short version: every node has an `id` (dott
 
 Ten JSON Schemas in `artifacts/` (`requirements`, `architecture`, `database.schema`, `api.schema`, `auth.schema`, `storage.schema`, `frontend.schema`, `integration.schema`, `test.schema`, `deployment.schema`) define the structured documents agents pass to each other. Every instance shares one envelope (`$schema`, `artifactType`, `version`, `metadata`, `data`) — see `ARTIFACT-SPEC.md`.
 
+## Audited renderers
+
+The Graph Engineering platform (`packages/engine` in the platform repository) renders every `implemented` node deterministically through an audited renderer, and its engine tests check each node's generated code; some template manifests and READMEs point at those tests. The manifests, files, prompts, schemas and the tools in `tools/` remain usable on their own, without the platform.
+
 ## Registry
 
 `template-registry.json` is **derived, never hand-edited** — regenerate it after adding/changing a template:
