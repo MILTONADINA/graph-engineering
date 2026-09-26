@@ -108,6 +108,23 @@ reason codes; the multi-step patch-feedback test now runs a two-step plan
 and fails if the change is reverted; the multi-step spec records the
 behaviour; the feedback docs say exactly when a difficulty is recorded.
 
+**Round 5: the loop closed.** A fifth audit found no remaining engineering
+item of real value. Jev and Laya, asked with design text only, both advised
+ending the loop and recording the small leftovers as optional follow-ups;
+Jev's one pick, the turn-budget warning over MCP and the dashboard, was
+applied. The optional follow-ups, left undone because each changes little
+for people using the team:
+
+- `spec-check` reading nested or combined test gates (a missed case is no
+  worse than before gates were read at all);
+- showing implementer-tester disputes in `outcomes --summary` (they are
+  already in the run's events and in its error text);
+- a catch in the Docker verifier that replaces a specific "modified source
+  file" message with a general one.
+
+With those recorded, what remains is owner-gated or deferred below, which
+meets the exit rule.
+
 Deferred with reasons: epics above one level of decomposition (L; needs a
 planner design of its own); verifying OAuth ID token signatures in the
 generated app (changes the generated app's network behaviour, so the owner
