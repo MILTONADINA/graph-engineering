@@ -1,6 +1,6 @@
 # Offline security scanners for `graph-engine security-scan`.
 # Building needs network access; scans run with --network=none.
-# Pinned: the base image by digest, the gitleaks and hadolint binaries by
+# Pinned: the base image by digest, the gitleaks, hadolint and osv-scanner binaries by
 # version and SHA-256, semgrep and checkov by version (their Python
 # dependencies are resolved at build time), and the Semgrep rules by commit.
 # The rules use the Semgrep Rules License v1.0, which limits redistributing
@@ -13,6 +13,9 @@ ARG GITLEAKS_SHA256_ARM64=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62
 ARG HADOLINT_VERSION=2.15.1
 ARG HADOLINT_SHA256_AMD64=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
 ARG HADOLINT_SHA256_ARM64=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
+ARG OSV_SCANNER_VERSION=2.6.0
+ARG OSV_SCANNER_SHA256_AMD64=ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108
+ARG OSV_SCANNER_SHA256_ARM64=2c71403eb443d05891c4f268c3ad771cf4f16e5443463fd7851ef8f454d3c7e4
 ARG SEMGREP_VERSION=1.178.0
 ARG CHECKOV_VERSION=3.3.19
 # Semgrep Rules at a reviewed commit, so scans need no registry access.
@@ -24,8 +27,8 @@ RUN apt-get update \
 
 RUN set -eu; \
   case "$(dpkg --print-architecture)" in \
-    amd64) gl_arch=x64; gl_sum="$GITLEAKS_SHA256_AMD64"; hl_arch=x86_64; hl_sum="$HADOLINT_SHA256_AMD64" ;; \
-    arm64) gl_arch=arm64; gl_sum="$GITLEAKS_SHA256_ARM64"; hl_arch=arm64; hl_sum="$HADOLINT_SHA256_ARM64" ;; \
+    amd64) gl_arch=x64; gl_sum="$GITLEAKS_SHA256_AMD64"; hl_arch=x86_64; hl_sum="$HADOLINT_SHA256_AMD64"; osv_arch=amd64; osv_sum="$OSV_SCANNER_SHA256_AMD64" ;; \
+    arm64) gl_arch=arm64; gl_sum="$GITLEAKS_SHA256_ARM64"; hl_arch=arm64; hl_sum="$HADOLINT_SHA256_ARM64"; osv_arch=arm64; osv_sum="$OSV_SCANNER_SHA256_ARM64" ;; \
     *) echo "unsupported architecture $(dpkg --print-architecture)" >&2; exit 1 ;; \
   esac; \
   curl -fsSL -o /tmp/gitleaks.tgz \
@@ -36,6 +39,10 @@ RUN set -eu; \
     "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-${hl_arch}"; \
   echo "${hl_sum}  /usr/local/bin/hadolint" | sha256sum -c -; \
   chmod 0755 /usr/local/bin/hadolint; \
+  curl -fsSL -o /usr/local/bin/osv-scanner \
+    "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_${osv_arch}"; \
+  echo "${osv_sum}  /usr/local/bin/osv-scanner" | sha256sum -c -; \
+  chmod 0755 /usr/local/bin/osv-scanner; \
   rm -f /tmp/gitleaks.tgz
 
 RUN pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}" "checkov==${CHECKOV_VERSION}"

@@ -12,10 +12,13 @@ import os from "node:os";
 import path from "node:path";
 import { command } from "../util.js";
 import {
+  LOCKFILES,
   selectSecurityTools,
   semgrepRuleSets,
   type ProjectProfile,
 } from "./catalog.js";
+
+const LOCKFILE_NAMES = new Set<string>(LOCKFILES);
 import { isDockerfile } from "./files.js";
 
 export interface SecurityFinding {
@@ -88,7 +91,13 @@ const EXIT_OK: Record<string, number[]> = {
   semgrep: [0, 1],
   hadolint: [0, 1],
   checkov: [0, 1],
+  // OSV-Scanner exits 1 when it finds vulnerabilities.
+  "osv-scanner": [0, 1],
 };
+
+/** Where the OSV database is fetched from; the project must allow it. */
+export const OSV_DATABASE_HOST = "osv-vulnerabilities.storage.googleapis.com";
+const OSV_STAMP = "graph-updated.json";
 
 const fingerprint = (parts: string[]) =>
   createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 32);
@@ -244,6 +253,54 @@ export function parseCheckov(
   );
 }
 
+/**
+ * OSV-Scanner JSON: one finding per vulnerable package and advisory, at the
+ * lockfile line that names the package when one does.
+ */
+export function parseOsv(
+  report: string,
+  lines: (file: string) => string[] | undefined,
+): Omit<SecurityFinding, "fingerprint">[] {
+  const parsed = JSON.parse(report) as {
+    results?: {
+      source?: { path?: string };
+      packages?: {
+        package?: { name?: string; version?: string; ecosystem?: string };
+        vulnerabilities?: { id?: string; summary?: string }[];
+      }[];
+    }[];
+  };
+  if (!Array.isArray(parsed.results))
+    throw new Error("osv-scanner report has no results");
+  const findings: Omit<SecurityFinding, "fingerprint">[] = [];
+  for (const result of parsed.results) {
+    const file = relative(result.source?.path ?? "");
+    const text = lines(file) ?? [];
+    for (const entry of result.packages ?? []) {
+      const name = entry.package?.name ?? "";
+      const version = entry.package?.version ?? "";
+      // The lockfile entry that names the package, when there is one.
+      const index = name
+        ? text.findIndex(
+            (line) =>
+              line.includes(`"node_modules/${name}"`) ||
+              line.includes(`"${name}"`),
+          )
+        : -1;
+      for (const vulnerability of entry.vulnerabilities ?? [])
+        findings.push({
+          tool: "osv-scanner",
+          rule: vulnerability.id ?? "unknown",
+          path: file,
+          line: index >= 0 ? index + 1 : 1,
+          message: `${name}@${version} (${entry.package?.ecosystem ?? "unknown"}): ${vulnerability.summary ?? vulnerability.id ?? "known vulnerability"}`,
+          resource: `${name}@${version}`,
+        });
+    }
+  }
+  return findings;
+}
+
 export function suppressionFindings(
   files: Map<string, string[]>,
 ): Omit<SecurityFinding, "fingerprint">[] {
@@ -309,12 +366,15 @@ export async function runSecurityScan(options: {
   signal?: AbortSignal;
   /** Per-tool limit; defaults to 30 minutes. */
   timeoutMs?: number;
+  /** A downloaded OSV database directory, mounted read-only when present. */
+  osvDatabase?: string;
 }): Promise<SecurityScan> {
   const { root, image, profile, signal } = options;
   const imageId = await scannerImageId(image, signal);
-  const selected = selectSecurityTools(profile).selected.filter(
-    ({ runnable }) => runnable,
-  );
+  const selected = selectSecurityTools({
+    ...profile,
+    databases: options.osvDatabase ? ["osv-scanner"] : [],
+  }).selected.filter(({ runnable }) => runnable);
   const work = await mkdtemp(path.join(os.tmpdir(), "graph-security-"));
   const scan = path.join(work, "scan");
   const out = path.join(work, "out");
@@ -348,7 +408,7 @@ export async function runSecurityScan(options: {
       else lines.set(file, text.split("\n"));
     }
     await writeFile(path.join(scan, ".semgrepignore"), SEMGREP_IGNORE);
-    const run = async (tool: string, argv: string[]) => {
+    const run = async (tool: string, argv: string[], extra: string[] = []) => {
       // Named, so cancellation stops the container and not only the client.
       const name = `graph-scan-${createHash("sha256")
         .update(`${work}:${tool}:${Date.now()}`)
@@ -385,6 +445,7 @@ export async function runSecurityScan(options: {
             `type=bind,source=${out},target=/out`,
             "--env",
             "HOME=/tmp",
+            ...extra,
             "--workdir",
             "/tmp",
             imageId,
@@ -405,7 +466,9 @@ export async function runSecurityScan(options: {
       if (signal?.aborted) throw new Error("Run cancelled");
       if (!(EXIT_OK[tool] ?? [0]).includes(result.code))
         throw new Error(
-          `${tool} exited ${result.code}: ${result.stderr.slice(-300)}`,
+          /no offline version of the OSV database/.test(result.stderr)
+            ? `${tool} has no downloaded database for an ecosystem this repository uses; run graph-engine security-db-update`
+            : `${tool} exited ${result.code}: ${result.stderr.slice(-300)}`,
         );
       return result;
     };
@@ -490,6 +553,36 @@ export async function runSecurityScan(options: {
             "--compact",
           ]);
           raw.push(...parseCheckov(result.stdout));
+        } else if (tool.id === "osv-scanner" && options.osvDatabase) {
+          // Missing an ecosystem's database fails the scan (incomplete), never
+          // skips that lockfile silently; the error says how to fix it.
+          await run(
+            "osv-scanner",
+            [
+              "osv-scanner",
+              "scan",
+              "source",
+              "--recursive",
+              "--offline-vulnerabilities",
+              "--format",
+              "json",
+              "--output-file",
+              "/out/osv.json",
+              "/scan",
+            ],
+            [
+              "--mount",
+              `type=bind,source=${options.osvDatabase},target=/db,readonly`,
+              "--env",
+              "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db",
+            ],
+          );
+          raw.push(
+            ...parseOsv(
+              await readFile(path.join(out, "osv.json"), "utf8"),
+              (file) => lines.get(file),
+            ),
+          );
         }
       } catch (error) {
         if (signal?.aborted) throw new Error("Run cancelled", { cause: error });
@@ -511,6 +604,119 @@ export async function runSecurityScan(options: {
 }
 
 /** The scanner image's ID, or a clear error when it is not built. */
+/** The downloaded OSV database directory and when it was fetched. */
+export async function osvDatabase(
+  dataDir: string,
+): Promise<{ path: string; updatedAt: string } | undefined> {
+  const directory = path.join(dataDir, "security-db", "osv");
+  try {
+    const stamp = JSON.parse(
+      await readFile(path.join(directory, OSV_STAMP), "utf8"),
+    ) as { updatedAt?: unknown };
+    return typeof stamp.updatedAt === "string"
+      ? { path: directory, updatedAt: stamp.updatedAt }
+      : undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Downloads the OSV vulnerability databases for the ecosystems the
+ * repository's lockfiles use, into the private data directory. This is the
+ * only scanner step with network access, and it needs the project's policy
+ * to allow the OSV database host. Later scans read it offline.
+ */
+export async function updateOsvDatabase(options: {
+  root: string;
+  dataDir: string;
+  image: string;
+  files: readonly string[];
+  policy: { network: string; allowedHosts: readonly string[] };
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}): Promise<{ path: string; updatedAt: string; lockfiles: string[] }> {
+  if (
+    options.policy.network !== "allowlisted" ||
+    !options.policy.allowedHosts.includes(OSV_DATABASE_HOST)
+  )
+    throw new Error(
+      `Downloading the OSV database needs network policy allowlisted with ${OSV_DATABASE_HOST} in allowedHosts`,
+    );
+  const lockfiles = options.files.filter((file) =>
+    LOCKFILE_NAMES.has(path.posix.basename(file).toLowerCase()),
+  );
+  if (!lockfiles.length)
+    throw new Error("No dependency lockfiles to download a database for");
+  const imageId = await scannerImageId(options.image, options.signal);
+  const directory = path.join(options.dataDir, "security-db", "osv");
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const work = await mkdtemp(path.join(os.tmpdir(), "graph-osv-"));
+  try {
+    const scan = path.join(work, "scan");
+    for (const file of lockfiles) {
+      const target = path.join(scan, file);
+      await mkdir(path.dirname(target), { recursive: true });
+      await copyFile(path.join(options.root, file), target);
+    }
+    const result = await command(
+      "docker",
+      [
+        "run",
+        "--rm",
+        "--pull=never",
+        // The one networked scanner step: fetching the public database.
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--pids-limit=256",
+        "--memory=4g",
+        ...(process.getuid && process.getgid
+          ? ["--user", `${process.getuid()}:${process.getgid()}`]
+          : []),
+        "--mount",
+        `type=bind,source=${scan},target=/scan,readonly`,
+        "--mount",
+        `type=bind,source=${directory},target=/db`,
+        "--env",
+        "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db",
+        "--env",
+        "HOME=/tmp",
+        "--workdir",
+        "/tmp",
+        imageId,
+        "osv-scanner",
+        "scan",
+        "source",
+        "--recursive",
+        "--offline-vulnerabilities",
+        "--download-offline-databases",
+        "--format",
+        "json",
+        "/scan",
+      ],
+      {
+        signal: options.signal,
+        timeoutMs: options.timeoutMs ?? 30 * 60_000,
+        maxBytes: 64_000_000,
+      },
+    );
+    if (![0, 1].includes(result.code))
+      throw new Error(
+        `osv-scanner could not download its database (exit ${result.code}): ${result.stderr.slice(-300)}`,
+      );
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+  const updatedAt = new Date().toISOString();
+  await writeFile(
+    path.join(directory, OSV_STAMP),
+    `${JSON.stringify({ updatedAt, lockfiles }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  return { path: directory, updatedAt, lockfiles };
+}
+
 export async function scannerImageId(
   image: string,
   signal?: AbortSignal,

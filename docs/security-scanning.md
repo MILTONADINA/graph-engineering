@@ -102,12 +102,23 @@ started from, so neither an uncommitted edit nor a later checkout, branch
 switch or commit can accept findings or switch the gate off for that run; a
 malformed baseline, or a Git error reading it, fails the run. When a run starts, the engine checks that the
 scanner image (`graph-security:local`) is built, before any worker is paid.
-After the result passes verification and before anything is published, it
-scans the run's verified workspace (including files the worker created),
-records `security.scan_completed`, and fails the run on any finding missing
-from the baseline, on an incomplete scan, or on a file the run's workers
-wrote that no scanner could read (for example one made "binary" by a NUL byte). A run
-that fails the gate is never published. Scanner containers are named, so
+Each time a result passes the required checks (and review, when a reviewer
+is configured), it scans the run's verified workspace, including files the
+worker created, and records `security.scan_completed`.
+
+- A finding missing from the baseline is returned to the worker as feedback
+  (tool, rule, file and line) and the worker tries again within
+  `policy.maxAttempts`, as for failed checks; a run that still has new
+  findings fails with a message naming the security scan.
+- An incomplete scan, or a file the run's workers wrote that no scanner
+  could read (for example one made "binary" by a NUL byte), stops the run
+  for a person.
+- Dependency advisories (OSV-Scanner) gate a run only for lockfiles the run
+  changed. A newly published advisory about a dependency the run did not
+  touch is recorded under `advisory` in `security.scan_completed` instead of
+  failing unrelated work.
+
+A run that fails the gate is never published. Scanner containers are named, so
 cancelling a run stops them, and each tool is bounded by the policy's
 `timeoutSeconds`.
 
@@ -118,9 +129,18 @@ completion still reports that security review is pending.
 
 ## What needs someone else
 
-- **Dependency advisories** (OSV-Scanner, Trivy) need their vulnerability
-  database downloaded with network permission before an offline scan. That
-  step is not automated yet.
+- **Dependency advisories.** OSV-Scanner (pinned in the scanner image)
+  reads a local copy of the OSV vulnerability database.
+  `graph-engine security-db-update` downloads it for the ecosystems of the
+  repository's lockfiles into the private data directory; it needs
+  `policy.network: "allowlisted"` with
+  `osv-vulnerabilities.storage.googleapis.com` in `allowedHosts`, and it is
+  the only scanner step with network access. Every later `security-scan` and
+  run gate reads it offline, and `security-scan` reports the database's age,
+  flagging it stale after seven days. A lockfile whose ecosystem has no
+  downloaded database makes the scan incomplete (so a run stops) with a
+  message to run `security-db-update` again; it is never skipped silently.
+  Trivy's database is not supported yet.
 - **Dynamic testing** of a running application (ZAP, Nuclei, Burp Suite) is
   lawful and safe only against a target the owner is entitled to test. The
   catalog selects these tools only when a target is authorized, and no

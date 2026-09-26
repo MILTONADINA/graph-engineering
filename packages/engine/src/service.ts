@@ -83,6 +83,7 @@ import type { ProjectProfile } from "./security/catalog.js";
 import {
   BASELINE_FILE,
   newFindings,
+  osvDatabase,
   readCommittedBaseline,
   runSecurityScan,
   scannerImageId,
@@ -1122,6 +1123,15 @@ export class GraphEngine {
       let verifiedHash: string | undefined;
       let reviewFeedback = "";
       let reviewFeedbackExportable = false;
+      // New security findings in a verified result go back to the worker as
+      // feedback within the attempt budget, like a review's requested changes.
+      let securityFeedback = "";
+      let securityFeedbackExportable = false;
+      let securityFindings = 0;
+      let securityPassedHash: string | undefined;
+      // The baseline of the commit this run started from; changing the
+      // project checkout later cannot turn the gate off for this run.
+      const securityBaseline = await readCommittedBaseline(workspace);
       // Recorded when the run first executes, so changing the configuration
       // cannot add or remove the review gate for a run in progress, even
       // across a resume.
@@ -1311,6 +1321,131 @@ export class GraphEngine {
           exportable: exportable && !containsSecret(outcome.feedback),
         };
       };
+      // Scans the verified workspace against the committed baseline. An
+      // incomplete scan, or a worker-written file no scanner could read,
+      // stops the run; new findings are returned for the next attempt.
+      const securityGate = async (): Promise<{
+        passed: boolean;
+        count: number;
+        feedback: string;
+        exportable: boolean;
+      }> => {
+        this.store.event(run.id, "security.scan_started", {
+          snapshotHash: verifiedHash,
+        });
+        const database = await osvDatabase(this.dataDir);
+        const scan = await (
+          this.deps.securityScan ??
+          ((options) =>
+            runSecurityScan({
+              ...options,
+              image: SECURITY_SCAN_IMAGE,
+              timeoutMs: this.config.policy.timeoutSeconds * 1000,
+              ...(database ? { osvDatabase: database.path } : {}),
+            }))
+        )({
+          root: workspace,
+          profile: {
+            files: await gitFiles(workspace),
+            authorizedTargets: [],
+            configuredTools: [],
+            databases: database ? ["osv-scanner"] : [],
+          },
+          signal,
+        });
+        // A file this run's workers wrote that no scanner could read (for
+        // example one made "binary" by a NUL byte) is not accepted unseen.
+        const workerPaths = new Set(
+          this.store
+            .events(run.id)
+            .filter((event) =>
+              [
+                "patch.applied",
+                "dag.step.completed",
+                "solution.cache_hit",
+              ].includes(event.type),
+            )
+            .flatMap((event) =>
+              Array.isArray(event.data.paths)
+                ? (event.data.paths as string[])
+                : [],
+            ),
+        );
+        const unreviewed = newFindings(scan, securityBaseline!);
+        // A newly published advisory about a dependency the run did not
+        // touch is not this change's doing: it is recorded, not gated.
+        const fresh = unreviewed.filter(
+          (finding) =>
+            finding.tool !== "osv-scanner" || workerPaths.has(finding.path),
+        );
+        const advisory = unreviewed.filter(
+          (finding) => !fresh.includes(finding),
+        );
+        this.store.event(run.id, "security.scan_completed", {
+          tools: scan.tools,
+          findings: scan.findings.length,
+          new: fresh
+            .slice(0, 200)
+            .map(({ tool, rule, path, line, message }) => ({
+              tool,
+              rule,
+              path,
+              line,
+              message: redact(message),
+            })),
+          errors: scan.errors.map(redact),
+          unscanned: scan.unscanned,
+          ...(advisory.length
+            ? {
+                advisory: advisory
+                  .slice(0, 200)
+                  .map(({ tool, rule, path, message }) => ({
+                    tool,
+                    rule,
+                    path,
+                    message: redact(message),
+                  })),
+              }
+            : {}),
+        });
+        if (scan.errors.length)
+          throw new Error(
+            `Security scan was incomplete, so the result cannot be accepted: ${redact(scan.errors.join("; "))}`,
+          );
+        const unscannedChanges = scan.unscanned.filter(({ path }) =>
+          workerPaths.has(path),
+        );
+        if (unscannedChanges.length)
+          throw new Error(
+            `Security scan could not read ${unscannedChanges.length} file(s) this run wrote (${unscannedChanges
+              .slice(0, 5)
+              .map(({ path, reason }) => `${path}: ${reason}`)
+              .join("; ")}); a person must review them`,
+          );
+        if (!fresh.length) {
+          securityPassedHash = verifiedHash;
+          this.store.event(run.id, "security.gate_passed", {
+            snapshotHash: verifiedHash,
+          });
+          return { passed: true, count: 0, feedback: "", exportable: true };
+        }
+        return {
+          passed: false,
+          count: fresh.length,
+          feedback: [
+            `The security scan found ${fresh.length} finding(s) that are not in the project's reviewed baseline. Fix each one without weakening checks or adding suppressions:`,
+            ...fresh
+              .slice(0, 20)
+              .map(
+                ({ tool, rule, path, line, message }) =>
+                  `- ${path}${line ? `:${line}` : ""} [${tool} ${rule}] ${redact(message).slice(0, 300)}`,
+              ),
+          ].join("\n"),
+          exportable: fresh.every((finding) =>
+            isAllowedPath(finding.path, this.config.policy, true),
+          ),
+        };
+      };
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
         save("verifying");
@@ -1406,6 +1541,17 @@ export class GraphEngine {
           reviewFeedback = outcome.passed ? "" : outcome.feedback;
           reviewFeedbackExportable = outcome.exportable;
           if (!outcome.passed) {
+            verified = false;
+            verifiedHash = undefined;
+          }
+        }
+        securityFeedback = "";
+        if (verified && securityBaseline) {
+          const outcome = await securityGate();
+          if (!outcome.passed) {
+            securityFeedback = outcome.feedback;
+            securityFeedbackExportable = outcome.exportable;
+            securityFindings = outcome.count;
             verified = false;
             verifiedHash = undefined;
           }
@@ -1563,9 +1709,11 @@ export class GraphEngine {
           );
           if (!worker || this.config.policy.maxAttempts < 2)
             throw new Error(
-              reviewFeedback
-                ? "Code review requested changes on the combined result; inspect the review and create a repair plan"
-                : "DAG checks failed; inspect retained per-step evidence and create a repair plan",
+              securityFeedback
+                ? `Security scan found ${securityFindings} finding(s) not in the reviewed baseline in the combined result; inspect them and create a repair plan`
+                : reviewFeedback
+                  ? "Code review requested changes on the combined result; inspect the review and create a repair plan"
+                  : "DAG checks failed; inspect retained per-step evidence and create a repair plan",
             );
           singleSteps = [
             {
@@ -1707,6 +1855,10 @@ export class GraphEngine {
                 (provider.kind === "local" || reviewFeedbackExportable
                   ? reviewFeedback
                   : "Code review requested changes. Request the exportable source you need and address them."),
+              securityFeedback &&
+                (provider.kind === "local" || securityFeedbackExportable
+                  ? securityFeedback
+                  : "The security scan found new findings in files you may not receive. Request the exportable source you need and fix them."),
             ]
               .filter(Boolean)
               .join("\n\n");
@@ -1902,18 +2054,22 @@ export class GraphEngine {
           this.captureDecision(run, "recovery", recovery);
           if (recovery.action === "human" || recovery.action === "stop")
             throw new Error(
-              reviewFeedback
-                ? "Code review requested changes; recovery controller stopped for review"
-                : "Required checks failed; recovery controller stopped for review",
+              securityFeedback
+                ? `Security scan found ${securityFindings} finding(s) not in the reviewed baseline; recovery controller stopped for review`
+                : reviewFeedback
+                  ? "Code review requested changes; recovery controller stopped for review"
+                  : "Required checks failed; recovery controller stopped for review",
             );
           if (recovery.action === "escalate") provider = alternatives[0]!;
           stepPacket = await currentContext();
         }
         if (!verified)
           throw new Error(
-            reviewFeedback
-              ? "Code review still requested changes after the allowed attempts"
-              : "Required checks failed after the allowed attempts",
+            securityFeedback
+              ? `Security scan found ${securityFindings} finding(s) not in the reviewed baseline after the allowed attempts; fix them, or have a person review them and update ${BASELINE_FILE}`
+              : reviewFeedback
+                ? "Code review still requested changes after the allowed attempts"
+                : "Required checks failed after the allowed attempts",
           );
       }
       if (signal.aborted) throw new Error("Run cancelled");
@@ -1966,85 +2122,14 @@ export class GraphEngine {
       });
       // A project that keeps a reviewed security baseline gates every run on
       // it: the verified result may not add findings the team has not seen.
-      // The baseline of the commit this run started from; changing the
-      // project checkout later cannot turn the gate off for this run.
-      const securityBaseline = await readCommittedBaseline(workspace);
       if (securityBaseline) {
-        this.store.event(run.id, "security.scan_started", {
-          snapshotHash: verifiedHash,
-        });
-        const scan = await (
-          this.deps.securityScan ??
-          ((options) =>
-            runSecurityScan({
-              ...options,
-              image: SECURITY_SCAN_IMAGE,
-              timeoutMs: this.config.policy.timeoutSeconds * 1000,
-            }))
-        )({
-          root: workspace,
-          profile: {
-            files: await gitFiles(workspace),
-            authorizedTargets: [],
-            configuredTools: [],
-          },
-          signal,
-        });
-        const fresh = newFindings(scan, securityBaseline);
-        this.store.event(run.id, "security.scan_completed", {
-          tools: scan.tools,
-          findings: scan.findings.length,
-          new: fresh
-            .slice(0, 200)
-            .map(({ tool, rule, path, line, message }) => ({
-              tool,
-              rule,
-              path,
-              line,
-              message: redact(message),
-            })),
-          errors: scan.errors.map(redact),
-          unscanned: scan.unscanned,
-        });
-        if (scan.errors.length)
-          throw new Error(
-            `Security scan was incomplete, so the result cannot be accepted: ${redact(scan.errors.join("; "))}`,
-          );
-        // A file this run's workers wrote that no scanner could read (for
-        // example one made "binary" by a NUL byte) is not accepted unseen.
-        const workerPaths = new Set(
-          this.store
-            .events(run.id)
-            .filter((event) =>
-              [
-                "patch.applied",
-                "dag.step.completed",
-                "solution.cache_hit",
-              ].includes(event.type),
-            )
-            .flatMap((event) =>
-              Array.isArray(event.data.paths)
-                ? (event.data.paths as string[])
-                : [],
-            ),
-        );
-        const unscannedChanges = scan.unscanned.filter(({ path }) =>
-          workerPaths.has(path),
-        );
-        if (unscannedChanges.length)
-          throw new Error(
-            `Security scan could not read ${unscannedChanges.length} file(s) this run wrote (${unscannedChanges
-              .slice(0, 5)
-              .map(({ path, reason }) => `${path}: ${reason}`)
-              .join("; ")}); a person must review them`,
-          );
-        if (fresh.length)
-          throw new Error(
-            `Security scan found ${fresh.length} finding(s) not in the reviewed baseline; fix them, or have a person review them and update ${BASELINE_FILE}`,
-          );
-        this.store.event(run.id, "security.gate_passed", {
-          snapshotHash: verifiedHash,
-        });
+        if (securityPassedHash !== verifiedHash) {
+          const outcome = await securityGate();
+          if (!outcome.passed)
+            throw new Error(
+              `Security scan found ${outcome.count} finding(s) not in the reviewed baseline; fix them, or have a person review them and update ${BASELINE_FILE}`,
+            );
+        }
       } else if (scope.review.includes("security"))
         this.store.event(run.id, "security.scan_recommended", {
           reason:

@@ -844,8 +844,17 @@ describe("security gate", () => {
         ? S
         : never
       : never,
+    // One attempt keeps a gate failure final; more let findings become
+    // feedback the worker can fix.
+    attempts = 1,
+    worker = fixingWorker,
   ) => {
-    const { root } = await fixture();
+    const { root, config } = await fixture();
+    config.policy.maxAttempts = attempts;
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await checked("git", ["commit", "--allow-empty", "-am", "test: attempts"], {
+      cwd: root,
+    });
     if (baseline) {
       await writeFile(
         path.join(root, ".graph/security-baseline.json"),
@@ -878,7 +887,7 @@ describe("security gate", () => {
     }
     const engine = await GraphEngine.open(root, {
       dockerAvailable: async () => true,
-      worker: fixingWorker,
+      worker,
       verify: passingVerify,
       securityScan: scan,
     });
@@ -915,6 +924,94 @@ describe("security gate", () => {
     });
     expect(events.map((event) => event.type)).not.toContain(
       "publication.started",
+    );
+  });
+
+  it("returns new findings to the worker as feedback and succeeds once they are fixed", async () => {
+    const feedback: (string | undefined)[] = [];
+    let scans = 0;
+    const { result, events } = await run(
+      ["accepted"],
+      async () => ({
+        tools: ["semgrep"],
+        findings: ++scans === 1 ? [finding("introduced")] : [],
+        errors: [],
+        unscanned: [],
+      }),
+      3,
+      async (input) => {
+        feedback.push(input.feedback);
+        return {
+          model: "fixture",
+          proposal: {
+            summary: "Fix addition",
+            requests: [],
+            changes: [
+              feedback.length === 1
+                ? { path: "math.cjs", before: "a - b", after: "a + b" }
+                : {
+                    path: "math.cjs",
+                    before: "a + b;",
+                    after: "a + b; // no eval",
+                  },
+            ],
+          },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+    );
+    expect(result.error ?? "").toBe("");
+    expect(result.status).toBe("succeeded");
+    expect(feedback[1]).toContain(
+      "The security scan found 1 finding(s) that are not in the project's reviewed baseline",
+    );
+    expect(feedback[1]).toContain(
+      "math.cjs:1 [semgrep javascript.eval-detected]",
+    );
+    expect(
+      events.filter((event) => event.type === "security.scan_started"),
+    ).toHaveLength(2);
+    expect(events.at(-1)?.type).toBeDefined();
+  });
+
+  it("gates dependency advisories only on lockfiles the run changed", async () => {
+    const advisory = (lockfile: string) => async () => ({
+      tools: ["osv-scanner"],
+      findings: [
+        {
+          tool: "osv-scanner",
+          rule: "GHSA-35jh-r3h4-6jhm",
+          path: lockfile,
+          line: 3,
+          message: "lodash@4.17.15 (npm): Command Injection in lodash",
+          resource: "lodash@4.17.15",
+          fingerprint: `osv-${lockfile}`,
+        },
+      ],
+      errors: [],
+      unscanned: [],
+    });
+    // A new advisory about a dependency the run did not touch is recorded.
+    const untouched = await run(["accepted"], advisory("package-lock.json"));
+    expect(untouched.result.status).toBe("succeeded");
+    expect(
+      untouched.events.find((event) => event.type === "security.scan_completed")
+        ?.data,
+    ).toMatchObject({
+      new: [],
+      advisory: [expect.objectContaining({ rule: "GHSA-35jh-r3h4-6jhm" })],
+    });
+    // The same advisory on a lockfile the run wrote holds the change back.
+    const written = await run(["accepted"], advisory("math.cjs"));
+    expect(written.result.status).toBe("failed");
+    expect(written.result.error).toContain(
+      "Security scan found 1 finding(s) not in the reviewed baseline",
     );
   });
 
@@ -1000,12 +1097,20 @@ describe("security gate", () => {
     await checked("git", ["checkout", "--quiet", "--force", "HEAD~1"], {
       cwd: root,
     });
+    const before = engine.store.events(result.id).length;
     await engine.resume(result.id, true);
     const resumed = await engine.wait(result.id);
     expect(resumed.status).toBe("failed");
-    expect(resumed.error).toContain(
-      "1 finding(s) not in the reviewed baseline",
-    );
+    // The resumed scan still judges against the run's own base commit, so
+    // the finding is still new although the checkout no longer has it.
+    const rescans = engine.store
+      .events(result.id)
+      .slice(before)
+      .filter((event) => event.type === "security.scan_completed");
+    expect(rescans.length).toBeGreaterThan(0);
+    expect(rescans[0]!.data.new).toEqual([
+      expect.objectContaining({ rule: "javascript.eval-detected" }),
+    ]);
   });
 
   it("does not scan a project that keeps no reviewed baseline", async () => {

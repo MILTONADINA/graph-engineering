@@ -12,8 +12,11 @@ import {
   parseCheckov,
   parseGitleaks,
   parseHadolint,
+  parseOsv,
   parseSemgrep,
   suppressionFindings,
+  updateOsvDatabase,
+  OSV_DATABASE_HOST,
   withFingerprints,
   type SecurityScan,
 } from "../src/security/scan.js";
@@ -144,6 +147,92 @@ describe("security tool selection", () => {
     const burp = licensed.selected.find(({ tool }) => tool.id === "burp")!;
     expect(burp.tool.license).toBe("commercial");
     expect(burp.runnable).toBe(false);
+  });
+});
+
+describe("dependency vulnerabilities", () => {
+  it("runs OSV-Scanner offline only once its database is downloaded", () => {
+    const lock = profile(["package-lock.json"]);
+    const without = selectSecurityTools(lock).selected.find(
+      ({ tool }) => tool.id === "osv-scanner",
+    );
+    expect(without?.runnable).toBe(false);
+    const withDatabase = selectSecurityTools({
+      ...lock,
+      databases: ["osv-scanner"],
+    }).selected.find(({ tool }) => tool.id === "osv-scanner");
+    expect(withDatabase?.runnable).toBe(true);
+  });
+
+  it("reads OSV-Scanner JSON into one finding per package advisory at the lockfile entry", () => {
+    const report = JSON.stringify({
+      results: [
+        {
+          source: { path: "/scan/package-lock.json", type: "lockfile" },
+          packages: [
+            {
+              package: { name: "lodash", version: "4.17.15", ecosystem: "npm" },
+              vulnerabilities: [
+                {
+                  id: "GHSA-35jh-r3h4-6jhm",
+                  summary: "Command Injection in lodash",
+                },
+                {
+                  id: "GHSA-p6mc-m468-83gw",
+                  summary: "Prototype Pollution in lodash",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const lines = [
+      "{",
+      '  "packages": {',
+      '    "node_modules/lodash": {',
+      '      "version": "4.17.15"',
+      "    }",
+      "  }",
+      "}",
+    ];
+    expect(
+      parseOsv(report, (file) =>
+        file === "package-lock.json" ? lines : undefined,
+      ),
+    ).toEqual([
+      {
+        tool: "osv-scanner",
+        rule: "GHSA-35jh-r3h4-6jhm",
+        path: "package-lock.json",
+        line: 3,
+        message: "lodash@4.17.15 (npm): Command Injection in lodash",
+        resource: "lodash@4.17.15",
+      },
+      expect.objectContaining({ rule: "GHSA-p6mc-m468-83gw", line: 3 }),
+    ]);
+    expect(() => parseOsv("{}", () => undefined)).toThrow("no results");
+  });
+
+  it("downloads the database only when the policy allows the OSV host", async () => {
+    await expect(
+      updateOsvDatabase({
+        root: "/nonexistent",
+        dataDir: "/nonexistent",
+        image: "graph-security:local",
+        files: ["package-lock.json"],
+        policy: { network: "deny", allowedHosts: [] },
+      }),
+    ).rejects.toThrow(`${OSV_DATABASE_HOST} in allowedHosts`);
+    await expect(
+      updateOsvDatabase({
+        root: "/nonexistent",
+        dataDir: "/nonexistent",
+        image: "graph-security:local",
+        files: ["src/app.ts"],
+        policy: { network: "allowlisted", allowedHosts: [OSV_DATABASE_HOST] },
+      }),
+    ).rejects.toThrow("No dependency lockfiles");
   });
 });
 
