@@ -1,0 +1,14 @@
+{
+  "inputs": {
+    "providers": ["oidc"],
+    "postLoginRedirects": ["/"],
+    "oidc": {
+      "issuer": "https://login.example.com",
+      "authorizationEndpoint": "https://login.example.com/oauth2/authorize",
+      "tokenEndpoint": "https://login.example.com/oauth2/token"
+    }
+  },
+  "expectedOutputs": {
+    "routes": ["GET /api/auth/oauth/:provider/start", "POST /api/auth/oauth/:provider/link", "GET /api/auth/oauth/:provider/callback"]
+  }
+}
