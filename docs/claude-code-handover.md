@@ -286,6 +286,56 @@ parent repository is prepared on the fork branch
 `align/kevin-templates-20260926` (the template kit only) for Kevin to
 review; nothing is pushed to the parent repository.
 
+## Continuation update — 2026-09-26 (improvement loop, rounds 2–3)
+
+The owner asked for an improvement loop: apply every recommendation from
+the advisor, Jev, Laya and audits, then audit again, until only owner-gated
+or deferred work remains. The loop's rules and each round's contents are in
+the [wiring roadmap](full-wiring-roadmap.md#improvement-loop). The owner
+also asked that the team develop itself where it can, learn from a private
+real-world pilot, and offer privacy-safe feedback reports.
+
+- **Private pilot.** The team ran locally, with the local model only, on a
+  small external Java repository the owner provided for testing. It was a
+  scratch clone with pushing disabled, and its local data was deleted
+  afterwards. Nothing from it (no name, path, code or domain) is recorded
+  here or anywhere in this repository; only generic lessons are. Those
+  lessons drove most of round 2:
+  - test-first ordering with a dispute path between implementer and tester;
+  - directory and missing-file requests answered with listings;
+  - repeated requests warned once, not fatal;
+  - request ranking under tight budgets;
+  - check feedback that keeps stdout and collapses stack frames;
+  - provider setup errors that name the fix;
+  - the [verification images](verification-images.md) guide.
+    The final pilot runs reached the designed flow and stopped on a
+    test-data disagreement named for a person to decide. That is correct
+    behaviour when the local model's tests are wrong.
+- **The team developing itself.** Run `4d386a16` on this repository built
+  the dashboard's memory-reject route and its tests, test-first, with the
+  local model; the combined result passed the full verification image.
+  Human review added one fix. The run then used up its turn budget in
+  review, which led to the turn-budget warning.
+- **Feedback reports** ([docs](feedback.md)) are opened as prefilled GitHub
+  issues on the fork, whose Issues were enabled for this; a `feedback`
+  label exists.
+- **Adversarial reviews** of each change found and fixed:
+  - repair routing on ordinary red tests;
+  - cloud directory listings;
+  - a case-insensitive tester-file bypass;
+  - Windows URL splitting;
+  - an unbounded prompt;
+  - an audit-log flood and missing change details;
+  - patches in multi-step steps failing whole runs.
+
+All of it landed through
+[#57](https://github.com/MILTONADINA/graph-engineering/pull/57).
+
+Still for the owner: pilot run `ee0166fc`'s acceptance, the self-built run
+`4d386a16` (inspect it; it failed in review, and its code was taken into
+#57), the security baseline in #44, promotion evidence, live security
+targets, and Kevin's review of `align/kevin-templates-20260926`.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.

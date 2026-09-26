@@ -7,9 +7,11 @@ and you decide whether to send each one.
 
 ## What happens
 
-- When a command or a run fails, the graph records the kind of difficulty
-  in a private log on your machine. At a terminal, it then asks whether you
-  want to send a report, and shows you the exact text first.
+- When a `graph-engine` command, or a run it waits for, fails, the graph
+  records the kind of difficulty in a private log on your machine. At a
+  terminal, it then asks whether you want to send a report, and shows you
+  the exact text first. Runs started over MCP or from the dashboard are not
+  recorded.
 - If you answer yes, it opens a prefilled GitHub issue for the maintainers
   in your own browser. You review it there and submit it under your own
   account, or close the tab. The graph holds no token and sends nothing
