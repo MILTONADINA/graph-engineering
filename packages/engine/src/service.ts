@@ -74,6 +74,8 @@ export interface EngineDependencies {
   verify?: typeof verifyInContainer;
   dockerAvailable?: typeof dockerAvailable;
 }
+// The worker step that repairs a multi-step plan whose combined checks failed.
+export const DAG_REPAIR_STEP = "dag-repair";
 const cloudSignals = (state: Record<string, unknown>) =>
   Object.fromEntries(
     Object.entries(state).filter(
@@ -756,6 +758,9 @@ export class GraphEngine {
         feedback = compactFailures(checks);
         return verified;
       };
+      let singleSteps: ExecutionStep[] = run.plan.steps;
+      let firstAttempt = 1;
+      let dagCheckpointPath: string | undefined;
       if (
         run.plan.steps.length > 1 ||
         run.plan.steps.some((step) => step.kind === "template")
@@ -765,6 +770,7 @@ export class GraphEngine {
           "checkpoints",
           `${run.id}.json`,
         );
+        dagCheckpointPath = checkpointPath;
         let checkpoint: DagCheckpoint | undefined;
         if (resuming) {
           try {
@@ -883,281 +889,321 @@ export class GraphEngine {
             );
           },
         });
-        if (!(await verify("dag")))
-          throw new Error(
-            "DAG checks failed; inspect retained per-step evidence and create a repair plan",
+        if (await verify("dag")) singleSteps = [];
+        else {
+          // Iterate like a single-step run: a repair worker gets the combined
+          // result and the failure feedback, within the remaining attempts.
+          const worker = run.plan.steps.find(
+            (step) => step.kind === "worker" && step.providerId,
           );
-      } else
-        for (const step of run.plan.steps) {
-          verified = false;
-          // An acknowledged recovery checks the retained patch first. It never
-          // reapplies the original exact-substring patch to an already edited file.
-          if (
-            resuming &&
-            priorEvents.some(
-              (event) =>
-                event.type === "publication.started" ||
-                (event.type === "patch.applied" && event.stepId === step.id),
-            )
-          ) {
-            if (await verify(step.id)) {
-              this.store.event(run.id, "step.reconciled", {}, step.id);
-              continue;
-            }
-          }
-          let provider = (await this.providers()).find(
-            (p) => p.id === step.providerId,
-          );
-          if (!provider)
-            throw new Error("The planned provider is no longer configured");
-          let stepPacket: ContextPacket = packet;
-          const solutionInput = {
-            key: `worker:${hash({ objective: step.objective, acceptance: run.plan.acceptance })}`,
-            inputs: {
-              provider: provider.id,
-              model: provider.model,
-              verification: run.plan.verification,
-              policy: run.plan.policyHash,
+          if (!worker || this.config.policy.maxAttempts < 2)
+            throw new Error(
+              "DAG checks failed; inspect retained per-step evidence and create a repair plan",
+            );
+          singleSteps = [
+            {
+              id: DAG_REPAIR_STEP,
+              kind: "worker",
+              objective: `Repair the combined result of this plan so every required check passes, keeping the work its steps completed. The plan's objective: ${run.plan.objective}`,
+              dependsOn: [],
+              providerId: worker.providerId,
+              ...(worker.effort ? { effort: worker.effort } : {}),
             },
-            snapshotId: run.plan.snapshotId,
-          };
-          const cached = resuming
+          ];
+          firstAttempt = 2;
+          this.store.event(
+            run.id,
+            "dag.repair_started",
+            { providerId: worker.providerId },
+            DAG_REPAIR_STEP,
+          );
+        }
+      }
+      for (const step of singleSteps) {
+        verified = false;
+        // An acknowledged recovery checks the retained patch first. It never
+        // reapplies the original exact-substring patch to an already edited file.
+        if (
+          resuming &&
+          priorEvents.some(
+            (event) =>
+              event.type === "publication.started" ||
+              (event.type === "patch.applied" && event.stepId === step.id),
+          )
+        ) {
+          if (await verify(step.id)) {
+            this.store.event(run.id, "step.reconciled", {}, step.id);
+            continue;
+          }
+        }
+        let provider = (await this.providers()).find(
+          (p) => p.id === step.providerId,
+        );
+        if (!provider)
+          throw new Error("The planned provider is no longer configured");
+        let stepPacket: ContextPacket =
+          step.id === DAG_REPAIR_STEP ? await currentContext() : packet;
+        const solutionInput = {
+          key: `worker:${hash({ objective: step.objective, acceptance: run.plan.acceptance })}`,
+          inputs: {
+            provider: provider.id,
+            model: provider.model,
+            verification: run.plan.verification,
+            policy: run.plan.policyHash,
+          },
+          snapshotId: run.plan.snapshotId,
+        };
+        const cached =
+          resuming || step.id === DAG_REPAIR_STEP
             ? null
             : await this.context.getSolution(solutionInput);
-          let reusableProposal: WorkerResult["proposal"] | undefined;
-          if (cached) {
-            const proposal = proposalSchema.parse(JSON.parse(cached.value));
-            await applyProposal(workspace, proposal, this.config.policy);
+        let reusableProposal: WorkerResult["proposal"] | undefined;
+        if (cached) {
+          const proposal = proposalSchema.parse(JSON.parse(cached.value));
+          await applyProposal(workspace, proposal, this.config.policy);
+          this.store.event(
+            run.id,
+            "solution.cache_hit",
+            {
+              key: solutionInput.key,
+              paths: proposal.changes.map((change) => change.path),
+            },
+            step.id,
+          );
+          if (await verify(step.id)) continue;
+          stepPacket = await currentContext();
+        }
+        for (
+          let attempt = firstAttempt;
+          attempt <= this.config.policy.maxAttempts;
+          attempt++
+        ) {
+          if (signal.aborted) throw new Error("Run cancelled");
+          await this.refresh();
+          if (hash(this.config.policy) !== run.plan.policyHash)
+            throw new Error(
+              "Policy changed during execution; dispatch stopped",
+            );
+          assertProvider(provider, this.config.policy, step.effort);
+          save("running");
+          this.store.event(
+            run.id,
+            "attempt.started",
+            { attempt, providerId: provider.id },
+            step.id,
+          );
+          let proposalApplied = false;
+          const supplied = new SuppliedLines();
+          const shown = new SuppliedLines();
+          let patchFeedback = "";
+          for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
+            await this.refresh();
+            if (hash(this.config.policy) !== run.plan.policyHash)
+              throw new Error("Policy changed during execution");
+            const estimate = estimateRequestCost(
+              provider,
+              this.config.policy.maxContextTokens,
+              this.config.policy.maxOutputTokens,
+            );
+            if (
+              this.config.policy.maxCostUsd !== null &&
+              (estimate === null ||
+                run.usage.costUsd === null ||
+                run.usage.costUsd + estimate > this.config.policy.maxCostUsd)
+            )
+              throw new Error(
+                "The next call exceeds the configured estimated cost budget",
+              );
             this.store.event(
               run.id,
-              "solution.cache_hit",
+              "worker.dispatched",
               {
-                key: solutionInput.key,
-                paths: proposal.changes.map((change) => change.path),
+                provider: provider.id,
+                model: provider.model,
+                effort: step.effort ?? null,
+                attempt,
+                turn,
+                contextItems: stepPacket.items.length,
               },
               step.id,
             );
-            if (await verify(step.id)) continue;
-            stepPacket = await currentContext();
-          }
-          for (
-            let attempt = 1;
-            attempt <= this.config.policy.maxAttempts;
-            attempt++
-          ) {
+            // Test logs may quote private source even when they contain no key-like
+            // strings. They stay local; remote workers get only a generic failure.
+            const workerFeedback = [
+              provider.kind === "local"
+                ? feedback
+                : feedback
+                  ? "Required verification failed. Request explicitly exportable source to investigate."
+                  : "",
+              patchFeedback,
+            ]
+              .filter(Boolean)
+              .join("\n\n");
+            const input: WorkerInput = {
+              provider,
+              policy: this.config.policy,
+              context: stepPacket,
+              objective: step.objective,
+              acceptance: run.plan.acceptance,
+              effort: step.effort,
+              feedback: workerFeedback,
+              signal,
+            };
+            recordShown(shown, fitWorkerContext(input).context);
+            const result = await this.invokeWorker(
+              input,
+              workspace,
+              run.plan.id,
+            );
+            run.usage = this.store.usage(run.plan.id);
+            save("running");
+            this.store.event(
+              run.id,
+              "worker.completed",
+              {
+                usage: result.usage,
+                model: result.model,
+                summary: result.proposal.summary,
+              },
+              step.id,
+            );
             if (signal.aborted) throw new Error("Run cancelled");
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
-              throw new Error(
-                "Policy changed during execution; dispatch stopped",
-              );
-            assertProvider(provider, this.config.policy, step.effort);
-            save("running");
-            this.store.event(
-              run.id,
-              "attempt.started",
-              { attempt, providerId: provider.id },
-              step.id,
-            );
-            let proposalApplied = false;
-            const supplied = new SuppliedLines();
-            const shown = new SuppliedLines();
-            let patchFeedback = "";
-            for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
-              await this.refresh();
-              if (hash(this.config.policy) !== run.plan.policyHash)
-                throw new Error("Policy changed during execution");
-              const estimate = estimateRequestCost(
-                provider,
-                this.config.policy.maxContextTokens,
-                this.config.policy.maxOutputTokens,
-              );
-              if (
-                this.config.policy.maxCostUsd !== null &&
-                (estimate === null ||
-                  run.usage.costUsd === null ||
-                  run.usage.costUsd + estimate > this.config.policy.maxCostUsd)
-              )
-                throw new Error(
-                  "The next call exceeds the configured estimated cost budget",
-                );
-              this.store.event(
-                run.id,
-                "worker.dispatched",
-                {
-                  provider: provider.id,
-                  model: provider.model,
-                  effort: step.effort ?? null,
-                  attempt,
-                  turn,
-                  contextItems: stepPacket.items.length,
-                },
-                step.id,
-              );
-              // Test logs may quote private source even when they contain no key-like
-              // strings. They stay local; remote workers get only a generic failure.
-              const workerFeedback = [
-                provider.kind === "local"
-                  ? feedback
-                  : feedback
-                    ? "Required verification failed. Request explicitly exportable source to investigate."
-                    : "",
-                patchFeedback,
-              ]
-                .filter(Boolean)
-                .join("\n\n");
-              const input: WorkerInput = {
-                provider,
-                policy: this.config.policy,
-                context: stepPacket,
-                objective: step.objective,
-                acceptance: run.plan.acceptance,
-                effort: step.effort,
-                feedback: workerFeedback,
-                signal,
-              };
-              recordShown(shown, fitWorkerContext(input).context);
-              const result = await this.invokeWorker(
+              throw new Error("Policy changed before patch application");
+            if (result.proposal.requests.length) {
+              stepPacket = await requestedSourcePacket({
+                workspace,
                 input,
-                workspace,
-                run.plan.id,
-              );
-              run.usage = this.store.usage(run.plan.id);
-              save("running");
-              this.store.event(
-                run.id,
-                "worker.completed",
-                {
-                  usage: result.usage,
-                  model: result.model,
-                  summary: result.proposal.summary,
-                },
-                step.id,
-              );
-              if (signal.aborted) throw new Error("Run cancelled");
-              await this.refresh();
-              if (hash(this.config.policy) !== run.plan.policyHash)
-                throw new Error("Policy changed before patch application");
-              if (result.proposal.requests.length) {
-                stepPacket = await requestedSourcePacket({
-                  workspace,
-                  input,
-                  requests: result.proposal.requests,
-                  snapshotId: run.plan.snapshotId,
-                  supplied,
-                  worker: "Worker",
-                  routedBudget: run.plan.routing?.contextBudgetTokens,
-                });
-                patchFeedback = "";
-                continue;
-              }
-              const unseen = await unseenPatchLocation(
-                workspace,
+                requests: result.proposal.requests,
+                snapshotId: run.plan.snapshotId,
+                supplied,
+                worker: "Worker",
+                routedBudget: run.plan.routing?.contextBudgetTokens,
+              });
+              patchFeedback = "";
+              continue;
+            }
+            const unseen = await unseenPatchLocation(
+              workspace,
+              result.proposal,
+              shown,
+              supplied.partial,
+              this.config.policy,
+            );
+            if (unseen) {
+              patchFeedback = patchFeedbackFor(
+                unseen,
                 result.proposal,
-                shown,
-                supplied.partial,
+                provider,
                 this.config.policy,
               );
-              if (unseen) {
-                patchFeedback = patchFeedbackFor(
-                  unseen,
-                  result.proposal,
-                  provider,
-                  this.config.policy,
-                );
-                continue;
-              }
-              let changed: string[];
-              try {
-                changed = await applyProposal(
+              continue;
+            }
+            let changed: string[];
+            try {
+              changed = await applyProposal(
+                workspace,
+                result.proposal,
+                this.config.policy,
+              );
+            } catch (error) {
+              const message = errorMessage(error);
+              if (!message.startsWith("Patch precondition failed")) throw error;
+              patchFeedback = patchFeedbackFor(
+                `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`,
+                result.proposal,
+                provider,
+                this.config.policy,
+              );
+              continue;
+            }
+            if (step.id === DAG_REPAIR_STEP && dagCheckpointPath) {
+              // Keep the DAG checkpoint current, so resuming after a repair
+              // patch passes the checkpoint's workspace check.
+              const checkpoint =
+                await readJson<DagCheckpoint>(dagCheckpointPath);
+              await writeJson(dagCheckpointPath, {
+                ...checkpoint,
+                workspaceHash: await workspaceFingerprint(
                   workspace,
-                  result.proposal,
                   this.config.policy,
-                );
-              } catch (error) {
-                const message = errorMessage(error);
-                if (!message.startsWith("Patch precondition failed"))
-                  throw error;
-                patchFeedback = patchFeedbackFor(
-                  `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`,
-                  result.proposal,
-                  provider,
-                  this.config.policy,
-                );
-                continue;
-              }
-              reusableProposal =
-                attempt === 1 && !cached && !resuming
-                  ? result.proposal
-                  : undefined;
-              this.store.event(
-                run.id,
-                "patch.applied",
-                { paths: changed },
-                step.id,
-              );
-              proposalApplied = true;
-              break;
+                ),
+              });
             }
-            if (!proposalApplied)
-              throw new Error(
-                "Worker exhausted its turn budget without a patch",
-              );
-            if (await verify(step.id)) {
-              if (reusableProposal) {
-                try {
-                  await this.context.putSolution({
-                    ...solutionInput,
-                    value: JSON.stringify(reusableProposal),
-                    sources: originalPacket.items.flatMap((item) =>
-                      item.source ? [item.source] : [],
-                    ),
-                  });
-                } catch (error) {
-                  this.store.event(run.id, "solution.capture_failed", {
-                    error: errorMessage(error),
-                  });
-                }
-              }
-              break;
-            }
-            save("running");
-            const alternatives = (await this.providers()).filter(
-              (candidate) => {
-                try {
-                  assertProvider(candidate, this.config.policy, step.effort);
-                  return candidate.id !== provider!.id;
-                } catch {
-                  return false;
-                }
-              },
+            reusableProposal =
+              attempt === 1 && !cached && !resuming
+                ? result.proposal
+                : undefined;
+            this.store.event(
+              run.id,
+              "patch.applied",
+              { paths: changed },
+              step.id,
             );
-            const recovery = await controlRecovery({
-              ...withState({
-                attempt,
-                verificationPassed: false,
-                repeatedFailure: attempt > 1,
-              }),
-              attempt,
-              maxAttempts: this.config.policy.maxAttempts,
-              needsMoreContext: false,
-              alternativeProviderAvailable: alternatives.length > 0,
-              securityConcern: false,
-              repeatedFailure: attempt > 1,
-            });
-            this.captureDecision(run, "recovery", recovery);
-            if (recovery.action === "human" || recovery.action === "stop")
-              throw new Error(
-                "Required checks failed; recovery controller stopped for review",
-              );
-            if (recovery.action === "escalate") provider = alternatives[0]!;
-            stepPacket = await currentContext();
+            proposalApplied = true;
+            break;
           }
-          if (!verified)
+          if (!proposalApplied)
+            throw new Error("Worker exhausted its turn budget without a patch");
+          if (await verify(step.id)) {
+            if (reusableProposal) {
+              try {
+                await this.context.putSolution({
+                  ...solutionInput,
+                  value: JSON.stringify(reusableProposal),
+                  sources: originalPacket.items.flatMap((item) =>
+                    item.source ? [item.source] : [],
+                  ),
+                });
+              } catch (error) {
+                this.store.event(run.id, "solution.capture_failed", {
+                  error: errorMessage(error),
+                });
+              }
+            }
+            break;
+          }
+          save("running");
+          const alternatives = (await this.providers()).filter((candidate) => {
+            try {
+              assertProvider(candidate, this.config.policy, step.effort);
+              // A repair escalates only to providers the plan already uses.
+              return (
+                candidate.id !== provider!.id &&
+                (step.id !== DAG_REPAIR_STEP ||
+                  run.plan.steps.some(
+                    (planned) => planned.providerId === candidate.id,
+                  ))
+              );
+            } catch {
+              return false;
+            }
+          });
+          const recovery = await controlRecovery({
+            ...withState({
+              attempt,
+              verificationPassed: false,
+              repeatedFailure: attempt > firstAttempt,
+            }),
+            attempt,
+            maxAttempts: this.config.policy.maxAttempts,
+            needsMoreContext: false,
+            alternativeProviderAvailable: alternatives.length > 0,
+            securityConcern: false,
+            repeatedFailure: attempt > firstAttempt,
+          });
+          this.captureDecision(run, "recovery", recovery);
+          if (recovery.action === "human" || recovery.action === "stop")
             throw new Error(
-              "Required checks failed after the allowed attempts",
+              "Required checks failed; recovery controller stopped for review",
             );
+          if (recovery.action === "escalate") provider = alternatives[0]!;
+          stepPacket = await currentContext();
         }
+        if (!verified)
+          throw new Error("Required checks failed after the allowed attempts");
+      }
       if (signal.aborted) throw new Error("Run cancelled");
       await this.refresh();
       if (hash(this.config.policy) !== run.plan.policyHash)

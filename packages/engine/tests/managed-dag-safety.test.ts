@@ -16,7 +16,11 @@ import {
   PROJECT_FILE,
 } from "../src/project.js";
 import { checked, writeJson } from "../src/util.js";
-import { invokeApiWorker, type WorkerResult } from "../src/workers/api.js";
+import {
+  invokeApiWorker,
+  type WorkerInput,
+  type WorkerResult,
+} from "../src/workers/api.js";
 
 const directories: string[] = [],
   engines: GraphEngine[] = [];
@@ -329,6 +333,8 @@ describe("managed DAG safety boundaries", () => {
   it("always runs every required check and cannot accept a worker's claim that tests passed", async () => {
     const { root, config } = await fixture((value) => {
       value.verification.push({ image: "fixture", argv: ["security-test"] });
+      // One attempt: the failed combined checks end the run without repair.
+      value.policy.maxAttempts = 1;
     });
     const verify = vi.fn<NonNullable<EngineDependencies["verify"]>>(
       async (_workspace, checks, _policy, snapshotHash) =>
@@ -493,6 +499,162 @@ describe("managed DAG safety boundaries", () => {
     expect(
       await readFile(path.join(run.workspace!, "many.js"), "utf8"),
     ).toContain("export const v30 = 31;");
+  });
+  it("repairs a multi-step plan whose combined checks failed, with the failure as feedback", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.maxTurns = 6;
+    });
+    let verifications = 0;
+    const verify = vi.fn<NonNullable<EngineDependencies["verify"]>>(
+      async (workspace, checks, _policy, snapshotHash) => {
+        verifications++;
+        const second = await readFile(
+          path.join(workspace, "second.js"),
+          "utf8",
+        );
+        const passed = second.includes("= 5");
+        return checks.map((check) => ({
+          ...check,
+          code: passed ? 0 : 1,
+          stdout: "",
+          stderr: passed ? "" : "expected second to be 5",
+          snapshotHash,
+        }));
+      },
+    );
+    const inputs: { objective: string; feedback?: string; paths: string[] }[] =
+      [];
+    const worker = vi.fn(async (input: WorkerInput) => {
+      inputs.push({
+        objective: input.objective,
+        feedback: input.feedback,
+        paths: input.context.items.map((item) => item.source?.path ?? ""),
+      });
+      if (!input.objective.startsWith("Repair")) return result(input.objective);
+      return {
+        ...result("two"),
+        proposal: {
+          summary: "Fix second",
+          requests: [],
+          changes: [{ path: "second.js", before: "= 4", after: "= 5" }],
+        },
+      };
+    });
+    const engine = await open(root, { worker, verify });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(verifications).toBe(2);
+    const repair = inputs.find((input) =>
+      input.objective.startsWith("Repair"),
+    )!;
+    expect(repair.objective).toContain("Change constants");
+    expect(repair.feedback).toContain("expected second to be 5");
+    const events = engine.store.events(run.id);
+    expect(events.map((event) => event.type)).toContain("dag.repair_started");
+    expect(
+      events.find((event) => event.type === "attempt.started")?.data,
+    ).toMatchObject({ attempt: 2 });
+    expect(
+      await readFile(path.join(run.workspace!, "first.js"), "utf8"),
+    ).toContain("= 3");
+  });
+
+  it("resumes a repaired plan after its verifier failed, and repeats repairs within maxAttempts", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.maxTurns = 8;
+      value.policy.maxAttempts = 4;
+    });
+    let infrastructureDown = true;
+    const verify = vi.fn<NonNullable<EngineDependencies["verify"]>>(
+      async (workspace, checks, _policy, snapshotHash) => {
+        const second = await readFile(
+          path.join(workspace, "second.js"),
+          "utf8",
+        );
+        const passed = second.includes("= 6");
+        if (passed && infrastructureDown)
+          return checks.map((check) => ({
+            ...check,
+            code: 125,
+            stdout: "",
+            stderr: "docker down",
+            snapshotHash,
+          }));
+        return checks.map((check) => ({
+          ...check,
+          code: passed ? 0 : 1,
+          stdout: "",
+          stderr: passed ? "" : "expected second to be 6",
+          snapshotHash,
+        }));
+      },
+    );
+    let repairs = 0;
+    const worker = vi.fn(async (input: WorkerInput) => {
+      if (!input.objective.startsWith("Repair")) return result(input.objective);
+      repairs++;
+      // The first repair is not enough; the second one is.
+      return {
+        ...result("two"),
+        proposal: {
+          summary: "Fix second",
+          requests: [],
+          changes: [
+            {
+              path: "second.js",
+              before: `= ${3 + repairs}`,
+              after: `= ${4 + repairs}`,
+            },
+          ],
+        },
+      };
+    });
+    const engine = await open(root, { worker, verify });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/Verification infrastructure failed/);
+    expect(repairs).toBe(2);
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "attempt.started")
+        .map((event) => event.data.attempt),
+    ).toEqual([2, 3]);
+    infrastructureDown = false;
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.status).toBe("succeeded");
+    expect(repairs).toBe(2);
+    expect(
+      await readFile(path.join(resumed.workspace!, "second.js"), "utf8"),
+    ).toContain("= 6");
+  });
+
+  it("keeps single-attempt plans failing without repair and reserves the repair step ID", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.maxAttempts = 1;
+    });
+    const verify = vi.fn<NonNullable<EngineDependencies["verify"]>>(
+      async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 1,
+          stdout: "",
+          stderr: "fails",
+          snapshotHash,
+        })),
+    );
+    const worker = vi.fn(async (input: WorkerInput) => result(input.objective));
+    const engine = await open(root, { worker, verify });
+    const planned = await plan(engine);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error).toMatch(/DAG checks failed/);
+    expect(worker).toHaveBeenCalledTimes(2);
+    await expect(
+      plan(engine, [step("dag-repair"), step("two")]),
+    ).rejects.toThrow("Step ID dag-repair is reserved");
   });
   it("does not leak a private DAG workspace path when requested source is missing", async () => {
     const { root } = await fixture();
