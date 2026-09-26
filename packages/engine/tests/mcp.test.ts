@@ -756,6 +756,10 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
 
     const local = await connect({ client: "local", allowRun: true });
     connections.push(local);
+    // Feedback reports are a person's choice; no client tool can make one.
+    expect(
+      (await names(local.client)).some((name) => /feedback|report/.test(name)),
+    ).toBe(false);
     const refused = await local.client.callTool({
       name: "plan_create",
       arguments: { objective: "Fix addition", acceptance: [] },
