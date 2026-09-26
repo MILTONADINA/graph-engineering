@@ -125,3 +125,25 @@ describe("command line", () => {
     expect(JSON.parse(check.stdout).errors).toEqual([]);
   }, 120_000);
 });
+
+describe("planning warnings", () => {
+  it("estimates the model calls a plan's roles need", async () => {
+    const { likelyWorkerTurns } = await import("../src/planning.js");
+    const step = { kind: "worker" as const };
+    expect(
+      likelyWorkerTurns(
+        { steps: [step, step] as never },
+        { reviewer: true, maxAttempts: 3 },
+      ),
+    ).toBe(2 * 3 + 1 + 2 + 2 * 3);
+    expect(
+      likelyWorkerTurns(
+        { steps: [step] as never },
+        {
+          reviewer: false,
+          maxAttempts: 1,
+        },
+      ),
+    ).toBe(3);
+  });
+});

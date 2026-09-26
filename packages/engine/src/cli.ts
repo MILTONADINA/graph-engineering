@@ -14,6 +14,7 @@ import {
 import { GraphEngine } from "./service.js";
 import { repositoryProfile } from "./scale.js";
 import { summarizeOutcomes } from "./insights.js";
+import { likelyWorkerTurns } from "./planning.js";
 import {
   buildFeedbackReport,
   classifyError,
@@ -619,22 +620,42 @@ cli
           throw new Error(
             "With --spec, the objective and acceptance criteria come from the spec",
           );
-        return engine.createPlanFromSpec(
-          path.relative(root(), path.resolve(root(), options.spec)),
-          common,
+        return warnAboutTurns(
+          await engine.createPlanFromSpec(
+            path.relative(root(), path.resolve(root(), options.spec)),
+            common,
+          ),
         );
       }
       if (!objective || !options.accept?.length)
         throw new Error(
           "Give an objective and --accept criteria, or plan from a spec with --spec",
         );
-      return engine.createPlan({
-        ...common,
-        objective,
-        acceptance: options.accept,
-      });
+      return warnAboutTurns(
+        await engine.createPlan({
+          ...common,
+          objective,
+          acceptance: options.accept,
+        }),
+      );
     }),
   );
+// A plan's roles share one run-wide budget of model calls; say so before
+// the run, not when it stops half way.
+async function warnAboutTurns(
+  plan: import("@graph-engineering/contracts").ExecutionPlan,
+) {
+  const project = await loadProject(root());
+  const needed = likelyWorkerTurns(plan, {
+    reviewer: Boolean(project.review),
+    maxAttempts: project.policy.maxAttempts,
+  });
+  if (needed > project.policy.maxTurns)
+    console.error(
+      `This plan may need about ${needed} model calls (its steps, reviews and repair attempts), but policy.maxTurns allows ${project.policy.maxTurns} for the whole run. Raise policy.maxTurns if the run stops early.`,
+    );
+  return plan;
+}
 cli
   .command("plan-approve <planId>")
   .description(

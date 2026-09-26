@@ -249,7 +249,9 @@ export class RunStore {
             )
             .get(this.projectId, ownerId) as { count: number };
           if (count.count >= maxWorkerCalls)
-            throw new Error("Run exhausted its shared worker-turn budget");
+            throw new Error(
+              `Run exhausted its shared worker-turn budget: policy.maxTurns (${maxWorkerCalls}) counts every model call in a run, across its steps, tester, reviews and repairs; raise it for plans with more roles`,
+            );
         }
         const usage = this.usage(ownerId);
         if (
