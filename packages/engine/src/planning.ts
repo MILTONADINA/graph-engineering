@@ -1,5 +1,6 @@
 import type {
   DecisionRecord,
+  ExecutionPlan,
   ProjectPolicy,
   ProviderConfig,
 } from "@graph-engineering/contracts";
@@ -153,4 +154,19 @@ export async function routePlan(options: {
     records: result.records,
     usage: result.usage,
   };
+}
+
+/**
+ * A rough count of the model calls a plan needs: a few turns per worker
+ * step (read, request, propose), one per review, and a few per repair
+ * attempt. Used only to warn when policy.maxTurns looks too small.
+ */
+export function likelyWorkerTurns(
+  plan: Pick<ExecutionPlan, "steps">,
+  options: { reviewer: boolean; maxAttempts: number },
+): number {
+  const workers = plan.steps.filter((step) => step.kind !== "template").length;
+  const steps = Math.max(1, workers);
+  const repairs = Math.max(0, options.maxAttempts - 1);
+  return steps * 3 + (options.reviewer ? 1 + repairs : 0) + repairs * 3;
 }
