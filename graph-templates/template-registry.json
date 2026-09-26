@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-26T17:26:43.436Z",
+  "generatedAt": "2026-09-26T17:28:28.453Z",
   "templateCount": 56,
   "templates": [
     {
@@ -583,27 +583,106 @@
     {
       "id": "authentication.session",
       "name": "Server-Side Session Authentication",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "category": "authentication",
       "subcategory": "session",
-      "status": "planned",
-      "description": "Server-side session-store alternative to authentication.jwt — trades the stateless JWT's \"no revocation before expiry\" tradeoff for instant revocation, at the cost of requiring a session store (e.g. Redis) and making every request a store lookup. Not yet implemented in this library; registered so the graph documents the gap. Prefer authentication.jwt unless instant session revocation is a hard requirement.",
+      "status": "implemented",
+      "description": "Server-side session authentication with instant revocation: an opaque 256-bit session id in an httpOnly cookie, the session record held in a pluggable SessionStore (development memory store, PostgreSQL store on the existing Drizzle connection, or a custom shared store such as Redis), server-enforced idle and absolute timeouts, id regeneration on login and privilege change, per-session synchronizer-token CSRF protection, and password verification through authentication.password's bcrypt repository. Trades the stateless JWT's \"no revocation before expiry\" for a store lookup on every authenticated request.",
       "tags": [
         "authentication",
         "session",
         "auth",
-        "jwt"
+        "jwt",
+        "postgres",
+        "drizzle",
+        "password"
       ],
-      "inputs": [],
-      "outputs": [],
-      "dependsOn": [],
-      "environment": [],
+      "inputs": [
+        "idleTimeout",
+        "absoluteTimeout"
+      ],
+      "outputs": [
+        "files",
+        "exports",
+        "routes"
+      ],
+      "dependsOn": [
+        {
+          "id": "authentication.password",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.error-handler",
+          "relationship": "requires"
+        },
+        {
+          "id": "backend.middleware",
+          "relationship": "requires"
+        },
+        {
+          "id": "database.neon-postgres.connection",
+          "relationship": "requires"
+        }
+      ],
+      "environment": [
+        {
+          "name": "SESSION_SECRET",
+          "required": true,
+          "secret": true,
+          "description": "HMAC key for session store lookup keys. No default: at least 32 bytes of cryptographically random material.",
+          "usedBy": [
+            "authentication.session"
+          ]
+        },
+        {
+          "name": "SESSION_STORE",
+          "required": false,
+          "secret": false,
+          "description": "memory (default, development only, refused when NODE_ENV=production), postgres, or custom (call configureSessionStore at startup).",
+          "usedBy": [
+            "authentication.session"
+          ]
+        },
+        {
+          "name": "SESSION_IDLE_TIMEOUT_SECONDS",
+          "required": false,
+          "secret": false,
+          "description": "Idle timeout in seconds, 60 through 86400; defaults to the rendered idleTimeout input.",
+          "usedBy": [
+            "authentication.session"
+          ]
+        },
+        {
+          "name": "SESSION_ABSOLUTE_TIMEOUT_SECONDS",
+          "required": false,
+          "secret": false,
+          "description": "Absolute session lifetime in seconds, 3600 through 2592000; defaults to the rendered absoluteTimeout input.",
+          "usedBy": [
+            "authentication.session"
+          ]
+        },
+        {
+          "name": "SESSION_COOKIE_SECURE",
+          "required": false,
+          "secret": false,
+          "description": "true by default. false is accepted only for local HTTP development and refused when NODE_ENV=production.",
+          "usedBy": [
+            "authentication.session"
+          ]
+        }
+      ],
       "testing": {
-        "strategy": "none"
+        "strategy": "api",
+        "location": "tests/session.test.ts",
+        "command": "npm test -- authenticationSession"
       },
       "compatibleNodes": [
-        "project.node-express",
-        "authorization.rbac"
+        "authentication.password",
+        "database.neon-postgres.connection",
+        "backend.error-handler",
+        "backend.middleware",
+        "authorization.rbac",
+        "authorization.tenant-isolation"
       ],
       "path": "authentication/session"
     },
