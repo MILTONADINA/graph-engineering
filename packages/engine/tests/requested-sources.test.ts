@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -14,6 +14,7 @@ import {
   unseenPatchLocation,
 } from "../src/execution/requested-sources.js";
 import { workerRequestBytes, type WorkerInput } from "../src/workers/api.js";
+import { checked } from "../src/util.js";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -454,5 +455,60 @@ describe("requested sources under a tight budget", () => {
         "Not included, because the context budget is full: second.ts",
       ),
     );
+  });
+});
+
+describe("directory and missing-file requests", () => {
+  const gitWorkspace = async () => {
+    const root = await workspace({});
+    const add = async (file: string, text: string) => {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), text);
+    };
+    await add("src/app.ts", "export const app = 1;\n");
+    await add("src/build.log", "log\n");
+    await add("private/notes.ts", "export const notes = 1;\n");
+    await add(".graph/project.json", "{}\n");
+    await add(".gitignore", "*.log\n");
+    await checked("git", ["init", "-q"], { cwd: root });
+    return root;
+  };
+
+  it("lists only files Git tracks or would track, never ignored or protected ones", async () => {
+    const root = await gitWorkspace();
+    // A missing file at the root lists the whole repository.
+    const result = await request(root, ["missing.ts"]);
+    const listing = result.items.find((item) => item.kind === "outline")!;
+    expect(listing.text).toContain("- src/app.ts");
+    expect(listing.text).toContain("- private/notes.ts");
+    expect(listing.text).not.toContain("build.log");
+    expect(listing.text).not.toContain(".graph/project.json");
+  });
+
+  it("gives a cloud worker a listing of exportable files only", async () => {
+    const root = await gitWorkspace();
+    const cloud = input(
+      { ...packet([]), mandatorySources: [] },
+      {
+        id: "cloud",
+        kind: "openai",
+        model: "fixture",
+        inputCostPerMillion: 0,
+        outputCostPerMillion: 0,
+      },
+    );
+    cloud.policy = {
+      ...cloud.policy,
+      exportPaths: ["src/**"],
+      allowedHosts: ["api.openai.com"],
+    };
+    const result = await request(root, ["src/missing.ts"], undefined, cloud);
+    const listing = result.items.find((item) => item.kind === "outline")!;
+    expect(listing.text).toContain(
+      "src/missing.ts does not exist. Files under src:",
+    );
+    expect(listing.text).toContain("- src/app.ts");
+    expect(listing.text).not.toContain("private");
+    expect(listing.source!.path).toBe("src/app.ts");
   });
 });

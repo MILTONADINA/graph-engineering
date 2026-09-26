@@ -1273,6 +1273,17 @@ describe("tester role", () => {
     expect(
       await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
     ).toBe("expect 3\n");
+    // Each returned proposal records why, as a reason code only.
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "proposal.returned")
+        .map((event) => [event.stepId, event.data.reason]),
+    ).toEqual([
+      ["tester", "test-first"],
+      ["tester", "test-first"],
+      ["one", "test-first"],
+    ]);
   });
 
   it("never lets a repair weaken the tests the tester wrote", async () => {
@@ -1348,10 +1359,10 @@ describe("tester role", () => {
     ).toBe("expect 5\n");
   });
 
-  it("sends a failure in the tester's own tests back to the tester, limited to test files", async () => {
+  const testerFixture = async (attempts: number) => {
     const { root, config } = await fixture((value) => {
       value.policy.providers = ["local", "tester"];
-      value.policy.maxAttempts = 3;
+      value.policy.maxAttempts = attempts;
       value.tester = { providerId: "tester" };
     });
     await configureProvider(projectDataDir(config.projectId), {
@@ -1359,228 +1370,195 @@ describe("tester role", () => {
       kind: "local",
       model: "tester-fixture",
     });
-    const repairs: { provider: string; objective: string }[] = [];
+    await writeFile(path.join(root, "old.test.js"), "expect 1\n");
+    await checked("git", ["add", "old.test.js"], { cwd: root });
+    await checked("git", ["commit", "-m", "test: existing test"], {
+      cwd: root,
+    });
+    return root;
+  };
+  // Checks fail while the tester's test holds the wrong expectation; the
+  // output is long, as real runners' stack traces are.
+  const wrongExpectation: NonNullable<EngineDependencies["verify"]> = async (
+    workspace,
+    checks,
+    _policy,
+    snapshotHash,
+  ) => {
+    const test = await readFile(
+      path.join(workspace, "tests/FirstTest.java"),
+      "utf8",
+    ).catch(() => "");
+    const failing = test.includes("13 digits");
+    const frames = Array.from(
+      { length: 400 },
+      (_, i) => `\tat pkg.Frame${i}.call(Frame.java:${i})`,
+    ).join("\n");
+    return checks.map((check) => ({
+      ...check,
+      code: failing ? 1 : 0,
+      stdout: failing
+        ? `FAIL tests/FirstTest.java\n[ERROR] pkg.FirstTest.valid: expected 12 digits\n${frames}\n[ERROR] Tests run: 3, Failures: 1`
+        : "",
+      stderr: "",
+      snapshotHash,
+    }));
+  };
+  const writesWrongTest = {
+    ...result("one"),
+    proposal: {
+      summary: "Tests",
+      requests: [],
+      changes: [
+        {
+          path: "tests/FirstTest.java",
+          before: null,
+          after: "expect 13 digits\n",
+        },
+      ],
+    },
+  };
+
+  it("lets the implementer dispute a tester's test, and the tester then fixes only its own files", async () => {
+    const root = await testerFixture(3);
+    const calls: { provider: string; objective: string; feedback?: string }[] =
+      [];
     const engine = await open(root, {
       worker: vi.fn(async (input: WorkerInput) => {
-        if (!input.objective.includes("required checks fail")) {
-          if (input.provider.id !== "tester") return result("one");
-          return {
-            ...result("one"),
-            proposal: {
-              summary: "A test that does not compile",
-              requests: [],
-              changes: [
-                { path: "first.test.js", before: null, after: "broken(\n" },
-              ],
-            },
-          };
-        }
-        repairs.push({
+        calls.push({
           provider: input.provider.id,
           objective: input.objective,
+          feedback: input.feedback,
         });
-        return {
-          ...result("one"),
-          proposal: {
-            summary: "Fix my test",
-            requests: [],
-            changes: [
-              { path: "first.test.js", before: "broken(", after: "expect 3" },
-            ],
-          },
-        };
+        if (input.objective.startsWith("Act as the team's tester, before"))
+          return writesWrongTest;
+        if (input.objective.startsWith("Repair"))
+          return {
+            ...result("one"),
+            proposal: {
+              summary:
+                "The test expects 13 digits but an account number has 12",
+              requests: [],
+              changes: [],
+            },
+          };
+        if (
+          input.objective.startsWith(
+            "Act as the team's tester. The implementer",
+          )
+        )
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "Fix my expectation",
+              requests: [],
+              changes:
+                calls.filter((call) => call.provider === "tester").length === 2
+                  ? [{ path: "old.test.js", before: "expect 1", after: "" }]
+                  : [
+                      {
+                        path: "tests/FirstTest.java",
+                        before: "13 digits",
+                        after: "12 digits",
+                      },
+                    ],
+            },
+          };
+        return result("one");
       }),
-      verify: async (workspace, checks, _policy, snapshotHash) => {
-        const test = await readFile(
-          path.join(workspace, "first.test.js"),
-          "utf8",
-        ).catch(() => "");
-        const broken = test.includes("broken(");
-        return checks.map((check) => ({
-          ...check,
-          code: broken ? 1 : 0,
-          stdout: broken ? "SyntaxError in first.test.js:1" : "",
-          stderr: "",
-          snapshotHash,
-        }));
-      },
+      verify: wrongExpectation,
     });
     const planned = await plan(engine, [step("one")]);
     const run = await engine.wait((await engine.start(planned.id)).id);
     expect(run.error ?? "").toBe("");
     expect(run.status).toBe("succeeded");
-    expect(repairs).toHaveLength(1);
-    expect(repairs[0]!.provider).toBe("tester");
-    expect(repairs[0]!.objective).toContain(
-      "The required checks fail in tests you wrote (first.test.js)",
+    const repairCalls = calls.filter(
+      (call) =>
+        call.objective.startsWith("Repair") ||
+        call.objective.startsWith("Act as the team's tester. The implementer"),
     );
-    expect(
-      engine.store
-        .events(run.id)
-        .find((event) => event.type === "dag.repair_started")?.data,
-    ).toMatchObject({ providerId: "tester", role: "tester" });
+    expect(repairCalls.map((call) => call.provider)).toEqual([
+      "local",
+      "tester",
+      "tester",
+    ]);
+    // The implementer saw the error, not 400 stack frames.
+    expect(repairCalls[0]!.feedback).toContain(
+      "pkg.FirstTest.valid: expected 12 digits",
+    );
+    expect(repairCalls[0]!.feedback).toContain("(more stack frames omitted)");
+    expect(repairCalls[0]!.feedback).not.toContain("Frame399");
+    expect(repairCalls[1]!.objective).toContain(
+      'The implementer believes a test you wrote (tests/FirstTest.java) is wrong: "The test expects 13 digits but an account number has 12"',
+    );
+    // The tester may not edit other tests.
+    expect(repairCalls[2]!.feedback).toContain("old.test.js");
+    const types = engine.store.events(run.id).map((event) => event.type);
+    expect(types).toContain("dag.repair_dispute");
+    expect(types).toContain("dag.repair_handoff");
   });
 
-  it("recognises the tester's file when a test runner names its class, and trims stack traces", async () => {
-    const { root, config } = await fixture((value) => {
-      value.policy.providers = ["local", "tester"];
-      value.policy.maxAttempts = 3;
-      value.tester = { providerId: "tester" };
-    });
-    await configureProvider(projectDataDir(config.projectId), {
-      id: "tester",
-      kind: "local",
-      model: "tester-fixture",
-    });
-    const repairs: { provider: string; feedback?: string }[] = [];
+  it("names an unresolved dispute for a person when attempts run out", async () => {
+    const root = await testerFixture(2);
     const engine = await open(root, {
-      worker: vi.fn(async (input: WorkerInput) => {
-        if (!input.objective.includes("required checks fail")) {
-          if (input.provider.id !== "tester") return result("one");
-          return {
-            ...result("one"),
-            proposal: {
-              summary: "Wrong test data",
-              requests: [],
-              changes: [
-                {
-                  path: "tests/FirstTest.java",
-                  before: null,
-                  after: "expect 13 digits\n",
+      worker: vi.fn(async (input: WorkerInput) =>
+        input.objective.startsWith("Act as the team's tester")
+          ? writesWrongTest
+          : input.objective.startsWith("Repair")
+            ? {
+                ...result("one"),
+                proposal: {
+                  summary: "The test's expected value is wrong",
+                  requests: [],
+                  changes: [],
                 },
-              ],
-            },
-          };
-        }
-        repairs.push({ provider: input.provider.id, feedback: input.feedback });
-        return {
-          ...result("one"),
-          proposal: {
-            summary: "Fix my test data",
-            requests: [],
-            changes: [
-              {
-                path: "tests/FirstTest.java",
-                before: "13 digits",
-                after: "12 digits",
-              },
-            ],
-          },
-        };
-      }),
-      verify: async (workspace, checks, _policy, snapshotHash) => {
-        const test = await readFile(
-          path.join(workspace, "tests/FirstTest.java"),
-          "utf8",
-        ).catch(() => "");
-        const failing = test.includes("13 digits");
-        const frames = Array.from(
-          { length: 400 },
-          (_, i) => `\tat pkg.Frame${i}.call(Frame.java:${i})`,
-        ).join("\n");
-        return checks.map((check) => ({
-          ...check,
-          code: failing ? 1 : 0,
-          stdout: failing
-            ? `[ERROR] pkg.FirstTest.valid FAILURE: expected 12 digits\n${frames}\n[ERROR] Tests run: 3, Failures: 1`
-            : "",
-          stderr: "",
-          snapshotHash,
-        }));
-      },
+              }
+            : result("one"),
+      ),
+      verify: wrongExpectation,
     });
     const planned = await plan(engine, [step("one")]);
     const run = await engine.wait((await engine.start(planned.id)).id);
-    expect(run.error ?? "").toBe("");
-    expect(run.status).toBe("succeeded");
-    expect(repairs.map((repair) => repair.provider)).toEqual(["tester"]);
-    expect(repairs[0]!.feedback).toContain(
-      "pkg.FirstTest.valid FAILURE: expected 12 digits",
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain(
+      "the implementer disputes the tester's tests: The test's expected value is wrong; a person should decide",
     );
-    expect(repairs[0]!.feedback).toContain("(more stack frames omitted)");
-    expect(repairs[0]!.feedback).not.toContain("Frame399");
   });
 
-  it("hands the repair to the implementer after the tester's one attempt at its own tests", async () => {
-    const { root, config } = await fixture((value) => {
-      value.policy.providers = ["local", "tester"];
-      value.policy.maxAttempts = 3;
-      value.tester = { providerId: "tester" };
-    });
-    await configureProvider(projectDataDir(config.projectId), {
-      id: "tester",
-      kind: "local",
-      model: "tester-fixture",
-    });
-    const repairs: string[] = [];
+  it("refuses an implementer edit to the tester's file under a different letter case", async () => {
+    const root = await testerFixture(3);
+    const repairs: (string | undefined)[] = [];
     const engine = await open(root, {
       worker: vi.fn(async (input: WorkerInput) => {
-        const repairing =
-          input.objective.includes("required checks fail") ||
-          input.objective.startsWith("Repair");
-        if (!repairing) {
-          if (input.provider.id !== "tester") return result("one");
-          return {
-            ...result("one"),
-            proposal: {
-              summary: "A broken test for first = 5",
-              requests: [],
-              changes: [
-                { path: "first.test.js", before: null, after: "broken(\n" },
-              ],
-            },
-          };
-        }
-        repairs.push(input.provider.id);
+        if (input.objective.startsWith("Act as the team's tester, before"))
+          return writesWrongTest;
+        if (!input.objective.startsWith("Repair")) return result("one");
+        repairs.push(input.feedback);
         return {
           ...result("one"),
           proposal: {
-            summary: "Repair",
+            summary: "Rewrite the test",
             requests: [],
-            changes: [
-              input.provider.id === "tester"
-                ? {
-                    path: "first.test.js",
-                    before: "broken(",
-                    after: "expect 5",
-                  }
-                : { path: "first.js", before: "= 3", after: "= 5" },
-            ],
+            changes:
+              repairs.length === 1
+                ? [
+                    {
+                      path: "tests/firsttest.java",
+                      before: "13 digits",
+                      after: "12 digits",
+                    },
+                  ]
+                : [],
           },
         };
       }),
-      verify: async (workspace, checks, _policy, snapshotHash) => {
-        const first = await readFile(path.join(workspace, "first.js"), "utf8");
-        const test = await readFile(
-          path.join(workspace, "first.test.js"),
-          "utf8",
-        ).catch(() => "");
-        const broken = test.includes("broken(");
-        const passing =
-          !broken && (!test.includes("expect 5") || first.includes("= 5"));
-        return checks.map((check) => ({
-          ...check,
-          code: passing ? 0 : 1,
-          stdout: broken
-            ? "SyntaxError in first.test.js:1"
-            : passing
-              ? ""
-              : "first.test.js: expected 5",
-          stderr: "",
-          snapshotHash,
-        }));
-      },
+      verify: wrongExpectation,
     });
     const planned = await plan(engine, [step("one")]);
-    const run = await engine.wait((await engine.start(planned.id)).id);
-    expect(run.error ?? "").toBe("");
-    expect(run.status).toBe("succeeded");
-    expect(repairs).toEqual(["tester", "local"]);
-    expect(
-      engine.store
-        .events(run.id)
-        .find((event) => event.type === "dag.repair_handoff")?.data,
-    ).toMatchObject({ providerId: "local", role: "implementer" });
+    await engine.wait((await engine.start(planned.id)).id);
+    expect(repairs[1]).toContain(
+      "The tester wrote tests/firsttest.java to prove the acceptance criteria. Do not change those tests",
+    );
   });
 
   it("reserves the tester's step ID", async () => {

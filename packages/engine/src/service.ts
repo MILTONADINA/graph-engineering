@@ -1550,8 +1550,17 @@ export class GraphEngine {
             ),
         ),
       ];
+      // Why a worker's proposal went back to it, for people reading the run
+      // and for difficulty reports: a reason code, never the proposal.
+      const returned = (stepId: string, reason: string) =>
+        this.store.event(run.id, "proposal.returned", { reason }, stepId);
       let repairedByTester = false;
       let implementerRepair: ExecutionStep | undefined;
+      let testerRepairPlan: ExecutionStep | undefined;
+      // Why the implementer believes a tester's test is wrong, when it
+      // proposed no change; the tester answers it on the next attempt.
+      let implementerDispute: string | undefined;
+      let unresolvedDispute: string | undefined;
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
         save("verifying");
@@ -1796,6 +1805,7 @@ export class GraphEngine {
                   if (!(error instanceof RepeatedRequestError)) throw error;
                   if (!result.proposal.changes.length) {
                     if (++repeatedRequests > 1) throw error;
+                    returned(step.id, "no-new-evidence");
                     patchFeedback = REPEATED_REQUEST_FEEDBACK;
                     continue;
                   }
@@ -1813,6 +1823,7 @@ export class GraphEngine {
                 // gets its out-of-scope edits back as feedback.
                 const outside = outsideWriteScope(step, result.proposal);
                 if (outside.length) {
+                  returned(step.id, "outside-write-scope");
                   patchFeedback = writeScopeFeedback(step, outside);
                   continue;
                 }
@@ -1822,10 +1833,12 @@ export class GraphEngine {
                   testsWritten,
                 );
                 if (testerFeedback) {
+                  returned(step.id, "test-first");
                   patchFeedback = testerFeedback;
                   continue;
                 }
                 if (!unseen) return result;
+                returned(step.id, "unseen-or-ambiguous-edit");
                 patchFeedback = patchFeedbackFor(
                   unseen,
                   result.proposal,
@@ -1858,49 +1871,36 @@ export class GraphEngine {
                   ? "Code review requested changes on the combined result; inspect the review and create a repair plan"
                   : "DAG checks failed; inspect retained per-step evidence and create a repair plan",
             );
-          // Tests the tester wrote are changed only by the tester: when the
-          // failing checks name one of its files (a test that does not
-          // compile, say), the tester repairs its own tests, limited to test
-          // files; otherwise the implementer repairs the code.
-          const testerStepPlan = run.plan.steps.find(
+          // The implementer repairs first: the tester's tests are the
+          // criteria. If it disputes one of those tests by proposing no
+          // change, the next attempt goes to the tester (see below).
+          testerRepairPlan = run.plan.steps.find(
             (step) => step.id === TESTER_STEP_ID,
           );
-          const brokenTests = testerStepPlan
-            ? testerWrittenFiles().filter((file) => namesFile(feedback, file))
-            : [];
-          repairedByTester = brokenTests.length > 0;
+          repairedByTester = false;
           implementerRepair = {
             id: DAG_REPAIR_STEP,
             kind: "worker",
-            objective: `Repair the combined result of this plan so every required check passes, keeping the work its steps completed. First decide from the failure whether the code or a test is wrong: fix the code when it misses an acceptance criterion; fix a test's expectation only when the test is wrong and was not written by the tester. The plan's objective: ${run.plan.objective}`,
+            objective: [
+              "Repair the combined result of this plan so every required check passes, keeping the work its steps completed.",
+              "First decide from the failure whether the code or a test is wrong: fix the code when it misses an acceptance criterion; fix a test's expectation only when the test is wrong and the tester did not write it.",
+              ...(testerRepairPlan
+                ? [
+                    "If a test the tester wrote is itself wrong, propose no changes and explain exactly why in your summary; the tester will review it.",
+                  ]
+                : []),
+              `The plan's objective: ${run.plan.objective}`,
+            ].join(" "),
             dependsOn: [],
             providerId: worker.providerId,
             ...(worker.effort ? { effort: worker.effort } : {}),
           };
-          singleSteps = [
-            repairedByTester
-              ? {
-                  id: DAG_REPAIR_STEP,
-                  kind: "worker",
-                  objective: [
-                    `Act as the team's tester. The required checks fail in tests you wrote (${brokenTests.join(", ")}).`,
-                    "Fix those tests so they compile and run, keeping a test that proves every acceptance criterion. Change only test files; do not weaken or delete a criterion's test.",
-                    `The plan's objective: ${run.plan.objective}`,
-                  ].join(" "),
-                  dependsOn: [],
-                  providerId: testerStepPlan!.providerId,
-                  writes: testerStepPlan!.writes,
-                }
-              : { ...implementerRepair },
-          ];
+          singleSteps = [{ ...implementerRepair }];
           firstAttempt = 2;
           this.store.event(
             run.id,
             "dag.repair_started",
-            {
-              providerId: singleSteps[0]!.providerId,
-              ...(repairedByTester ? { role: "tester" } : {}),
-            },
+            { providerId: singleSteps[0]!.providerId },
             DAG_REPAIR_STEP,
           );
         }
@@ -1993,6 +1993,43 @@ export class GraphEngine {
               { providerId: provider.id, role: "implementer" },
               step.id,
             );
+          } else if (
+            step.id === DAG_REPAIR_STEP &&
+            !repairedByTester &&
+            implementerDispute !== undefined &&
+            testerRepairPlan &&
+            attempt > firstAttempt
+          ) {
+            const own = testerWrittenFiles();
+            const tester = (await this.providers()).find(
+              (candidate) => candidate.id === testerRepairPlan!.providerId,
+            );
+            if (own.length && tester) {
+              repairedByTester = true;
+              Object.assign(step, {
+                providerId: tester.id,
+                // Only the files the tester wrote, never other tests.
+                writes: own,
+                objective: [
+                  `Act as the team's tester. The implementer believes a test you wrote (${own.join(", ")}) is wrong${
+                    tester.kind === "local"
+                      ? `: "${implementerDispute}"`
+                      : "; recheck every expectation you wrote"
+                  }.`,
+                  "Check the expectations against the acceptance criteria and fix any that are wrong, keeping a test that proves every criterion. Change only those files; if your tests are right, propose no changes and explain why.",
+                  `The plan's objective: ${run.plan.objective}`,
+                ].join(" "),
+              });
+              delete step.effort;
+              provider = tester;
+              this.store.event(
+                run.id,
+                "dag.repair_handoff",
+                { providerId: provider.id, role: "tester" },
+                step.id,
+              );
+            }
+            implementerDispute = undefined;
           }
           assertProvider(provider, this.config.policy, step.effort);
           save("running");
@@ -2108,6 +2145,7 @@ export class GraphEngine {
                 if (!(error instanceof RepeatedRequestError)) throw error;
                 if (!result.proposal.changes.length) {
                   if (++repeatedRequests > 1) throw error;
+                  returned(step.id, "no-new-evidence");
                   patchFeedback = REPEATED_REQUEST_FEEDBACK;
                   continue;
                 }
@@ -2123,26 +2161,33 @@ export class GraphEngine {
             // A step limited to some files never applies an edit outside them.
             const outside = outsideWriteScope(step, result.proposal);
             if (outside.length) {
+              returned(step.id, "outside-write-scope");
               patchFeedback = writeScopeFeedback(step, outside);
               continue;
             }
             // A repair must fix the implementation, never weaken the tests
             // the tester wrote for the acceptance criteria.
             if (step.id === DAG_REPAIR_STEP && !repairedByTester) {
-              const testerFiles = new Set(testerWrittenFiles());
+              // Case-insensitive: macOS and Windows file systems treat
+              // First.test.js and first.test.js as one file.
+              const testerFiles = new Set(
+                testerWrittenFiles().map((file) => file.toLowerCase()),
+              );
               const touched = [
                 ...new Set(
                   result.proposal.changes
                     .map((change) => change.path)
-                    .filter((file) => testerFiles.has(file)),
+                    .filter((file) => testerFiles.has(file.toLowerCase())),
                 ),
               ];
               if (touched.length) {
+                returned(step.id, "tester-files");
                 patchFeedback = `The tester wrote ${touched.join(", ")} to prove the acceptance criteria. Do not change those tests; fix the implementation so they pass.`;
                 continue;
               }
             }
             if (unseen) {
+              returned(step.id, "unseen-or-ambiguous-edit");
               patchFeedback = patchFeedbackFor(
                 unseen,
                 result.proposal,
@@ -2161,6 +2206,7 @@ export class GraphEngine {
             } catch (error) {
               const message = errorMessage(error);
               if (!message.startsWith("Patch precondition failed")) throw error;
+              returned(step.id, "unseen-or-ambiguous-edit");
               patchFeedback = patchFeedbackFor(
                 `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`,
                 result.proposal,
@@ -2192,6 +2238,27 @@ export class GraphEngine {
               { paths: changed },
               step.id,
             );
+            // An implementer repair that changes nothing disputes the
+            // tester's tests; the tester answers on the next attempt.
+            if (
+              step.id === DAG_REPAIR_STEP &&
+              !repairedByTester &&
+              testerRepairPlan &&
+              !changed.length
+            ) {
+              implementerDispute = redact(result.proposal.summary).slice(
+                0,
+                1500,
+              );
+              unresolvedDispute = implementerDispute;
+              this.store.event(
+                run.id,
+                "dag.repair_dispute",
+                { summary: implementerDispute },
+                step.id,
+              );
+            } else if (repairedByTester && changed.length)
+              unresolvedDispute = undefined;
             proposalApplied = true;
             break;
           }
@@ -2251,7 +2318,9 @@ export class GraphEngine {
                 ? `Security scan found ${securityFindings} finding(s) not in the reviewed baseline; recovery controller stopped for review`
                 : reviewFeedback
                   ? "Code review requested changes; recovery controller stopped for review"
-                  : "Required checks failed; recovery controller stopped for review",
+                  : unresolvedDispute
+                    ? `Required checks failed and the implementer disputes the tester's tests: ${unresolvedDispute}; a person should decide`
+                    : "Required checks failed; recovery controller stopped for review",
             );
           if (recovery.action === "escalate") provider = alternatives[0]!;
           stepPacket = await currentContext();
@@ -2426,19 +2495,6 @@ function outsideWriteScope(
 function writeScopeFeedback(step: ExecutionStep, outside: string[]): string {
   return `This step may only write files matching ${step.writes!.join(", ")}. Your proposal also changed ${outside.join(", ")}; propose only changes within that scope.`;
 }
-// Whether check output names a file: by its path, or by its name without
-// the extension, as test runners that report classes or modules do.
-function namesFile(output: string, file: string): boolean {
-  if (output.includes(file)) return true;
-  const stem = path.posix.basename(file).replace(/\.[^.]+$/, "");
-  return (
-    stem.length >= 4 &&
-    new RegExp(
-      `(?:^|[^A-Za-z0-9_])${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^A-Za-z0-9_]|$)`,
-    ).test(output)
-  );
-}
-
 // Stack traces can fill the output; keep the first two frames of each so
 // the error messages around them survive the size limit.
 function collapseStackFrames(text: string): string {
@@ -2488,18 +2544,28 @@ function testFirstFeedback(
   if (step.id === TESTER_STEP_ID) {
     if (!proposal.changes.length)
       return "Write at least one new test file that proves the acceptance criteria before anyone implements them.";
+    // Editing a file this same proposal creates is still creating it.
+    const created = new Set(
+      proposal.changes
+        .filter((change) => change.before === null)
+        .map((change) => change.path.toLowerCase()),
+    );
     const edits = proposal.changes
-      .filter((change) => change.before !== null)
+      .filter(
+        (change) =>
+          change.before !== null && !created.has(change.path.toLowerCase()),
+      )
       .map((change) => change.path);
     return edits.length
       ? `As the tester, create new test files only; do not edit existing files (${[...new Set(edits)].join(", ")}). Put your tests in a new file.`
       : undefined;
   }
+  const written = new Set(testsWritten.map((file) => file.toLowerCase()));
   const touched = [
     ...new Set(
       proposal.changes
         .map((change) => change.path)
-        .filter((file) => testsWritten.includes(file)),
+        .filter((file) => written.has(file.toLowerCase())),
     ),
   ];
   return touched.length

@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type {
   ContextItem,
@@ -6,6 +6,7 @@ import type {
   SourceReference,
 } from "@graph-engineering/contracts";
 import { excludedFromIndex } from "../context/index.js";
+import { gitFiles } from "./workspace.js";
 import { parseFile } from "../context/parser.js";
 import {
   containsSecret,
@@ -221,7 +222,10 @@ export async function requestedSourcePacket(options: {
         text: listing.text,
         score: supplied.nextScore(),
         source: {
-          path: `${listing.path}/`,
+          // A cloud worker's items must name an exportable file; the listing
+          // is anchored to the first file it lists.
+          path:
+            provider.kind === "local" ? `${listing.path}/` : listing.files[0]!,
           startLine: 1,
           endLine: listing.count,
           contentHash: hash(listing.text),
@@ -447,9 +451,10 @@ const NEW_EVIDENCE_SCORE = 1_000;
 
 /**
  * The files under the requested directory, or under the nearest existing
- * parent of a path that does not exist, as the worker may see them: never
- * ignored, build or policy-excluded paths, and only exportable ones for a
- * cloud worker. Bounded to 200 entries.
+ * parent of a path that does not exist, as the worker may read them: Git's
+ * own file list (so ignored files never appear), without build or
+ * dependency output, protected or policy-excluded paths, and only
+ * exportable ones for a cloud worker. Bounded to 200 entries.
  */
 async function directoryListing(
   workspace: string,
@@ -459,7 +464,9 @@ async function directoryListing(
     exportOnly: boolean;
     missing: boolean;
   },
-): Promise<{ path: string; text: string; count: number } | undefined> {
+): Promise<
+  { path: string; text: string; count: number; files: string[] } | undefined
+> {
   let directory = requested.replace(/\/+$/, "");
   for (;;) {
     const info = await stat(path.join(workspace, directory)).catch(() => null);
@@ -468,48 +475,35 @@ async function directoryListing(
     const parent = path.posix.dirname(directory);
     directory = parent === "." ? "" : parent;
   }
-  const files: string[] = [];
-  let truncated = false;
-  const walk = async (relative: string): Promise<void> => {
-    const entries = await readdir(path.join(workspace, relative), {
-      withFileTypes: true,
-    });
-    entries.sort((a, b) => a.name.localeCompare(b.name));
-    for (const entry of entries) {
-      if (truncated) return;
-      const child = relative ? `${relative}/${entry.name}` : entry.name;
-      if (entry.name === ".git" || entry.isSymbolicLink()) continue;
-      if (
-        excludedFromIndex(child, options.policy, {
-          directory: entry.isDirectory(),
-        })
-      )
-        continue;
-      if (entry.isDirectory()) await walk(child);
-      else if (entry.isFile()) {
-        if (options.exportOnly && !isAllowedPath(child, options.policy, true))
-          continue;
-        if (files.length >= LISTING_LIMIT) {
-          truncated = true;
-          return;
-        }
-        files.push(child);
-      }
-    }
-  };
-  await walk(directory);
+  let listed: string[];
+  try {
+    listed = await gitFiles(workspace);
+  } catch {
+    return undefined;
+  }
+  const prefix = directory ? `${directory}/` : "";
+  const all = listed
+    .filter(
+      (file) =>
+        file.startsWith(prefix) &&
+        !excludedFromIndex(file, options.policy) &&
+        isAllowedPath(file, options.policy, options.exportOnly),
+    )
+    .sort();
+  if (!all.length) return undefined;
+  const files = all.slice(0, LISTING_LIMIT);
   const shown = directory || ".";
   const text = [
     options.missing
       ? `${requested} does not exist. Files under ${shown}:`
       : `${shown} is a directory. Its files:`,
     ...files.map((file) => `- ${file}`),
-    ...(truncated
+    ...(all.length > files.length
       ? [`(first ${LISTING_LIMIT} files; request a subdirectory to see more)`]
       : []),
     "Request one of these files, or a line range of one, to read it.",
   ].join("\n");
-  return { path: shown, text, count: Math.max(1, files.length) };
+  return { path: shown, text, count: files.length, files };
 }
 
 /**

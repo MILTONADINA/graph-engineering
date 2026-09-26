@@ -15,7 +15,7 @@ and you decide whether to send each one.
   account, or close the tab. The graph holds no token and sends nothing
   itself.
 - If nobody is at a terminal (a script, CI, an AI client), it never asks and
-  never sends.
+  never sends. With no answer within two minutes, the answer is no.
 
 ## What a report contains
 
