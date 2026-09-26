@@ -1565,6 +1565,8 @@ describe("tester role", () => {
     const { root } = await fixture();
     const feedback: (string | undefined)[] = [];
     const worker = vi.fn(async (input: WorkerInput) => {
+      // Step "two" is independent and applies cleanly.
+      if (input.objective.includes("two")) return result("two");
       feedback.push(input.feedback);
       return {
         ...result("one"),
@@ -1580,12 +1582,53 @@ describe("tester role", () => {
       };
     });
     const engine = await open(root, { worker, verify: vi.fn(passing) });
-    const planned = await plan(engine, [step("one")]);
+    // Two steps, so the plan runs through the multi-step executor.
+    const planned = await plan(engine, [step("one"), step("two")]);
     const run = await engine.wait((await engine.start(planned.id)).id);
     expect(run.error ?? "").toBe("");
     expect(run.status).toBe("succeeded");
     expect(feedback[1]).toContain("Patch precondition failed");
-    expect(feedback[2]).toContain("that file already exists");
+    expect(feedback[2]).toContain("that file already exists. Request it first");
+    const events = engine.store.events(run.id);
+    expect(events.map((event) => event.type)).toContain("dag.step.started");
+    expect(
+      events
+        .filter((event) => event.type === "proposal.returned")
+        .map((event) => event.data.reason),
+    ).toEqual(["patch-did-not-match", "file-exists"]);
+  });
+
+  it("tells a tester whose new test file already exists to use another name", async () => {
+    const root = await testerFixture(3);
+    const testerFeedback: (string | undefined)[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (input.provider.id !== "tester") return result("one");
+        testerFeedback.push(input.feedback);
+        return {
+          ...result("one"),
+          proposal: {
+            summary: "Tests",
+            requests: [],
+            changes: [
+              {
+                path:
+                  testerFeedback.length === 1 ? "old.test.js" : "new.test.js",
+                before: null,
+                after: "expect 3\n",
+              },
+            ],
+          },
+        };
+      }),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(testerFeedback[1]).toContain(
+      "that file already exists. Put your tests in a new file with a different name",
+    );
+    expect(testerFeedback[1]).not.toContain("edit it");
   });
 
   it("reserves the tester's step ID", async () => {

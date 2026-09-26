@@ -38,6 +38,10 @@ Larger changes are made of steps, some independent and some depending on others.
   - Test: packages/engine/tests/dag.test.ts :: gives each step its own timeout rather than one for the whole plan
   - Test: packages/engine/tests/dag.test.ts :: stops a step that ignores its signal at the step's time limit
 
+- AC9: A step's patch that cannot apply (a before that does not match exactly once, or a new file whose name is taken) goes back to its worker as feedback with a reason code instead of failing the plan; a tester is told to use a new file name.
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns a DAG patch that cannot apply to the worker instead of failing the plan
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: tells a tester whose new test file already exists to use another name
+
 ## Security considerations
 
 Parallelism multiplies spend and write risk, so all steps draw on one durable turn and cost ceiling and every wave's preconditions are checked before the first write. Undeclared writes and path collisions are refused so one step cannot overwrite another's work or reach paths it was not planned for. Policy is re-read between sibling applications, so tightening policy mid-run takes effect. Cloud steps follow the same export rules as single runs, including refusal of mandatory text the run workspace imported.

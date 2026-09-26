@@ -102,6 +102,12 @@ test-first tester makes this likely); `spec-check` also recognises gates on
 also stops the local difficulty log; four documentation drifts fixed.
 Issues were enabled on the fork so feedback reports have somewhere to land.
 
+**Round 4**: the "file already exists" feedback is role-aware (a tester is
+told to use a new name, others to request the file first) with its own
+reason codes; the multi-step patch-feedback test now runs a two-step plan
+and fails if the change is reverted; the multi-step spec records the
+behaviour; the feedback docs say exactly when a difficulty is recorded.
+
 Deferred with reasons: epics above one level of decomposition (L; needs a
 planner design of its own); verifying OAuth ID token signatures in the
 generated app (changes the generated app's network behaviour, so the owner

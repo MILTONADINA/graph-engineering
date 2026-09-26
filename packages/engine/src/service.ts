@@ -1848,11 +1848,14 @@ export class GraphEngine {
                       this.config.policy,
                     );
                   } catch (error) {
-                    const feedback = patchErrorFeedback(errorMessage(error));
-                    if (!feedback) throw error;
-                    returned(step.id, "unseen-or-ambiguous-edit");
+                    const returnedPatch = patchErrorFeedback(
+                      errorMessage(error),
+                      step.id,
+                    );
+                    if (!returnedPatch) throw error;
+                    returned(step.id, returnedPatch.reason);
                     patchFeedback = patchFeedbackFor(
-                      feedback,
+                      returnedPatch.feedback,
                       result.proposal,
                       provider,
                       this.config.policy,
@@ -2228,11 +2231,11 @@ export class GraphEngine {
               );
             } catch (error) {
               const message = errorMessage(error);
-              const feedback = patchErrorFeedback(message);
-              if (!feedback) throw error;
-              returned(step.id, "unseen-or-ambiguous-edit");
+              const returnedPatch = patchErrorFeedback(message, step.id);
+              if (!returnedPatch) throw error;
+              returned(step.id, returnedPatch.reason);
               patchFeedback = patchFeedbackFor(
-                feedback,
+                returnedPatch.feedback,
                 result.proposal,
                 provider,
                 this.config.policy,
@@ -2597,12 +2600,25 @@ function testFirstFeedback(
     : undefined;
 }
 
-// What a worker is told when its patch cannot apply, or undefined for
-// errors that are not the worker's to fix.
-function patchErrorFeedback(message: string): string | undefined {
+// What a worker is told when its patch cannot apply, and the reason code
+// recorded for it, or undefined for errors that are not the worker's to fix.
+function patchErrorFeedback(
+  message: string,
+  stepId: string,
+): { feedback: string; reason: string } | undefined {
   if (message.startsWith("Patch precondition failed"))
-    return `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`;
+    return {
+      feedback: `${message}. Include enough surrounding lines in before to match exactly once in the whole file.`,
+      reason: "patch-did-not-match",
+    };
   if (message.startsWith("Refusing to replace existing file"))
-    return `${message}: that file already exists. Edit it with a before that matches its content, or create a file with a different name.`;
+    return {
+      // The tester may only create files, so it can only rename.
+      feedback:
+        stepId === TESTER_STEP_ID
+          ? `${message}: that file already exists. Put your tests in a new file with a different name.`
+          : `${message}: that file already exists. Request it first, then edit it with a before that matches its content, or create a file with a different name.`,
+      reason: "file-exists",
+    };
   return undefined;
 }
