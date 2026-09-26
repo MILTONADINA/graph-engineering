@@ -145,6 +145,13 @@ exceed the default context budget, has a proposed design in
 [worker context excerpts](worker-context-excerpts.md). Its five decisions
 were recorded on 2026-09-25, delegated by the owner; the next step is its
 delivery step 2 (one budget measure and the lines-seen progress guard).
+Steps 2 and 3 have since merged (#31, #32).
+
+On 2026-09-26 the owner set the goal of a fully wired graph that works like
+a professional agile team for users from first-time builders to very large
+repositories. The [full wiring roadmap](full-wiring-roadmap.md) maps that
+goal to capabilities, the PR closing each gap, and the items only the owner
+or a third party can unblock; continue from it.
 
 ## Where the work stands
 

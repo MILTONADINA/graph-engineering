@@ -280,6 +280,169 @@ export function createMcpServer(
         return result({ id: run.id, status: run.status });
       },
     );
+  const readsRuns = options.client === "local" || options.allowRunStatus;
+  if (readsRuns) {
+    server.registerTool(
+      "run_list",
+      {
+        description:
+          "Lists this project's managed runs, most recently created first, as JSON with each run's id, planId and status, plus its objective for a local client. It is read-only; a cloud-backed client gets it only when the server runs with --allow-run-status and the project policy is not offline, and never sees objectives, which may quote private text.",
+        inputSchema: {
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(100)
+            .default(20)
+            .describe("Maximum number of runs to return."),
+        },
+      },
+      async ({ limit }) => {
+        await allowed();
+        return result(
+          engine.store
+            .runs()
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+            .slice(0, limit)
+            .map((run) => ({
+              id: run.id,
+              planId: run.plan.id,
+              status: run.status,
+              ...(options.client === "local"
+                ? { objective: run.plan.objective }
+                : {}),
+            })),
+        );
+      },
+    );
+    server.registerTool(
+      "run_events",
+      {
+        description:
+          "Returns a run's recorded events in order, from position `after`, with the position to pass next time and `complete`, which is true only when the run has stopped and every event has been returned, so a client can follow a run by polling until complete. A local client gets each event's full data; a cloud-backed client (only with --allow-run-status) gets each event's type, time and step, which show progress without the run's content. It is read-only and fails for an ID that is not a run in this project.",
+        inputSchema: {
+          runId: z.string().describe("ID of a run in this project."),
+          after: z
+            .number()
+            .int()
+            .min(0)
+            .default(0)
+            .describe("Number of events already read; start at 0."),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(500)
+            .default(100)
+            .describe("Maximum number of events to return."),
+        },
+      },
+      async ({ runId, after, limit }) => {
+        await allowed();
+        const run = engine.store.run(runId);
+        // Read whether the run is still executing before its events, so a run
+        // that stops between the two reads is reported incomplete, not cut short.
+        const stopped = !engine.isActive(run.id);
+        const all = engine.store.events(run.id);
+        const events = all.slice(after, after + limit);
+        return result({
+          status: engine.store.run(run.id).status,
+          next: after + events.length,
+          complete: stopped && after + events.length >= all.length,
+          events: events.map((event) =>
+            options.client === "local"
+              ? event
+              : { type: event.type, at: event.at, stepId: event.stepId },
+          ),
+        });
+      },
+    );
+  }
+  if (options.allowRun) {
+    server.registerTool(
+      "plan_create",
+      {
+        description:
+          "Creates a plan for a change in this project and returns JSON with its id, steps and routing. A plan needs an objective and at least one explicit acceptance criterion; the engine records the current policy and source, so a later run_start fails if either changed. Without steps the plan is one worker step; steps give a dependency-ordered list of worker or template steps. A cloud-backed client can create plans only while the project's publication policy is none, so a plan it wrote cannot publish private source. It does not start work; start it with run_start.",
+        inputSchema: {
+          objective: z
+            .string()
+            .min(1)
+            .max(16000)
+            .describe("What the change must achieve."),
+          acceptance: z
+            .array(z.string().min(1).max(4000))
+            .min(1)
+            .max(50)
+            .describe(
+              "Checkable acceptance criteria; the run is not accepted until each is met.",
+            ),
+          providerId: z
+            .string()
+            .optional()
+            .describe("Configured worker provider to use."),
+          effort: z.string().optional().describe("Worker effort level."),
+          steps: z
+            .array(
+              z
+                .object({
+                  id: z.string(),
+                  kind: z.enum(["worker", "template"]),
+                  objective: z.string(),
+                  dependsOn: z.array(z.string()),
+                  providerId: z.string().optional(),
+                  effort: z.string().optional(),
+                  templateId: z.string().optional(),
+                  inputs: z.record(z.unknown()).optional(),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(100)
+            .optional()
+            .describe("Optional dependency-ordered steps."),
+        },
+      },
+      async (args) => {
+        await allowed();
+        if (
+          options.client !== "local" &&
+          engine.config.policy.publication !== "none"
+        )
+          throw new Error(
+            "A cloud-backed client can create plans only while project publication is none: a plan it wrote could otherwise publish private source",
+          );
+        const plan = await engine.createPlan(args);
+        return result({
+          id: plan.id,
+          objective: plan.objective,
+          acceptance: plan.acceptance,
+          steps: plan.steps.map((step) => ({
+            id: step.id,
+            kind: step.kind,
+            dependsOn: step.dependsOn,
+            providerId: step.providerId,
+          })),
+          routing: plan.routing,
+        });
+      },
+    );
+    server.registerTool(
+      "run_cancel",
+      {
+        description:
+          "Requests cancellation of an active run (planned, running or verifying) and returns JSON with its id and status. Work already applied in the run's isolated workspace stays there for inspection; nothing is published after cancellation.",
+        inputSchema: {
+          runId: z.string().describe("ID of an active run in this project."),
+        },
+      },
+      async ({ runId }) => {
+        await allowed();
+        const run = engine.cancel(runId);
+        return result({ id: run.id, status: run.status });
+      },
+    );
+  }
   return server;
 }
 export async function serveMcp(

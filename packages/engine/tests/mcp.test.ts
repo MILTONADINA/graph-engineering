@@ -655,3 +655,204 @@ it("run_status is withheld from cloud clients unless explicitly allowed", async 
     await cleanup();
   }
 }, 20000);
+
+it("lets a connected client plan, start, follow, list and cancel runs only when enabled", async () => {
+  const { checked, writeJson } = await import("../src/util.js");
+  const { configureProvider, PROJECT_FILE } = await import("../src/project.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-runs-"));
+  await checked("git", ["init", "-b", "dev"], { cwd: root });
+  await checked("git", ["config", "user.name", "Graph Test"], { cwd: root });
+  await checked("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  await writeFile(
+    path.join(root, "math.cjs"),
+    "exports.add = (a, b) => a - b;\n",
+  );
+  const config = await initializeProject(root);
+  config.policy.providers = ["local"];
+  config.verification = [{ image: "fixture", argv: ["test"] }];
+  await writeJson(path.join(root, PROJECT_FILE), config);
+  await checked("git", ["add", "."], { cwd: root });
+  await checked("git", ["commit", "-m", "test: fixture"], { cwd: root });
+  const data = projectDataDir(config.projectId);
+  await configureProvider(data, {
+    id: "local",
+    kind: "local",
+    model: "fixture",
+  });
+  const engine = await GraphEngine.open(root, {
+    dockerAvailable: async () => true,
+    worker: async () => ({
+      model: "fixture",
+      proposal: {
+        summary: "Fix addition",
+        requests: [],
+        changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+      },
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cachedTokens: 0,
+        costUsd: 0,
+        estimated: false,
+      },
+    }),
+    verify: async (_workspace, checks, _policy, snapshotHash) =>
+      checks.map((check) => ({
+        ...check,
+        code: 0,
+        stdout: "passed",
+        stderr: "",
+        snapshotHash,
+      })),
+  });
+  const connect = async (options: Parameters<typeof createMcpServer>[1]) => {
+    const server = createMcpServer(engine, options);
+    const client = new Client({ name: "runs-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return { client, server };
+  };
+  const json = (value: unknown) =>
+    JSON.parse(
+      (value as { content: { text: string }[] }).content[0]!.text,
+    ) as Record<string, any>;
+  const names = async (client: Client) =>
+    (await client.listTools()).tools.map((tool) => tool.name);
+  const connections: { client: Client; server: { close(): Promise<void> } }[] =
+    [];
+  try {
+    const readOnly = await connect({ client: "local" });
+    connections.push(readOnly);
+    expect(await names(readOnly.client)).toEqual(
+      expect.arrayContaining(["run_status", "run_list", "run_events"]),
+    );
+    expect(await names(readOnly.client)).not.toEqual(
+      expect.arrayContaining(["plan_create"]),
+    );
+    const cloudDefault = await connect({ client: "cloud", allowRun: true });
+    connections.push(cloudDefault);
+    expect(await names(cloudDefault.client)).not.toContain("run_events");
+
+    const local = await connect({ client: "local", allowRun: true });
+    connections.push(local);
+    const refused = await local.client.callTool({
+      name: "plan_create",
+      arguments: { objective: "Fix addition", acceptance: [] },
+    });
+    expect(refused.isError).toBe(true);
+    const plan = json(
+      await local.client.callTool({
+        name: "plan_create",
+        arguments: { objective: "Fix addition", acceptance: ["2 + 3 is 5"] },
+      }),
+    );
+    expect(plan.steps).toEqual([
+      expect.objectContaining({ id: "implement", kind: "worker" }),
+    ]);
+    const started = json(
+      await local.client.callTool({
+        name: "run_start",
+        arguments: { planId: plan.id },
+      }),
+    );
+    await engine.wait(started.id);
+    const events = json(
+      await local.client.callTool({
+        name: "run_events",
+        arguments: { runId: started.id },
+      }),
+    );
+    expect(events.status).toBe("succeeded");
+    expect(events.complete).toBe(true);
+    expect(events.next).toBe(events.events.length);
+    const page = json(
+      await local.client.callTool({
+        name: "run_events",
+        arguments: { runId: started.id, limit: 1 },
+      }),
+    );
+    expect(page).toMatchObject({ next: 1, complete: false });
+    expect(events.events[0]).toHaveProperty("data");
+    const later = json(
+      await local.client.callTool({
+        name: "run_events",
+        arguments: { runId: started.id, after: events.next },
+      }),
+    );
+    expect(later.events).toEqual([]);
+    const runs = json(
+      await local.client.callTool({ name: "run_list", arguments: {} }),
+    );
+    expect(runs).toContainEqual(
+      expect.objectContaining({
+        id: started.id,
+        status: "succeeded",
+        objective: "Fix addition",
+      }),
+    );
+    expect(await names(local.client)).not.toContain("run_resume");
+    const cancel = await local.client.callTool({
+      name: "run_cancel",
+      arguments: { runId: started.id },
+    });
+    expect(cancel.isError).toBe(true);
+    expect(JSON.stringify(cancel)).toContain("Run is not active");
+
+    config.policy.inference = "allowlisted";
+    config.policy.network = "allowlisted";
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    const cloud = await connect({ client: "cloud", allowRunStatus: true });
+    connections.push(cloud);
+    const cloudEvents = json(
+      await cloud.client.callTool({
+        name: "run_events",
+        arguments: { runId: started.id },
+      }),
+    );
+    expect(cloudEvents.events[0]).toEqual({
+      type: expect.any(String),
+      at: expect.any(String),
+    });
+    const cloudRuns = json(
+      await cloud.client.callTool({ name: "run_list", arguments: {} }),
+    );
+    expect(cloudRuns[0]).toEqual({
+      id: started.id,
+      planId: plan.id,
+      status: "succeeded",
+    });
+    const cloudPlanner = await connect({ client: "cloud", allowRun: true });
+    connections.push(cloudPlanner);
+    const publishing = { ...config.policy, publication: "draft-pr" as const };
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      policy: publishing,
+    });
+    const refusedCloudPlan = await cloudPlanner.client.callTool({
+      name: "plan_create",
+      arguments: { objective: "Fix addition", acceptance: ["2 + 3 is 5"] },
+    });
+    expect(refusedCloudPlan.isError).toBe(true);
+    expect(JSON.stringify(refusedCloudPlan)).toContain(
+      "only while project publication is none",
+    );
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    const cloudPlan = await cloudPlanner.client.callTool({
+      name: "plan_create",
+      arguments: { objective: "Fix addition", acceptance: ["2 + 3 is 5"] },
+    });
+    expect(cloudPlan.isError).not.toBe(true);
+  } finally {
+    for (const { client, server } of connections) {
+      await client.close();
+      await server.close();
+    }
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
