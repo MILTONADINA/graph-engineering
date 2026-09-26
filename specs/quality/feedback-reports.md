@@ -22,6 +22,7 @@ reports should land where the maintainers already triage work.
   - Test: packages/engine/tests/feedback.test.ts :: carry only allowlisted fields and never project paths, names, code or messages
 - AC3: When a command fails at a terminal, the person is offered a report, shown its exact text, and nothing leaves the machine unless they answer yes for that report; a non-interactive run is never prompted and never sends.
   - Test: packages/engine/tests/feedback.test.ts :: asks a person, shows the exact report, and opens an issue link only after a yes
+  - Test: packages/engine/tests/cli.test.ts :: explains an unusable worker, records the difficulty kind privately, and never prompts without a person
 - AC4: A consented report opens a prefilled new-issue link for the maintainers' repository in the person's own browser; the graph holds no token and opens no connection itself.
   - Test: packages/engine/tests/feedback.test.ts :: asks a person, shows the exact report, and opens an issue link only after a yes
 - AC5: The graph keeps a local log of difficulty kinds with counts and timestamps in its private data directory, never in the repository, which a person can review, send as one summary report, or clear.
