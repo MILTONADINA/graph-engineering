@@ -464,6 +464,10 @@ export class GraphEngine {
     this.store.event(runId, "cancel.requested", {});
     return this.store.run(runId);
   }
+  /** Whether a run is still executing in this process. */
+  isActive(runId: string): boolean {
+    return this.active.has(runId);
+  }
   async resume(runId: string, reconciled = false): Promise<RunRecord> {
     if (this.active.has(runId)) throw new Error("Run is already active");
     const run = this.store.run(runId);

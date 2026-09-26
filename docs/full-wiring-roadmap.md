@@ -1,0 +1,65 @@
+# Full wiring roadmap
+
+**Status: working plan, updated as each PR lands.** It turns the owner's
+question into a checklist: if a person points the AI they use (Claude Code,
+Codex, Cursor) at this graph, can the graph work like a professional agile
+team and deliver what they need — from a first-time builder launching one
+product to a professional maintaining a repository the size of a large
+platform, a game or an operating system — without claiming work is done
+before it is?
+
+Each row says what exists, what is missing, the PR that closes it, and
+whether the gap is **engineering** (code can close it) or **owner-gated**
+(only the owner, a partner or a third party can close it). Owner-gated
+items are listed with what they need; no code claims them.
+
+## How a professional team works, and what the graph must do
+
+| Team practice                           | Graph behaviour required                                                                                                                                                       |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Clarify the need before building        | Intake turns a request into an objective with explicit acceptance criteria; a plan cannot start without them (exists: `createPlan` refuses a plan without acceptance criteria) |
+| Break work down and agree the plan      | Large objectives are decomposed into a dependency-ordered plan that a person approves before it runs                                                                           |
+| Build in small, reviewable increments   | Each step runs in an isolated workspace with a bounded context and its own verification                                                                                        |
+| Test, review and secure every increment | Verification, reviewer and security gates are steps with recorded evidence, not labels                                                                                         |
+| Never say "done" early                  | A run is `succeeded` only when every required gate passed on the exact tested snapshot; human acceptance stays separate (exists for checks; review and security gates to add)  |
+| Show progress honestly                  | A live local view of what is running, done, blocked and next, drawn only from recorded events                                                                                  |
+| Learn from each iteration               | Outcomes are linked back to the decisions and memories that shaped them                                                                                                        |
+| Keep up with current knowledge          | Versioned, sourced knowledge packs and cited research, stored offline, never treated as authority                                                                              |
+| Use the right tool, not every tool      | A catalog that selects security and engineering tools by project, scope and authorization                                                                                      |
+
+## Status by capability
+
+| Capability                                     | Today                                                                                                                                                                                                                                                   | Closing work                                                                                        | Gate                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Large files in worker context                  | Line ranges, outlines, accumulation, patch feedback                                                                                                                                                                                                     | Worker context steps 2–3 (#31, #32)                                                                 | Done                                                                      |
+| Entry point for a user's AI                    | MCP context, plus `plan_create`, `run_start`, `run_cancel` (behind `--allow-run`; cloud planning only while publication is `none`) and `run_status`, `run_list`, `run_events` (local, or cloud with `--allow-run-status`); resuming stays with a person | #33                                                                                                 | Done                                                                      |
+| Live local UI                                  | Dashboard with runs, context, graph, memories and decisions; run timeline polls                                                                                                                                                                         | A project overview: active step, completed gates, blockers, next steps                              | Engineering                                                               |
+| Honest "done"                                  | Checks must pass on the tested snapshot; prose acceptance stays pending                                                                                                                                                                                 | Review and security gates that block `succeeded` when required                                      | Engineering                                                               |
+| Agile roles                                    | 15 prompt-only roles in `graph-templates/ai`                                                                                                                                                                                                            | Reviewer and tester steps in plans; security review as a gate                                       | Engineering                                                               |
+| Decomposition                                  | Caller supplies steps                                                                                                                                                                                                                                   | Worker-proposed plan, validated as a DAG, approved by a person                                      | Engineering                                                               |
+| Iteration on failure                           | Single-step retries with feedback; DAG stops after one failed verification                                                                                                                                                                              | Per-step DAG retries with feedback                                                                  | Engineering                                                               |
+| Scaling with project size                      | Fixed limits; `fileCount` only reaches decisions                                                                                                                                                                                                        | Budgets and parallelism from repository size; epics → stories → steps for large repositories        | Engineering                                                               |
+| Offline context                                | SQLite, six-language parsing, offline embeddings                                                                                                                                                                                                        | —                                                                                                   | Exists                                                                    |
+| Learning                                       | Memory proposals, success observations, shadow decisions                                                                                                                                                                                                | Outcome labels linked to decision records                                                           | Engineering                                                               |
+| Jev / Laya decisions                           | Shadow only                                                                                                                                                                                                                                             | Real routing needs the trust-boundary decisions                                                     | **Owner-gated** ([promotion trust boundary](promotion-trust-boundary.md)) |
+| Security testing of a repository               | Secret filter on exports only                                                                                                                                                                                                                           | Offline scanners (secrets, SAST, dependency advisories) as verification checks                      | Engineering                                                               |
+| Security tool selection                        | None                                                                                                                                                                                                                                                    | A tool catalog with selection rules by language, artefact and scope                                 | Engineering                                                               |
+| Dynamic testing or pentest of a running system | None                                                                                                                                                                                                                                                    | Runs only against a target the owner authorizes in writing, with network permission                 | **Owner-gated** per target                                                |
+| Paid tools (for example Burp Suite)            | None                                                                                                                                                                                                                                                    | Adapters used only when the user has installed and licensed the tool                                | **User-gated** per installation                                           |
+| Current knowledge (model and tool docs)        | None                                                                                                                                                                                                                                                    | Knowledge packs with source URL, retrieval date and version; refreshed only with network permission | Engineering; network permission per project                               |
+| Web research for recent facts                  | None                                                                                                                                                                                                                                                    | Cited research results stored as sourced observations, never as accepted decisions                  | Engineering; network permission per project                               |
+
+## Sequence
+
+1. **Done:** MCP lifecycle tools (plan, start, cancel, list, events).
+2. Offline security scanning as verification checks, plus the tool catalog.
+3. Budgets and parallelism that scale with repository size.
+4. Per-step retries with feedback in multi-step plans.
+5. Reviewer, tester and security gates that decide `succeeded`.
+6. Worker-proposed decomposition with human approval.
+7. Outcome labels for decisions and memories.
+8. Knowledge packs and cited research.
+9. Live project overview in the dashboard.
+10. A fresh bounded local pilot on a new real task.
+
+Each item is one reviewed PR with an adversarial review before merge.
