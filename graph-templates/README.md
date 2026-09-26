@@ -28,8 +28,8 @@ graph-templates/
 ├── backend/           express·controller·service·repository·middleware·error-handler·validation·pagination·api-response
 ├── database/          neon-postgres·migrations·transactions·seed  (entity CRUD lives in backend/repository, see its README)
 ├── storage/            aws-s3·upload·download·presigned-url·delete·file-validation
-├── authentication/     jwt·password  (+ planned: session, oauth)
-├── authorization/      rbac·tenant-isolation  (+ planned: permissions, roles)
+├── authentication/     jwt·password·oauth  (+ planned: session)
+├── authorization/      rbac·tenant-isolation·roles  (+ planned: permissions)
 ├── api/                 crud  (+ planned: search, webhooks — pagination/filtering/sorting live inside crud + backend/pagination)
 ├── frontend/            nextjs·react API clients; Next.js-specific authentication·forms·tables·dashboards
 ├── testing/            unit·integration·api·fixtures·mocks
