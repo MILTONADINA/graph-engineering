@@ -11,6 +11,11 @@ import {
 import { GraphEngine } from "./service.js";
 import { repositoryProfile } from "./scale.js";
 import {
+  addKnowledgePack,
+  citeKnowledge,
+  listKnowledgePacks,
+} from "./knowledge.js";
+import {
   configureProvider,
   initializeProject,
   loadProject,
@@ -75,6 +80,55 @@ cli
     withEngine((engine) =>
       engine.context.index({ semantic: !options.lexical }),
     ),
+  );
+cli
+  .command("knowledge-add <url>")
+  .description(
+    "Fetch a documentation page (HTTPS, from a host in policy.allowedHosts) into a committed knowledge pack the graph reads offline",
+  )
+  .option("--name <name>", "Pack name (lowercase letters, digits, hyphens)")
+  .option("--doc-version <version>", "Documented product version, if known")
+  .option("--refresh", "Replace an existing pack, recording its previous hash")
+  .action(async (url, options) => {
+    const project = await loadProject(root());
+    print(
+      await addKnowledgePack({
+        root: root(),
+        policy: project.policy,
+        url,
+        name: options.name,
+        version: options.docVersion,
+        refresh: Boolean(options.refresh),
+      }),
+    );
+  });
+cli
+  .command("knowledge-list")
+  .description(
+    "List knowledge packs with their source, retrieval date and hash",
+  )
+  .action(async () => print(await listKnowledgePacks(root())));
+cli
+  .command("knowledge-cite <pack>")
+  .description(
+    "Propose a research finding as an observation citing exact lines of a knowledge pack; a person accepts it with memory review",
+  )
+  .requiredOption("--lines <start-end>", "Cited line range, for example 12-18")
+  .requiredOption("--claim <text>", "The finding those lines support")
+  .action((pack, options) =>
+    withEngine(async (engine) => {
+      const match = /^(\d+)-(\d+)$/.exec(options.lines);
+      if (!match)
+        throw new Error("Give --lines as start-end, for example 12-18");
+      return citeKnowledge({
+        context: engine.context,
+        root: root(),
+        pack,
+        startLine: Number(match[1]),
+        endLine: Number(match[2]),
+        claim: options.claim,
+      });
+    }),
   );
 cli
   .command("scale")

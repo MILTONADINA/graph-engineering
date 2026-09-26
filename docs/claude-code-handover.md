@@ -187,12 +187,15 @@ were fixed before merge; the PR descriptions list them.
 - [#40](https://github.com/MILTONADINA/graph-engineering/pull/40)
   (`fc08d47`): run outcomes linked to decisions and memories, and recorded
   human acceptance ([run outcomes](outcomes.md)).
-- #41: the dashboard's live project board
+- [#41](https://github.com/MILTONADINA/graph-engineering/pull/41)
+  (`f388c95`): the dashboard's live project board
   ([project overview](project-overview.md)).
+- #42: knowledge packs and cited research
+  ([knowledge packs](knowledge-packs.md)).
 
 The [full wiring roadmap](full-wiring-roadmap.md) holds the remaining
 items:
-knowledge packs and cited research, and a fresh bounded local pilot. Jev and Laya promotion, live
+a fresh bounded local pilot on a new real task. Jev and Laya promotion, live
 target testing and paid tools stay owner-gated.
 
 ## Where the work stands
