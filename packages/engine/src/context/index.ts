@@ -89,6 +89,8 @@ import {
 export { containsSecret } from "../policy.js";
 
 const execFileAsync = promisify(execFile);
+// Committed documentation fetched with graph-engine knowledge-add.
+const KNOWLEDGE_PACK_DIR = ".graph/knowledge-packs";
 const BUILTIN_EXCLUSIONS = [
   "**/.git/**",
   "**/node_modules/**",
@@ -287,7 +289,14 @@ export class ContextEngine {
     directory = false,
   ): boolean {
     if (!safePath(path)) return true;
+    // Knowledge packs serve every part of the repository, so a working set
+    // never hides them.
+    const pack =
+      path === KNOWLEDGE_PACK_DIR ||
+      path.startsWith(`${KNOWLEDGE_PACK_DIR}/`) ||
+      (directory && KNOWLEDGE_PACK_DIR.startsWith(`${path}/`));
     if (
+      !pack &&
       !(directory
         ? reachesWorkingSet(path, policy)
         : inWorkingSet(path, policy))
