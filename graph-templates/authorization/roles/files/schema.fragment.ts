@@ -35,6 +35,7 @@ export const roleAuditLogTable = pgTable('role_audit_log', {
   actorId: uuid('actor_id'),
   action: varchar('action', { length: 32 }).notNull(),
   target: varchar('target', { length: 64 }),
+  detail: varchar('detail', { length: 65 }),
   outcome: varchar('outcome', { length: 16 }).notNull(),
   status: integer('status'),
 });

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
 import { database } from '../config/database';
 import { roleAuditLogTable, roleTable, rolePermissionTable, userRoleTable, userTable } from '../config/schema';
 import { AUDIT_PAGE_MAX, MAX_PERMISSIONS_PER_ROLE, MAX_ROLES, type RoleAuditOutcome } from '../utils/roleNames';
@@ -11,6 +11,8 @@ export interface RoleAuditEntry {
   actorId: string | null;
   action: string;
   target: string | null;
+  /** The role, permission or new role name the change was about; always a validated name. */
+  detail: string | null;
   outcome: RoleAuditOutcome;
   status: number | null;
 }
@@ -20,15 +22,23 @@ export interface RoleAuditRecord {
   actorId: string | null;
   action: string;
   target: string | null;
+  detail: string | null;
   outcome: string;
   status: number | null;
+}
+/** Already validated by the service: before is a row id, outcome and action are from the closed lists. */
+export interface RoleAuditQuery {
+  limit: number;
+  before?: string;
+  outcome?: RoleAuditOutcome;
+  action?: string;
 }
 
 const roleColumns = { id: roleTable.id, name: roleTable.name, builtIn: roleTable.builtIn };
 const auditColumns = {
   id: roleAuditLogTable.id, occurredAt: roleAuditLogTable.occurredAt, actorId: roleAuditLogTable.actorId,
-  action: roleAuditLogTable.action, target: roleAuditLogTable.target, outcome: roleAuditLogTable.outcome,
-  status: roleAuditLogTable.status,
+  action: roleAuditLogTable.action, target: roleAuditLogTable.target, detail: roleAuditLogTable.detail,
+  outcome: roleAuditLogTable.outcome, status: roleAuditLogTable.status,
 };
 
 export const roleRepository = {
@@ -126,10 +136,25 @@ export const roleRepository = {
   async insertAuditEntry(db: RoleExecutor, entry: RoleAuditEntry): Promise<void> {
     await db.insert(roleAuditLogTable).values(entry);
   },
-  /** Newest first, bounded to 1..AUDIT_PAGE_MAX rows whatever the caller passes. */
-  async listAuditEntries(db: RoleExecutor, limit: number): Promise<RoleAuditRecord[]> {
-    const bounded = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), AUDIT_PAGE_MAX) : 1;
+  /**
+   * Newest first, bounded to 1..AUDIT_PAGE_MAX rows whatever the caller passes. `before` is the id
+   * of the last row of the previous page: the next page holds rows strictly older in
+   * (occurred_at, id) order, compared in the database so timestamps keep full precision. An
+   * unknown cursor matches no rows.
+   */
+  async listAuditEntries(db: RoleExecutor, query: RoleAuditQuery): Promise<RoleAuditRecord[]> {
+    const bounded = Number.isInteger(query.limit) ? Math.min(Math.max(query.limit, 1), AUDIT_PAGE_MAX) : 1;
+    const cursorTime = query.before === undefined ? undefined : db.select({ occurredAt: roleAuditLogTable.occurredAt })
+      .from(roleAuditLogTable).where(eq(roleAuditLogTable.id, query.before));
     return db.select(auditColumns).from(roleAuditLogTable)
+      .where(and(
+        query.outcome === undefined ? undefined : eq(roleAuditLogTable.outcome, query.outcome),
+        query.action === undefined ? undefined : eq(roleAuditLogTable.action, query.action),
+        cursorTime === undefined || query.before === undefined ? undefined : or(
+          lt(roleAuditLogTable.occurredAt, cursorTime),
+          and(eq(roleAuditLogTable.occurredAt, cursorTime), lt(roleAuditLogTable.id, query.before)),
+        ),
+      ))
       .orderBy(desc(roleAuditLogTable.occurredAt), desc(roleAuditLogTable.id)).limit(bounded);
   },
 };
