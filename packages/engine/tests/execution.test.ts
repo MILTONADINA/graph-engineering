@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -20,6 +20,7 @@ import { RunStore } from "../src/store.js";
 const roots: string[] = [];
 const engines: GraphEngine[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const engine of engines.splice(0)) await engine.close();
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
@@ -988,5 +989,262 @@ describe("security gate", () => {
     });
     expect(result.status).toBe("succeeded");
     expect(scanned).toBe(false);
+  });
+});
+
+describe("code review gate", () => {
+  const passingVerify: NonNullable<
+    Parameters<typeof GraphEngine.open>[1]
+  >["verify"] = async (_workspace, checks, _policy, snapshotHash) =>
+    checks.map((check) => ({
+      ...check,
+      code: 0,
+      stdout: "passed",
+      stderr: "",
+      snapshotHash,
+    }));
+  const usage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    cachedTokens: 0,
+    costUsd: 0,
+    estimated: false,
+  };
+  type Review = {
+    verdict: "approve" | "request-changes";
+    summary: string;
+    criteria: {
+      criterion: string;
+      met: "yes" | "no" | "unknown";
+      evidence: string;
+    }[];
+    findings: {
+      severity: "blocking" | "advisory";
+      path: string | null;
+      line: number | null;
+      message: string;
+    }[];
+  };
+  const approve: Review = {
+    verdict: "approve",
+    summary: "Looks right",
+    criteria: [{ criterion: "2 + 3 is 5", met: "yes", evidence: "a + b" }],
+    findings: [],
+  };
+  const setup = async (options: {
+    reviews: (Review | Error)[];
+    reviewer?: { kind: "local" | "openai" };
+    attempts?: number;
+    extraChanges?: { path: string; before: null; after: string }[];
+    prepare?: (root: string) => Promise<void>;
+  }) => {
+    const { root, config, data } = await fixture();
+    const reviewerKind = options.reviewer?.kind ?? "local";
+    config.policy.providers = ["local", "reviewer"];
+    config.policy.maxAttempts = options.attempts ?? 3;
+    if (reviewerKind !== "local") {
+      config.policy.inference = "allowlisted";
+      config.policy.network = "allowlisted";
+      config.policy.allowedHosts = ["api.openai.com"];
+    }
+    config.review = { providerId: "reviewer" };
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await checked("git", ["commit", "-am", "test: reviewer"], { cwd: root });
+    await configureProvider(data, {
+      id: "reviewer",
+      kind: reviewerKind,
+      model: "reviewer-fixture",
+      ...(reviewerKind === "openai"
+        ? { apiKeyEnv: "GRAPH_TEST_REVIEW_KEY" }
+        : {}),
+    });
+    const feedback: (string | undefined)[] = [];
+    const reviewed: string[] = [];
+    const reviews = [...options.reviews];
+    await options.prepare?.(root);
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async (input) => {
+        feedback.push(input.feedback);
+        return {
+          model: "fixture",
+          proposal: {
+            summary: "Fix addition",
+            requests: [],
+            changes:
+              feedback.length === 1
+                ? [
+                    { path: "math.cjs", before: "a - b", after: "a + b" },
+                    ...(options.extraChanges ?? []),
+                  ]
+                : [
+                    {
+                      path: "math.test.cjs",
+                      before: "assert.equal(add(2, 3), 5);",
+                      after:
+                        "assert.equal(add(2, 3), 5);\nassert.equal(add(1, 1), 2);",
+                    },
+                  ],
+          },
+          usage,
+        };
+      },
+      verify: passingVerify,
+      review: async (input) => {
+        reviewed.push(input.diff);
+        const next = reviews.shift() ?? approve;
+        if (next instanceof Error) throw next;
+        return { review: next, model: "reviewer-fixture", usage };
+      },
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["2 + 3 is 5"],
+    });
+    const result = await engine.wait((await engine.start(plan.id)).id);
+    return {
+      root,
+      config,
+      engine,
+      result,
+      feedback,
+      reviewed,
+      events: engine.store.events(result.id),
+    };
+  };
+
+  it("completes only after the reviewer approves, and records the review", async () => {
+    const { result, reviewed, events } = await setup({ reviews: [approve] });
+    expect(result.error ?? "").toBe("");
+    expect(result.status).toBe("succeeded");
+    expect(reviewed[0]).toContain("+exports.add = (a, b) => a + b;");
+    expect(
+      events.find((event) => event.type === "review.completed")?.data,
+    ).toMatchObject({ passed: true, verdict: "approve" });
+  });
+
+  it("sends requested changes back to the worker and completes after approval", async () => {
+    const { result, feedback } = await setup({
+      reviews: [
+        {
+          verdict: "request-changes",
+          summary: "Needs a second test",
+          criteria: [{ criterion: "2 + 3 is 5", met: "yes", evidence: "ok" }],
+          findings: [
+            {
+              severity: "blocking",
+              path: "math.test.cjs",
+              line: 1,
+              message: "Add a test for another sum",
+            },
+          ],
+        },
+        approve,
+      ],
+    });
+    expect(result.status).toBe("succeeded");
+    expect(feedback).toHaveLength(2);
+    expect(feedback[1]).toContain(
+      "Blocking in math.test.cjs:1: Add a test for another sum",
+    );
+  });
+
+  it("does not accept an approval with a criterion it could not confirm", async () => {
+    const { result } = await setup({
+      attempts: 1,
+      reviews: [
+        {
+          ...approve,
+          criteria: [
+            { criterion: "2 + 3 is 5", met: "unknown", evidence: "not shown" },
+          ],
+        },
+      ],
+    });
+    expect(result.status).toBe("failed");
+    expect(result.error).toMatch(/^Code review (still )?requested changes/);
+  });
+
+  it("shows the reviewer every file the worker wrote and nothing else", async () => {
+    const { result, reviewed } = await setup({
+      reviews: [approve],
+      extraChanges: [
+        // Attributes in the change must not hide it from the reviewer.
+        { path: ".gitattributes", before: null, after: "*.cjs -diff\n" },
+        {
+          path: "café.cjs",
+          before: null,
+          after: "module.exports = HIDDEN_PAYLOAD();\n",
+        },
+      ],
+      // The operator's own uncommitted edit is not the worker's change.
+      prepare: (root) =>
+        writeFile(path.join(root, "notes.cjs"), "exports.operator = 1;\n"),
+    });
+    expect(result.status).toBe("succeeded");
+    expect(reviewed[0]).toContain("+exports.add = (a, b) => a + b;");
+    expect(reviewed[0]).toContain("+module.exports = HIDDEN_PAYLOAD();");
+    expect(reviewed[0]).not.toContain("exports.operator");
+  });
+
+  it("shows raw bytes whatever encoding the change's attributes declare", async () => {
+    const { result, reviewed } = await setup({
+      reviews: [approve],
+      extraChanges: [
+        {
+          path: ".gitattributes",
+          before: null,
+          after: "*.cjs working-tree-encoding=UTF-16LE eol=crlf ident\n",
+        },
+        // An even byte length decodes as UTF-16LE, which Git would show the
+        // reviewer as unrelated characters.
+        {
+          path: "payload.cjs",
+          before: null,
+          after: "module.exports = 42;\n\n",
+        },
+      ],
+    });
+    expect(reviewed[0]).toContain("+module.exports = 42;");
+    expect(result.status).toBe("succeeded");
+    expect(reviewed[0]).toContain("+exports.add = (a, b) => a + b;");
+    expect(reviewed[0]).toContain(
+      "+*.cjs working-tree-encoding=UTF-16LE eol=crlf ident",
+    );
+  });
+
+  it("keeps the reviewer a run started with across a resume", async () => {
+    const { root, config, engine, result, reviewed } = await setup({
+      attempts: 1,
+      reviews: [new Error("reviewer unavailable")],
+    });
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe(
+      "Code review did not complete: reviewer unavailable",
+    );
+    delete config.review;
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await engine.resume(result.id, true);
+    const resumed = await engine.wait(result.id);
+    expect(reviewed).toHaveLength(2);
+    expect(resumed.status).toBe("succeeded");
+  });
+
+  it("refuses a cloud reviewer for non-exportable changes and reports a failed review", async () => {
+    vi.stubEnv("GRAPH_TEST_REVIEW_KEY", "fixture-only-not-a-real-key");
+    const cloud = await setup({
+      reviewer: { kind: "openai" },
+      reviews: [approve],
+    });
+    expect(cloud.result.status).toBe("failed");
+    expect(cloud.result.error).toContain(
+      "the change touches paths a cloud reviewer may not receive",
+    );
+    const broken = await setup({ reviews: [new Error("malformed output")] });
+    expect(broken.result.status).toBe("failed");
+    expect(broken.result.error).toBe(
+      "Code review did not complete: malformed output",
+    );
   });
 });

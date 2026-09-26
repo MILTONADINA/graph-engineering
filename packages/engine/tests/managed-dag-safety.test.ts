@@ -812,3 +812,48 @@ describe("workspace knowledge during managed runs", () => {
     expect(seen.join("\n")).not.toContain(edited);
   });
 });
+
+describe("code review of a multi-step plan", () => {
+  it("shows the reviewer every step's change", async () => {
+    const { root, data } = await fixture((config) => {
+      config.policy.providers = ["local", "reviewer"];
+      config.review = { providerId: "reviewer" };
+    });
+    await configureProvider(data, {
+      id: "reviewer",
+      kind: "local",
+      model: "reviewer-fixture",
+    });
+    const reviewed: string[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      review: async (input) => {
+        reviewed.push(input.diff);
+        return {
+          review: {
+            verdict: "approve",
+            summary: "Both updated",
+            criteria: [
+              { criterion: input.acceptance[0], met: "yes", evidence: "diff" },
+            ],
+            findings: [],
+          },
+          model: "reviewer-fixture",
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+    });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toContain("+export const first = 3;");
+    expect(reviewed[0]).toContain("+export const second = 4;");
+  });
+});

@@ -80,6 +80,8 @@ export interface ProjectConfig {
   policy: ProjectPolicy;
   verification: { argv: string[]; image: string }[];
   github?: { repository: string; baseBranch: string; remote: string };
+  /** A reviewer worker that must approve a run before it completes. */
+  review?: { providerId: string };
 }
 export interface ProviderConfig {
   id: string;
@@ -350,6 +352,12 @@ export const projectSchema = {
         baseBranch: nonempty,
         remote: nonempty,
       },
+    },
+    review: {
+      type: "object",
+      additionalProperties: false,
+      required: ["providerId"],
+      properties: { providerId: nonempty },
     },
   },
 };

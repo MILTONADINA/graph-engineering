@@ -322,6 +322,22 @@ cli
     if (fresh.length || scan.errors.length) process.exitCode = 1;
   });
 cli
+  .command("reviewer [providerId]")
+  .description(
+    "Set the API or local provider that must approve each managed run before it completes, or show the current reviewer",
+  )
+  .option("--clear", "Stop requiring a reviewer's approval")
+  .action(async (providerId, options) => {
+    const project = await loadProject(root());
+    if (options.clear) delete project.review;
+    else if (providerId) project.review = { providerId };
+    if (options.clear || providerId) {
+      assertProjectConfig(project);
+      await writeJson(path.join(root(), PROJECT_FILE), project);
+    }
+    print({ review: project.review ?? null });
+  });
+cli
   .command("provider-add <id> <kind> <model>")
   .option("--endpoint <url>")
   .option("--key-env <name>")

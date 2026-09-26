@@ -1,4 +1,13 @@
 import { setTimeout as delay } from "node:timers/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type {
   ContextPacket,
@@ -7,12 +16,27 @@ import type {
   ProjectConfig,
   ProviderConfig,
   RunRecord,
+  Usage,
 } from "@graph-engineering/contracts";
 import { ContextEngine } from "./context/index.js";
 import { loadProject, loadProviders, projectDataDir } from "./project.js";
 import { RunStore } from "./store.js";
-import { assertProvider, redact } from "./policy.js";
-import { errorMessage, hash, id, now, readJson, writeJson } from "./util.js";
+import {
+  assertProvider,
+  containsSecret,
+  isAllowedPath,
+  redact,
+  safePath,
+} from "./policy.js";
+import {
+  command,
+  errorMessage,
+  hash,
+  id,
+  now,
+  readJson,
+  writeJson,
+} from "./util.js";
 import { decide, decisionProviders } from "./decisions.js";
 import { loadPromotionAuthority } from "./promotion-authority.js";
 import {
@@ -40,6 +64,12 @@ import {
   type VerificationResult,
 } from "./execution/docker.js";
 import { publishRun } from "./execution/publish.js";
+import {
+  invokeReviewWorker,
+  reviewOutcome,
+  type ReviewInput,
+  type WorkerReview,
+} from "./workers/review.js";
 import type { ProjectProfile } from "./security/catalog.js";
 import {
   BASELINE_FILE,
@@ -56,7 +86,7 @@ import {
   SuppliedLines,
   unseenPatchLocation,
 } from "./execution/requested-sources.js";
-import { checkedGit } from "./execution/git.js";
+import { checkedGit, gitBlob } from "./execution/git.js";
 import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
 import {
   renderTemplateProposal,
@@ -83,6 +113,12 @@ export interface EngineDependencies {
   worker?: (input: WorkerInput, workspace: string) => Promise<WorkerResult>;
   verify?: typeof verifyInContainer;
   dockerAvailable?: typeof dockerAvailable;
+  /** Reviews a verified change; defaults to the configured reviewer's API. */
+  review?: (input: ReviewInput) => Promise<{
+    review: WorkerReview;
+    model: string;
+    usage: Usage;
+  }>;
   /** Scans a verified run result; defaults to the offline scanner image. */
   securityScan?: (options: {
     root: string;
@@ -200,6 +236,67 @@ export class GraphEngine {
       selections: result.selections,
       callUsage: result.usage,
     });
+  }
+  // The project's configured reviewer, which must be an API or local worker.
+  private async reviewer(
+    providerId = this.config.review?.providerId,
+  ): Promise<ProviderConfig> {
+    const reviewer = (await this.providers()).find(
+      (provider) => provider.id === providerId,
+    );
+    if (!providerId || !reviewer)
+      throw new Error(
+        `Configured reviewer ${providerId} is not a configured provider`,
+      );
+    if (!["openai", "anthropic", "local"].includes(reviewer.kind))
+      throw new Error(
+        `Reviewer ${reviewer.id} must be an API or local provider; installed agents cannot review yet`,
+      );
+    assertProvider(reviewer, this.config.policy);
+    return reviewer;
+  }
+  // The reviewer a run was started with, or the configured one for a run
+  // that has not recorded it yet.
+  private runReviewerId(runId: string): string | undefined {
+    const recorded = this.store
+      .events(runId)
+      .find((event) => event.type === "review.configured");
+    if (!recorded) return this.config.review?.providerId;
+    return typeof recorded.data.providerId === "string"
+      ? recorded.data.providerId
+      : undefined;
+  }
+  // Reviews share the run's worker slots, turn budget and cost reservations.
+  private async invokeReviewer(input: ReviewInput, ownerId: string) {
+    const callId = `worker-review-${id()}`;
+    const started = Date.now();
+    while (
+      !(await this.store.tryAcquireWorker(callId, input.policy.maxWorkers))
+    ) {
+      if (Date.now() - started > input.policy.timeoutSeconds * 1000)
+        throw new Error("Worker concurrency wait timed out");
+      await delay(50, undefined, { signal: input.signal });
+    }
+    try {
+      if (input.signal?.aborted) throw new Error("Run cancelled");
+      this.store.reserveCall(
+        ownerId,
+        callId,
+        input.provider.id,
+        estimateRequestCost(
+          input.provider,
+          input.policy.maxContextTokens,
+          input.policy.maxOutputTokens,
+        ),
+        input.policy.maxCostUsd,
+        input.policy.maxTurns,
+      );
+      const result = await (this.deps.review ?? invokeReviewWorker)(input);
+      this.store.settleCall(ownerId, callId, input.provider.id, result.usage);
+      return result;
+    } finally {
+      this.store.releaseWorker(callId);
+    }
   }
   private async invokeWorker(
     input: WorkerInput,
@@ -430,6 +527,7 @@ export class GraphEngine {
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
     await this.assertSecurityScanner();
+    if (this.config.review) await this.reviewer();
     const snapshot = await this.context.index({ semantic: false });
     if (snapshot.id !== plan.snapshotId)
       throw new Error("Source changed since planning; create a fresh plan");
@@ -517,6 +615,8 @@ export class GraphEngine {
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
     await this.assertSecurityScanner(run.workspace ?? this.root);
+    const pinnedReviewer = this.runReviewerId(runId);
+    if (pinnedReviewer) await this.reviewer(pinnedReviewer);
     if (
       !run.workspace &&
       (await this.context.index({ semantic: false })).id !== run.plan.snapshotId
@@ -697,6 +797,197 @@ export class GraphEngine {
       let feedback = "";
       let verified = false;
       let verifiedHash: string | undefined;
+      let reviewFeedback = "";
+      let reviewFeedbackExportable = false;
+      // Recorded when the run first executes, so changing the configuration
+      // cannot add or remove the review gate for a run in progress, even
+      // across a resume.
+      const reviewerId = this.runReviewerId(run.id);
+      if (
+        !this.store
+          .events(run.id)
+          .some((event) => event.type === "review.configured")
+      )
+        this.store.event(run.id, "review.configured", {
+          providerId: reviewerId ?? null,
+        });
+      const reviewChange = async (
+        stepId: string,
+        checks: Awaited<ReturnType<typeof verifyInContainer>>,
+      ) => {
+        const policy = this.config.policy;
+        let reviewer: ProviderConfig;
+        let diff: string;
+        let exportable: boolean;
+        try {
+          reviewer = await this.reviewer(reviewerId);
+          // Only files this run's workers wrote; the operator's own uncommitted
+          // files in the workspace are not the worker's change.
+          const written = [
+            ...new Set(
+              this.store
+                .events(run.id)
+                .filter((event) =>
+                  [
+                    "patch.applied",
+                    "dag.step.completed",
+                    "solution.cache_hit",
+                  ].includes(event.type),
+                )
+                .flatMap((event) =>
+                  Array.isArray(event.data.paths)
+                    ? (event.data.paths as string[])
+                    : [],
+                ),
+            ),
+          ].sort();
+          exportable = written.every((file) =>
+            isAllowedPath(file, policy, true),
+          );
+          if (reviewer.kind !== "local" && !exportable)
+            throw new Error(
+              "the change touches paths a cloud reviewer may not receive",
+            );
+          // Diff raw bytes outside the repository: the original from the
+          // object store with no conversion, the new file from disk. Neither
+          // the change's .gitattributes (-diff, working-tree-encoding, ident,
+          // eol) nor any diff driver or configuration can alter what the
+          // reviewer sees.
+          const scratch = await mkdtemp(
+            path.join(os.tmpdir(), "graph-review-"),
+          );
+          const parts: string[] = [];
+          try {
+            // Empty stand-ins for Git configuration, attributes and absent
+            // files: null device names differ across platforms.
+            const empty = path.join(scratch, "empty");
+            await writeFile(empty, "");
+            await mkdir(path.join(scratch, "a"));
+            await mkdir(path.join(scratch, "b"));
+            for (const [index, file] of written.entries()) {
+              const before = `a/${index}`;
+              const after = `b/${index}`;
+              const original = await gitBlob(workspace, "HEAD", file, {
+                signal,
+              });
+              await writeFile(path.join(scratch, before), original ?? "");
+              const current = await safePath(workspace, file, policy);
+              const exists = await stat(current).then(
+                () => true,
+                () => false,
+              );
+              if (exists) await copyFile(current, path.join(scratch, after));
+              else await writeFile(path.join(scratch, after), "");
+              const result = await command(
+                "git",
+                [
+                  "-c",
+                  "core.attributesFile=empty",
+                  "diff",
+                  "--no-index",
+                  "--no-ext-diff",
+                  "--no-textconv",
+                  "--text",
+                  "--no-color",
+                  `--src-prefix=a/${file}#`,
+                  `--dst-prefix=b/${file}#`,
+                  "--",
+                  before,
+                  after,
+                ],
+                {
+                  cwd: scratch,
+                  signal,
+                  timeoutMs: 60000,
+                  maxBytes: 20_000_000,
+                  env: {
+                    ...process.env,
+                    GIT_CONFIG_NOSYSTEM: "1",
+                    GIT_CONFIG_GLOBAL: empty,
+                  },
+                },
+              );
+              // --no-index exits 0 for identical files and 1 when they differ.
+              if (result.code !== 0 && result.code !== 1)
+                throw new Error(
+                  `git could not show the change to ${file}: ${result.stderr.trim().slice(0, 500)}`,
+                );
+              const status =
+                original === undefined
+                  ? " (new file)"
+                  : exists
+                    ? ""
+                    : " (deleted)";
+              parts.push(`File ${file}${status}:\n${result.stdout}`);
+            }
+          } finally {
+            await rm(scratch, { recursive: true, force: true });
+          }
+          diff = parts.join("\n");
+        } catch (error) {
+          if (signal.aborted) throw error;
+          throw new Error(
+            `Code review did not complete: ${redact(errorMessage(error))}`,
+            { cause: error },
+          );
+        }
+        this.store.event(
+          run.id,
+          "review.started",
+          { providerId: reviewer.id },
+          stepId,
+        );
+        let result: Awaited<ReturnType<typeof invokeReviewWorker>>;
+        try {
+          result = await this.invokeReviewer(
+            {
+              provider: reviewer,
+              policy,
+              objective: run.plan.objective,
+              acceptance: run.plan.acceptance,
+              diff,
+              checks: checks
+                .map((check) => `${check.argv.join(" ")}: exit ${check.code}`)
+                .join("\n"),
+              signal,
+            },
+            run.plan.id,
+          );
+        } catch (error) {
+          if (signal.aborted) throw error;
+          throw new Error(
+            `Code review did not complete: ${redact(errorMessage(error))}`,
+            { cause: error },
+          );
+        }
+        run.usage = this.store.usage(run.plan.id);
+        const outcome = reviewOutcome(result.review, run.plan.acceptance);
+        this.store.event(
+          run.id,
+          "review.completed",
+          {
+            providerId: reviewer.id,
+            model: result.model,
+            passed: outcome.passed,
+            verdict: result.review.verdict,
+            summary: redact(result.review.summary),
+            criteria: result.review.criteria.map((criterion) => ({
+              met: criterion.met,
+              evidence: redact(criterion.evidence),
+            })),
+            findings: result.review.findings.map((finding) => ({
+              ...finding,
+              message: redact(finding.message),
+            })),
+            note: "A reviewer can hold a change back but not accept it; human acceptance stays pending.",
+          },
+          stepId,
+        );
+        return {
+          ...outcome,
+          exportable: exportable && !containsSecret(outcome.feedback),
+        };
+      };
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
         save("verifying");
@@ -782,6 +1073,20 @@ export class GraphEngine {
           checks.every((c) => c.code === 0);
         verifiedHash = verified ? after : undefined;
         feedback = compactFailures(checks);
+        // Checks passing is not enough when the project has a reviewer: the
+        // reviewer must approve, or its findings become the next attempt's
+        // feedback. It can only hold a change back, never accept one.
+        // Stale review feedback must not describe a later check failure.
+        reviewFeedback = "";
+        if (verified && reviewerId) {
+          const outcome = await reviewChange(stepId, checks);
+          reviewFeedback = outcome.passed ? "" : outcome.feedback;
+          reviewFeedbackExportable = outcome.exportable;
+          if (!outcome.passed) {
+            verified = false;
+            verifiedHash = undefined;
+          }
+        }
         return verified;
       };
       let singleSteps: ExecutionStep[] = run.plan.steps;
@@ -924,7 +1229,9 @@ export class GraphEngine {
           );
           if (!worker || this.config.policy.maxAttempts < 2)
             throw new Error(
-              "DAG checks failed; inspect retained per-step evidence and create a repair plan",
+              reviewFeedback
+                ? "Code review requested changes on the combined result; inspect the review and create a repair plan"
+                : "DAG checks failed; inspect retained per-step evidence and create a repair plan",
             );
           singleSteps = [
             {
@@ -1062,6 +1369,10 @@ export class GraphEngine {
                   ? "Required verification failed. Request explicitly exportable source to investigate."
                   : "",
               patchFeedback,
+              reviewFeedback &&
+                (provider.kind === "local" || reviewFeedbackExportable
+                  ? reviewFeedback
+                  : "Code review requested changes. Request the exportable source you need and address them."),
             ]
               .filter(Boolean)
               .join("\n\n");
@@ -1222,13 +1533,19 @@ export class GraphEngine {
           this.captureDecision(run, "recovery", recovery);
           if (recovery.action === "human" || recovery.action === "stop")
             throw new Error(
-              "Required checks failed; recovery controller stopped for review",
+              reviewFeedback
+                ? "Code review requested changes; recovery controller stopped for review"
+                : "Required checks failed; recovery controller stopped for review",
             );
           if (recovery.action === "escalate") provider = alternatives[0]!;
           stepPacket = await currentContext();
         }
         if (!verified)
-          throw new Error("Required checks failed after the allowed attempts");
+          throw new Error(
+            reviewFeedback
+              ? "Code review still requested changes after the allowed attempts"
+              : "Required checks failed after the allowed attempts",
+          );
       }
       if (signal.aborted) throw new Error("Run cancelled");
       await this.refresh();
