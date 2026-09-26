@@ -199,6 +199,35 @@ stderr because it may contain context or credentials. It returned no proposal
 or usage, made no patch, and was not retried. This short-packet result does not
 explain the earlier longer native failure or justify a full managed run.
 
+## Bounded local pilot on a large file — 2026-09-26 UTC
+
+A fresh pilot repeated the kind of task that failed on 2026-09-25, when
+workers could only receive whole files. It used the existing oMLX Qwen
+worker (`qwen-local`, no new download) and Laya in shadow, with no metered
+calls; the tracked policy was unchanged (`maxCostUsd: 0`, shadow decisions,
+16k-token context ceiling).
+
+- Task: in `packages/engine/src/context/index.ts` (71 KB, well over the
+  11,200-token worker budget the plan routed), extract the two repeated
+  index-limit error messages into named constants without changing their
+  text or behaviour. Two acceptance criteria; publication `none`.
+- Run `ee0166fc` succeeded in about six minutes. The worker used three
+  turns of about 3.7k, 3.7k and 4.1k input tokens (13.5k in total, 1.8k
+  output, $0), working from an outline and line ranges rather than the
+  whole file, then proposed one patch that applied cleanly.
+- The patch adds `CANDIDATE_FILES_LIMIT_MESSAGE` and
+  `SOURCE_BYTES_LIMIT_MESSAGE` beside `BUILTIN_EXCLUSIONS`, uses them at all
+  three sites (keeping the `RangeError`), and changes nothing else
+  (8 insertions, 9 deletions). The full verification image passed on the
+  exact patched snapshot.
+- The run recorded its outcome (checks passed, security `not-run` because
+  this repository keeps no committed security baseline yet, 30 linked
+  decision records) with human acceptance `pending`: accepting it is the
+  owner's decision, not the engine's or its operator agent's.
+
+This is one small, local-only task. It shows the large-file path works end to
+end with a local model; it is not a benchmark and is not promotion evidence.
+
 ## Local-stack pilot with Jev routing — 2026-09-25 UTC
 
 The owner asked for heavy TypeSafe Jev use under an owner-selected

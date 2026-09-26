@@ -190,13 +190,44 @@ were fixed before merge; the PR descriptions list them.
 - [#41](https://github.com/MILTONADINA/graph-engineering/pull/41)
   (`f388c95`): the dashboard's live project board
   ([project overview](project-overview.md)).
-- #42: knowledge packs and cited research
+- [#42](https://github.com/MILTONADINA/graph-engineering/pull/42)
+  (`972cc17`): knowledge packs and cited research
   ([knowledge packs](knowledge-packs.md)).
+- #43: the bounded local pilot record (below) and this update.
 
-The [full wiring roadmap](full-wiring-roadmap.md) holds the remaining
-items:
-a fresh bounded local pilot on a new real task. Jev and Laya promotion, live
-target testing and paid tools stay owner-gated.
+A fresh bounded pilot then used the existing local Qwen (no download, no
+metered calls, tracked policy unchanged) on a refactor inside the 71 KB
+`packages/engine/src/context/index.ts`: run `ee0166fc` worked through an
+outline and line ranges in three turns of about 4k input tokens each,
+applied one clean patch and passed the full verification image
+([local validation](local-validation.md#bounded-local-pilot-on-a-large-file--2026-09-26-utc)).
+Its human acceptance is **pending for the owner**: an operator agent must not
+accept a run it drove. Review it with `npm run graph:local -- inspect
+ee0166fc-e0d7-46d9-beb9-91c281fed41e`, then `accept` or `reject --note`.
+
+Every item in the [full wiring roadmap](full-wiring-roadmap.md)'s sequence
+has landed; its status table names what each capability still leaves open
+(a tester role, epics above one-level decomposition, analysis views of run
+outcomes). What remains beyond that needs the owner or a third party:
+
+- promoting Jev or Laya from shadow to real routing, which needs the
+  externally signed evidence in the
+  [promotion trust boundary](promotion-trust-boundary.md);
+- dynamic testing of a live target, only against a target the owner
+  authorizes in writing with network permission;
+- paid tools such as Burp Suite, only where the user has installed and
+  licensed them;
+- reviewing a security baseline for this repository. Producing it is
+  engineering (`graph-engine security-scan --update-baseline` on a branch,
+  with its findings listed in the PR for review); accepting its findings as
+  known is the owner's decision. Until one is committed, this repository's
+  own managed runs are not security-gated
+  ([security scanning](security-scanning.md)).
+
+Useful next engineering, if the owner wants it: epics and stories above
+one-level decomposition for very large objectives, an analysis view of run
+outcomes in the dashboard, and a tester role beside today's planner,
+implementer and reviewer.
 
 ## Where the work stands
 
@@ -392,6 +423,11 @@ deterministic baselines and report the actual evidence level.
 
 ## Fourteen-item roadmap: honest status
 
+> Superseded in part (2026-09-26): this section predates PRs #20–#43. Read
+> the continuation updates above and the
+> [full wiring roadmap](full-wiring-roadmap.md) for current status; do not
+> reopen work they record as merged.
+
 The numbered items are those in the [completion checklist](completion-checklist.md).
 "Implemented" means code and relevant checks exist, not that every production
 or independent-evaluation claim is established.
@@ -470,6 +506,11 @@ project MCP export policy is a separate channel that must be reviewed on its
 own. See the [black-box boundary](repository-blackbox-boundary.md).
 
 ## The next engineering phase
+
+> Superseded in part (2026-09-26): this section predates PRs #20–#43. Read
+> the continuation updates above and the
+> [full wiring roadmap](full-wiring-roadmap.md) for current status; do not
+> reopen work they record as merged.
 
 Do not create invented "independent" evidence with Claude's own keys, synthetic
 labels, or renamed historical tasks. There is still code-side work to do while
