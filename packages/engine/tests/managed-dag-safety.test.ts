@@ -1389,7 +1389,7 @@ describe("tester role", () => {
       path.join(workspace, "tests/FirstTest.java"),
       "utf8",
     ).catch(() => "");
-    const failing = test.includes("13 digits");
+    const failing = test.includes("13 items");
     const frames = Array.from(
       { length: 400 },
       (_, i) => `\tat pkg.Frame${i}.call(Frame.java:${i})`,
@@ -1398,7 +1398,7 @@ describe("tester role", () => {
       ...check,
       code: failing ? 1 : 0,
       stdout: failing
-        ? `FAIL tests/FirstTest.java\n[ERROR] pkg.FirstTest.valid: expected 12 digits\n${frames}\n[ERROR] Tests run: 3, Failures: 1`
+        ? `FAIL tests/FirstTest.java\n[ERROR] pkg.FirstTest.valid: expected 12 items\n${frames}\n[ERROR] Tests run: 3, Failures: 1`
         : "",
       stderr: "",
       snapshotHash,
@@ -1413,7 +1413,7 @@ describe("tester role", () => {
         {
           path: "tests/FirstTest.java",
           before: null,
-          after: "expect 13 digits\n",
+          after: "expect 13 items\n",
         },
       ],
     },
@@ -1436,8 +1436,7 @@ describe("tester role", () => {
           return {
             ...result("one"),
             proposal: {
-              summary:
-                "The test expects 13 digits but an account number has 12",
+              summary: "The test expects 13 items but the basket holds 12",
               requests: [],
               changes: [],
             },
@@ -1458,8 +1457,8 @@ describe("tester role", () => {
                   : [
                       {
                         path: "tests/FirstTest.java",
-                        before: "13 digits",
-                        after: "12 digits",
+                        before: "13 items",
+                        after: "12 items",
                       },
                     ],
             },
@@ -1484,12 +1483,12 @@ describe("tester role", () => {
     ]);
     // The implementer saw the error, not 400 stack frames.
     expect(repairCalls[0]!.feedback).toContain(
-      "pkg.FirstTest.valid: expected 12 digits",
+      "pkg.FirstTest.valid: expected 12 items",
     );
     expect(repairCalls[0]!.feedback).toContain("(more stack frames omitted)");
     expect(repairCalls[0]!.feedback).not.toContain("Frame399");
     expect(repairCalls[1]!.objective).toContain(
-      'The implementer believes a test you wrote (tests/FirstTest.java) is wrong: "The test expects 13 digits but an account number has 12"',
+      'The implementer believes a test you wrote (tests/FirstTest.java) is wrong: "The test expects 13 items but the basket holds 12"',
     );
     // The tester may not edit other tests.
     expect(repairCalls[2]!.feedback).toContain("old.test.js");
@@ -1544,8 +1543,8 @@ describe("tester role", () => {
                 ? [
                     {
                       path: "tests/firsttest.java",
-                      before: "13 digits",
-                      after: "12 digits",
+                      before: "13 items",
+                      after: "12 items",
                     },
                   ]
                 : [],
