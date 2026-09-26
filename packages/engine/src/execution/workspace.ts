@@ -24,6 +24,13 @@ import {
   verifyAwsDescriptorDockerfile,
 } from "../template-runtime-aws.js";
 
+/** Files committed to the repository's index, without untracked ones. */
+export async function trackedFiles(root: string): Promise<string[]> {
+  const result = await managedGit(root, ["ls-files", "-z", "--cached"]);
+  if (result.code !== 0)
+    throw new Error("Security scanning requires a Git repository");
+  return [...new Set(result.stdout.split("\0").filter(Boolean))].sort();
+}
 export async function gitFiles(root: string): Promise<string[]> {
   const result = await managedGit(root, [
     "ls-files",

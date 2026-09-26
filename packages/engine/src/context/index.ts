@@ -1307,6 +1307,31 @@ export class ContextEngine {
         warnings.push(
           "Explicit snapshot requested: evidence represents that snapshot, not necessarily current working files",
         );
+      // Documentation ages: say so when a retrieved knowledge pack is old.
+      for (const packPath of new Set(
+        items
+          .map((item) => item.source?.path)
+          .filter((file): file is string =>
+            Boolean(file?.startsWith(`${KNOWLEDGE_PACK_DIR}/`)),
+          ),
+      )) {
+        const row = await this.db.get<Payload>(
+          "SELECT payload FROM files WHERE snapshot_id=? AND path=?",
+          [snapshot.id, packPath],
+        );
+        const retrieved = row
+          ? /^retrieved: (.+)$/m.exec(
+              json<ParsedFile>(row).text.slice(0, 2000),
+            )?.[1]
+          : undefined;
+        const age = retrieved
+          ? (Date.now() - Date.parse(retrieved)) / 86_400_000
+          : Number.NaN;
+        if (!(age <= 180))
+          warnings.push(
+            `Knowledge pack ${packPath} was retrieved ${retrieved ?? "at an unknown time"}, over 180 days ago or undated; check the source for newer documentation`,
+          );
+      }
       return {
         version: SCHEMA_VERSION,
         projectId: this.projectId,
@@ -1543,12 +1568,51 @@ export class ContextEngine {
     ]);
     return record;
   }
+  /**
+   * A person declines a proposal. It stays on record, private, and is never
+   * accepted or retrieved; the reason is kept with it.
+   */
+  async rejectMemory(id: string, reason: string): Promise<MemoryRecord> {
+    await this.ready;
+    const trimmed = reason.trim();
+    if (!trimmed) throw new Error("Say why the proposal is rejected");
+    if (containsSecret(trimmed))
+      throw new Error("The reason contains a potential secret; rephrase it");
+    const original = await this.memoryPayload(id);
+    const record: MemoryRecord = JSON.parse(original);
+    if (record.status !== "proposed")
+      throw new Error(
+        `Only a proposed memory can be rejected; this one is ${record.status}`,
+      );
+    record.status = "rejected";
+    record.rejectionReason = trimmed.slice(0, 2000);
+    await this.db.batch([
+      {
+        sql: "UPDATE memories SET status=?,payload=? WHERE id=? AND project_id=? AND status='proposed' AND payload=?",
+        params: [
+          "rejected",
+          JSON.stringify(record),
+          id,
+          this.projectId,
+          original,
+        ],
+        expectedChanges: 1,
+      },
+    ]);
+    return record;
+  }
   async acceptMemory(id: string): Promise<MemoryRecord> {
     await this.ready;
     const original = await this.memoryPayload(id);
     const record = JSON.parse(original) as MemoryRecord;
-    if (record.status === "superseded" || record.status === "conflicted")
-      throw new Error("A superseded or conflicted memory cannot be accepted");
+    if (
+      record.status === "superseded" ||
+      record.status === "conflicted" ||
+      record.status === "rejected"
+    )
+      throw new Error(
+        `A ${record.status} memory cannot be accepted; propose a new one instead`,
+      );
     this.validateMemory(record);
     if (record.status === "accepted") return record;
     record.status = "accepted";

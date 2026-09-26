@@ -91,7 +91,7 @@ export function repositoryDockerCommand(imageId, endpoint, name, sourceRoot) {
     !/^graph-sealed-repository-[a-f0-9-]{36}$/.test(name) ||
     typeof sourceRoot !== "string" ||
     !path.isAbsolute(sourceRoot) ||
-    /[,=\"\\\x00-\x1f\x7f]/.test(sourceRoot)
+    /[,="\\\x00-\x1f\x7f]/.test(sourceRoot)
   )
     throw new Error(
       "Repository guest needs an exact image, name and source root",

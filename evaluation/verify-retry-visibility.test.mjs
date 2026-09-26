@@ -240,7 +240,7 @@ test(
     await assert.rejects(
       diagnoseRetryCandidate({
         [RETRY_SOURCE_PATH]:
-          'process.stdout.write("{\\\"completed\\\":true}");\n' + source,
+          'process.stdout.write("{\\"completed\\":true}");\n' + source,
       }),
       /candidate boundary failed|Invalid retry guest completion/i,
     );

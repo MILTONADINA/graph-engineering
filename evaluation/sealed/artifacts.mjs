@@ -290,6 +290,8 @@ export class ArtifactStore {
         try {
           current = await lstat(temporary);
         } catch (error) {
+          // Fail closed: a cleanup error outranks the operation's result.
+          // eslint-disable-next-line no-unsafe-finally
           if (error.code !== "ENOENT") throw error;
         }
         if (current) {
@@ -298,6 +300,7 @@ export class ArtifactStore {
             current.isSymbolicLink() ||
             !sameFile(current, identity)
           )
+            // eslint-disable-next-line no-unsafe-finally
             throw new Error(
               "Owned artifact temporary changed; retained for inspection",
             );

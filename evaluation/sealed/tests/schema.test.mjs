@@ -52,6 +52,8 @@ test("object entry points refuse getters/proxies and sparse data without coercio
     ),
   );
   assert.equal(touched, false);
+  // A deliberately sparse array: cloneJson must refuse holes.
+  // eslint-disable-next-line no-sparse-arrays
   assert.throws(() => cloneJson([, 1]));
   assert.throws(() => cloneJson({ missing: undefined }));
   assert.throws(() => cloneJson(new Date()));
