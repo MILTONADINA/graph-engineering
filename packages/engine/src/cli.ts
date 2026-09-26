@@ -33,6 +33,9 @@ import {
   readBaseline,
   runSecurityScan,
   writeBaseline,
+  osvDatabase,
+  OSV_DATABASE_HOST,
+  updateOsvDatabase,
 } from "./security/scan.js";
 import { createServer } from "./server.js";
 import { serveMcp } from "./mcp.js";
@@ -305,11 +308,16 @@ cli
 // The standalone scan and --update-baseline cover committed (tracked) files,
 // so a local scratch file never enters a reviewed baseline. The run gate scans
 // worker-written files separately.
+const securityDataDir = async () =>
+  projectDataDir((await loadProject(root())).projectId);
 const securityProfile = async () => ({
   files: await trackedFiles(root()),
   // Dynamic testing needs a target the owner authorizes; none is recorded yet.
   authorizedTargets: [],
   configuredTools: [],
+  databases: (await osvDatabase(await securityDataDir()))
+    ? ["osv-scanner"]
+    : [],
 });
 cli
   .command("security-plan")
@@ -363,10 +371,12 @@ cli
         `Scanner image ${options.image} is not built; build it from sidecars/security/Dockerfile in the Graph Engineering repository`,
       );
     }
+    const database = await osvDatabase(await securityDataDir());
     const scan = await runSecurityScan({
       root: root(),
       image: options.image,
       profile: await securityProfile(),
+      ...(database ? { osvDatabase: database.path } : {}),
     });
     if (options.updateBaseline) {
       if (scan.errors.length)
@@ -386,8 +396,37 @@ cli
       new: fresh.slice(0, 200),
       ...(fresh.length > 200 ? { omitted: fresh.length - 200 } : {}),
       errors: scan.errors,
+      osvDatabase: database
+        ? {
+            updatedAt: database.updatedAt,
+            // Vulnerability data ages; refresh it regularly.
+            stale: Date.now() - Date.parse(database.updatedAt) > 7 * 86_400_000,
+          }
+        : "not downloaded; run graph-engine security-db-update to scan dependencies",
     });
     if (fresh.length || scan.errors.length) process.exitCode = 1;
+  });
+cli
+  .command("security-db-update")
+  .description(
+    `Download the OSV vulnerability database for this repository's lockfiles (needs ${OSV_DATABASE_HOST} in policy.allowedHosts); later scans use it offline`,
+  )
+  .option(
+    "--image <name>",
+    "Scanner image built from Graph Engineering's sidecars/security/Dockerfile",
+    "graph-security:local",
+  )
+  .action(async (options) => {
+    const project = await loadProject(root());
+    print(
+      await updateOsvDatabase({
+        root: root(),
+        dataDir: projectDataDir(project.projectId),
+        image: options.image,
+        files: await trackedFiles(root()),
+        policy: project.policy,
+      }),
+    );
   });
 cli
   .command("reviewer [providerId]")

@@ -272,7 +272,7 @@ describe("run outcomes", () => {
     });
     expect(second).toMatchObject({
       status: "failed",
-      automatedChecksPassed: null,
+      automatedChecksPassed: false,
       security: "not-run",
       humanAcceptance: null,
     });

@@ -22,6 +22,8 @@ export interface ProjectProfile {
   authorizedTargets: readonly string[];
   /** Security tools the user has installed or licensed, by catalog id. */
   configuredTools: readonly string[];
+  /** Tools whose vulnerability database is downloaded locally, by id. */
+  databases?: readonly string[];
 }
 
 export interface SecurityTool {
@@ -79,7 +81,7 @@ export function semgrepRuleSets(profile: ProjectProfile): string[] {
   return [...sets].sort();
 }
 
-const LOCKFILES = [
+export const LOCKFILES = [
   "package-lock.json",
   "yarn.lock",
   "pnpm-lock.yaml",
@@ -232,7 +234,14 @@ export function selectSecurityTools(
   for (const tool of catalog) {
     const reason = tool.appliesTo(profile);
     if (reason) {
-      selected.push({ tool, reason, runnable: tool.mode === "offline" });
+      selected.push({
+        tool,
+        reason,
+        runnable:
+          tool.mode === "offline" ||
+          (tool.mode === "needs-database" &&
+            (profile.databases ?? []).includes(tool.id)),
+      });
       continue;
     }
     skipped.push({

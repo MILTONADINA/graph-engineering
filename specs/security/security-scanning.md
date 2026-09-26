@@ -32,6 +32,14 @@ Teams need security tools chosen for what their repository actually contains, wi
   - Test: packages/engine/tests/execution.test.ts :: does not scan a project that keeps no reviewed baseline
 - AC8: The standalone scan and baseline update cover committed files only, so an untracked scratch file never enters a reviewed baseline.
   - Test: packages/engine/tests/hygiene.test.ts :: lists committed files only for the standalone scan
+- AC9: New findings in a verified result go back to the worker as feedback within the attempt budget, and the run succeeds once they are fixed.
+  - Test: packages/engine/tests/execution.test.ts :: returns new findings to the worker as feedback and succeeds once they are fixed
+- AC10: With a downloaded OSV database, dependency lockfiles are scanned offline, one finding per package advisory; the download needs the OSV host allowlisted.
+  - Test: packages/engine/tests/security-catalog.test.ts :: runs OSV-Scanner offline only once its database is downloaded
+  - Test: packages/engine/tests/security-catalog.test.ts :: reads OSV-Scanner JSON into one finding per package advisory at the lockfile entry
+  - Test: packages/engine/tests/security-catalog.test.ts :: downloads the database only when the policy allows the OSV host
+- AC11: Dependency advisories gate a run only for lockfiles the run changed; others are recorded as advisory.
+  - Test: packages/engine/tests/execution.test.ts :: gates dependency advisories only on lockfiles the run changed
 
 ## Security considerations
 

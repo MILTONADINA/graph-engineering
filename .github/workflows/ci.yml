@@ -233,6 +233,7 @@ jobs:
 
   sidecar:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -241,6 +242,24 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m unittest discover -s sidecars/laya -p 'test_*.py' -v
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies with one bounded retry
+        run: |
+          # The root postinstall native archive fetch is outside npm's retry.
+          npm ci || { sleep 5; npm ci; }
+      - name: Build the pinned security scanner image with one bounded retry
+        run: |
+          # The build fetches pinned artifacts from several hosts.
+          docker build -t graph-security:local sidecars/security || { sleep 30; docker build -t graph-security:local sidecars/security; }
+      - name: Real scanners find, suppress and fingerprint findings
+        run: |
+          npm run build:dependencies
+          npm test -w @graph-engineering/engine -- tests/security-catalog.test.ts
+        env:
+          GRAPH_ENGINE_SECURITY_IMAGE: "1"
 
   historical-replays:
     runs-on: ubuntu-24.04

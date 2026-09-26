@@ -498,11 +498,13 @@ export class RunStore {
       recordedAt: now(),
       kind,
       status: run.status,
-      // From this attempt only; an earlier attempt's result is not this one's.
+      // From this attempt's last verification only; an earlier attempt's
+      // result is not this one's.
       automatedChecksPassed: (() => {
-        const value = last("acceptance.pending_review")?.data
-          .automatedChecksPassed;
-        return typeof value === "boolean" ? value : null;
+        const checks = last("verification.completed")?.data.checks;
+        return Array.isArray(checks) && checks.length
+          ? checks.every((check) => (check as { code?: unknown }).code === 0)
+          : null;
       })(),
       review: review
         ? {
