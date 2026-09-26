@@ -228,36 +228,23 @@ export const nodeProviderFetch: ProviderFetch = (url, init) =>
     request.on("error", reject);
     request.end(init.body);
   });
-export async function invokeApiWorker(
-  input: WorkerInput,
+// Sends one structured-output request to an API or local provider and returns
+// the model's JSON text with the raw response. Shared by implementation and
+// review calls, so both get the same transport, limits and output checks.
+export async function callStructuredProvider(
+  options: {
+    provider: ProviderConfig;
+    policy: ProjectPolicy;
+    effort?: string;
+    instructions: string;
+    user: string;
+    schema: Record<string, unknown>;
+    schemaName: string;
+    signal?: AbortSignal;
+  },
   providerFetch: ProviderFetch = nodeProviderFetch,
-): Promise<WorkerResult> {
-  const { provider, policy, signal } = input;
-  assertProvider(provider, policy, input.effort);
-  const packet = contextForProvider(input.context, provider, policy);
-  if (
-    provider.kind !== "local" &&
-    [input.objective, ...input.acceptance, input.feedback ?? ""].some(
-      containsSecret,
-    )
-  )
-    throw new Error("Worker instructions contain a potential secret");
-  const user = JSON.stringify({
-    task: input.objective,
-    acceptance: input.acceptance,
-    context: packet,
-    feedback: input.feedback ?? null,
-  });
-  // One UTF-8 byte per token is a deliberately conservative content bound.
-  // Reserve framing/schema overhead; never silently trim mandatory context.
-  if (
-    workerRequestBytes(input) >
-    Math.min(
-      policy.maxContextTokens,
-      provider.maxContextTokens ?? policy.maxContextTokens,
-    )
-  )
-    throw new Error("Worker request exceeds configured context budget");
+): Promise<{ text: string; result: Record<string, any> }> {
+  const { provider, policy, signal } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -268,17 +255,17 @@ export async function invokeApiWorker(
     headers.Authorization = `Bearer ${key}`;
     body = {
       model: provider.model,
-      instructions: WORKER_INSTRUCTIONS,
-      input: user,
+      instructions: options.instructions,
+      input: options.user,
       max_output_tokens: policy.maxOutputTokens,
-      ...(input.effort ? { reasoning: { effort: input.effort } } : {}),
+      ...(options.effort ? { reasoning: { effort: options.effort } } : {}),
       store: false,
       text: {
         format: {
           type: "json_schema",
-          name: "engineering_patch",
+          name: options.schemaName,
           strict: true,
-          schema: proposalJsonSchema,
+          schema: options.schema,
         },
       },
     };
@@ -288,12 +275,12 @@ export async function invokeApiWorker(
     headers["anthropic-version"] = "2023-06-01";
     body = {
       model: provider.model,
-      system: WORKER_INSTRUCTIONS,
-      messages: [{ role: "user", content: user }],
+      system: options.instructions,
+      messages: [{ role: "user", content: options.user }],
       max_tokens: policy.maxOutputTokens,
       output_config: {
-        format: { type: "json_schema", schema: proposalJsonSchema },
-        ...(input.effort ? { effort: input.effort } : {}),
+        format: { type: "json_schema", schema: options.schema },
+        ...(options.effort ? { effort: options.effort } : {}),
       },
     };
   } else if (provider.kind === "local") {
@@ -302,19 +289,19 @@ export async function invokeApiWorker(
     body = {
       model: provider.model,
       messages: [
-        { role: "system", content: WORKER_INSTRUCTIONS },
-        { role: "user", content: user },
+        { role: "system", content: options.instructions },
+        { role: "user", content: options.user },
       ],
       max_tokens: policy.maxOutputTokens,
       response_format: {
         type: "json_schema",
         json_schema: {
-          name: "engineering_patch",
+          name: options.schemaName,
           strict: true,
-          schema: proposalJsonSchema,
+          schema: options.schema,
         },
       },
-      ...(input.effort ? { reasoning_effort: input.effort } : {}),
+      ...(options.effort ? { reasoning_effort: options.effort } : {}),
       ...(provider.localOptions?.enableThinking !== undefined
         ? {
             chat_template_kwargs: {
@@ -393,7 +380,13 @@ export async function invokeApiWorker(
         : result.choices?.[0]?.message?.content;
   if (typeof text !== "string" || !text)
     throw new Error("Provider returned no structured patch");
-  const proposal: unknown = JSON.parse(text);
+  return { text, result };
+}
+
+export function usageFrom(
+  provider: ProviderConfig,
+  result: Record<string, any>,
+): Usage {
   const count = (value: unknown): number | null =>
     typeof value === "number" && Number.isSafeInteger(value) && value >= 0
       ? value
@@ -405,21 +398,68 @@ export async function invokeApiWorker(
     result.usage?.output_tokens ?? result.usage?.completion_tokens,
   );
   return {
+    inputTokens,
+    outputTokens,
+    cachedTokens: count(
+      result.usage?.input_tokens_details?.cached_tokens ??
+        result.usage?.prompt_tokens_details?.cached_tokens ??
+        result.usage?.cache_read_input_tokens,
+    ),
+    costUsd:
+      inputTokens !== null && outputTokens !== null
+        ? estimateRequestCost(provider, inputTokens, outputTokens)
+        : null,
+    estimated: true,
+  };
+}
+
+export async function invokeApiWorker(
+  input: WorkerInput,
+  providerFetch: ProviderFetch = nodeProviderFetch,
+): Promise<WorkerResult> {
+  const { provider, policy, signal } = input;
+  assertProvider(provider, policy, input.effort);
+  const packet = contextForProvider(input.context, provider, policy);
+  if (
+    provider.kind !== "local" &&
+    [input.objective, ...input.acceptance, input.feedback ?? ""].some(
+      containsSecret,
+    )
+  )
+    throw new Error("Worker instructions contain a potential secret");
+  const user = JSON.stringify({
+    task: input.objective,
+    acceptance: input.acceptance,
+    context: packet,
+    feedback: input.feedback ?? null,
+  });
+  // One UTF-8 byte per token is a deliberately conservative content bound.
+  // Reserve framing/schema overhead; never silently trim mandatory context.
+  if (
+    workerRequestBytes(input) >
+    Math.min(
+      policy.maxContextTokens,
+      provider.maxContextTokens ?? policy.maxContextTokens,
+    )
+  )
+    throw new Error("Worker request exceeds configured context budget");
+  const { text, result } = await callStructuredProvider(
+    {
+      provider,
+      policy,
+      effort: input.effort,
+      instructions: WORKER_INSTRUCTIONS,
+      user,
+      schema: proposalJsonSchema,
+      schemaName: "engineering_patch",
+      signal,
+    },
+    providerFetch,
+  );
+  const proposal: unknown = JSON.parse(text);
+  return {
     proposal: proposalSchema.parse(proposal),
     model: result.model ?? provider.model,
-    usage: {
-      inputTokens,
-      outputTokens,
-      cachedTokens: count(
-        result.usage?.input_tokens_details?.cached_tokens ??
-          result.usage?.prompt_tokens_details?.cached_tokens ??
-          result.usage?.cache_read_input_tokens,
-      ),
-      costUsd:
-        inputTokens !== null && outputTokens !== null
-          ? estimateRequestCost(provider, inputTokens, outputTokens)
-          : null,
-      estimated: true,
-    },
+    usage: usageFrom(provider, result),
   };
 }
