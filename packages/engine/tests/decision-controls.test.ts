@@ -216,6 +216,44 @@ it.each([
   },
 );
 
+it("retries a repeated failure within the attempt budget when no stronger worker exists", async () => {
+  // Without promotion the deterministic baseline decides.
+  const options = {
+    ...session(),
+    maxAttempts: 3,
+    needsMoreContext: false,
+    securityConcern: false,
+    repeatedFailure: true,
+  };
+  expect(
+    (
+      await controlRecovery({
+        ...options,
+        attempt: 2,
+        alternativeProviderAvailable: false,
+      })
+    ).action,
+  ).toBe("retry");
+  expect(
+    (
+      await controlRecovery({
+        ...options,
+        attempt: 2,
+        alternativeProviderAvailable: true,
+      })
+    ).action,
+  ).toBe("escalate");
+  expect(
+    (
+      await controlRecovery({
+        ...options,
+        attempt: 3,
+        alternativeProviderAvailable: false,
+      })
+    ).action,
+  ).toBe("human");
+});
+
 it("refuses retries beyond the attempt budget and cannot discard required audit evidence", async () => {
   answer({ recovery: "retry" });
   const recovery = await controlRecovery({

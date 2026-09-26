@@ -222,6 +222,11 @@ export interface ExecutionStep {
   effort?: string;
   templateId?: string;
   inputs?: Record<string, unknown>;
+  /**
+   * Glob patterns (like exportPaths) limiting the files this step may write,
+   * for example a tester limited to test files. Absent means any allowed path.
+   */
+  writes?: string[];
 }
 export interface ExecutionPlan {
   version: typeof SCHEMA_VERSION;

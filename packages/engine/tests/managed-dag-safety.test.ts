@@ -1078,3 +1078,50 @@ describe("proposed decomposition", () => {
     expect(call).not.toHaveBeenCalled();
   });
 });
+
+describe("scoped steps in managed runs", () => {
+  it("never applies a single-step edit outside the step's scope", async () => {
+    const { root } = await fixture();
+    const feedback: (string | undefined)[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        feedback.push(input.feedback);
+        return feedback.length === 1 ? result("two") : result("one");
+      }),
+    });
+    const planned = await plan(engine, [
+      { ...step("one"), writes: ["first.js"] },
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(feedback[1]).toContain(
+      "This step may only write files matching first.js",
+    );
+    expect(
+      await readFile(path.join(run.workspace!, "second.js"), "utf8"),
+    ).toContain("= 2");
+  });
+
+  it("returns an out-of-scope edit to the worker as feedback", async () => {
+    const { root } = await fixture();
+    const feedback: (string | undefined)[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (input.objective === "one") return result("one");
+        feedback.push(input.feedback);
+        // First try strays outside the step's scope, then complies.
+        return feedback.length === 1 ? result("one") : result("two");
+      }),
+    });
+    const planned = await plan(engine, [
+      step("one"),
+      { ...step("two", ["one"]), writes: ["second.js"] },
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(feedback[1]).toContain(
+      "This step may only write files matching second.js",
+    );
+    expect(feedback[1]).toContain("first.js");
+  });
+});

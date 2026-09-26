@@ -9,7 +9,15 @@ import {
   realpath,
   writeFile,
 } from "node:fs/promises";
-import { isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import {
+  dirname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { promisify } from "node:util";
 import ignore from "ignore";
 import picomatch from "picomatch";
@@ -66,7 +74,7 @@ import {
   isAllowedPath,
   reachesWorkingSet,
 } from "../policy.js";
-import { subprocessEnvironment } from "../util.js";
+import { errorMessage, subprocessEnvironment } from "../util.js";
 import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
 import {
   pythonRuntime,
@@ -124,6 +132,65 @@ const safePath = (path: string): boolean =>
         /[. ]$/.test(part) ||
         /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
     );
+async function insideGitRepository(directory: string): Promise<boolean> {
+  let current = resolve(directory);
+  while (true) {
+    try {
+      await lstat(join(current, ".git"));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return true;
+    }
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+/** The most candidate files one snapshot indexes. */
+export const INDEX_FILE_LIMIT = 100_000;
+const CANDIDATE_FILES_LIMIT_MESSAGE = `Index limit exceeded: at most ${INDEX_FILE_LIMIT} candidate files per snapshot. Set policy.workingSet to the directories you are working on.`;
+const SOURCE_BYTES_LIMIT_MESSAGE =
+  "Index limit exceeded: at most 256 MiB source bytes per snapshot. Set policy.workingSet to the directories you are working on.";
+
+/**
+ * Whether the context index leaves a path out: unsafe names, built-in and
+ * policy exclusions, and paths outside the working set (knowledge packs
+ * excepted). `ignoreWorkingSet` answers for the whole repository.
+ */
+export function excludedFromIndex(
+  path: string,
+  policy: ProjectPolicy,
+  options: { directory?: boolean; ignoreWorkingSet?: boolean } = {},
+): boolean {
+  if (!safePath(path)) return true;
+  // Knowledge packs serve every part of the repository, so a working set
+  // never hides them.
+  const pack =
+    path === KNOWLEDGE_PACK_DIR ||
+    path.startsWith(`${KNOWLEDGE_PACK_DIR}/`) ||
+    (options.directory === true && KNOWLEDGE_PACK_DIR.startsWith(`${path}/`));
+  if (
+    !pack &&
+    !options.ignoreWorkingSet &&
+    !(options.directory
+      ? reachesWorkingSet(path, policy)
+      : inWorkingSet(path, policy))
+  )
+    return true;
+  const segments = path.split("/");
+  const prefixes = segments.map((_, index) =>
+    segments.slice(0, index + 1).join("/"),
+  );
+  return [...BUILTIN_EXCLUSIONS, ...policy.excludedPaths].some((pattern) =>
+    prefixes.some((prefix) =>
+      picomatch(pattern, {
+        dot: true,
+        nocase: true,
+        basename: !pattern.includes("/"),
+      })(prefix),
+    ),
+  );
+}
 type Payload = { payload: string };
 type Chunk = { id: string; text: string; source: SourceReference };
 const json = <T>(row: Payload): T => JSON.parse(row.payload);
@@ -288,33 +355,7 @@ export class ContextEngine {
     policy: ProjectPolicy = this.policy,
     directory = false,
   ): boolean {
-    if (!safePath(path)) return true;
-    // Knowledge packs serve every part of the repository, so a working set
-    // never hides them.
-    const pack =
-      path === KNOWLEDGE_PACK_DIR ||
-      path.startsWith(`${KNOWLEDGE_PACK_DIR}/`) ||
-      (directory && KNOWLEDGE_PACK_DIR.startsWith(`${path}/`));
-    if (
-      !pack &&
-      !(directory
-        ? reachesWorkingSet(path, policy)
-        : inWorkingSet(path, policy))
-    )
-      return true;
-    const segments = path.split("/");
-    const prefixes = segments.map((_, index) =>
-      segments.slice(0, index + 1).join("/"),
-    );
-    return [...BUILTIN_EXCLUSIONS, ...policy.excludedPaths].some((pattern) =>
-      prefixes.some((prefix) =>
-        picomatch(pattern, {
-          dot: true,
-          nocase: true,
-          basename: !pattern.includes("/"),
-        })(prefix),
-      ),
-    );
+    return excludedFromIndex(path, policy, { directory });
   }
   private async git(args: string[]): Promise<string | null> {
     try {
@@ -334,13 +375,40 @@ export class ContextEngine {
     }
   }
   private async inventory(): Promise<string[]> {
-    const listed = await this.git([
-      "ls-files",
-      "-z",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-    ]);
+    let listed: string | null = null;
+    try {
+      listed = (
+        await execFileAsync(
+          "git",
+          [
+            "-c",
+            "core.fsmonitor=false",
+            "-C",
+            this.root,
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+          ],
+          {
+            env: subprocessEnvironment(),
+            // Large repositories list tens of megabytes of paths.
+            maxBuffer: 512 * 1024 * 1024,
+            timeout: 120_000,
+          },
+        )
+      ).stdout;
+    } catch (error) {
+      // Inside a Git repository a failed listing is an error, never a
+      // silent switch to a walk with different ignore rules. Look for the
+      // repository on disk, since Git itself just failed.
+      if (await insideGitRepository(this.root))
+        throw new Error(
+          `Could not list repository files with git: ${errorMessage(error)}`,
+          { cause: error },
+        );
+    }
     if (listed !== null)
       return [...new Set(listed.split("\0").filter(Boolean))]
         .filter((path) => !this.excluded(path))
@@ -382,10 +450,8 @@ export class ContextEngine {
         if (entry.isDirectory()) await walk(absolute, rules);
         else if (entry.isFile()) {
           result.push(path);
-          if (result.length > 100_000)
-            throw new Error(
-              "Index limit exceeded: at most 100000 candidate files per snapshot. Set policy.workingSet to the directories you are working on.",
-            );
+          if (result.length > INDEX_FILE_LIMIT)
+            throw new Error(CANDIDATE_FILES_LIMIT_MESSAGE);
         }
       }
     };
@@ -424,10 +490,8 @@ export class ContextEngine {
       this.inventory(),
     ]);
     const worktreeId = hash(canonicalRoot);
-    if (paths.length > 100_000)
-      throw new Error(
-        "Index limit exceeded: at most 100000 candidate files per snapshot. Set policy.workingSet to the directories you are working on.",
-      );
+    if (paths.length > INDEX_FILE_LIMIT)
+      throw new Error(CANDIDATE_FILES_LIMIT_MESSAGE);
     const files: {
       path: string;
       text: string;
@@ -454,9 +518,7 @@ export class ContextEngine {
         const bytes = await readFile(absolute);
         totalBytes += bytes.length;
         if (totalBytes > 256 * 1024 * 1024)
-          throw new RangeError(
-            "Index limit exceeded: at most 256 MiB source bytes per snapshot. Set policy.workingSet to the directories you are working on.",
-          );
+          throw new RangeError(SOURCE_BYTES_LIMIT_MESSAGE);
         if (bytes.includes(0)) continue;
         const text = bytes.toString("utf8");
         if (containsSecret(text)) {

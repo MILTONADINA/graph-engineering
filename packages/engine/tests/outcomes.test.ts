@@ -153,6 +153,57 @@ describe("run outcomes", () => {
     expect([...outcomes[0]!.decisionIds].sort()).toEqual(written);
   });
 
+  it("retries a single-provider run until its attempts are used", async () => {
+    const { root } = await fixture((config) => {
+      config.policy.maxAttempts = 3;
+    });
+    // Each attempt makes a fresh edit; checks pass only on the third.
+    let calls = 0,
+      verifications = 0;
+    const attempting = vi.fn(async (_input: WorkerInput) => {
+      calls++;
+      return {
+        model: "fixture",
+        usage,
+        proposal: {
+          summary: `Attempt ${calls}`,
+          requests: [],
+          changes: [
+            calls === 1
+              ? { path: "math.cjs", before: "a - b;", after: "a + b; // 1" }
+              : {
+                  path: "math.cjs",
+                  before: `// ${calls - 1}`,
+                  after: `// ${calls}`,
+                },
+          ],
+        },
+      };
+    });
+    const { engine, result } = await run(root, {
+      worker: attempting,
+      verify: async (_workspace, checks, _policy, snapshotHash) => {
+        const passing = ++verifications >= 3;
+        return checks.map((check) => ({
+          ...check,
+          code: passing ? 0 : 1,
+          stdout: "",
+          stderr: passing ? "" : "expected 5",
+          snapshotHash,
+        }));
+      },
+    });
+    expect(result.error ?? "").toBe("");
+    expect(result.status).toBe("succeeded");
+    expect(attempting).toHaveBeenCalledTimes(3);
+    expect(
+      engine.store
+        .events(result.id)
+        .filter((event) => event.type === "attempt.started")
+        .map((event) => event.data.attempt),
+    ).toEqual([1, 2, 3]);
+  });
+
   it("keeps every terminal transition of a resumed run", async () => {
     const { root } = await fixture((config) => {
       config.policy.maxAttempts = 1;

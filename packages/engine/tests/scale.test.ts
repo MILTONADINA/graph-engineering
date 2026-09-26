@@ -21,6 +21,7 @@ import {
 } from "../src/policy.js";
 import { dagParallelism, repositoryProfile, sizeClass } from "../src/scale.js";
 import { checked } from "../src/util.js";
+import { spawn } from "node:child_process";
 import { verifyInContainer } from "../src/execution/docker.js";
 import { workspaceFingerprint } from "../src/execution/workspace.js";
 
@@ -152,6 +153,56 @@ describe("whole-repository work under a working set", () => {
   );
 });
 
+describe("index limits", () => {
+  it("reports a failed Git listing inside a repository instead of walking", async () => {
+    const { directory, root } = await repository({ "a.ts": "export {};\n" });
+    // No git on PATH: Git fails, but the repository is still on disk.
+    const empty = join(directory, "empty-bin");
+    await mkdir(empty);
+    vi.stubEnv("PATH", empty);
+    const engine = new ContextEngine({
+      projectId: "test-project",
+      root,
+      dataDir: join(directory, "data"),
+      policy: policy(),
+    });
+    engines.push(engine);
+    await expect(engine.index({ semantic: false })).rejects.toThrow(
+      "Could not list repository files with git",
+    );
+  });
+
+  it("refuses more than 100,000 candidate files with guidance", async () => {
+    const { directory, root } = await repository({ "a.ts": "export {};\n" });
+    // Index entries without files on disk: fast, and still listed by Git.
+    const blob = await checked("git", ["hash-object", "-w", "a.ts"], {
+      cwd: root,
+    });
+    const entries = Array.from(
+      { length: 100_001 },
+      (_, index) => `100644 ${blob}\tgen/f${index}.ts`,
+    ).join("\n");
+    const child = spawn("git", ["update-index", "--index-info"], { cwd: root });
+    child.stdin.end(`${entries}\n`);
+    await new Promise((resolve, reject) => {
+      child.on("error", reject);
+      child.on("close", (code) =>
+        code === 0 ? resolve(undefined) : reject(new Error(`exit ${code}`)),
+      );
+    });
+    const engine = new ContextEngine({
+      projectId: "test-project",
+      root,
+      dataDir: join(directory, "data"),
+      policy: policy(),
+    });
+    engines.push(engine);
+    await expect(engine.index({ semantic: false })).rejects.toThrow(
+      "Index limit exceeded: at most 100000 candidate files per snapshot. Set policy.workingSet",
+    );
+  }, 60_000);
+});
+
 describe("repository scale", () => {
   it("classifies sizes and keeps parallelism within the ceiling", () => {
     expect(sizeClass(10)).toBe("small");
@@ -161,6 +212,15 @@ describe("repository scale", () => {
     expect(dagParallelism(10, policy({ maxWorkers: 8 }))).toBe(2);
     expect(dagParallelism(10, policy({ maxWorkers: 1 }))).toBe(1);
     expect(dagParallelism(5_000, policy({ maxWorkers: 8 }))).toBe(8);
+  });
+
+  it("counts only files the index would read", async () => {
+    const { root } = await repository({
+      ...files,
+      "dist/bundle.js": "built\n",
+      "coverage/report.txt": "covered\n",
+    });
+    expect((await repositoryProfile(root, policy())).repositoryFiles).toBe(5);
   });
 
   it("profiles a repository and its working set without indexing it", async () => {

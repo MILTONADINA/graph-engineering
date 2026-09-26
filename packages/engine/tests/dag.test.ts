@@ -347,3 +347,48 @@ describe("dependency DAG execution", () => {
     ).rejects.toThrow("cancelled");
   });
 });
+
+describe("step write scopes and timeouts", () => {
+  it("refuses a step's write outside its declared globs and accepts one inside", async () => {
+    const workspace = await fixture();
+    const tester: ExecutionStep = {
+      ...step("tests"),
+      writes: ["**/*.test.js"],
+    };
+    await expect(
+      runDag({
+        workspace,
+        policy: DEFAULT_POLICY,
+        steps: [tester],
+        saveCheckpoint: async () => {},
+        generate: async () => proposal("src/app.js", "export {};\n"),
+      }),
+    ).rejects.toThrow("writes outside its declared scope: src/app.js");
+    const result = await runDag({
+      workspace,
+      policy: DEFAULT_POLICY,
+      steps: [tester],
+      saveCheckpoint: async () => {},
+      generate: async () => proposal("src/app.test.js", "test();\n"),
+    });
+    expect(result.appliedStepIds).toEqual(["tests"]);
+    expect(validateDag([tester]).steps[0]!.writes).toEqual(["**/*.test.js"]);
+  });
+
+  it("gives each step its own timeout rather than one for the whole plan", async () => {
+    const workspace = await fixture();
+    const policy = { ...DEFAULT_POLICY, timeoutSeconds: 1 };
+    const result = await runDag({
+      workspace,
+      policy,
+      steps: [step("one"), step("two", ["one"])],
+      saveCheckpoint: async () => {},
+      generate: async (current, state) => {
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        if (state.signal.aborted) throw new Error("step timed out");
+        return proposal(`${current.id}.txt`, current.id);
+      },
+    });
+    expect(result.appliedStepIds).toEqual(["one", "two"]);
+  });
+});

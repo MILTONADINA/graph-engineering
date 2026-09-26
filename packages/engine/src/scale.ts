@@ -1,9 +1,9 @@
 import type { ProjectPolicy } from "@graph-engineering/contracts";
 import { command } from "./util.js";
 import { inWorkingSet } from "./policy.js";
+import { excludedFromIndex, INDEX_FILE_LIMIT } from "./context/index.js";
 
-/** The most files one snapshot indexes; see the context index. */
-export const INDEX_FILE_LIMIT = 100_000;
+export { INDEX_FILE_LIMIT };
 
 export type SizeClass = "small" | "medium" | "large" | "beyond-index";
 
@@ -60,7 +60,11 @@ export async function repositoryProfile(
   );
   if (listed.code !== 0)
     throw new Error("The repository profile needs a Git repository");
-  const files = [...new Set(listed.stdout.split("\0").filter(Boolean))];
+  // Count what the index would read: build output, dependencies and policy
+  // exclusions are never indexed.
+  const files = [...new Set(listed.stdout.split("\0").filter(Boolean))].filter(
+    (file) => !excludedFromIndex(file, policy, { ignoreWorkingSet: true }),
+  );
   const inScope = files.filter((file) => inWorkingSet(file, policy)).length;
   const size = sizeClass(inScope);
   const advice: string[] = [];

@@ -231,10 +231,11 @@ export async function controlRecovery(
       ? "human"
       : options.needsMoreContext
         ? "retrieve"
-        : options.repeatedFailure
-          ? options.alternativeProviderAvailable
-            ? "escalate"
-            : "human"
+        : // A repeated failure escalates when a stronger permitted worker
+          // exists; otherwise the same worker retries with the new feedback
+          // until the attempt budget is used, then a person is asked.
+          options.repeatedFailure && options.alternativeProviderAvailable
+          ? "escalate"
           : "retry";
   const result = await decideBatch({
     ...options,
