@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { checked, command } from "../util.js";
+import { command } from "../util.js";
 import {
   selectSecurityTools,
   semgrepRuleSets,
@@ -307,13 +307,11 @@ export async function runSecurityScan(options: {
   image: string;
   profile: ProjectProfile;
   signal?: AbortSignal;
+  /** Per-tool limit; defaults to 30 minutes. */
+  timeoutMs?: number;
 }): Promise<SecurityScan> {
   const { root, image, profile, signal } = options;
-  const imageId = await checked(
-    "docker",
-    ["image", "inspect", "--format", "{{.Id}}", image],
-    { timeoutMs: 10000, signal },
-  );
+  const imageId = await scannerImageId(image, signal);
   const selected = selectSecurityTools(profile).selected.filter(
     ({ runnable }) => runnable,
   );
@@ -351,34 +349,60 @@ export async function runSecurityScan(options: {
     }
     await writeFile(path.join(scan, ".semgrepignore"), SEMGREP_IGNORE);
     const run = async (tool: string, argv: string[]) => {
-      const result = await command(
-        "docker",
-        [
-          "run",
-          "--rm",
-          "--pull=never",
-          "--network=none",
-          "--cap-drop=ALL",
-          "--security-opt=no-new-privileges",
-          "--pids-limit=256",
-          "--memory=4g",
-          "--cpus=2",
-          ...(process.getuid && process.getgid
-            ? ["--user", `${process.getuid()}:${process.getgid()}`]
-            : []),
-          "--mount",
-          `type=bind,source=${scan},target=/scan,readonly`,
-          "--mount",
-          `type=bind,source=${out},target=/out`,
-          "--env",
-          "HOME=/tmp",
-          "--workdir",
-          "/tmp",
-          imageId,
-          ...argv,
-        ],
-        { signal, timeoutMs: 30 * 60_000, maxBytes: 64_000_000 },
-      );
+      // Named, so cancellation stops the container and not only the client.
+      const name = `graph-scan-${createHash("sha256")
+        .update(`${work}:${tool}:${Date.now()}`)
+        .digest("hex")
+        .slice(0, 20)}`;
+      const stop = () => {
+        void command("docker", ["kill", name], { timeoutMs: 5000 }).catch(
+          () => {},
+        );
+      };
+      signal?.addEventListener("abort", stop, { once: true });
+      let result: Awaited<ReturnType<typeof command>>;
+      try {
+        result = await command(
+          "docker",
+          [
+            "run",
+            "--rm",
+            "--pull=never",
+            "--name",
+            name,
+            "--network=none",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "--pids-limit=256",
+            "--memory=4g",
+            "--cpus=2",
+            ...(process.getuid && process.getgid
+              ? ["--user", `${process.getuid()}:${process.getgid()}`]
+              : []),
+            "--mount",
+            `type=bind,source=${scan},target=/scan,readonly`,
+            "--mount",
+            `type=bind,source=${out},target=/out`,
+            "--env",
+            "HOME=/tmp",
+            "--workdir",
+            "/tmp",
+            imageId,
+            ...argv,
+          ],
+          {
+            signal,
+            timeoutMs: options.timeoutMs ?? 30 * 60_000,
+            maxBytes: 64_000_000,
+          },
+        );
+      } finally {
+        signal?.removeEventListener("abort", stop);
+        await command("docker", ["rm", "-f", name], { timeoutMs: 5000 }).catch(
+          () => {},
+        );
+      }
+      if (signal?.aborted) throw new Error("Run cancelled");
       if (!(EXIT_OK[tool] ?? [0]).includes(result.code))
         throw new Error(
           `${tool} exited ${result.code}: ${result.stderr.slice(-300)}`,
@@ -468,6 +492,7 @@ export async function runSecurityScan(options: {
           raw.push(...parseCheckov(result.stdout));
         }
       } catch (error) {
+        if (signal?.aborted) throw new Error("Run cancelled", { cause: error });
         errors.push(
           `${tool.id}: ${error instanceof Error ? error.message.slice(0, 400) : String(error)}`,
         );
@@ -485,13 +510,77 @@ export async function runSecurityScan(options: {
   }
 }
 
+/** The scanner image's ID, or a clear error when it is not built. */
+export async function scannerImageId(
+  image: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const result = await command(
+    "docker",
+    ["image", "inspect", "--format", "{{.Id}}", image],
+    { timeoutMs: 10000, signal },
+  );
+  const id = result.stdout.trim();
+  if (result.code !== 0 || !/^sha256:[a-f0-9]{64}$/.test(id))
+    throw new Error(
+      `Security scanner image ${image} is not built; build it from sidecars/security/Dockerfile in the Graph Engineering repository`,
+    );
+  return id;
+}
+
+function assertBaseline(value: unknown): SecurityBaseline {
+  const baseline = value as SecurityBaseline | null;
+  if (
+    !baseline ||
+    baseline.version !== 1 ||
+    !Array.isArray(baseline.findings) ||
+    baseline.findings.some(
+      (finding) => typeof finding?.fingerprint !== "string",
+    )
+  )
+    throw new Error(`${BASELINE_FILE} is not a valid security baseline`);
+  return baseline;
+}
+
+/**
+ * The baseline committed at HEAD of `root`, or undefined when none is
+ * committed there. For a managed run, pass the run's workspace: its HEAD is
+ * the commit the run started from, which the run cannot change. Any git error
+ * other than an absent file is fatal, so the gate never fails open.
+ */
+export async function readCommittedBaseline(
+  root: string,
+): Promise<SecurityBaseline | undefined> {
+  const exists = await command(
+    "git",
+    ["cat-file", "-e", `HEAD:${BASELINE_FILE}`],
+    { cwd: root, timeoutMs: 10000 },
+  );
+  if (exists.code !== 0) {
+    const head = await command("git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: root,
+      timeoutMs: 10000,
+    });
+    if (head.code !== 0)
+      throw new Error(`Cannot read ${BASELINE_FILE}: no Git HEAD`);
+    return undefined;
+  }
+  const result = await command("git", ["show", `HEAD:${BASELINE_FILE}`], {
+    cwd: root,
+    timeoutMs: 10000,
+  });
+  if (result.code !== 0)
+    throw new Error(`Cannot read ${BASELINE_FILE} at HEAD`);
+  return assertBaseline(JSON.parse(result.stdout));
+}
+
 export async function readBaseline(
   root: string,
 ): Promise<SecurityBaseline | undefined> {
   try {
-    return JSON.parse(
-      await readFile(path.join(root, BASELINE_FILE), "utf8"),
-    ) as SecurityBaseline;
+    return assertBaseline(
+      JSON.parse(await readFile(path.join(root, BASELINE_FILE), "utf8")),
+    );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;

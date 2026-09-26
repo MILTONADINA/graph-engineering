@@ -92,11 +92,30 @@ With the image built, `GRAPH_ENGINE_SECURITY_IMAGE=1 npm test -w
 @graph-engineering/engine -- tests/security-catalog.test.ts` scans planted
 findings, scanner configuration and suppressions and checks the baseline.
 
+## Managed runs
+
+A project that commits `.graph/security-baseline.json` gates every managed
+run on it. The gate uses the baseline committed in the commit the run
+started from, so neither an uncommitted edit nor a later checkout, branch
+switch or commit can accept findings or switch the gate off for that run; a
+malformed baseline, or a Git error reading it, fails the run. When a run starts, the engine checks that the
+scanner image (`graph-security:local`) is built, before any worker is paid.
+After the result passes verification and before anything is published, it
+scans the run's verified workspace (including files the worker created),
+records `security.scan_completed`, and fails the run on any finding missing
+from the baseline, on an incomplete scan, or on a file the run's workers
+wrote that no scanner could read (for example one made "binary" by a NUL byte). A run
+that fails the gate is never published. Scanner containers are named, so
+cancelling a run stops them, and each tool is bounded by the policy's
+`timeoutSeconds`.
+
+A project without a baseline is not scanned, so runs never depend on the
+scanner image unless the team has adopted it. When such a run changes
+security-sensitive paths, it records `security.scan_recommended`, and its
+completion still reports that security review is pending.
+
 ## What needs someone else
 
-- **Gating managed runs:** `security-scan` is a command today. Running it on
-  each managed run's result and blocking publication on new findings is the
-  next step on the [roadmap](full-wiring-roadmap.md).
 - **Dependency advisories** (OSV-Scanner, Trivy) need their vulnerability
   database downloaded with network permission before an offline scan. That
   step is not automated yet.
