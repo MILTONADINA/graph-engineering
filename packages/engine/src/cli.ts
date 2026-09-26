@@ -16,7 +16,16 @@ import {
   PROJECT_FILE,
   projectDataDir,
 } from "./project.js";
-import { readJson, writeJson, errorMessage } from "./util.js";
+import { checked, readJson, writeJson, errorMessage } from "./util.js";
+import { gitFiles } from "./execution/workspace.js";
+import { selectSecurityTools } from "./security/catalog.js";
+import {
+  baselineChanged,
+  newFindings,
+  readBaseline,
+  runSecurityScan,
+  writeBaseline,
+} from "./security/scan.js";
 import { createServer } from "./server.js";
 import { serveMcp } from "./mcp.js";
 import { listTemplates, scaffold, validateArtifacts } from "./templates.js";
@@ -227,6 +236,90 @@ cli
     assertProjectConfig(project);
     await writeJson(path.join(root(), PROJECT_FILE), project);
     print(project.verification);
+  });
+const securityProfile = async () => ({
+  files: await gitFiles(root()),
+  // Dynamic testing needs a target the owner authorizes; none is recorded yet.
+  authorizedTargets: [],
+  configuredTools: [],
+});
+cli
+  .command("security-plan")
+  .description(
+    "Choose security tools for this repository and explain each choice, including what skipped and database or live-target tools still need",
+  )
+  .action(async () => {
+    const plan = selectSecurityTools(await securityProfile());
+    print({
+      selected: plan.selected.map(({ tool, reason, runnable }) => ({
+        id: tool.id,
+        name: tool.name,
+        category: tool.category,
+        mode: tool.mode,
+        license: tool.license,
+        reason,
+        runnable,
+        ...(tool.needs ? { needs: tool.needs } : {}),
+      })),
+      skipped: plan.skipped.map(({ tool, reason }) => ({
+        id: tool.id,
+        name: tool.name,
+        reason,
+      })),
+    });
+  });
+cli
+  .command("security-scan")
+  .description(
+    "Run the selected offline security scanners and report findings not in the reviewed baseline (.graph/security-baseline.json); exits non-zero on new findings or an incomplete scan",
+  )
+  .option(
+    "--image <name>",
+    "Scanner image built from Graph Engineering's sidecars/security/Dockerfile",
+    "graph-security:local",
+  )
+  .option(
+    "--update-baseline",
+    "Accept every current finding into the baseline after review",
+  )
+  .action(async (options) => {
+    try {
+      await checked("docker", ["version", "--format", "{{.Server.Version}}"]);
+    } catch {
+      throw new Error("Docker is not running; start it and retry");
+    }
+    try {
+      await checked("docker", ["image", "inspect", options.image]);
+    } catch {
+      throw new Error(
+        `Scanner image ${options.image} is not built; build it from sidecars/security/Dockerfile in the Graph Engineering repository`,
+      );
+    }
+    const scan = await runSecurityScan({
+      root: root(),
+      image: options.image,
+      profile: await securityProfile(),
+    });
+    if (options.updateBaseline) {
+      if (scan.errors.length)
+        throw new Error(
+          `Scan incomplete, baseline not updated: ${scan.errors.join("; ")}`,
+        );
+      await writeBaseline(root(), scan);
+    }
+    const fresh = newFindings(scan, await readBaseline(root()));
+    print({
+      tools: scan.tools,
+      findings: scan.findings.length,
+      baselined: scan.findings.length - fresh.length,
+      // An uncommitted baseline change accepts risk without review.
+      baselineChanged: await baselineChanged(root()),
+      unscanned: scan.unscanned,
+      new: fresh.slice(0, 200),
+      ...(fresh.length > 200 ? { omitted: fresh.length - 200 } : {}),
+      errors: scan.errors,
+    });
+    if (fresh.length || scan.errors.length) process.exitCode = 1;
   });
 cli
   .command("provider-add <id> <kind> <model>")
