@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { GraphEngine } from "./service.js";
 import { dockerAvailable } from "./execution/docker.js";
 import { listTemplates } from "./templates.js";
+import { projectOverview } from "./overview.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 
 export function createServer(
@@ -123,6 +124,25 @@ export function createServer(
   app.get("/api/decisions", async () => engine.store.decisions());
   app.get("/api/usage", async () => engine.store.accountingSummary());
   app.get("/api/runs", async () => engine.store.runs());
+  // The project board: what each run is doing, its gates, and who acts next.
+  app.get("/api/overview", async () => {
+    await engine.refresh();
+    return {
+      ...projectOverview(
+        engine.store.runs(),
+        (runId) => engine.store.events(runId),
+        (runId) => engine.store.outcomes(runId),
+        { reviewerConfigured: Boolean(engine.config.review) },
+      ),
+      project: {
+        name: engine.config.name,
+        reviewer: engine.config.review?.providerId ?? null,
+        workingSet: engine.config.policy.workingSet ?? null,
+        maxWorkers: engine.config.policy.maxWorkers,
+        decisionMode: engine.config.policy.decisionMode,
+      },
+    };
+  });
   app.get("/api/runs/:id", async (request) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     return { run: engine.store.run(id), events: engine.store.events(id) };

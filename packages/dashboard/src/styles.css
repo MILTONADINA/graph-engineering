@@ -2504,3 +2504,110 @@ input::placeholder {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Overview board */
+.overview-project {
+  margin: -10px 0 20px;
+}
+.overview-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.overview-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.overview-column h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+.overview-card {
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.overview-card h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.overview-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.overview-phase {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  margin: 0;
+}
+.overview-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.overview-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.overview-step.step-done {
+  background: var(--green-light);
+}
+.overview-step.step-working {
+  border-color: #c9892f;
+}
+.overview-gates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.overview-error {
+  font-size: 11px;
+  color: #9b3b2c;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.overview-next {
+  font-size: 11px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 900px) {
+  .overview-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.overview-command {
+  display: block;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 7px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}

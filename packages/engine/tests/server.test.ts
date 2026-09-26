@@ -44,6 +44,27 @@ it("requires a local token, rejects hostile origins, and returns real persisted 
       ok: true,
     });
     expect(
+      (
+        await app.inject({
+          url: "/api/overview",
+          headers: { host: "localhost" },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(
+      (await app.inject({ url: "/api/overview", headers })).json(),
+    ).toEqual({
+      counts: { "needs-you": 0, "in-progress": 0, done: 0 },
+      cards: [],
+      project: {
+        name: config.name,
+        reviewer: null,
+        workingSet: null,
+        maxWorkers: config.policy.maxWorkers,
+        decisionMode: "shadow",
+      },
+    });
+    expect(
       (await app.inject({ url: "/api/snapshots/current", headers })).json(),
     ).toBeNull();
     expect(

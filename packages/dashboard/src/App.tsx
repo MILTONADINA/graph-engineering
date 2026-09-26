@@ -14,9 +14,12 @@ import { GraphPage } from "./GraphPage";
 import { MemoriesPage } from "./MemoriesPage";
 import { RunsPage } from "./RunsPage";
 import { DecisionsPage } from "./DecisionsPage";
+import { OverviewPage } from "./OverviewPage";
 
-type View = "context" | "graph" | "memories" | "runs" | "decisions";
+type View =
+  "overview" | "context" | "graph" | "memories" | "runs" | "decisions";
 const views: { id: View; label: string; icon: IconName }[] = [
+  { id: "overview", label: "Overview", icon: "check" },
   { id: "context", label: "Context", icon: "context" },
   { id: "graph", label: "Code graph", icon: "graph" },
   { id: "memories", label: "Memory", icon: "memory" },
@@ -44,7 +47,7 @@ export function App() {
     api,
     token ? "/api/project" : null,
   );
-  const [view, setView] = useState<View>("context");
+  const [view, setView] = useState<View>("overview");
   const [indexVersion, setIndexVersion] = useState(0);
   const current = views.find((item) => item.id === view)!;
 
@@ -148,6 +151,9 @@ export function App() {
           {!project.data && !project.error && <Loading />}
           {project.data && (
             <>
+              <section hidden={view !== "overview"}>
+                <OverviewPage api={api} active={view === "overview"} />
+              </section>
               <section hidden={view !== "context"}>
                 <ContextPage
                   api={api}
