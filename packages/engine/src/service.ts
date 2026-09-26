@@ -79,7 +79,7 @@ import {
   type Decomposition,
   type PlanInput,
 } from "./workers/plan.js";
-import type { ProjectProfile } from "./security/catalog.js";
+import { LOCKFILES, type ProjectProfile } from "./security/catalog.js";
 import {
   BASELINE_FILE,
   newFindings,
@@ -108,6 +108,7 @@ import {
 import {
   runDag,
   validateDag,
+  untilAborted,
   writeScope,
   DagReconciliationError,
   type DagCheckpoint,
@@ -1371,6 +1372,25 @@ export class GraphEngine {
                 : [],
             ),
         );
+        // Dependency scanning reads a downloaded database. Without one, a
+        // run that changed a lockfile is not passed unscanned, and a skipped
+        // dependency scan is always recorded.
+        const lockfiles = (await gitFiles(workspace)).filter((file) =>
+          LOCKFILES.includes(path.posix.basename(file)),
+        );
+        if (!database && lockfiles.length) {
+          const changed = lockfiles.filter((file) => workerPaths.has(file));
+          this.store.event(run.id, "security.tool_not_run", {
+            tool: "osv-scanner",
+            reason:
+              "no downloaded OSV database; run graph-engine security-db-update",
+            lockfiles: lockfiles.slice(0, 20),
+          });
+          if (changed.length)
+            throw new Error(
+              `This run changed ${changed.slice(0, 5).join(", ")}, but no OSV vulnerability database has been downloaded, so its dependencies were not scanned; run graph-engine security-db-update and resume`,
+            );
+        }
         const unreviewed = newFindings(scan, securityBaseline!);
         // A newly published advisory about a dependency the run did not
         // touch is not this change's doing: it is recorded, not gated.
@@ -1611,14 +1631,17 @@ export class GraphEngine {
                 typeof targetDirectory !== "string"
               )
                 throw new Error("Template targetDirectory must be a string");
-              return renderTemplateProposal({
-                templateId: step.templateId!,
-                instanceId: step.id,
-                inputs,
-                targetDirectory,
-                workspace,
-                policy: this.config.policy,
-              });
+              return untilAborted(
+                renderTemplateProposal({
+                  templateId: step.templateId!,
+                  instanceId: step.id,
+                  inputs,
+                  targetDirectory,
+                  workspace,
+                  policy: this.config.policy,
+                }),
+                state.signal,
+              );
             }
             const provider = (await this.providers()).find(
               (provider) => provider.id === step.providerId,

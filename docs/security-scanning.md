@@ -117,6 +117,10 @@ worker created, and records `security.scan_completed`.
   changed. A newly published advisory about a dependency the run did not
   touch is recorded under `advisory` in `security.scan_completed` instead of
   failing unrelated work.
+- Dependency scanning needs a downloaded OSV database. Without one, the
+  skipped scan is recorded as `security.tool_not_run`, and a run that
+  changed a lockfile fails rather than passing unscanned: run
+  `graph-engine security-db-update`, then resume it.
 
 A run that fails the gate is never published. Scanner containers are named, so
 cancelling a run stops them, and each tool is bounded by the policy's

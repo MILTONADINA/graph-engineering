@@ -412,3 +412,22 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
   }
   return { checkpoint: structuredClone(checkpoint), appliedStepIds };
 }
+
+/**
+ * Settles with `work`, or rejects as soon as `signal` aborts, so a step that
+ * does not observe its signal (such as a template render) still stops at its
+ * time limit. The abandoned work's result is discarded.
+ */
+export function untilAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener("abort", stop, { once: true });
+    work
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", stop));
+  });
+}
