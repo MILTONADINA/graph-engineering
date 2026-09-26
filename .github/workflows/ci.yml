@@ -167,7 +167,7 @@ jobs:
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
           docker build -f packages/engine/tests/fixtures/auth-db-runtime/Dockerfile -t graph-auth-template-db-test:local packages/engine/tests/fixtures
-          npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts
+          npm test -w @graph-engineering/engine -- --run tests/template-runtime-auth.test.ts tests/template-runtime-oauth.test.ts
         env:
           GRAPH_ENGINE_BACKEND_DOCKER_TESTS: "1"
           GRAPH_ENGINE_AUTH_POSTGRES_TESTS: "1"

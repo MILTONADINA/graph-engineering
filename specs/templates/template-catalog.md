@@ -43,10 +43,28 @@ Teams want common building blocks (project scaffold, backend entities, authentic
 - AC12: Non-administrators receive one identical generic denial from the role management routes, so they cannot learn which roles exist.
   - Test: packages/engine/tests/template-runtime-roles.test.ts :: hides which roles exist from non-administrators behind one generic denial
   - Test: packages/engine/tests/template-runtime-roles.test.ts :: typechecks and executes the emitted role tests offline in the pinned backend image
+- AC13: The OAuth login template renders only on top of the authentication.jwt prerequisites and an application-owned account directory, deterministically and idempotently.
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: refuses to render without the authentication.jwt prerequisites
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: renders deterministically and idempotently
+- AC14: Generated OAuth login uses the authorization-code flow with PKCE S256 and binds state and nonce to an httpOnly, Secure, SameSite=Lax short-lived cookie compared in constant time.
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: generates an authorization-code flow with PKCE S256 and no implicit flow
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: binds state and nonce to an httpOnly Secure SameSite=Lax short-lived cookie compared in constant time
+- AC15: Generated OAuth login uses exact configured redirect URIs, redirects after login only to allowlisted relative paths, and exchanges codes server-side over HTTPS with environment-held secrets, bounded timeouts, a 64 KiB response limit enforced while streaming, and generic errors.
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: uses exact configured redirect URIs and allowlisted relative post-login paths only
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: exchanges codes server-side over HTTPS with bounded timeouts, environment secrets and generic errors
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: rejects unsafe provider selections and non-HTTPS OIDC endpoints
+- AC16: Generated OAuth login creates a new account only for an unused, provider-verified ASCII email, keyed by provider and subject id and never from client-supplied identity, then issues the authentication.jwt tokens; a first-time login whose email already belongs to an account is refused unless that provider is explicitly opted in to automatic linking.
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: creates accounts only for unused provider-verified ASCII emails and never trusts client identity
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: refuses to attach a first-time provider login to an existing account unless the provider opts in
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: type-checks the generated OAuth code and passes its generated security tests offline
+- AC17: A signed-in user links a provider to their existing account only through an authenticated, trusted-origin request whose account is sealed into the state cookie, and only when the provider-verified email equals the account's email.
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: links a provider only through an authenticated trusted-origin request whose verified email matches the account
+- AC18: OAuth provider client ids and secrets and the redirect base URL are required environment variables with no default values.
+  - Test: packages/engine/tests/template-runtime-oauth.test.ts :: declares provider credentials as required environment variables without default values
 
 ## Security considerations
 
-Template inputs come from operators, plans or models and are validated against schemas with bounded literals; interpolation that could inject code, paths that escape the target or hit exclusions, and symlinked destinations are refused. Renderers do not execute repository scripts, install packages or connect to databases or cloud accounts, so a template cannot become a code-execution path. Generated secrets are never written as values, and private deployment descriptors (account IDs, VPC IDs, secret ARNs) are kept out of cloud exports. Root public ledgers and environment examples require explicit policy permission.
+Template inputs come from operators, plans or models and are validated against schemas with bounded literals; interpolation that could inject code, paths that escape the target or hit exclusions, and symlinked destinations are refused. Renderers do not execute repository scripts, install packages or connect to databases or cloud accounts, so a template cannot become a code-execution path. Generated secrets are never written as values, and private deployment descriptors (account IDs, VPC IDs, secret ARNs) are kept out of cloud exports. Root public ledgers and environment examples require explicit policy permission. The OAuth template treats provider responses and callback query parameters as untrusted: identity comes only from the provider token endpoint and APIs, email must be provider-verified ASCII before any account is created or linked, a first-time provider login never takes over an existing account by default (linking is an explicit, authenticated action), provider responses are read with a streaming size limit, and client secrets stay in server-side environment variables and request bodies.
 
 ## Non-goals
 

@@ -98,7 +98,7 @@ async function apply(
 describe("audited authentication and authorization runtimes", () => {
   it("keeps planned aliases unavailable and requires real identity/delivery prerequisites", async () => {
     const workspace = await fixture(false);
-    for (const name of ["authentication.oauth", "authentication.session"])
+    for (const name of ["authentication.session"])
       expect(templateRuntimeCapability(name).executable).toBe(false);
     await expect(renderTemplateProposal(options(workspace))).rejects.toThrow();
     for (const id of [
