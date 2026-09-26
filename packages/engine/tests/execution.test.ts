@@ -801,3 +801,192 @@ describe("managed execution", () => {
     },
   );
 });
+
+describe("security gate", () => {
+  const passingVerify: NonNullable<
+    Parameters<typeof GraphEngine.open>[1]
+  >["verify"] = async (_workspace, checks, _policy, snapshotHash) =>
+    checks.map((check) => ({
+      ...check,
+      code: 0,
+      stdout: "passed",
+      stderr: "",
+      snapshotHash,
+    }));
+  const fixingWorker = async () => ({
+    model: "fixture",
+    proposal: {
+      summary: "Fix addition",
+      requests: [],
+      changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+    },
+    usage: {
+      inputTokens: 1,
+      outputTokens: 1,
+      cachedTokens: 0,
+      costUsd: 0,
+      estimated: false,
+    },
+  });
+  const finding = (fingerprint: string) => ({
+    tool: "semgrep",
+    rule: "javascript.eval-detected",
+    path: "math.cjs",
+    line: 1,
+    message: "eval",
+    fingerprint,
+  });
+  const run = async (
+    baseline: string[] | Record<string, unknown> | undefined,
+    scan: Parameters<typeof GraphEngine.open>[1] extends infer D
+      ? D extends { securityScan?: infer S }
+        ? S
+        : never
+      : never,
+  ) => {
+    const { root } = await fixture();
+    if (baseline) {
+      await writeFile(
+        path.join(root, ".graph/security-baseline.json"),
+        JSON.stringify(
+          Array.isArray(baseline)
+            ? {
+                version: 1,
+                findings: baseline.map((fingerprint) => ({
+                  fingerprint,
+                  tool: "semgrep",
+                  rule: "javascript.eval-detected",
+                  path: "math.cjs",
+                })),
+              }
+            : baseline,
+        ),
+      );
+      await checked("git", ["add", ".graph/security-baseline.json"], {
+        cwd: root,
+      });
+      await checked("git", ["commit", "-m", "test: baseline"], { cwd: root });
+      // An uncommitted edit accepting everything must not count.
+      await writeFile(
+        path.join(root, ".graph/security-baseline.json"),
+        JSON.stringify({
+          version: 1,
+          findings: [{ fingerprint: "introduced" }],
+        }),
+      );
+    }
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: fixingWorker,
+      verify: passingVerify,
+      securityScan: scan,
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["2 + 3 is 5"],
+    });
+    const result = await engine.wait((await engine.start(plan.id)).id);
+    return {
+      result,
+      engine,
+      root,
+      events: engine.store.events(result.id),
+    };
+  };
+
+  it("fails a run whose verified result adds a finding missing from the reviewed baseline", async () => {
+    const { result, events } = await run(["accepted"], async () => ({
+      tools: ["semgrep"],
+      findings: [finding("accepted"), finding("introduced")],
+      errors: [],
+      unscanned: [],
+    }));
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain(
+      "Security scan found 1 finding(s) not in the reviewed baseline",
+    );
+    expect(
+      events.find((event) => event.type === "security.scan_completed")?.data,
+    ).toMatchObject({
+      findings: 2,
+      new: [{ rule: "javascript.eval-detected" }],
+    });
+    expect(events.map((event) => event.type)).not.toContain(
+      "publication.started",
+    );
+  });
+
+  it("accepts a result whose findings are all in the baseline, and refuses an incomplete scan", async () => {
+    const accepted = await run(["accepted"], async () => ({
+      tools: ["semgrep"],
+      findings: [finding("accepted")],
+      errors: [],
+      unscanned: [],
+    }));
+    expect(accepted.result.status).toBe("succeeded");
+    const incomplete = await run(["accepted"], async () => ({
+      tools: ["semgrep"],
+      findings: [],
+      errors: ["semgrep: exited 2"],
+      unscanned: [],
+    }));
+    expect(incomplete.result.status).toBe("failed");
+    expect(incomplete.result.error).toContain("Security scan was incomplete");
+  });
+
+  it("refuses changed files the scanner could not read and malformed baselines", async () => {
+    const unreadable = await run(["accepted"], async () => ({
+      tools: ["hadolint"],
+      findings: [],
+      errors: [],
+      unscanned: [{ path: "math.cjs", reason: "binary content" }],
+    }));
+    expect(unreadable.result.status).toBe("failed");
+    expect(unreadable.result.error).toContain(
+      "could not read 1 file(s) this run wrote (math.cjs: binary content)",
+    );
+    const malformed = await run({ version: 1 }, async () => ({
+      tools: [],
+      findings: [],
+      errors: [],
+      unscanned: [],
+    }));
+    expect(malformed.result.status).toBe("failed");
+    expect(malformed.result.error).toContain(
+      "is not a valid security baseline",
+    );
+  });
+
+  it("keeps the gate of the run's own base commit when the checkout changes", async () => {
+    const introduced = async () => ({
+      tools: ["semgrep"],
+      findings: [finding("introduced")],
+      errors: [],
+      unscanned: [{ path: "logo.png", reason: "binary content" }],
+    });
+    const { result, engine, root } = await run(["accepted"], introduced);
+    expect(result.error).toContain("1 finding(s) not in the reviewed baseline");
+    // An unreadable file the worker did not write is not held against it.
+    expect(result.error).not.toContain("logo.png");
+    await checked("git", ["checkout", "--quiet", "--force", "HEAD~1"], {
+      cwd: root,
+    });
+    await engine.resume(result.id, true);
+    const resumed = await engine.wait(result.id);
+    expect(resumed.status).toBe("failed");
+    expect(resumed.error).toContain(
+      "1 finding(s) not in the reviewed baseline",
+    );
+  });
+
+  it("does not scan a project that keeps no reviewed baseline", async () => {
+    let scanned = false;
+    const { result } = await run(undefined, async () => {
+      scanned = true;
+      return { tools: [], findings: [], errors: [], unscanned: [] };
+    });
+    expect(result.status).toBe("succeeded");
+    expect(scanned).toBe(false);
+  });
+});

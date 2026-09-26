@@ -32,6 +32,7 @@ import {
   assertVerificationPaths,
   createWorkspace,
   workspaceFingerprint,
+  gitFiles,
 } from "./execution/workspace.js";
 import {
   dockerAvailable,
@@ -39,6 +40,15 @@ import {
   type VerificationResult,
 } from "./execution/docker.js";
 import { publishRun } from "./execution/publish.js";
+import type { ProjectProfile } from "./security/catalog.js";
+import {
+  BASELINE_FILE,
+  newFindings,
+  readCommittedBaseline,
+  runSecurityScan,
+  scannerImageId,
+  type SecurityScan,
+} from "./security/scan.js";
 import {
   patchFeedbackFor,
   recordShown,
@@ -73,7 +83,15 @@ export interface EngineDependencies {
   worker?: (input: WorkerInput, workspace: string) => Promise<WorkerResult>;
   verify?: typeof verifyInContainer;
   dockerAvailable?: typeof dockerAvailable;
+  /** Scans a verified run result; defaults to the offline scanner image. */
+  securityScan?: (options: {
+    root: string;
+    profile: ProjectProfile;
+    signal?: AbortSignal;
+  }) => Promise<SecurityScan>;
 }
+// The scanner image graph-engine security-scan builds and uses by default.
+export const SECURITY_SCAN_IMAGE = "graph-security:local";
 // The worker step that repairs a multi-step plan whose combined checks failed.
 export const DAG_REPAIR_STEP = "dag-repair";
 const cloudSignals = (state: Record<string, unknown>) =>
@@ -411,6 +429,7 @@ export class GraphEngine {
       throw new Error("Configure verification commands before running work");
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
+    await this.assertSecurityScanner();
     const snapshot = await this.context.index({ semantic: false });
     if (snapshot.id !== plan.snapshotId)
       throw new Error("Source changed since planning; create a fresh plan");
@@ -466,6 +485,12 @@ export class GraphEngine {
     this.store.event(runId, "cancel.requested", {});
     return this.store.run(runId);
   }
+  // A project with a committed security baseline scans every run; check the
+  // scanner before any worker spend rather than after verification.
+  private async assertSecurityScanner(checkout = this.root) {
+    if (!this.deps.securityScan && (await readCommittedBaseline(checkout)))
+      await scannerImageId(SECURITY_SCAN_IMAGE);
+  }
   /** Whether a run is still executing in this process. */
   isActive(runId: string): boolean {
     return this.active.has(runId);
@@ -491,6 +516,7 @@ export class GraphEngine {
       throw new Error("Configure verification commands before running work");
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
+    await this.assertSecurityScanner(run.workspace ?? this.root);
     if (
       !run.workspace &&
       (await this.context.index({ semantic: false })).id !== run.plan.snapshotId
@@ -1252,6 +1278,89 @@ export class GraphEngine {
         reviewScope: scope.review,
         note: "Passing configured checks does not establish arbitrary prose acceptance criteria or authorize a merge.",
       });
+      // A project that keeps a reviewed security baseline gates every run on
+      // it: the verified result may not add findings the team has not seen.
+      // The baseline of the commit this run started from; changing the
+      // project checkout later cannot turn the gate off for this run.
+      const securityBaseline = await readCommittedBaseline(workspace);
+      if (securityBaseline) {
+        this.store.event(run.id, "security.scan_started", {
+          snapshotHash: verifiedHash,
+        });
+        const scan = await (
+          this.deps.securityScan ??
+          ((options) =>
+            runSecurityScan({
+              ...options,
+              image: SECURITY_SCAN_IMAGE,
+              timeoutMs: this.config.policy.timeoutSeconds * 1000,
+            }))
+        )({
+          root: workspace,
+          profile: {
+            files: await gitFiles(workspace),
+            authorizedTargets: [],
+            configuredTools: [],
+          },
+          signal,
+        });
+        const fresh = newFindings(scan, securityBaseline);
+        this.store.event(run.id, "security.scan_completed", {
+          tools: scan.tools,
+          findings: scan.findings.length,
+          new: fresh
+            .slice(0, 200)
+            .map(({ tool, rule, path, line, message }) => ({
+              tool,
+              rule,
+              path,
+              line,
+              message: redact(message),
+            })),
+          errors: scan.errors.map(redact),
+          unscanned: scan.unscanned,
+        });
+        if (scan.errors.length)
+          throw new Error(
+            `Security scan was incomplete, so the result cannot be accepted: ${redact(scan.errors.join("; "))}`,
+          );
+        // A file this run's workers wrote that no scanner could read (for
+        // example one made "binary" by a NUL byte) is not accepted unseen.
+        const workerPaths = new Set(
+          this.store
+            .events(run.id)
+            .filter((event) =>
+              [
+                "patch.applied",
+                "dag.step.completed",
+                "solution.cache_hit",
+              ].includes(event.type),
+            )
+            .flatMap((event) =>
+              Array.isArray(event.data.paths)
+                ? (event.data.paths as string[])
+                : [],
+            ),
+        );
+        const unscannedChanges = scan.unscanned.filter(({ path }) =>
+          workerPaths.has(path),
+        );
+        if (unscannedChanges.length)
+          throw new Error(
+            `Security scan could not read ${unscannedChanges.length} file(s) this run wrote (${unscannedChanges
+              .slice(0, 5)
+              .map(({ path, reason }) => `${path}: ${reason}`)
+              .join("; ")}); a person must review them`,
+          );
+        if (fresh.length)
+          throw new Error(
+            `Security scan found ${fresh.length} finding(s) not in the reviewed baseline; fix them, or have a person review them and update ${BASELINE_FILE}`,
+          );
+      } else if (scope.review.includes("security"))
+        this.store.event(run.id, "security.scan_recommended", {
+          reason:
+            "This change needs security review and the project keeps no reviewed security baseline; run graph-engine security-scan",
+        });
       const completion = await controlCompletion({
         ...withState({
           verificationPassed: true,
