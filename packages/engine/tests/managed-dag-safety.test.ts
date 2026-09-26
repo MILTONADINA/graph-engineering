@@ -857,3 +857,69 @@ describe("code review of a multi-step plan", () => {
     expect(reviewed[0]).toContain("+export const second = 4;");
   });
 });
+
+describe("repository scale in managed runs", () => {
+  it("runs at most two independent steps at once in a small repository", async () => {
+    const { root } = await fixture((config) => {
+      config.policy.maxWorkers = 4;
+    });
+    let active = 0,
+      peak = 0;
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        active++;
+        peak = Math.max(peak, active);
+        // Wait for a sibling to start, then hold long enough for a third to
+        // join if the cap allowed it, however slowly steps are dispatched.
+        const started = Date.now();
+        while (active < 2 && Date.now() - started < 2000)
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        active--;
+        const change =
+          input.objective === "three"
+            ? {
+                path: "third.js",
+                before: null,
+                after: "export const third = 3;\n",
+              }
+            : result(input.objective).proposal.changes[0];
+        return {
+          ...result(input.objective),
+          proposal: { summary: "Change", requests: [], changes: [change] },
+        };
+      }),
+    });
+    const planned = await plan(engine, [
+      step("one"),
+      step("two"),
+      step("three"),
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(peak).toBe(2);
+  });
+
+  it("keeps workers inside the working set, and a plan inside the working set it was made for", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.workingSet = ["first.js"];
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+    });
+    const outside = await engine.wait(
+      (await engine.start((await plan(engine, [step("two")])).id)).id,
+    );
+    expect(outside.status).toBe("failed");
+    expect(outside.error).toBe(
+      "Path is outside allowed project scope: second.js",
+    );
+    expect(await readFile(path.join(root, "second.js"), "utf8")).toContain(
+      "= 2",
+    );
+    const planned = await plan(engine, [step("one")]);
+    config.policy.workingSet = ["first.js", "second.js"];
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await expect(engine.start(planned.id)).rejects.toThrow(/Policy changed/);
+  });
+});

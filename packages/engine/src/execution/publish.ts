@@ -1,7 +1,11 @@
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { ProjectConfig, RunRecord } from "@graph-engineering/contracts";
-import { assertPublication, isAllowedPath } from "../policy.js";
+import {
+  assertPublication,
+  isAllowedPath,
+  wholeRepository,
+} from "../policy.js";
 import { checked, command } from "../util.js";
 import { checkedGit, managedGit } from "./git.js";
 import { workspaceFingerprint } from "./workspace.js";
@@ -147,7 +151,7 @@ export async function publishRun(
     ];
     if (
       !files.length ||
-      files.some((file) => !isAllowedPath(file, config.policy))
+      files.some((file) => !isAllowedPath(file, wholeRepository(config.policy)))
     )
       throw new Error("Workspace changed files outside the allowed scope");
     const attributes = await managedGit(run.workspace, [

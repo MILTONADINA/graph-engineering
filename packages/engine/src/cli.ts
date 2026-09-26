@@ -8,6 +8,7 @@ import {
   type ProjectPolicy,
 } from "@graph-engineering/contracts";
 import { GraphEngine } from "./service.js";
+import { repositoryProfile } from "./scale.js";
 import {
   configureProvider,
   initializeProject,
@@ -73,6 +74,14 @@ cli
     withEngine((engine) =>
       engine.context.index({ semantic: !options.lexical }),
     ),
+  );
+cli
+  .command("scale")
+  .description(
+    "Size the repository and working set, and explain how the graph scales to it",
+  )
+  .action(async () =>
+    print(await repositoryProfile(root(), (await loadProject(root())).policy)),
   );
 cli
   .command("embeddings-provision")

@@ -29,6 +29,38 @@ const protectedPaths = [
   "**/node_modules/**",
   "**/node_modules",
 ];
+/**
+ * Whether a path is inside the policy's working set: equal to or below one
+ * of its entries. Without a working set, every path is.
+ */
+export function inWorkingSet(relative: string, policy: ProjectPolicy): boolean {
+  return (
+    !policy.workingSet ||
+    policy.workingSet.some(
+      (entry) => relative === entry || relative.startsWith(`${entry}/`),
+    )
+  );
+}
+/** Whether a directory contains, or is inside, part of the working set. */
+export function reachesWorkingSet(
+  directory: string,
+  policy: ProjectPolicy,
+): boolean {
+  return (
+    inWorkingSet(directory, policy) ||
+    policy.workingSet!.some((entry) => entry.startsWith(`${directory}/`))
+  );
+}
+/**
+ * The policy without its working set, for work that covers the whole
+ * repository: verification, the run workspace copy, fingerprints and
+ * publication. Exclusions and protected paths still apply.
+ */
+export function wholeRepository(policy: ProjectPolicy): ProjectPolicy {
+  if (!policy.workingSet) return policy;
+  const { workingSet: _workingSet, ...rest } = policy;
+  return rest;
+}
 export function isAllowedPath(
   relative: string,
   policy: ProjectPolicy,
@@ -78,6 +110,7 @@ export function isAllowedPath(
     clean === ".graph/CONTEXT.md" ||
     (clean === ".graph/manifest.json" &&
       policy.allowPublicTemplateLedger === true);
+  if (!publicContext && !inWorkingSet(clean, policy)) return false;
   if (
     protectedPaths.some(
       (pattern) =>

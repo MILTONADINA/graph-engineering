@@ -34,6 +34,12 @@ export interface ProjectPolicy {
   excludedPaths: string[];
   /** Explicit opt-in for the public root template ledger; never private engine state. */
   allowPublicTemplateLedger?: boolean;
+  /**
+   * Repository-relative directories or files the graph indexes, reads and
+   * writes. Absent means the whole repository; required checks and security
+   * scans still cover the whole repository either way.
+   */
+  workingSet?: string[];
   publication: "none" | "commit" | "draft-pr";
   maxWorkers: number;
   maxAttempts: number;
@@ -304,6 +310,21 @@ export const policySchema = {
     exportPaths: strings,
     excludedPaths: strings,
     allowPublicTemplateLedger: { type: "boolean" },
+    workingSet: {
+      type: "array",
+      minItems: 1,
+      maxItems: 1000,
+      uniqueItems: true,
+      items: {
+        type: "string",
+        minLength: 1,
+        maxLength: 1000,
+        // Plain relative paths: no globs, backslashes, drive letters, empty,
+        // "." or ".." segments, or leading and trailing slashes.
+        pattern:
+          "^(?!/)(?!.*//)(?!.*/$)(?!(?:.*/)?\\.{1,2}(?:/|$))[^*?\\[\\]{}!\\\\:\\u0000-\\u001f]+$",
+      },
+    },
     publication: { enum: ["none", "commit", "draft-pr"] },
     maxWorkers: { type: "integer", minimum: 1, maximum: 8 },
     maxAttempts: { type: "integer", minimum: 1, maximum: 10 },

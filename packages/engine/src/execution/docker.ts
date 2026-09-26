@@ -6,7 +6,7 @@ import { command, checked, hash } from "../util.js";
 import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { gitFiles } from "./workspace.js";
-import { isAllowedPath, safePath } from "../policy.js";
+import { isAllowedPath, safePath, wholeRepository } from "../policy.js";
 
 export async function dockerAvailable(
   probe: typeof command = command,
@@ -47,6 +47,8 @@ export async function verifyInContainer(
     throw new Error(
       "No verification commands configured; acceptance cannot be established",
     );
+  // Checks run on the whole repository, whatever the working set.
+  policy = wholeRepository(policy);
   const results: VerificationResult[] = [];
   const view = await mkdtemp(
     path.join(path.dirname(workspace), "verification-"),
