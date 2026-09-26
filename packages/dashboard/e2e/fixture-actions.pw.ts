@@ -57,3 +57,29 @@ test("proposal acceptance, repository sharing, and plan creation persist through
   ).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+test("a person rejects a memory proposal with a reason", async ({
+  page,
+}, testInfo) => {
+  await page.goto(
+    `/#token=${encodeURIComponent(process.env.GRAPH_E2E_TOKEN!)}`,
+  );
+  await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await page.getByRole("button", { name: "Add memory" }).click();
+  const note = `Browser ${testInfo.project.name}: a proposal a person rejects.`;
+  await page
+    .getByRole("textbox", { name: "What should this project remember?" })
+    .fill(note);
+  await page.getByRole("button", { name: "Save proposal" }).click();
+  const record = page.locator("article.memory-card").filter({ hasText: note });
+  await expect(record.getByText("proposed", { exact: true })).toBeVisible();
+  await record.getByRole("button", { name: "Reject", exact: true }).click();
+  await record
+    .getByRole("textbox", { name: "Why is this memory rejected?" })
+    .fill("It repeats an existing constraint.");
+  await record.getByRole("button", { name: "Reject", exact: true }).click();
+  await expect(record.getByText("rejected", { exact: true })).toBeVisible();
+  await expect(
+    record.getByText("Rejected: It repeats an existing constraint."),
+  ).toBeVisible();
+});

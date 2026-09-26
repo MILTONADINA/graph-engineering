@@ -110,6 +110,14 @@ export function createServer(
       z.object({ id: z.string() }).parse(request.params).id,
     ),
   );
+  app.post("/api/memories/:id/reject", (request) => {
+    const { id } = z.object({ id: z.string() }).parse(request.params);
+    const { reason } = z
+      .object({ reason: z.string().min(1).max(2000) })
+      .strict()
+      .parse(request.body);
+    return engine.context.rejectMemory(id, reason);
+  });
   app.post("/api/memories/:id/assertions", (request) =>
     engine.context.setMemoryAssertions(
       z.object({ id: z.string() }).parse(request.params).id,
