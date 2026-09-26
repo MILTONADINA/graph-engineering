@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import type {
@@ -12,7 +11,7 @@ import type {
 import { ContextEngine } from "./context/index.js";
 import { loadProject, loadProviders, projectDataDir } from "./project.js";
 import { RunStore } from "./store.js";
-import { assertProvider, isAllowedPath, redact, safePath } from "./policy.js";
+import { assertProvider, redact } from "./policy.js";
 import { errorMessage, hash, id, now, readJson, writeJson } from "./util.js";
 import { decide, decisionProviders } from "./decisions.js";
 import { loadPromotionAuthority } from "./promotion-authority.js";
@@ -40,6 +39,10 @@ import {
   type VerificationResult,
 } from "./execution/docker.js";
 import { publishRun } from "./execution/publish.js";
+import {
+  requestedSourcePacket,
+  SuppliedLines,
+} from "./execution/requested-sources.js";
 import { checkedGit } from "./execution/git.js";
 import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
 import {
@@ -806,7 +809,7 @@ export class GraphEngine {
             if (!provider)
               throw new Error("DAG worker is no longer configured");
             let stepPacket: ContextPacket = await currentContext();
-            const suppliedSourceHashes = new Map<string, string>();
+            const supplied = new SuppliedLines();
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
@@ -836,83 +839,23 @@ export class GraphEngine {
               if (hash(this.config.policy) !== run.plan.policyHash)
                 throw new Error("Policy changed before DAG patch application");
               if (!result.proposal.requests.length) return result;
-              const items: ContextPacket["items"] = [];
-              for (const relative of new Set(result.proposal.requests)) {
-                if (
-                  provider.kind !== "local" &&
-                  !isAllowedPath(relative, this.config.policy, true)
-                )
-                  throw new Error(
-                    `Source request is not exportable: ${relative}`,
-                  );
-                const absolute = await safePath(
-                  workspace,
-                  relative,
-                  this.config.policy,
-                );
-                let text: string;
-                try {
-                  text = await readFile(absolute, "utf8");
-                } catch {
-                  throw new Error(
-                    `Requested source is unavailable: ${relative}`,
-                  );
-                }
-                if (Buffer.byteLength(text) > budgetTokens)
-                  throw new Error("Requested source exceeds context budget");
-                const contentHash = hash(text);
-                items.push({
-                  id: hash(relative + text),
-                  kind: "code",
-                  text,
-                  score: 1,
-                  source: {
-                    path: relative,
-                    startLine: 1,
-                    endLine: text.split("\n").length,
-                    contentHash,
-                    snapshotId: stepPacket.snapshotId,
-                  },
-                });
-              }
-              const requestedPacket = {
-                ...stepPacket,
-                items,
-                estimatedTokens:
-                  Buffer.byteLength(JSON.stringify(items)) +
-                  Buffer.byteLength(JSON.stringify(stepPacket.mandatory)),
-              };
-              const suppliedPacket = fitWorkerContext({
-                provider,
-                policy: this.config.policy,
-                context: requestedPacket,
-                objective: step.objective,
-                acceptance: run.plan.acceptance,
-                effort: step.effort,
-                signal: state.signal,
-              }).context;
-              if (!suppliedPacket.items.length)
-                throw new Error(
-                  "Requested sources yielded no exportable evidence within context budget; stopped to avoid no-progress model turns",
-                );
-              if (
-                !suppliedPacket.items.some(
-                  (item) =>
-                    item.source &&
-                    suppliedSourceHashes.get(item.source.path) !==
-                      item.source.contentHash,
-                )
-              )
-                throw new Error(
-                  "DAG worker repeated source requests without new evidence; stopped to avoid no-progress model turns",
-                );
-              stepPacket = suppliedPacket;
-              for (const item of suppliedPacket.items)
-                if (item.source)
-                  suppliedSourceHashes.set(
-                    item.source.path,
-                    item.source.contentHash,
-                  );
+              stepPacket = await requestedSourcePacket({
+                workspace,
+                input: {
+                  provider,
+                  policy: this.config.policy,
+                  context: stepPacket,
+                  objective: step.objective,
+                  acceptance: run.plan.acceptance,
+                  effort: step.effort,
+                  signal: state.signal,
+                },
+                requests: result.proposal.requests,
+                snapshotId: stepPacket.snapshotId,
+                supplied,
+                worker: "DAG worker",
+                routedBudget: run.plan.routing?.contextBudgetTokens,
+              });
             }
             throw new Error(
               "DAG worker exhausted its context-request turn budget",
@@ -996,7 +939,7 @@ export class GraphEngine {
               step.id,
             );
             let proposalApplied = false;
-            const suppliedSourceHashes = new Map<string, string>();
+            const supplied = new SuppliedLines();
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
@@ -1068,79 +1011,15 @@ export class GraphEngine {
               if (hash(this.config.policy) !== run.plan.policyHash)
                 throw new Error("Policy changed before patch application");
               if (result.proposal.requests.length) {
-                const items = [];
-                for (const relative of new Set(result.proposal.requests)) {
-                  if (
-                    provider.kind !== "local" &&
-                    !isAllowedPath(relative, this.config.policy, true)
-                  )
-                    throw new Error(
-                      `Source request is not exportable: ${relative}`,
-                    );
-                  const requestedPath = await safePath(
-                    workspace,
-                    relative,
-                    this.config.policy,
-                  );
-                  let content: string;
-                  try {
-                    content = await readFile(requestedPath, "utf8");
-                  } catch {
-                    throw new Error(
-                      `Requested source is unavailable: ${relative}`,
-                    );
-                  }
-                  if (Buffer.byteLength(content) > budgetTokens)
-                    throw new Error(
-                      `Requested file is too large for the context budget: ${relative}`,
-                    );
-                  const contentHash = hash(content);
-                  items.push({
-                    id: hash(relative + content),
-                    kind: "code" as const,
-                    text: content,
-                    score: 1,
-                    source: {
-                      path: relative,
-                      startLine: 1,
-                      endLine: content.split("\n").length,
-                      contentHash,
-                      snapshotId: run.plan.snapshotId,
-                    },
-                  });
-                }
-                const requestedPacket = {
-                  ...stepPacket,
-                  items,
-                  estimatedTokens:
-                    Buffer.byteLength(JSON.stringify(items)) +
-                    Buffer.byteLength(JSON.stringify(stepPacket.mandatory)),
-                };
-                stepPacket = fitWorkerContext({
-                  ...input,
-                  context: requestedPacket,
-                }).context;
-                if (!stepPacket.items.length)
-                  throw new Error(
-                    "Requested sources yielded no exportable evidence within context budget; stopped to avoid no-progress model turns",
-                  );
-                if (
-                  !stepPacket.items.some(
-                    (item) =>
-                      item.source &&
-                      suppliedSourceHashes.get(item.source.path) !==
-                        item.source.contentHash,
-                  )
-                )
-                  throw new Error(
-                    "Worker repeated source requests without new evidence; stopped to avoid no-progress model turns",
-                  );
-                for (const item of stepPacket.items)
-                  if (item.source)
-                    suppliedSourceHashes.set(
-                      item.source.path,
-                      item.source.contentHash,
-                    );
+                stepPacket = await requestedSourcePacket({
+                  workspace,
+                  input,
+                  requests: result.proposal.requests,
+                  snapshotId: run.plan.snapshotId,
+                  supplied,
+                  worker: "Worker",
+                  routedBudget: run.plan.routing?.contextBudgetTokens,
+                });
                 continue;
               }
               const changed = await applyProposal(

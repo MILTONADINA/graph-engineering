@@ -197,9 +197,15 @@ review's pick is recorded where they disagree.
 ## Delivery sequence
 
 1. This design, with the characterization test for today's behaviour.
-2. One budget measure (section 6) and the lines-seen progress guard
-   (section 4): no new request forms yet, so existing behaviour changes only
-   where it was internally inconsistent.
+2. **Done:** one budget measure (section 6) and the lines-seen progress
+   guard (section 4), shared by both request loops in
+   `execution/requested-sources.ts`. A requested file is now accepted when it
+   fits the serialized request on its own (about 13.4 KB of typical code
+   under the default policy, up from 11,200 raw bytes); several files that
+   each fit can still be dropped together by fitting, as before, and a routed
+   context budget tighter than the default still bounds each file. A file
+   that returns to content already supplied in the attempt no longer counts
+   as new evidence.
 3. Line-range requests, outlines for oversized files, accumulation and
    precondition feedback (sections 1–3, 5, 7), with tests for every row of
    the threat table using the same fixtures as `managed-dag-safety.test.ts`.
