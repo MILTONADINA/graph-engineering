@@ -1,9 +1,9 @@
 # Audited authentication and authorization runtime
 
 The deterministic runtime supports `authentication.jwt`,
-`authentication.password`, `authorization.rbac`,
-`authorization.tenant-isolation`, and `authorization.permissions`. Planned OAuth,
-session, and roles nodes remain unavailable. These renderers create reviewed patch proposals;
+`authentication.password`, `authentication.oauth`, `authorization.rbac`,
+`authorization.tenant-isolation`, and `authorization.permissions`. Planned
+session and roles nodes remain unavailable. These renderers create reviewed patch proposals;
 they do not execute catalog prompts, run migrations, install packages, or send
 email. Existing different code, ambiguous scaffold markers, excluded paths, and
 unreviewed manifest operations fail closed.
@@ -92,6 +92,38 @@ fields, including role assignment. Access/refresh tokens are never returned in
 JSON. The client should not use browser local/session storage for these cookies.
 The reviewed access logger records method, status, and duration only; it omits
 URLs, query parameters, headers, and bodies containing authentication secrets.
+
+## OAuth and OIDC sign-in
+
+`authentication.oauth` adds `GET /api/auth/oauth/:provider/start` and
+`GET /api/auth/oauth/:provider/callback` for Google, GitHub and one generic
+OIDC provider, plus `POST /api/auth/oauth/:provider/link` for a signed-in user
+to link a provider to their account. It requires an applied `authentication.jwt` (normally through
+`authentication.password`) and an application-owned
+`src/services/oauthAccountDirectory.ts`; the renderer refuses without them.
+The flow is authorization code with PKCE S256 only. `state`, the PKCE verifier
+and the OIDC `nonce` are sealed with an HMAC into a 10-minute
+`__Host-graph_oauth` cookie (HttpOnly, Secure, SameSite=Lax) and compared in
+constant time. Redirect URIs are fixed per provider from
+`OAUTH_REDIRECT_BASE_URL`, and a post-login redirect must exactly equal an
+allowlisted relative path. The code is exchanged server-side over HTTPS with
+the client secret only in the POST body, with a 10-second timeout, a 64 KiB
+response limit enforced while streaming, and one generic error message. A new
+account is created only for an unused provider-verified ASCII email (Google/OIDC
+`email_verified`, GitHub primary and verified `/user/emails`). A first-time
+provider login whose email already belongs to an account is refused by default,
+so a weaker provider cannot take the account over; the owner signs in and links
+the provider through the authenticated trusted-origin link route, which requires
+the provider-verified email to equal the account's email.
+`linkVerifiedEmailToExistingAccount` opts a provider back into automatic
+linking as a documented risk. A successful login callback issues the same
+access/refresh cookies as password login. See the
+[node contract](../graph-templates/authentication/oauth/README.md). Offline
+checks: `tests/template-runtime-oauth.test.ts`; with
+`GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1` the backend fixture also type-checks the
+generated code and runs its 19 generated tests (service and Express routes via
+supertest) with the network disabled; CI runs it in the "Generated
+authentication with isolated PostgreSQL races" step.
 
 ## Security guarantees and limits
 

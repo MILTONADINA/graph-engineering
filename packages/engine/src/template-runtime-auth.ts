@@ -5,6 +5,7 @@ import type {
   TemplateRenderContext,
 } from "./template-runtime-extension.js";
 import { createPasswordTemplates } from "./template-runtime-auth-password.js";
+import { createOauthTemplates } from "./template-runtime-auth-oauth.js";
 
 const code = (
   path: string,
@@ -463,6 +464,12 @@ const jwtModifications = [
 export const authenticationTemplates: Record<string, AuditedTemplateExtension> =
   {
     ...createPasswordTemplates({
+      appendSchema,
+      helperEnvironment,
+      mount,
+      assertPackagePins,
+    }),
+    ...createOauthTemplates({
       appendSchema,
       helperEnvironment,
       mount,
