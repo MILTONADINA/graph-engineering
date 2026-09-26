@@ -82,7 +82,9 @@ export function RunsPage({
   const [acceptance, setAcceptance] = useState("");
   const [providerId, setProviderId] = useState("");
   const [effort, setEffort] = useState("");
-  const [plan, setPlan] = useState<ExecutionPlan | null>(null);
+  const [plan, setPlan] = useState<
+    (ExecutionPlan & { warnings?: string[] }) | null
+  >(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reconciled, setReconciled] = useState(false);
@@ -126,7 +128,7 @@ export function RunsPage({
     setError(null);
     try {
       setPlan(
-        await api<ExecutionPlan>("/api/plans", {
+        await api<ExecutionPlan & { warnings?: string[] }>("/api/plans", {
           objective: objective.trim(),
           acceptance: criteria,
           ...(providerId ? { providerId } : {}),
@@ -315,6 +317,11 @@ export function RunsPage({
             {plan ? (
               <>
                 <p className="plan-objective">{plan.objective}</p>
+                {plan.warnings?.map((warning) => (
+                  <p className="small muted" role="note" key={warning}>
+                    {warning}
+                  </p>
+                ))}
                 <ol className="plan-steps">
                   {plan.steps.map((step, index) => (
                     <li key={step.id}>

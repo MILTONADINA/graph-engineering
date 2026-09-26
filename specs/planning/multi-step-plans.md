@@ -42,6 +42,10 @@ Larger changes are made of steps, some independent and some depending on others.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns a DAG patch that cannot apply to the worker instead of failing the plan
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: tells a tester whose new test file already exists to use another name
 
+- AC10: Planning from the command line, MCP or the dashboard warns when a plan's steps, reviews and repair attempts are likely to need more model calls than policy.maxTurns allows for the whole run.
+  - Test: packages/engine/tests/execution.test.ts :: warns when a plan may need more model calls than the run-wide turn budget
+  - Test: packages/engine/tests/cli.test.ts :: estimates the model calls a plan's roles need
+
 ## Security considerations
 
 Parallelism multiplies spend and write risk, so all steps draw on one durable turn and cost ceiling and every wave's preconditions are checked before the first write. Undeclared writes and path collisions are refused so one step cannot overwrite another's work or reach paths it was not planned for. Policy is re-read between sibling applications, so tightening policy mid-run takes effect. Cloud steps follow the same export rules as single runs, including refusal of mandatory text the run workspace imported.

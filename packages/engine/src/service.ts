@@ -100,7 +100,12 @@ import {
   unseenPatchLocation,
 } from "./execution/requested-sources.js";
 import { checkedGit, gitBlob } from "./execution/git.js";
-import { requiresSecurityReview, routePlan, WORKFLOWS } from "./planning.js";
+import {
+  likelyWorkerTurns,
+  requiresSecurityReview,
+  routePlan,
+  WORKFLOWS,
+} from "./planning.js";
 import { dagParallelism } from "./scale.js";
 import { TESTER_STEP_ID, testerStep } from "./tester.js";
 import { parseSpec, planFromSpec, SPECS_DIR } from "./specs.js";
@@ -300,6 +305,19 @@ export class GraphEngine {
         step.dependsOn.length ? step : { ...step, dependsOn: [TESTER_STEP_ID] },
       ),
     ]).steps;
+  }
+  /**
+   * A warning when a plan's roles are likely to need more model calls than
+   * policy.maxTurns allows for the whole run, or undefined.
+   */
+  turnWarning(plan: Pick<ExecutionPlan, "steps">): string | undefined {
+    const needed = likelyWorkerTurns(plan, {
+      reviewer: Boolean(this.config.review),
+      maxAttempts: this.config.policy.maxAttempts,
+    });
+    return needed > this.config.policy.maxTurns
+      ? `This plan may need about ${needed} model calls (its steps, reviews and repair attempts), but policy.maxTurns allows ${this.config.policy.maxTurns} for the whole run. Raise policy.maxTurns if the run stops early.`
+      : undefined;
   }
   // Configured workers the policy permits and, for installed agents, that
   // are installed.

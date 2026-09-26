@@ -422,7 +422,9 @@ export function createMcpServer(
             "A cloud-backed client can create plans only while project publication is none: a plan it wrote could otherwise publish private source",
           );
         const plan = await engine.createPlan(args);
+        const warning = engine.turnWarning(plan);
         return result({
+          ...(warning ? { warnings: [warning] } : {}),
           id: plan.id,
           objective: plan.objective,
           acceptance: plan.acceptance,

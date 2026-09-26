@@ -115,6 +115,23 @@ describe("managed execution", () => {
     expect(feedback[1]).toContain("warning: cache directory is not writable");
   });
 
+  it("warns when a plan may need more model calls than the run-wide turn budget", async () => {
+    const { root } = await fixture();
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["The addition test passes"],
+    });
+    expect(engine.turnWarning(plan)).toBeUndefined();
+    engine.config.policy.maxTurns = 2;
+    expect(engine.turnWarning(plan)).toContain(
+      "but policy.maxTurns allows 2 for the whole run",
+    );
+  });
+
   it("names each configured worker that cannot be used and why", async () => {
     const { root, data } = await fixture();
     await configureProvider(data, {
