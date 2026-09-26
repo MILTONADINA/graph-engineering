@@ -6,22 +6,23 @@ Start with [working as an AI agile team](agile-team.md), then the
 
 ## Using the team
 
-| Guide                                                 | What it covers                                                 |
-| ----------------------------------------------------- | -------------------------------------------------------------- |
-| [Working as an AI agile team](agile-team.md)          | Roles, practices and the command behind each                   |
-| [Platform guide](platform.md)                         | Configuration, policy and every command                        |
-| [Project overview](project-overview.md)               | The dashboard board: what is running, done and waiting for you |
-| [Proposed decomposition](decomposition.md)            | Turning an objective into a plan a person approves             |
-| [Code review](code-review.md)                         | The reviewer gate                                              |
-| [Security scanning](security-scanning.md)             | Tool selection, offline scans, baselines and the run gate      |
-| [Run outcomes](outcomes.md)                           | Recording acceptance and looking back at how runs ended        |
-| [Feedback reports](feedback.md)                       | Anonymous, consented reports of where the graph struggled      |
-| [Knowledge packs](knowledge-packs.md)                 | Offline, cited documentation for workers                       |
-| [Memory assertions](memory-assertions.md)             | Typed memory claims and contradiction checks                   |
-| [Installed workers](installed-workers.md)             | Native AI clients as workers and their limits                  |
-| [Worker context excerpts](worker-context-excerpts.md) | How workers read large files within a budget                   |
-| [Scaling](scaling.md)                                 | Working sets and limits for large repositories                 |
-| [Context lifecycle](context-lifecycle.md)             | Indexing, summaries, cache, backup and restore                 |
+| Guide                                                 | What it covers                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| [Working as an AI agile team](agile-team.md)          | Roles, practices and the command behind each                           |
+| [Platform guide](platform.md)                         | Configuration, policy and every command                                |
+| [Project overview](project-overview.md)               | The dashboard board: what is running, done and waiting for you         |
+| [Proposed decomposition](decomposition.md)            | Turning an objective into a plan a person approves                     |
+| [Code review](code-review.md)                         | The reviewer gate                                                      |
+| [Security scanning](security-scanning.md)             | Tool selection, offline scans, baselines and the run gate              |
+| [Verification images](verification-images.md)         | Building the offline check image for Maven, Gradle, Node.js and Python |
+| [Run outcomes](outcomes.md)                           | Recording acceptance and looking back at how runs ended                |
+| [Feedback reports](feedback.md)                       | Anonymous, consented reports of where the graph struggled              |
+| [Knowledge packs](knowledge-packs.md)                 | Offline, cited documentation for workers                               |
+| [Memory assertions](memory-assertions.md)             | Typed memory claims and contradiction checks                           |
+| [Installed workers](installed-workers.md)             | Native AI clients as workers and their limits                          |
+| [Worker context excerpts](worker-context-excerpts.md) | How workers read large files within a budget                           |
+| [Scaling](scaling.md)                                 | Working sets and limits for large repositories                         |
+| [Context lifecycle](context-lifecycle.md)             | Indexing, summaries, cache, backup and restore                         |
 
 ## Templates
 
