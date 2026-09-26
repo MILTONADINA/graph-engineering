@@ -428,6 +428,9 @@ export function assertMandatoryExport(
       "Mandatory context has no memory provenance; cloud export is refused",
     );
 }
+/** How a worker learns which requested sources did not fit its budget. */
+export const NOT_INCLUDED_WARNING =
+  "Not included, because the context budget is full: ";
 export function contextForProvider(
   packet: ContextPacket,
   provider: ProviderConfig,
@@ -457,6 +460,11 @@ export function contextForProvider(
         "Cloud packet includes only explicitly exportable source-backed items.",
         "Local indexing diagnostics are not exported.",
         "Token counts remain conservative estimates, not provider-reported usage.",
+        // Names only files the worker requested, which were checked as
+        // exportable before this note was written.
+        ...packet.coverage.warnings.filter((warning) =>
+          warning.startsWith(NOT_INCLUDED_WARNING),
+        ),
       ],
     },
   };

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import {
@@ -63,6 +63,89 @@ async function fixture() {
   return { root, config, data };
 }
 describe("managed execution", () => {
+  it("gives the worker a failing check's stdout even when stderr has unrelated warnings", async () => {
+    const { root } = await fixture();
+    const feedback: (string | undefined)[] = [];
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async (input) => {
+        feedback.push(input.feedback);
+        return {
+          model: "fixture",
+          proposal: {
+            summary: "Fix addition",
+            requests: [],
+            changes: [
+              feedback.length === 1
+                ? { path: "math.cjs", before: "a - b", after: "a * b" }
+                : { path: "math.cjs", before: "a * b", after: "a + b" },
+            ],
+          },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+      verify: async (workspace, checks, _policy, snapshotHash) => {
+        const source = await readFile(path.join(workspace, "math.cjs"), "utf8");
+        const passing = source.includes("a + b");
+        return checks.map((check) => ({
+          ...check,
+          code: passing ? 0 : 1,
+          stdout: passing ? "" : "COMPILATION ERROR math.cjs:1 wrong operator",
+          stderr: "warning: cache directory is not writable",
+          snapshotHash,
+        }));
+      },
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["The addition test passes"],
+    });
+    const result = await engine.wait((await engine.start(plan.id)).id);
+    expect(result.status).toBe("succeeded");
+    expect(feedback[1]).toContain(
+      "COMPILATION ERROR math.cjs:1 wrong operator",
+    );
+    expect(feedback[1]).toContain("warning: cache directory is not writable");
+  });
+
+  it("names each configured worker that cannot be used and why", async () => {
+    const { root, data } = await fixture();
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+    });
+    const config = JSON.parse(
+      await readFile(path.join(root, PROJECT_FILE), "utf8"),
+    );
+    config.policy.providers = [];
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+    });
+    engines.push(engine);
+    const plan = engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["The addition test passes"],
+    });
+    await expect(plan).rejects.toThrow(
+      "No permitted worker is available. Configured workers that cannot be used: local: Project policy does not allow provider local (add it to policy.providers, for example with graph-engine provider-add local local fixture --enable); cloud: Project policy does not allow provider cloud",
+    );
+    await expect(
+      engine.createPlan({
+        objective: "Fix addition",
+        acceptance: ["The addition test passes"],
+        providerId: "missing",
+      }),
+    ).rejects.toThrow("No permitted worker is available.");
+  });
   it("requires security review for API-key and token identifiers in a real-task objective", async () => {
     const { root } = await fixture();
     const engine = await GraphEngine.open(root, {
@@ -120,7 +203,8 @@ describe("managed execution", () => {
     const run = await engine.start(plan.id);
     const result = await engine.wait(run.id);
     expect(result.status).toBe("failed");
-    expect(calls).toBe(2);
+    // The first repeat is answered with feedback; the second stops the run.
+    expect(calls).toBe(3);
     expect(result.error).toMatch(/repeated.*source request/i);
   });
   // docs/worker-context-excerpts.md: requested evidence accumulates, an
@@ -291,7 +375,72 @@ describe("managed execution", () => {
     expect(result.status).toBe("succeeded");
   });
 
-  it("reports a missing source request without exposing the private workspace path", async () => {
+  it("answers a directory or missing source request with the files the worker may read", async () => {
+    const { root } = await fixture();
+    await mkdir(path.join(root, "lib/nested"), { recursive: true });
+    await writeFile(path.join(root, "lib/nested/deep.cjs"), "exports.d = 1;\n");
+    await writeFile(path.join(root, "lib/util.cjs"), "exports.u = 1;\n");
+    await writeFile(path.join(root, "lib/.env"), "SECRET=1\n");
+    await checked("git", ["add", "-f", "lib"], { cwd: root });
+    await checked("git", ["commit", "-m", "test: lib"], { cwd: root });
+    const received: string[] = [];
+    const proposals = [
+      { requests: ["lib"], changes: [] },
+      { requests: ["lib/missing/nothing.ts"], changes: [] },
+      { requests: ["lib/util.cjs"], changes: [] },
+      {
+        requests: [],
+        changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+      },
+    ];
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async (input) => {
+        received.push(
+          input.context.items
+            .filter((item) => item.kind === "outline")
+            .map((item) => item.text)
+            .join("\n---\n"),
+        );
+        return {
+          model: "fixture",
+          proposal: { summary: "Step", ...proposals[received.length - 1]! },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+      verify: async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "passed",
+          stderr: "",
+          snapshotHash,
+        })),
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["The addition test passes"],
+    });
+    const result = await engine.wait((await engine.start(plan.id)).id);
+    expect(received[1]).toContain("lib is a directory. Its files:");
+    expect(received[1]).toContain("- lib/nested/deep.cjs");
+    expect(received[1]).toContain("- lib/util.cjs");
+    expect(received[1]).not.toContain(".env");
+    expect(received[2]).toContain(
+      "lib/missing/nothing.ts does not exist. Files under lib:",
+    );
+    expect(received.join("\n")).not.toContain(result.workspace);
+    expect(result.status).toBe("succeeded");
+  });
+
+  it("stops a worker that keeps requesting the same missing source", async () => {
     const { root } = await fixture();
     const engine = await GraphEngine.open(root, {
       dockerAvailable: async () => true,
@@ -316,11 +465,10 @@ describe("managed execution", () => {
       objective: "Fix addition",
       acceptance: ["The addition test passes"],
     });
-    const run = await engine.start(plan.id);
-    const result = await engine.wait(run.id);
+    const result = await engine.wait((await engine.start(plan.id)).id);
     expect(result.status).toBe("failed");
     expect(result.error).toContain(
-      "Requested source is unavailable: missing.ts",
+      "repeated source requests without new evidence",
     );
     expect(result.error).not.toContain(result.workspace);
   });

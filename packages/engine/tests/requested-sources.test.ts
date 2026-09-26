@@ -420,3 +420,39 @@ describe("requested source packets", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("requested sources under a tight budget", () => {
+  it("keeps the first requested file when a tight budget cannot fit them all, and says what was left out", async () => {
+    const body = (name: string) =>
+      Array.from({ length: 200 }, (_, i) => `// ${name} line ${i}`).join("\n");
+    const root = await workspace({
+      "first.ts": body("first"),
+      "second.ts": body("second"),
+    });
+    const input: WorkerInput = {
+      provider: { id: "local", kind: "local", model: "fixture" },
+      policy: { ...DEFAULT_POLICY, providers: ["local"] },
+      context: packet(),
+      objective: "Change first.ts",
+      acceptance: ["It changes"],
+    };
+    // Room for one file with its JSON framing, not two.
+    input.policy.maxContextTokens = workerRequestBytes(input) + 7000;
+    const result = await requestedSourcePacket({
+      workspace: root,
+      input,
+      requests: ["first.ts", "second.ts"],
+      snapshotId: "snapshot",
+      supplied: new SuppliedLines(),
+      worker: "Worker",
+    });
+    const paths = result.items.map((item) => item.source?.path);
+    expect(paths).toContain("first.ts");
+    expect(paths).not.toContain("second.ts");
+    expect(result.coverage.warnings).toContainEqual(
+      expect.stringContaining(
+        "Not included, because the context budget is full: second.ts",
+      ),
+    );
+  });
+});
