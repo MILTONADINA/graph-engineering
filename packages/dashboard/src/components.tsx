@@ -146,7 +146,9 @@ export function Status({ value }: { value: string }) {
     "promoted",
   ].includes(value)
     ? "green"
-    : ["failed", "conflicted", "needs_reconciliation"].includes(value)
+    : ["failed", "conflicted", "rejected", "needs_reconciliation"].includes(
+          value,
+        )
       ? "red"
       : ["running", "verifying", "proposed", "heuristic"].includes(value)
         ? "orange"

@@ -811,6 +811,8 @@ Hosted Jev/cloud inference, real native worker execution, reviewed engineering
 labels, paired baseline/candidate costs, and production promotion were not
 tested or inferred. Codex's installed schema lacks required restricted read
 roots; Claude needs API-key authentication; Cursor's native CLI is absent.
+(Superseded for Claude: a later check recorded one live subscription-backed
+proposal call; see [installed workers](installed-workers.md).)
 MCP configuration is independent of these native worker limitations.
 
 Fork branch protections were verified for `main` and `dev`. Feature-stack CI

@@ -426,7 +426,7 @@ export async function decideBatch(
           "Decision policy changed during authorization; baseline retained";
       }
       const promoted = eligible && !policyChanged;
-      let selected: string | null = null,
+      let selected: string | null,
         confidence: number | null = null,
         questionFailure = failure;
       const modelVersion =

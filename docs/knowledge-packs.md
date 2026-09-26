@@ -33,8 +33,9 @@ then the text. A pack must be a regular file: a symlinked pack is refused,
 and `--refresh` replaces the file rather than writing through it. It is a
 normal repository file, so the team reviews and
 commits it, and `--refresh` records the previous hash so a change in the
-source is visible in review. `knowledge-list` shows every pack's source and
-date so stale documentation is easy to spot.
+source is visible in review. `knowledge-list` shows every pack's source, date and age, flagging packs over
+180 days old as stale, and a context packet that includes a stale pack says
+so in its coverage warnings.
 
 - **Offline retrieval for local workers.** The context index reads packs as
   documents, including when a [working set](scaling.md) narrows the rest of

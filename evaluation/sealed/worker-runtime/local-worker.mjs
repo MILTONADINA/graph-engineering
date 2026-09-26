@@ -633,12 +633,15 @@ export async function runOneShotLocalModelWorker(
   let responseArtifact = null;
   let proposalArtifact = null;
   let reportedModel = null;
+  // Explicit fail-closed defaults: an interrupted call stays ambiguous.
+  /* eslint-disable no-useless-assignment */
   let httpStatus = null;
   let status = "ambiguous";
   let usage = unknownUsage();
   let settled = false;
   let signedWorkerDelivery = null;
   let deliveredAt = null;
+  /* eslint-enable no-useless-assignment */
   try {
     assertReadyToPost(store, metadata, call);
     const remaining =

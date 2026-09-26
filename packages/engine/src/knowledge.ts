@@ -36,6 +36,13 @@ export interface KnowledgePack {
   version: string;
   previousSha256?: string;
 }
+/** Documentation older than this is reported as stale. */
+export const KNOWLEDGE_PACK_STALE_DAYS = 180;
+/** Whole days since a pack was retrieved, or null for an unreadable date. */
+export function packAgeDays(retrieved: string, at = Date.now()): number | null {
+  const time = Date.parse(retrieved);
+  return Number.isFinite(time) ? Math.floor((at - time) / 86_400_000) : null;
+}
 
 export type KnowledgeFetch = (
   url: string,
@@ -352,6 +359,20 @@ export async function listKnowledgePacks(
   return packs;
 }
 
+/** Packs with their age, flagging those older than the stale threshold. */
+export async function reviewKnowledgePacks(
+  root: string,
+  at = Date.now(),
+): Promise<(KnowledgePack & { ageDays: number | null; stale: boolean })[]> {
+  return (await listKnowledgePacks(root)).map((pack) => {
+    const ageDays = packAgeDays(pack.retrieved, at);
+    return {
+      ...pack,
+      ageDays,
+      stale: ageDays === null || ageDays > KNOWLEDGE_PACK_STALE_DAYS,
+    };
+  });
+}
 /**
  * Proposes a research finding as an observation that cites exact lines of
  * an indexed knowledge pack. It stays private until a person accepts it.

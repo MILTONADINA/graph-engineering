@@ -113,7 +113,7 @@ export function callInput(callId = "call-fixture", reservedCostUsd = 1) {
 }
 export function settledCall(
   reservation,
-  { cost = 0.25, confidenceUnknown = false } = {},
+  { cost = 0.25, confidenceUnknown: _confidenceUnknown = false } = {},
 ) {
   return {
     version: "1.0.0",

@@ -13,7 +13,7 @@ import { repositoryProfile } from "./scale.js";
 import {
   addKnowledgePack,
   citeKnowledge,
-  listKnowledgePacks,
+  reviewKnowledgePacks,
 } from "./knowledge.js";
 import {
   configureProvider,
@@ -24,7 +24,7 @@ import {
   projectDataDir,
 } from "./project.js";
 import { checked, readJson, writeJson, errorMessage } from "./util.js";
-import { gitFiles } from "./execution/workspace.js";
+import { trackedFiles } from "./execution/workspace.js";
 import { selectSecurityTools } from "./security/catalog.js";
 import {
   baselineChanged,
@@ -107,7 +107,7 @@ cli
   .description(
     "List knowledge packs with their source, retrieval date and hash",
   )
-  .action(async () => print(await listKnowledgePacks(root())));
+  .action(async () => print(await reviewKnowledgePacks(root())));
 cli
   .command("knowledge-cite <pack>")
   .description(
@@ -301,8 +301,11 @@ cli
     await writeJson(path.join(root(), PROJECT_FILE), project);
     print(project.verification);
   });
+// The standalone scan and --update-baseline cover committed (tracked) files,
+// so a local scratch file never enters a reviewed baseline. The run gate scans
+// worker-written files separately.
 const securityProfile = async () => ({
-  files: await gitFiles(root()),
+  files: await trackedFiles(root()),
   // Dynamic testing needs a target the owner authorizes; none is recorded yet.
   authorizedTargets: [],
   configuredTools: [],
@@ -643,6 +646,15 @@ cli
 cli
   .command("memory-accept <id>")
   .action((id) => withEngine((engine) => engine.context.acceptMemory(id)));
+cli
+  .command("memory-reject <id>")
+  .description(
+    "Decline a proposed memory with a reason; it stays on record but is never accepted or retrieved",
+  )
+  .requiredOption("--reason <text>", "Why the proposal is rejected")
+  .action((id, options) =>
+    withEngine((engine) => engine.context.rejectMemory(id, options.reason)),
+  );
 cli
   .command("memory-assertions <id> <json>")
   .description(

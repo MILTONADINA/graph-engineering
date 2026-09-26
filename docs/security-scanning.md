@@ -42,9 +42,11 @@ docker build -t graph-security:local sidecars/security
 graph-engine security-scan
 ```
 
-`security-scan` copies the tracked files into a private directory, runs the
-selected offline scanners there with no network and all capabilities
-dropped, and prints the findings that are not in the baseline. It exits
+`security-scan` copies the tracked (committed or staged) files into a private
+directory, runs the selected offline scanners there with no network and all
+capabilities dropped, and prints the findings that are not in the baseline.
+Untracked scratch files are never scanned into a baseline; the managed-run
+gate below scans files a worker creates separately. It exits
 non-zero when there are new findings or a scanner's report could not be read.
 
 - Only Semgrep rules categorised as security count; the registry's style and

@@ -207,11 +207,13 @@ export interface MemoryRecord {
   kind: MemoryKind;
   text: string;
   visibility: "private" | "shared";
-  status: "proposed" | "accepted" | "superseded" | "conflicted";
+  status: "proposed" | "accepted" | "superseded" | "conflicted" | "rejected";
   createdAt: string;
   sources: SourceReference[];
   supersedes?: string;
   assertions?: ReviewedMemoryAssertions;
+  /** Why a person rejected this proposal (status "rejected" only). */
+  rejectionReason?: string;
 }
 export interface ExecutionStep {
   id: string;

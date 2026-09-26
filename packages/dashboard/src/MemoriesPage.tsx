@@ -169,30 +169,32 @@ export function MemoriesPage({ api, active }: { api: Api; active: boolean }) {
       )}
       <div className="section-toolbar">
         <div className="filter-tabs" role="group" aria-label="Filter memories">
-          {["all", "proposed", "accepted", "shared"].map((value) => (
-            <button
-              key={value}
-              onClick={() => setFilter(value)}
-              aria-pressed={filter === value}
-              className={filter === value ? "selected" : ""}
-            >
-              {value === "all" ? "All memories" : readable(value)}
-              {value === "proposed" &&
-                Boolean(
-                  memories.data?.filter(
-                    (record) => record.status === "proposed",
-                  ).length,
-                ) && (
-                  <span>
-                    {
-                      memories.data!.filter(
-                        (record) => record.status === "proposed",
-                      ).length
-                    }
-                  </span>
-                )}
-            </button>
-          ))}
+          {["all", "proposed", "accepted", "shared", "rejected"].map(
+            (value) => (
+              <button
+                key={value}
+                onClick={() => setFilter(value)}
+                aria-pressed={filter === value}
+                className={filter === value ? "selected" : ""}
+              >
+                {value === "all" ? "All memories" : readable(value)}
+                {value === "proposed" &&
+                  Boolean(
+                    memories.data?.filter(
+                      (record) => record.status === "proposed",
+                    ).length,
+                  ) && (
+                    <span>
+                      {
+                        memories.data!.filter(
+                          (record) => record.status === "proposed",
+                        ).length
+                      }
+                    </span>
+                  )}
+              </button>
+            ),
+          )}
         </div>
         <span className="small muted">
           {records.length} record{records.length === 1 ? "" : "s"}
@@ -224,6 +226,11 @@ export function MemoriesPage({ api, active }: { api: Api; active: boolean }) {
                   <Status value={record.status} />
                 </div>
                 <p className="memory-text">{record.text}</p>
+                {record.status === "rejected" && record.rejectionReason && (
+                  <p className="small muted">
+                    Rejected: {record.rejectionReason}
+                  </p>
+                )}
                 {record.sources.length > 0 && (
                   <details className="memory-sources">
                     <summary>

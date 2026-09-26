@@ -659,7 +659,7 @@ test(
         requests: [],
       }),
     });
-    const failedObservation = await runProtectedOracle(failing.request, {
+    await runProtectedOracle(failing.request, {
       imageId: nativeImage,
       endpoint: nativeEndpoint,
     });

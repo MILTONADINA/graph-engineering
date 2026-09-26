@@ -1,9 +1,11 @@
 # Worker context excerpts
 
-**Status: design accepted; decisions recorded 2026-09-25.** This document
-and the test added with it change no runtime behavior. The decisions each
-section marks as **decided** are listed with their reasons under
-[Decisions](#decisions).
+**Status: implemented (#31, #32).** The design below was accepted on
+2026-09-25 and has shipped: workers request line ranges, oversized files
+arrive as outlines, requested lines accumulate, and failed patches return as
+feedback. The decisions each section marks as **decided** are listed with
+their reasons under [Decisions](#decisions); the problem statement describes
+the behaviour before these changes.
 
 ## The problem
 
