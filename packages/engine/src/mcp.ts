@@ -239,7 +239,7 @@ export function createMcpServer(
       "run_status",
       {
         description:
-          "Reads the stored record of one managed run in this project and returns JSON with id, status, usage, and commit and pullRequest when the run published them. status is planned, running, verifying, succeeded, failed, cancelled or needs_reconciliation; succeeded means automated checks passed and any publication finished, not that a human accepted the change. usage totals the recorded inference calls for the run's plan (inputTokens, outputTokens, cachedTokens and costUsd, each null when unknown, plus an estimated flag). It is read-only, cannot start, cancel or resume a run, and fails for an ID that is not a run in this project; a cloud-backed client gets an error while the project policy is offline.",
+          "Reads the stored record of one managed run in this project and returns JSON with id, status, usage, and commit and pullRequest when the run published them. status is planned, running, verifying, succeeded, failed, cancelled or needs_reconciliation; succeeded means automated checks passed and any publication finished, not that a human accepted the change; a person records acceptance outside this server (graph-engine accept or reject), and no MCP tool can. usage totals the recorded inference calls for the run's plan (inputTokens, outputTokens, cachedTokens and costUsd, each null when unknown, plus an estimated flag). It is read-only, cannot start, cancel or resume a run, and fails for an ID that is not a run in this project; a cloud-backed client gets an error while the project policy is offline.",
         inputSchema: {
           runId: z
             .string()

@@ -181,11 +181,14 @@ were fixed before merge; the PR descriptions list them.
   replaced it.
 - [#38](https://github.com/MILTONADINA/graph-engineering/pull/38)
   (`4ee2da5`): working sets and a size profile ([scaling](scaling.md)).
-- #39: a planner proposes steps that a person approves
+- [#39](https://github.com/MILTONADINA/graph-engineering/pull/39)
+  (`2456861`): a planner proposes steps that a person approves
   ([proposed decomposition](decomposition.md)).
+- #40: run outcomes linked to decisions and memories, and recorded human
+  acceptance ([run outcomes](outcomes.md)).
 
 The [full wiring roadmap](full-wiring-roadmap.md) holds the remaining
-items: outcome labels,
+items:
 knowledge packs and cited research, a live project overview in the
 dashboard, and a fresh bounded local pilot. Jev and Laya promotion, live
 target testing and paid tools stay owner-gated.

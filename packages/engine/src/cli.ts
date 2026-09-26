@@ -476,6 +476,50 @@ cli
       };
     }),
   );
+cli
+  .command("accept <runId>")
+  .description(
+    "Record that you accept a succeeded run's verified result (a person's decision; never offered over MCP)",
+  )
+  .option("--note <text>", "Why, for the record")
+  .action((runId, options) =>
+    withEngine((engine) =>
+      engine.recordAcceptance(runId, { accepted: true, note: options.note }),
+    ),
+  );
+cli
+  .command("reject <runId>")
+  .description(
+    "Record that you reject a succeeded run's verified result; the note becomes a proposed project memory",
+  )
+  .requiredOption("--note <text>", "What is wrong with the result")
+  .action((runId, options) =>
+    withEngine((engine) =>
+      engine.recordAcceptance(runId, { accepted: false, note: options.note }),
+    ),
+  );
+cli
+  .command("outcomes [runId]")
+  .description(
+    "Recorded run outcomes, oldest first, linked to the decisions and memories that shaped them (local analysis only; never promotion evidence)",
+  )
+  .option("--decision <id>", "Only outcomes of runs that used this decision")
+  .option(
+    "--memory <id>",
+    "Only outcomes of runs whose context held this memory",
+  )
+  .action((runId, options) =>
+    withEngine(async (engine) =>
+      engine.store
+        .outcomes(runId)
+        .filter(
+          (outcome) =>
+            (!options.decision ||
+              outcome.decisionIds.includes(options.decision)) &&
+            (!options.memory || outcome.memoryIds.includes(options.memory)),
+        ),
+    ),
+  );
 cli.command("run <planId>").action((planId) =>
   withEngine(async (engine) => {
     const run = await engine.start(planId);

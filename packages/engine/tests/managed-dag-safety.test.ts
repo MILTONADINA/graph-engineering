@@ -1047,7 +1047,7 @@ describe("proposed decomposition", () => {
     };
     await engine.proposeSteps(request);
     await expect(engine.proposeSteps(request)).rejects.toThrow(
-      "exhausted its shared worker-turn budget",
+      "Today's decompositions have reached the project's limits",
     );
     expect(call).toHaveBeenCalledTimes(1);
   });
