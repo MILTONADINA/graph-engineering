@@ -6,6 +6,7 @@ import type {
   DecisionRecord,
   ExecutionPlan,
   RunEvent,
+  RunOutcome,
   RunRecord,
   Usage,
 } from "@graph-engineering/contracts";
@@ -108,6 +109,8 @@ export class RunStore {
       CREATE INDEX IF NOT EXISTS inference_owner ON inference_calls(project_id,owner_id);
       CREATE TABLE IF NOT EXISTS worker_leases(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,pid INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_proofs(kind TEXT NOT NULL,id TEXT NOT NULL,project_id TEXT NOT NULL,endpoint TEXT NOT NULL,verifier TEXT NOT NULL,PRIMARY KEY(kind,id));
+      CREATE TABLE IF NOT EXISTS run_outcomes(seq INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT NOT NULL,project_id TEXT NOT NULL,json TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS outcomes_run ON run_outcomes(project_id,run_id,seq);
       PRAGMA user_version = 4;`);
       })
       .immediate();
@@ -431,6 +434,139 @@ export class RunStore {
   runs(): RunRecord[] {
     return this.all("runs").reverse() as RunRecord[];
   }
+  /**
+   * The facts a run's events and record show about how it ended. Review,
+   * security and the verified snapshot come from its latest attempt; the
+   * decisions and memories that shaped it from the whole run.
+   */
+  outcomeFor(run: RunRecord, kind: RunOutcome["kind"]): RunOutcome {
+    const events = this.events(run.id);
+    const attempt = events.slice(
+      Math.max(
+        0,
+        events.findLastIndex((event) => event.type === "run.started"),
+      ),
+    );
+    const last = (type: string) =>
+      attempt.findLast((event) => event.type === type);
+    const review = last("review.completed");
+    const scanned = attempt.findLastIndex(
+      (event) => event.type === "security.scan_started",
+    );
+    const strings = (value: unknown) =>
+      Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string")
+        : [];
+    const hash = last("publication.started")?.data.snapshotHash;
+    return {
+      version: "1.0.0",
+      runId: run.id,
+      planId: run.plan.id,
+      projectId: this.projectId,
+      recordedAt: now(),
+      kind,
+      status: run.status,
+      // From this attempt only; an earlier attempt's result is not this one's.
+      automatedChecksPassed: (() => {
+        const value = last("acceptance.pending_review")?.data
+          .automatedChecksPassed;
+        return typeof value === "boolean" ? value : null;
+      })(),
+      review: review
+        ? {
+            verdict: String(review.data.verdict),
+            passed: review.data.passed === true,
+          }
+        : null,
+      security:
+        scanned < 0
+          ? "not-run"
+          : attempt
+                .slice(scanned)
+                .some((event) => event.type === "security.gate_passed")
+            ? "passed"
+            : "failed",
+      humanAcceptance:
+        run.status === "succeeded"
+          ? (run.completion?.humanAcceptance ?? null)
+          : null,
+      verifiedHash: typeof hash === "string" ? hash : null,
+      commit: run.commit ?? null,
+      pullRequest: run.pullRequest ?? null,
+      usage: run.usage,
+      decisionIds: [
+        ...new Set([
+          ...(run.plan.routing?.decisionIds ?? []),
+          ...events
+            .filter((event) => event.type.startsWith("decision."))
+            .flatMap((event) => strings(event.data.decisionIds)),
+        ]),
+      ],
+      memoryIds: [
+        ...new Set(
+          events
+            .filter((event) => event.type === "context.memories")
+            .flatMap((event) => strings(event.data.memoryIds)),
+        ),
+      ].sort(),
+      error: run.error ?? null,
+    };
+  }
+  /**
+   * A person's decision on a succeeded run's verified result, checked and
+   * written in one transaction so two decisions cannot both be recorded.
+   */
+  recordAcceptance(
+    runId: string,
+    decision: "accepted" | "rejected",
+    note?: string,
+  ): { run: RunRecord; outcome: RunOutcome } {
+    return this.db
+      .transaction(() => {
+        const run = this.run(runId);
+        if (run.status !== "succeeded" || !run.completion)
+          throw new Error(
+            "Only a succeeded run's result can be accepted or rejected",
+          );
+        if (run.completion.humanAcceptance !== "pending")
+          throw new Error(
+            `This run was already ${run.completion.humanAcceptance}`,
+          );
+        const verified = this.outcomeFor(run, "acceptance").verifiedHash;
+        if (!verified)
+          throw new Error("This run recorded no verified result to accept");
+        run.completion.humanAcceptance = decision;
+        run.updatedAt = now();
+        this.saveRun(run);
+        // Bound to exactly what was verified and published.
+        this.event(runId, "acceptance.recorded", {
+          decision,
+          snapshotHash: verified,
+          commit: run.commit ?? null,
+          ...(note ? { note } : {}),
+        });
+        const outcome = this.outcomeFor(run, "acceptance");
+        this.recordOutcome(outcome);
+        return { run, outcome };
+      })
+      .immediate();
+  }
+  recordOutcome(outcome: RunOutcome): void {
+    this.db
+      .prepare("INSERT INTO run_outcomes(run_id,project_id,json) VALUES(?,?,?)")
+      .run(outcome.runId, this.projectId, JSON.stringify(outcome));
+  }
+  /** Every recorded outcome, oldest first; the latest per run is current. */
+  outcomes(runId?: string): RunOutcome[] {
+    return this.db
+      .prepare(
+        runId
+          ? "SELECT json FROM run_outcomes WHERE project_id=? AND run_id=? ORDER BY seq"
+          : "SELECT json FROM run_outcomes WHERE project_id=? ORDER BY seq",
+      )
+      .all(...(runId ? [this.projectId, runId] : [this.projectId]))
+      .map((row) => JSON.parse((row as { json: string }).json) as RunOutcome);
+  }
   events(runId: string): RunEvent[] {
     return this.db
       .prepare(
@@ -515,14 +651,16 @@ export class RunStore {
           const latest = this.run(run.id);
           if (!["planned", "running", "verifying"].includes(latest.status))
             return;
-          this.saveRun({
+          const stopped: RunRecord = {
             ...latest,
             status: "needs_reconciliation",
             updatedAt: now(),
             error:
               "The previous process stopped during execution. Inspect its workspace and events before retrying.",
-          });
+          };
+          this.saveRun(stopped);
           this.event(run.id, "recovery.required", {});
+          this.recordOutcome(this.outcomeFor(stopped, "terminal"));
         })();
       }
   }

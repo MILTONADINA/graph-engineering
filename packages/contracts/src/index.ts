@@ -272,10 +272,39 @@ export interface RunRecord {
   pullRequest?: string;
   completion?: {
     automatedChecksPassed: boolean;
-    humanAcceptance: "pending";
+    /** Changes only when a person records a decision on this result. */
+    humanAcceptance: "pending" | "accepted" | "rejected";
     reviewScope:
       "normal" | "security" | "architecture" | "security-and-architecture";
   };
+}
+/**
+ * A recorded fact about how a run ended, appended at every terminal
+ * transition and every human acceptance decision; a resumed run has several.
+ * Engine-recorded outcomes feed analysis only and never promotion evidence.
+ */
+export interface RunOutcome {
+  version: typeof SCHEMA_VERSION;
+  runId: string;
+  planId: string;
+  projectId: string;
+  recordedAt: string;
+  kind: "terminal" | "acceptance";
+  status: RunStatus;
+  automatedChecksPassed: boolean | null;
+  review: { verdict: string; passed: boolean } | null;
+  security: "not-run" | "passed" | "failed";
+  humanAcceptance: "pending" | "accepted" | "rejected" | null;
+  /** The verified workspace snapshot the outcome refers to, if any. */
+  verifiedHash: string | null;
+  commit: string | null;
+  pullRequest: string | null;
+  usage: Usage;
+  /** Decision records this run's plan and stages wrote. */
+  decisionIds: string[];
+  /** Memories present in the context the run's workers received. */
+  memoryIds: string[];
+  error: string | null;
 }
 export interface DecisionRecord {
   version: typeof SCHEMA_VERSION;

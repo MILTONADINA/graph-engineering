@@ -15,6 +15,7 @@ import type {
   ExecutionStep,
   ProjectConfig,
   ProviderConfig,
+  RunOutcome,
   RunRecord,
   Usage,
 } from "@graph-engineering/contracts";
@@ -248,6 +249,7 @@ export class GraphEngine {
     this.store.event(run.id, `decision.${stage}`, {
       selections: result.selections,
       callUsage: result.usage,
+      decisionIds: result.records.map((record) => record.id),
     });
   }
   // Configured workers the policy permits and, for installed agents, that
@@ -363,18 +365,25 @@ export class GraphEngine {
     let result: Awaited<ReturnType<typeof invokePlanWorker>>;
     try {
       if (input.signal?.aborted) throw new Error("Decomposition cancelled");
-      this.store.reserveCall(
-        ownerId,
-        callId,
-        planner.id,
-        estimateRequestCost(
-          planner,
-          policy.maxContextTokens,
-          policy.maxOutputTokens,
-        ),
-        policy.maxCostUsd,
-        policy.maxTurns,
-      );
+      try {
+        this.store.reserveCall(
+          ownerId,
+          callId,
+          planner.id,
+          estimateRequestCost(
+            planner,
+            policy.maxContextTokens,
+            policy.maxOutputTokens,
+          ),
+          policy.maxCostUsd,
+          policy.maxTurns,
+        );
+      } catch (error) {
+        throw new Error(
+          `Today's decompositions have reached the project's limits (policy.maxTurns planner calls, policy.maxCostUsd estimated cost): ${errorMessage(error)}`,
+          { cause: error },
+        );
+      }
       result = await (this.deps.planner ?? invokePlanWorker)({
         provider: planner,
         policy,
@@ -576,6 +585,7 @@ export class GraphEngine {
       : available[0];
     if (!provider)
       throw new Error("Selected worker is unavailable under project policy");
+    const workerDecisionIds: string[] = [];
     if (!input.providerId) {
       const promotion = await loadPromotionAuthority(this.dataDir, {
         projectId: this.config.projectId,
@@ -605,6 +615,7 @@ export class GraphEngine {
         exportable: true,
       });
       records.forEach((record) => this.store.decision(record));
+      workerDecisionIds.push(...records.map((record) => record.id));
       const selected = records.find(
         (r) => r.mode === "promoted" && r.selected,
       )?.selected;
@@ -656,7 +667,10 @@ export class GraphEngine {
       routing: {
         workflow: routing.workflow,
         contextBudgetTokens: routing.contextBudgetTokens,
-        decisionIds: routing.records.map((record) => record.id),
+        decisionIds: [
+          ...workerDecisionIds,
+          ...routing.records.map((record) => record.id),
+        ],
       },
       verification: structuredClone(this.config.verification),
       publication: this.config.policy.publication,
@@ -753,6 +767,47 @@ export class GraphEngine {
   isActive(runId: string): boolean {
     return this.active.has(runId);
   }
+  /**
+   * Records a person's decision on a succeeded run's verified result. Only
+   * a person may call this (the CLI or the local dashboard); it is never
+   * offered to a connected AI client, which would be approving its own work.
+   */
+  async recordAcceptance(
+    runId: string,
+    decision: { accepted: boolean; note?: string },
+  ): Promise<RunOutcome> {
+    if (this.isActive(runId))
+      throw new Error(
+        "Only a succeeded run's result can be accepted or rejected",
+      );
+    const raw = decision.note?.trim();
+    if (!decision.accepted && !raw)
+      throw new Error("A rejection needs a note saying what is wrong");
+    // Checked before anything is recorded, so a rejection is never stored
+    // without the lesson it carries.
+    if (raw && containsSecret(raw))
+      throw new Error("The note contains a potential secret; rephrase it");
+    const note = raw ? redact(raw) : undefined;
+    const { run, outcome } = this.store.recordAcceptance(
+      runId,
+      decision.accepted ? "accepted" : "rejected",
+      note,
+    );
+    // A rejection's reason may be a lesson for later work; it stays a
+    // private proposal until a person accepts it as project memory.
+    if (!decision.accepted && note)
+      try {
+        await this.context.createMemory({
+          kind: "observation",
+          text: `A person rejected the result of: ${run.plan.objective}. Run ${run.id}. Reason: ${note}`,
+        });
+      } catch (error) {
+        this.store.event(runId, "memory.capture_failed", {
+          error: errorMessage(error),
+        });
+      }
+    return outcome;
+  }
   async resume(runId: string, reconciled = false): Promise<RunRecord> {
     if (this.active.has(runId)) throw new Error("Run is already active");
     const run = this.store.run(runId);
@@ -805,6 +860,8 @@ export class GraphEngine {
     try {
       const priorEvents = this.store.events(run.id);
       delete run.error;
+      // Checks, review and acceptance describe one attempt's result.
+      delete run.completion;
       save("running");
       this.store.event(run.id, "run.started", { resuming });
       if (!run.workspace) {
@@ -954,6 +1011,19 @@ export class GraphEngine {
         }
       };
       const packet = resuming ? await currentContext() : originalPacket;
+      // Which memories shaped this run's work, for its recorded outcome.
+      this.store.event(run.id, "context.memories", {
+        memoryIds: [
+          ...new Set(
+            [
+              ...packet.items.map((item) => item.memoryId),
+              ...(packet.mandatorySources ?? []).map((source) =>
+                "memoryId" in source ? source.memoryId : undefined,
+              ),
+            ].filter((memoryId): memoryId is string => Boolean(memoryId)),
+          ),
+        ],
+      });
       let feedback = "";
       let verified = false;
       let verifiedHash: string | undefined;
@@ -1837,6 +1907,9 @@ export class GraphEngine {
           throw new Error(
             `Security scan found ${fresh.length} finding(s) not in the reviewed baseline; fix them, or have a person review them and update ${BASELINE_FILE}`,
           );
+        this.store.event(run.id, "security.gate_passed", {
+          snapshotHash: verifiedHash,
+        });
       } else if (scope.review.includes("security"))
         this.store.event(run.id, "security.scan_recommended", {
           reason:
@@ -1890,6 +1963,7 @@ export class GraphEngine {
           error: errorMessage(error),
         });
       }
+      this.store.recordOutcome(this.store.outcomeFor(run, "terminal"));
     } catch (error) {
       run.usage = this.store.usage(run.plan.id);
       run.error = redact(errorMessage(error));
@@ -1908,6 +1982,7 @@ export class GraphEngine {
         status: run.status,
         error: run.error,
       });
+      this.store.recordOutcome(this.store.outcomeFor(run, "terminal"));
     }
   }
   close(): Promise<void> {

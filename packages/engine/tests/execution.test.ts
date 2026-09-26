@@ -918,6 +918,33 @@ describe("security gate", () => {
     );
   });
 
+  it("records the security gate in each run's outcome", async () => {
+    const failing = await run(["accepted"], async () => ({
+      tools: ["semgrep"],
+      findings: [finding("introduced")],
+      errors: [],
+      unscanned: [],
+    }));
+    const passing = await run(["accepted"], async () => ({
+      tools: ["semgrep"],
+      findings: [finding("accepted")],
+      errors: [],
+      unscanned: [],
+    }));
+    const unscanned = await run(undefined, async () => ({
+      tools: [],
+      findings: [],
+      errors: [],
+      unscanned: [],
+    }));
+    for (const [{ engine, result }, security] of [
+      [failing, "failed"],
+      [passing, "passed"],
+      [unscanned, "not-run"],
+    ] as const)
+      expect(engine.store.outcomes(result.id).at(-1)?.security).toBe(security);
+  });
+
   it("accepts a result whose findings are all in the baseline, and refuses an incomplete scan", async () => {
     const accepted = await run(["accepted"], async () => ({
       tools: ["semgrep"],
