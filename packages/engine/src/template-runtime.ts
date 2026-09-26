@@ -27,6 +27,7 @@ import { testingTemplates } from "./template-runtime-testing.js";
 import { environmentTemplates } from "./template-runtime-environments.js";
 import { authenticationTemplates } from "./template-runtime-auth.js";
 import { permissionTemplates } from "./template-runtime-permissions.js";
+import { roleTemplates } from "./template-runtime-roles.js";
 import { storageTemplates } from "./template-runtime-storage.js";
 import { devopsTemplates } from "./template-runtime-devops.js";
 import { deploymentTemplates } from "./template-runtime-deployment.js";
@@ -261,6 +262,7 @@ const extensions: Record<string, AuditedTemplateExtension> = {
   ...environmentTemplates,
   ...authenticationTemplates,
   ...permissionTemplates,
+  ...roleTemplates,
   ...storageTemplates,
   ...devopsTemplates,
   ...deploymentTemplates,

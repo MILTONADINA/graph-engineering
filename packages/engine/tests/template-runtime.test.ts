@@ -67,8 +67,8 @@ describe("constrained fine-grained template execution", () => {
     const planned = registry.templates.filter(
       (entry: any) => entry.status === "planned",
     );
-    expect(implemented).toHaveLength(50);
-    expect(planned).toHaveLength(6);
+    expect(implemented).toHaveLength(51);
+    expect(planned).toHaveLength(5);
     for (const entry of implemented) {
       expect(templateRuntimeCapability(entry.id).executable, entry.id).toBe(
         true,
