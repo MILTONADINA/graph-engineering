@@ -65,3 +65,38 @@ Features are now written as specs first ([spec format](../specs/README.md)): eac
 10. **Done:** a fresh bounded local pilot: local Qwen refactored the 71 KB `context/index.ts` through ranges and outlines within an 11,200-token budget, and the result passed the required checks ([local validation](local-validation.md#bounded-local-pilot-on-a-large-file--2026-09-26-utc)).
 
 Each item is one reviewed PR with an adversarial review before merge.
+
+## Improvement loop
+
+From 2026-09-26 the team improves itself in rounds. Each round applies the
+recommendations of the previous audit, then a fresh audit of the merged
+`dev` finds the next ones. Design choices go to the advisor, Jev and Laya
+with design text only, and the answers are recorded in the PR.
+
+**The loop ends** when every item a fresh audit still recommends is one of:
+
+1. owner-gated: it needs the owner or a third party (promotion evidence,
+   live targets, accepting runs, reviewing a security baseline);
+2. large (L effort) and deferred, with the reason written here;
+3. a `draft` spec in `specs/` that names the owner as the decider.
+
+**Round 2** (from the audit of `7db8866`):
+
+- a private real-world pilot on an external repository, run locally with a
+  local model only, to find where the team struggles; only generic lessons
+  are recorded;
+- test-first ordering for the tester, which may not edit tests that already
+  existed;
+- `spec-check` flags linked tests that only run behind an environment
+  switch CI does not set;
+- privacy-safe feedback reports ([spec](../specs/quality/feedback-reports.md));
+- rejecting a memory from the dashboard, built by the graph itself on this
+  repository;
+- tests that drive the CLI, a stored audit log for the roles template, and
+  specs for the capabilities that have none.
+
+Deferred with reasons: epics above one level of decomposition (L; needs a
+planner design of its own); verifying OAuth ID token signatures in the
+generated app (changes the generated app's network behaviour, so the owner
+should see it first); the security gate on by default (needs the owner's
+review of a baseline, #44).
