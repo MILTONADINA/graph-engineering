@@ -28,6 +28,13 @@ test("live workspace renders all pages, retrieves context, and respects viewport
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`/#token=${encodeURIComponent(token!)}`);
+  // The board opens first: what the graph is doing and what needs a person.
+  await expect(
+    page.getByRole("heading", {
+      name: "What the graph is doing, and what needs you.",
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Context", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Start with the right context." }),
   ).toBeVisible();

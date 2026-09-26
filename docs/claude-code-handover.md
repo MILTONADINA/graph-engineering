@@ -184,13 +184,15 @@ were fixed before merge; the PR descriptions list them.
 - [#39](https://github.com/MILTONADINA/graph-engineering/pull/39)
   (`2456861`): a planner proposes steps that a person approves
   ([proposed decomposition](decomposition.md)).
-- #40: run outcomes linked to decisions and memories, and recorded human
-  acceptance ([run outcomes](outcomes.md)).
+- [#40](https://github.com/MILTONADINA/graph-engineering/pull/40)
+  (`fc08d47`): run outcomes linked to decisions and memories, and recorded
+  human acceptance ([run outcomes](outcomes.md)).
+- #41: the dashboard's live project board
+  ([project overview](project-overview.md)).
 
 The [full wiring roadmap](full-wiring-roadmap.md) holds the remaining
 items:
-knowledge packs and cited research, a live project overview in the
-dashboard, and a fresh bounded local pilot. Jev and Laya promotion, live
+knowledge packs and cited research, and a fresh bounded local pilot. Jev and Laya promotion, live
 target testing and paid tools stay owner-gated.
 
 ## Where the work stands

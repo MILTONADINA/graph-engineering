@@ -58,3 +58,40 @@ export interface InstalledWorkerCapability {
   reason: string | null;
   limits: string[];
 }
+
+export type OverviewColumn = "needs-you" | "in-progress" | "done";
+export interface OverviewCard {
+  runId: string;
+  objective: string;
+  status: string;
+  column: OverviewColumn;
+  phase: string;
+  steps: { id: string; state: "waiting" | "working" | "done" }[] | null;
+  gates: {
+    checks: "passed" | "failed" | "pending" | "not-run";
+    review:
+      | "approved"
+      | "changes-requested"
+      | "not-configured"
+      | "pending"
+      | "not-run";
+    security: "passed" | "failed" | "not-run" | "pending";
+    acceptance: "pending" | "accepted" | "rejected" | null;
+  };
+  next: string;
+  commands: string[];
+  error: string | null;
+  costUsd: number | null;
+  updatedAt: string;
+}
+export interface OverviewResponse {
+  counts: Record<OverviewColumn, number>;
+  cards: OverviewCard[];
+  project: {
+    name: string;
+    reviewer: string | null;
+    workingSet: string[] | null;
+    maxWorkers: number;
+    decisionMode: string;
+  };
+}

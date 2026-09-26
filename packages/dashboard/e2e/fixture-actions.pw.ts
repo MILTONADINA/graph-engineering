@@ -11,6 +11,13 @@ test("proposal acceptance, repository sharing, and plan creation persist through
   await page.goto(
     `/#token=${encodeURIComponent(process.env.GRAPH_E2E_TOKEN!)}`,
   );
+  // The board opens first: what the graph is doing and what needs a person.
+  await expect(
+    page.getByRole("heading", {
+      name: "What the graph is doing, and what needs you.",
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Context", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Start with the right context." }),
   ).toBeVisible();
