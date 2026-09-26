@@ -3,6 +3,7 @@ import type {
   ProjectPolicy,
   Usage,
 } from "@graph-engineering/contracts";
+import picomatch from "picomatch";
 import { z } from "zod";
 import { hash, now } from "../util.js";
 import { isAllowedPath, safePath } from "../policy.js";
@@ -83,6 +84,7 @@ const stepSchema = z
     effort: z.string().min(1).optional(),
     templateId: z.string().min(1).optional(),
     inputs: z.record(z.unknown()).optional(),
+    writes: z.array(z.string().min(1).max(200)).min(1).max(50).optional(),
   })
   .strict();
 const completedSchema = z
@@ -111,6 +113,22 @@ const checkpointSchema = z
   })
   .strict();
 
+/**
+ * Whether a step may write a file: its declared `writes` globs and any
+ * scheduler-supplied paths both apply. Undefined means unrestricted.
+ */
+export function writeScope(
+  step: ExecutionStep,
+  writeScopes?: Record<string, string[]>,
+): ((file: string) => boolean) | undefined {
+  const declared = step.writes?.length
+    ? picomatch(step.writes, { dot: true })
+    : undefined;
+  const supplied = writeScopes?.[step.id];
+  if (!declared && !supplied) return undefined;
+  return (file) =>
+    (!declared || declared(file)) && (!supplied || supplied.includes(file));
+}
 export function validateDag(input: ExecutionStep[]): ValidatedDag {
   const steps = z.array(stepSchema).min(1).max(100).parse(input);
   const byId = new Map(steps.map((step) => [step.id, step]));
@@ -222,7 +240,6 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
   const controller = new AbortController();
   const signal = AbortSignal.any([
     controller.signal,
-    AbortSignal.timeout(policy.timeoutSeconds * 1000),
     ...(options.signal ? [options.signal] : []),
   ]);
   const checkCancelled = () => {
@@ -266,9 +283,14 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
           providerId: step.providerId ?? null,
           templateId: step.templateId ?? null,
         });
+        // Each step's generation has its own policy timeout, so a long plan
+        // is not bounded by a single step's allowance.
         return options.generate(structuredClone(step), {
           snapshotHash: before,
-          signal,
+          signal: AbortSignal.any([
+            signal,
+            AbortSignal.timeout(policy.timeoutSeconds * 1000),
+          ]),
         });
       }),
     );
@@ -305,7 +327,7 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
           `Step ${step.id} still requests source; its generation callback must resolve context requests before returning`,
         );
       const paths = [...new Set(proposal.changes.map((change) => change.path))];
-      const scope = options.writeScopes?.[step.id];
+      const scope = writeScope(step, options.writeScopes);
       if (
         paths.some((file, position) =>
           paths.slice(0, position).some((previous) => overlaps(previous, file)),
@@ -314,7 +336,7 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
         throw new Error(`Step ${step.id} has conflicting path aliases`);
       for (const file of paths) {
         await safePath(workspace, file, policy);
-        if (scope && !scope.includes(file))
+        if (scope && !scope(file))
           throw new Error(
             `Step ${step.id} writes outside its declared scope: ${file}`,
           );

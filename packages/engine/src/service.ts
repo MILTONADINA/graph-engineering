@@ -103,6 +103,7 @@ import {
 import {
   runDag,
   validateDag,
+  writeScope,
   DagReconciliationError,
   type DagCheckpoint,
 } from "./execution/dag.js";
@@ -1429,6 +1430,13 @@ export class GraphEngine {
                   supplied.partial,
                   this.config.policy,
                 );
+                // A step limited to some files (a tester writes only tests)
+                // gets its out-of-scope edits back as feedback.
+                const outside = outsideWriteScope(step, result.proposal);
+                if (outside.length) {
+                  patchFeedback = writeScopeFeedback(step, outside);
+                  continue;
+                }
                 if (!unseen) return result;
                 patchFeedback = patchFeedbackFor(
                   unseen,
@@ -1662,6 +1670,12 @@ export class GraphEngine {
               supplied.partial,
               this.config.policy,
             );
+            // A step limited to some files never applies an edit outside them.
+            const outside = outsideWriteScope(step, result.proposal);
+            if (outside.length) {
+              patchFeedback = writeScopeFeedback(step, outside);
+              continue;
+            }
             if (unseen) {
               patchFeedback = patchFeedbackFor(
                 unseen,
@@ -1993,6 +2007,25 @@ export class GraphEngine {
       this.store.close();
     })());
   }
+}
+// Files a proposal changes outside its step's declared write scope.
+function outsideWriteScope(
+  step: ExecutionStep,
+  proposal: { changes: { path: string }[] },
+): string[] {
+  const scope = writeScope(step);
+  return scope
+    ? [
+        ...new Set(
+          proposal.changes
+            .map((change) => change.path)
+            .filter((file) => !scope(file)),
+        ),
+      ]
+    : [];
+}
+function writeScopeFeedback(step: ExecutionStep, outside: string[]): string {
+  return `This step may only write files matching ${step.writes!.join(", ")}. Your proposal also changed ${outside.join(", ")}; propose only changes within that scope.`;
 }
 function compactFailures(checks: VerificationResult[]): string {
   return checks
