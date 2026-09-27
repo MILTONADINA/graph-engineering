@@ -172,19 +172,39 @@ The command, which has no MCP tool or dashboard action:
 1. refuses a target ID that is not declared, before touching Docker;
 2. resolves both images to local IDs, pulling a digest-pinned image when it
    is missing (a local image ID is never pulled);
-3. creates a new network with `docker network create --internal`, so
-   nothing on it can reach the internet or the host network, and starts the
-   target on it with no published ports, all capabilities dropped and
-   `no-new-privileges`;
-4. waits, for at most three minutes, until the target answers HTTP, polling
-   from a short-lived container on the same network;
-5. runs the ZAP baseline scan (`zap-baseline.py -I`, one minute of
+3. starts the target with `--network none`: a network namespace of its own
+   with only a loopback interface, so it has no route, no gateway and no
+   host address to reach, and nothing is published to the host. All
+   capabilities are dropped and `no-new-privileges` is set;
+4. runs a short-lived probe inside that namespace
+   (`--network container:<target>`), which first checks isolation: the
+   namespace must have no IPv4 route and no IPv6 route off loopback, and
+   connections to the Docker bridge gateway (read from
+   `docker network inspect bridge`) and to 1.1.1.1 must fail as
+   unreachable, or the scan is refused before ZAP starts. It then waits, for
+   at most three minutes, until the target answers HTTP at 127.0.0.1;
+5. runs the ZAP baseline scan inside the same namespace (`zap-baseline.py -I`, one minute of
    spidering by default, `--minutes` up to 10, and a bounded overall time)
    from `ghcr.io/zaproxy/zaproxy` pinned by digest (ZAP 2.17.0), writing its
    JSON report to a private temporary directory;
-6. always removes the containers, the network and the report directory,
-   also when the scan fails or a person presses Ctrl-C (exit code 130), and
-   names anything it could not remove.
+6. always removes every container labelled with the scan's ID
+   (`graph-engineering.live-scan.id`), found with `docker ps --filter`, so a
+   container whose `docker run` was cancelled before it returned is removed
+   too; then checks nothing with that label is left, deletes the report
+   directory, and names anything it could not remove. This happens when the
+   scan fails too, and on Ctrl-C or SIGTERM (exit code 130); repeated
+   signals are ignored until cleanup finishes.
+
+The scan needs Docker Engine 26 or later, and refuses an older or
+unreadable server version: older engines forwarded DNS out of internal
+networks. With no network at all this is defence in depth.
+
+An earlier design used a `docker network create --internal` network. On
+Docker Desktop its gateway address answered from the Docker host (the host
+refused connections to closed ports and listened on others), so a target
+could have reached host services; the loopback-only namespace has no such
+address. ZAP's JSON report is read without following a symlink, only as a
+regular file of at most 20 MB, and errors never quote it.
 
 ZAP's report is read into findings with tool `zap`: one finding per alert
 (rule `<pluginid> <name>`) and URL path, with the host and query dropped and
@@ -228,8 +248,9 @@ build. Until then the scan refuses the target with that instruction.
 
 With Docker running, `GRAPH_ENGINE_LIVE_SCAN_TESTS=1 npm test -w
 @graph-engineering/engine -- tests/security-live.test.ts` scans Juice Shop
-end to end and checks that no container or network is left behind; CI runs
-it in the scanner job.
+end to end and checks that no container with the scan's ID label is left,
+and probes a loopback-only namespace to show that the Docker bridge gateway
+and 1.1.1.1 are unreachable from it; CI runs these in the scanner job.
 
 ## What needs someone else
 

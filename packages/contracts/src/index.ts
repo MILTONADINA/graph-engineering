@@ -98,7 +98,7 @@ export interface ProjectConfig {
 }
 /**
  * A target a person has authorized, in writing, for dynamic security testing.
- * It is a container image the live scan starts itself on an isolated network,
+ * It is a container image the live scan starts itself, with no network,
  * never a URL: a scan cannot be pointed at a system the project does not run.
  */
 export interface LiveTarget {
