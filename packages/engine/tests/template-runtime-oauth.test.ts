@@ -916,7 +916,8 @@ describe("audited OAuth login runtime", () => {
       emailVerified: true,
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    // Bad key material behind a known kid never verifies.
+    // Bad key material behind a known kid never verifies, including an RSA
+    // public exponent of 1 (under which a "signature" is just the padded digest).
     runtime.service.resetOAuthKeyCache();
     vi.restoreAllMocks();
     vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -930,6 +931,37 @@ describe("audited OAuth login runtime", () => {
     );
     await expect(
       runtime.service.verifyIdToken(config, valid, nonce, now),
+    ).rejects.toThrow(/^OAuth sign-in failed$/);
+    runtime.service.resetOAuthKeyCache();
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            keys: [
+              { kty: "RSA", kid: "fixture-rsa", n: signingJwk.n, e: "AQ" },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
+    const digestInfo = Buffer.concat([
+      Buffer.from("3031300d060960864801650304020105000420", "hex"),
+      createHash("sha256").update(`${header}.${payload}`).digest(),
+    ]);
+    const padded = Buffer.concat([
+      Buffer.from([0, 1]),
+      Buffer.alloc(256 - 3 - digestInfo.length, 0xff),
+      Buffer.from([0]),
+      digestInfo,
+    ]);
+    await expect(
+      runtime.service.verifyIdToken(
+        config,
+        `${header}.${payload}.${padded.toString("base64url")}`,
+        nonce,
+        now,
+      ),
     ).rejects.toThrow(/^OAuth sign-in failed$/);
     // Verification uses node:crypto only: no new package, keys built from JWK.
     expect(runtime.sources.service).toMatch(
@@ -1194,7 +1226,7 @@ describe("audited OAuth login runtime", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "")).toMatch(
-        /Tests\s+25 passed/,
+        /Tests\s+26 passed/,
       );
     },
     180000,

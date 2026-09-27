@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHmac, generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
@@ -50,7 +50,8 @@ const ecJwk = { ...ec.publicKey.export({ format: 'jwk' }), kid: 'ec-1', use: 'si
 const jwks = { keys: [rsaJwk, ecJwk] };
 function signToken(claims: Record<string, unknown>, header: Record<string, unknown> = { alg: 'RS256', kid: 'rsa-1' }, key: KeyObject = rsa.privateKey): string {
   const input = Buffer.from(`${segment(header)}.${segment(claims)}`);
-  const signature = header.alg === 'ES256' ? sign('sha256', input, { key, dsaEncoding: 'ieee-p1363' }) : sign('sha256', input, key);
+  // The signing key, not the header, picks the signature format, so a test can present a genuine signature under a mislabeled header.
+  const signature = key.asymmetricKeyType === 'ec' ? sign('sha256', input, { key, dsaEncoding: 'ieee-p1363' }) : sign('sha256', input, key);
   return `${input.toString()}.${signature.toString('base64url')}`;
 }
 const idToken = (claims: Record<string, unknown>) => signToken(claims);
@@ -391,9 +392,11 @@ describe('authentication.oauth ID token signatures', () => {
     expect(new URL(String(url)).protocol).toBe('https:');
     expect(init?.redirect).toBe('error');
     expect(init?.signal).toBeInstanceOf(AbortSignal);
-    // The header's algorithm must match the key's type: no RSA/EC confusion.
-    await expect(verifyIdToken(config, signToken(claims, { alg: 'RS256', kid: 'ec-1' }), nonce, t0)).rejects.toThrow(failure);
-    await expect(verifyIdToken(config, signToken(claims, { alg: 'ES256', kid: 'rsa-1' }, ec.privateKey), nonce, t0)).rejects.toThrow(failure);
+    // The key picks the verification algorithm, so a mislabeled header cannot make a wrong signature verify. As
+    // defence in depth the header's alg must also name the key's algorithm: a GENUINE signature by the kid's own key
+    // is refused when the header claims the other algorithm.
+    await expect(verifyIdToken(config, signToken(claims, { alg: 'RS256', kid: 'ec-1' }, ec.privateKey), nonce, t0)).rejects.toThrow(failure);
+    await expect(verifyIdToken(config, signToken(claims, { alg: 'ES256', kid: 'rsa-1' }, rsa.privateKey), nonce, t0)).rejects.toThrow(failure);
   });
 
   it.runIf(oidc.length > 0)('rejects a tampered payload or signature before trusting any claim', async () => {
@@ -418,11 +421,14 @@ describe('authentication.oauth ID token signatures', () => {
   it.runIf(oidc.length > 0)('rejects alg none, HS256 keyed with the public key, a missing kid and bad key material', async () => {
     const config = provider(id);
     const weak = generateKeyPairSync('rsa', { modulusLength: 1024 });
+    const smallExponent = generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 3 });
     const fetchSpy = keyServer(id, [{
       keys: [
         rsaJwk,
         { ...weak.publicKey.export({ format: 'jwk' }), kid: 'weak' },
         { kty: 'RSA', kid: 'broken', n: 'AAAA', e: 'AQAB' },
+        { kty: 'RSA', kid: 'exponent-1', n: rsaJwk.n, e: 'AQ' },
+        { ...smallExponent.publicKey.export({ format: 'jwk' }), kid: 'exponent-3' },
         { kty: 'EC', kid: 'off-curve', crv: 'P-256', x: ecJwk.x, y: ecJwk.x },
         { kty: 'oct', kid: 'shared', k: Buffer.from('secret').toString('base64url') },
         { ...rsaJwk, kid: 'encryption', use: 'enc' },
@@ -432,6 +438,13 @@ describe('authentication.oauth ID token signatures', () => {
     const body = `${segment(claims)}`;
     const hmacInput = `${segment({ alg: 'HS256', kid: 'rsa-1' })}.${body}`;
     const publicPem = rsa.publicKey.export({ type: 'spki', format: 'pem' });
+    // With e = 1 an RSA "signature" is just the PKCS#1 v1.5 encoded digest, which anyone can compute without a key.
+    const exponentOneInput = `${segment({ alg: 'RS256', kid: 'exponent-1' })}.${body}`;
+    const digestInfo = Buffer.concat([
+      Buffer.from('3031300d060960864801650304020105000420', 'hex'),
+      createHash('sha256').update(exponentOneInput).digest(),
+    ]);
+    const encoded = Buffer.concat([Buffer.from([0, 1]), Buffer.alloc(256 - 3 - digestInfo.length, 0xff), Buffer.from([0]), digestInfo]);
     for (const token of [
       `${segment({ alg: 'none', kid: 'rsa-1' })}.${body}.`,
       `${segment({ alg: 'none', kid: 'rsa-1' })}.${body}.${signToken(claims).split('.')[2]}`,
@@ -442,6 +455,8 @@ describe('authentication.oauth ID token signatures', () => {
       signToken(claims, { alg: 'RS256', kid: 'rsa-1', crit: ['exp'] }),
       signToken(claims, { alg: 'RS256', kid: 'weak' }, weak.privateKey),
       signToken(claims, { alg: 'RS256', kid: 'broken' }),
+      `${exponentOneInput}.${encoded.toString('base64url')}`,
+      signToken(claims, { alg: 'RS256', kid: 'exponent-3' }, smallExponent.privateKey),
       signToken(claims, { alg: 'ES256', kid: 'off-curve' }, ec.privateKey),
       signToken(claims, { alg: 'RS256', kid: 'encryption' }),
       'not.a-token',
@@ -477,6 +492,40 @@ describe('authentication.oauth ID token signatures', () => {
     const flood = await Promise.allSettled(Array.from({ length: 20 }, (_, index) => verifyIdToken(config, unknown(`flood-${index}`), nonce, t0 + 200_000)));
     expect(flood.every((result) => result.status === 'rejected')).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it.runIf(oidc.length > 0)('discards a JWKS fetch that was in flight when the key cache was reset', async () => {
+    const config = provider(id);
+    const rsaToken = signToken(signedClaims(id, nonce, seconds));
+    const ecToken = signToken(signedClaims(id, nonce, seconds), { alg: 'ES256', kid: 'ec-1' }, ec.privateKey);
+    const releases: ((response: Response) => void)[] = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>((resolve) => releases.push(resolve)));
+    const release = (body: unknown) => releases.shift()!(json(body, 200, { 'cache-control': 'max-age=3600' }));
+    // A fetch started before the reset resolves afterwards: its keys are not cached and its caller is refused.
+    const stale = verifyIdToken(config, rsaToken, nonce, t0);
+    resetOAuthKeyCache();
+    release({ keys: [ecJwk] });
+    await expect(stale).rejects.toThrow(failure);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // ec-1 was only in the discarded set, so the next call refetches.
+    const next = verifyIdToken(config, ecToken, nonce, t0);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    release(jwks);
+    expect((await next).subject).toBe('subject-1');
+    // A stale fetch settling must not remove the pending fetch started after the reset.
+    resetOAuthKeyCache();
+    const older = verifyIdToken(config, rsaToken, nonce, t0);
+    resetOAuthKeyCache();
+    const newer = verifyIdToken(config, rsaToken, nonce, t0);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    release(jwks);
+    await expect(older).rejects.toThrow(failure);
+    const joined = verifyIdToken(config, rsaToken, nonce, t0);
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    release(jwks);
+    expect((await newer).subject).toBe('subject-1');
+    expect((await joined).subject).toBe('subject-1');
+    expect(releases).toEqual([]);
   });
 
   it.runIf(oidc.length > 0)('caches the JWKS for its Cache-Control max-age, bounded to between 5 minutes and 1 hour', async () => {

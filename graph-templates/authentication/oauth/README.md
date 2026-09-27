@@ -86,15 +86,16 @@ state/nonce binding and rejection, the redirect allowlist, the server-side
 token request, the streamed 64 KiB response limit, ID token signature
 verification (valid RS256 and ES256, tampered payload or signature, `alg:
 none`, HS256 keyed with the public key, missing or unknown `kid`, bad key
-material, the unknown-`kid` refetch limit, the cache lifetime, and an
-oversized or non-HTTPS key set), ID token claim checks,
+material including RSA exponents 1 and 3, a genuine signature under a
+mislabeled `alg`, the unknown-`kid` refetch limit, a fetch in flight across a
+cache reset, the cache lifetime, and an oversized or non-HTTPS key set), ID token claim checks,
 GitHub primary-and-verified email selection, ASCII-only emails, the refusal to
 attach a first-time login to an existing account, the authenticated link flow,
 token issuance, and the routes through Express with `supertest` (state cookie
 set and cleared with exact attributes on success and failure, auth cookies,
 303 redirect target, generic rejection). The OIDC claim test runs only when
-Google or `oidc` is enabled, and so do the six ID token signature tests, so
-the test count depends on the selected providers (25 with all three).
+Google or `oidc` is enabled, and so do the seven ID token signature tests, so
+the test count depends on the selected providers (26 with all three).
 
 **Security.**
 
@@ -118,9 +119,11 @@ the test count depends on the selected providers (25 with all three).
   `jwks_uri` (the token's `jku`, `jwk` and `x5c` headers are ignored), fetched
   through the same bounded request as other provider calls, and are built with
   `crypto.createPublicKey({ key: jwk, format: "jwk" })` from the JWK's public
-  members only. Only RS256 (RSA keys of at least 2048 bits) and ES256 (P-256)
-  are accepted, and the header's `alg` must match the key's type and any `alg`
-  the JWK declares; `alg: none`, HMAC algorithms, a missing or unknown `kid`, a
+  members only. Only RS256 (RSA keys of at least 2048 bits with public
+  exponent 65537; Node accepts `e = 1`, under which signatures are trivially
+  forged) and ES256 (P-256) are accepted. The key, not the header, selects the
+  verification algorithm; as defence in depth the header's `alg` must also
+  match it and any `alg` the JWK declares; `alg: none`, HMAC algorithms, a missing or unknown `kid`, a
   `crit` header, unusable key material and a signature mismatch all fail with
   the generic error. Keys are cached in memory for the response's
   `Cache-Control` `max-age`, clamped to between 5 minutes and 1 hour (5
@@ -128,7 +131,8 @@ the test count depends on the selected providers (25 with all three).
   most once a minute, and concurrent refetches share one request, so a flood
   of unknown `kid`s cannot hammer the provider; a failed fetch fails the
   sign-in rather than using expired keys. `resetOAuthKeyCache()` drops the
-  cache, for example after a provider reports a key compromise. Then the
+  cache, for example after a provider reports a key compromise; a key set
+  fetched before the reset is discarded when it arrives. Then the
   issuer, audience, `azp`, expiry, issued-at and nonce are checked and
   `email_verified` must be `true`. GitHub: the email
   must be both primary and verified according to `/user/emails`. Addresses must

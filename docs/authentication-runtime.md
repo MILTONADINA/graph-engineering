@@ -112,7 +112,8 @@ response limit enforced while streaming, and one generic error message. Google
 and generic OIDC ID token signatures are verified with `node:crypto` before any
 claim is read, against keys fetched through the same bounded request from a
 fixed HTTPS `jwks_uri` (Google's published certs, or the required `jwksUri`
-input for the generic provider). Only RS256 and ES256 are accepted; `alg:
+input for the generic provider). Only RS256 (RSA exponent 65537) and ES256 are
+accepted; `alg:
 none`, HMAC algorithms, a missing or unknown `kid`, bad key material and a
 signature mismatch fail with the generic error. Keys are cached in memory for
 the response's `max-age`, clamped to between 5 minutes and 1 hour, and an
@@ -130,7 +131,7 @@ access/refresh cookies as password login. See the
 [node contract](../graph-templates/authentication/oauth/README.md). Offline
 checks: `tests/template-runtime-oauth.test.ts`; with
 `GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1` the backend fixture also type-checks the
-generated code and runs its 25 generated tests (service and Express routes via
+generated code and runs its 26 generated tests (service and Express routes via
 supertest) with the network disabled; CI runs it in the "Generated
 authentication with isolated PostgreSQL races" step.
 
