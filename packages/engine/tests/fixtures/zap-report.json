@@ -1,0 +1,104 @@
+{
+  "@programName": "ZAP",
+  "@version": "2.17.0",
+  "site": [
+    {
+      "@name": "http://graph-live-target-0123456789ab:3000",
+      "@host": "graph-live-target-0123456789ab",
+      "@port": "3000",
+      "@ssl": "false",
+      "alerts": [
+        {
+          "pluginid": "10038",
+          "alertRef": "10038-1",
+          "alert": "Content Security Policy (CSP) Header Not Set",
+          "name": "Content Security Policy (CSP) Header Not Set",
+          "riskcode": "2",
+          "confidence": "3",
+          "riskdesc": "Medium (High)",
+          "instances": [
+            {
+              "uri": "http://graph-live-target-0123456789ab:3000/",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": ""
+            },
+            {
+              "uri": "http://graph-live-target-0123456789ab:3000/?session=abc",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": ""
+            },
+            {
+              "uri": "http://graph-live-target-0123456789ab:3000/ftp/legal.md",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": ""
+            }
+          ],
+          "count": "3"
+        },
+        {
+          "pluginid": "10027",
+          "alertRef": "10027",
+          "alert": "Information Disclosure - Suspicious Comments",
+          "name": "Information Disclosure - Suspicious Comments",
+          "riskcode": "0",
+          "confidence": "1",
+          "riskdesc": "Informational (Low)",
+          "instances": [
+            {
+              "uri": "http://graph-live-target-0123456789ab:3000/main.js?v=2",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "// TODO remove password=aaaaaaaaaaaaaaaa before release"
+            }
+          ],
+          "count": "1"
+        },
+        {
+          "pluginid": "10096",
+          "alertRef": "10096",
+          "alert": "Timestamp Disclosure - Unix",
+          "name": "Timestamp Disclosure - Unix",
+          "riskcode": "1",
+          "confidence": "1",
+          "riskdesc": "Low (Low)",
+          "instances": [
+            {
+              "uri": "http://graph-live-target-0123456789ab:3000/styles.css",
+              "method": "GET",
+              "param": "",
+              "attack": "",
+              "evidence": "1528301887"
+            }
+          ],
+          "count": "1"
+        },
+        {
+          "pluginid": "10097",
+          "alertRef": "10097",
+          "alert": "Hash Disclosure - MD5 Crypt",
+          "name": "Hash Disclosure - MD5 Crypt",
+          "riskcode": "3",
+          "confidence": "2",
+          "riskdesc": "High (Medium)",
+          "instances": [
+            {
+              "uri": "http://graph-live-target-0123456789ab:3000/rest/user/whoami",
+              "method": "GET",
+              "param": "X-Debug",
+              "attack": "",
+              "evidence": "Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123"
+            }
+          ],
+          "count": "1"
+        }
+      ]
+    }
+  ]
+}

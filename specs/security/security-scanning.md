@@ -45,7 +45,7 @@ Teams need security tools chosen for what their repository actually contains, wi
 
 ## Security considerations
 
-Repository files, including scanner configuration files, are hostile input: scans run in a container with no network and all capabilities dropped, against a private copy, and scanner configuration in the repository is scanned under a neutral name so it cannot reconfigure the tools. The baseline is an acceptance of risk, so it is written only when a person asks and the run gate reads it from the base commit, not the working tree, so an uncommitted edit or later checkout cannot switch the gate off. Dynamic tools (ZAP, Nuclei, Burp Suite) are never run against live systems without an authorized target, and no command records such authorization yet. The planted-findings end-to-end test runs only when the scanner image has been built locally.
+Repository files, including scanner configuration files, are hostile input: scans run in a container with no network and all capabilities dropped, against a private copy, and scanner configuration in the repository is scanned under a neutral name so it cannot reconfigure the tools. The baseline is an acceptance of risk, so it is written only when a person asks and the run gate reads it from the base commit, not the working tree, so an uncommitted edit or later checkout cannot switch the gate off. Dynamic tools (ZAP, Nuclei, Burp Suite) are never run against live systems without an authorized target; the only dynamic scan is the person-started ZAP baseline scan of [live targets](live-targets.md) the scan starts itself. The planted-findings end-to-end test runs only when the scanner image has been built locally.
 
 ## Non-goals
 

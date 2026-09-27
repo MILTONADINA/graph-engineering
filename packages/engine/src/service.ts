@@ -1527,7 +1527,11 @@ export class GraphEngine {
           root: workspace,
           profile: {
             files: await gitFiles(workspace),
-            authorizedTargets: [],
+            // Named for the tool selection only: live-target tools are never
+            // runnable here, so a managed run never scans a live target.
+            authorizedTargets: (this.config.security?.liveTargets ?? []).map(
+              (target) => target.id,
+            ),
             configuredTools: [],
             databases: database ? ["osv-scanner"] : [],
           },

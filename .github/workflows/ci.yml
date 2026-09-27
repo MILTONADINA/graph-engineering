@@ -257,9 +257,10 @@ jobs:
       - name: Real scanners find, suppress and fingerprint findings
         run: |
           npm run build:dependencies
-          npm test -w @graph-engineering/engine -- tests/security-catalog.test.ts
+          npm test -w @graph-engineering/engine -- tests/security-catalog.test.ts tests/security-live.test.ts
         env:
           GRAPH_ENGINE_SECURITY_IMAGE: "1"
+          GRAPH_ENGINE_LIVE_SCAN_TESTS: "1"
 
   historical-replays:
     runs-on: ubuntu-24.04

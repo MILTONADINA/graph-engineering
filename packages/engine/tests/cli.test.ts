@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -149,6 +149,50 @@ describe("command line", () => {
     const check = await graph("spec-check");
     expect(check.code).toBe(0);
     expect(JSON.parse(check.stdout).errors).toEqual([]);
+  }, 120_000);
+
+  it("refuses a live scan of a target that is not authorized, before starting Docker", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    const config = JSON.parse(
+      await readFile(path.join(root, ".graph/project.json"), "utf8"),
+    );
+    config.security = {
+      liveTargets: [
+        {
+          id: "juice-shop",
+          image: `bkimminich/juice-shop@sha256:${"a".repeat(64)}`,
+          port: 3000,
+          authorizedBy: "Owner",
+          authorizedOn: "2026-09-27",
+          note: "Authorized for testing",
+        },
+      ],
+    };
+    await writeFile(
+      path.join(root, ".graph/project.json"),
+      JSON.stringify(config),
+    );
+    // No docker on PATH: a refusal must come before any Docker call.
+    const empty = await mkdtemp(path.join(tmpdir(), "graph-cli-path-"));
+    directories.push(empty);
+    for (const id of ["template-express", "https://juice-shop.example"]) {
+      const scan = await graph.with({ PATH: empty })("security-live-scan", id);
+      expect(scan.code).toBe(1);
+      expect(scan.stderr).toContain("is not an authorized live target");
+      expect(scan.stderr).toContain("(authorized: juice-shop)");
+      expect(scan.stderr).not.toContain("Docker");
+    }
+    expect(
+      JSON.parse((await graph("feedback-log")).stdout).kinds,
+    ).toMatchObject({ "live-scan": { count: 2 } });
+    const plan = JSON.parse((await graph("security-plan")).stdout);
+    const zap = plan.selected.find(({ id }: { id: string }) => id === "zap");
+    expect(zap).toMatchObject({
+      runnable: false,
+      runWith: "graph-engine security-live-scan <target-id>",
+    });
+    expect(zap.reason).toContain("juice-shop");
   }, 120_000);
 });
 

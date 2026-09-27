@@ -93,7 +93,36 @@ export interface ProjectConfig {
    * implementation, changing only test files (default globs unless `writes`).
    */
   tester?: { providerId: string; writes?: string[] };
+  /** Security settings a person records for the project. */
+  security?: { liveTargets?: LiveTarget[] };
 }
+/**
+ * A target a person has authorized, in writing, for dynamic security testing.
+ * It is a container image the live scan starts itself on an isolated network,
+ * never a URL: a scan cannot be pointed at a system the project does not run.
+ */
+export interface LiveTarget {
+  /** Lowercase slug named on the command line. */
+  id: string;
+  /**
+   * `name@sha256:<digest>` for a registry image, or a local image ID
+   * `sha256:<digest>` built from a committed Dockerfile.
+   */
+  image: string;
+  /** The port the container serves HTTP on. */
+  port: number;
+  /** The path the scan starts from; defaults to "/". */
+  path?: string;
+  /** Who authorized scanning this target. */
+  authorizedBy: string;
+  /** When, as an ISO date (YYYY-MM-DD). */
+  authorizedOn: string;
+  /** What was authorized and on whose instruction. */
+  note: string;
+}
+/** A digest-pinned registry image, or a local image ID. */
+export const PINNED_IMAGE =
+  /^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[a-f0-9]{64}$|^sha256:[a-f0-9]{64}$/;
 export interface ProviderConfig {
   id: string;
   kind: ProviderKind;
@@ -438,6 +467,54 @@ export const projectSchema = {
         },
       },
     },
+    security: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        liveTargets: {
+          type: "array",
+          maxItems: 20,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "id",
+              "image",
+              "port",
+              "authorizedBy",
+              "authorizedOn",
+              "note",
+            ],
+            properties: {
+              id: {
+                type: "string",
+                pattern: "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$",
+              },
+              image: { type: "string", pattern: PINNED_IMAGE.source },
+              port: { type: "integer", minimum: 1, maximum: 65535 },
+              path: {
+                type: "string",
+                pattern: "^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$",
+                maxLength: 500,
+              },
+              authorizedBy: {
+                type: "string",
+                minLength: 1,
+                maxLength: 200,
+                pattern: "\\S",
+              },
+              authorizedOn: { type: "string", format: "date" },
+              note: {
+                type: "string",
+                minLength: 1,
+                maxLength: 2000,
+                pattern: "\\S",
+              },
+            },
+          },
+        },
+      },
+    },
   },
 };
 const Ajv = Ajv2020 as unknown as typeof import("ajv").default;
@@ -450,5 +527,13 @@ export function assertProjectConfig(
   if (!validateProject(value))
     throw new Error(
       `Invalid project configuration: ${ajv.errorsText(validateProject.errors)}`,
+    );
+  const ids = (
+    (value as unknown as ProjectConfig).security?.liveTargets ?? []
+  ).map((target) => target.id);
+  const repeated = ids.find((id, index) => ids.indexOf(id) !== index);
+  if (repeated)
+    throw new Error(
+      `Invalid project configuration: live target ${repeated} is declared twice`,
     );
 }

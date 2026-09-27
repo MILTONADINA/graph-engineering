@@ -47,5 +47,27 @@
     "repository": "MILTONADINA/graph-engineering",
     "baseBranch": "dev",
     "remote": "fork"
+  },
+  "security": {
+    "liveTargets": [
+      {
+        "id": "juice-shop",
+        "image": "bkimminich/juice-shop@sha256:73c53fbf442e8337b3ea3d98c7e8550308854701ebdfce4cc39768f36b75430e",
+        "port": 3000,
+        "path": "/",
+        "authorizedBy": "Milton Adina (owner)",
+        "authorizedOn": "2026-09-27",
+        "note": "OWASP Juice Shop 20.2.0, an intentionally vulnerable reference application, pinned by its multi-platform digest. Authorized on the owner's instruction of 2026-09-27 to choose professional live targets; scanned only in a container the live scan starts on its own internal network."
+      },
+      {
+        "id": "template-express",
+        "image": "sha256:8d05bb8c6e2075bf7eb59bf10770eb217db8ac4ccb178472bb92875c5cceb583",
+        "port": 3000,
+        "path": "/",
+        "authorizedBy": "Milton Adina (owner)",
+        "authorizedOn": "2026-09-27",
+        "note": "The Express app the graph's own templates generate (project.node-express with backend.error-handler), built locally by npm run live-target:build from infra/live-targets/template-express/Dockerfile. This local image ID is specific to the machine that built it; a rebuild is a new image and needs its ID recorded here again. Authorized on the owner's instruction of 2026-09-27 to choose professional live targets; scanned only in a container the live scan starts on its own internal network."
+      }
+    ]
   }
 }

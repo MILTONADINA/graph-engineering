@@ -764,6 +764,13 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(
       (await names(local.client)).some((name) => /approve|accept/.test(name)),
     ).toBe(false);
+    // Only a person starts a live security scan, from the command line.
+    for (const connection of [readOnly, cloudDefault, local])
+      expect(
+        (await names(connection.client)).filter((name) =>
+          /live|zap|dast/i.test(name),
+        ),
+      ).toEqual([]);
     const refused = await local.client.callTool({
       name: "plan_create",
       arguments: { objective: "Fix addition", acceptance: [] },

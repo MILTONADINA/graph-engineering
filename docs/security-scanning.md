@@ -5,9 +5,11 @@ choice, instead of running every scanner it knows. The offline scanners run
 against a private copy of the tracked files with the network disabled, and a
 scan fails only on findings the team has not reviewed: every existing
 finding is either fixed or recorded in a reviewed baseline, as professional
-teams do. Tools that need a vulnerability database or a live target are
-recommended with what they still need; the graph never scans or attacks a
-running system on its own.
+teams do. Tools that need a vulnerability database are recommended with what they
+still need. Dynamic testing runs only when a person starts it against a
+target the owner authorized in writing, in containers the scan starts
+itself (see [live targets](#live-targets)); the graph never scans a system
+it did not start, and managed runs never scan a live target.
 
 ## Choosing tools
 
@@ -26,7 +28,8 @@ prints every catalog tool as `selected` (with the reason it applies) or
 | Hadolint                                | Dockerfile practices (warnings and errors)      | Offline                                                         | A Dockerfile or Containerfile exists              |
 | Checkov                                 | Terraform, Kubernetes, CloudFormation and Bicep | Offline                                                         | Such files exist                                  |
 | OSV-Scanner, Trivy                      | Known-vulnerable dependencies                   | Needs a local vulnerability database                            | Dependency lock files exist                       |
-| OWASP ZAP, Nuclei                       | Running web targets                             | Needs an authorized live target and network permission          | A target is authorized                            |
+| OWASP ZAP (baseline scan)               | Running web targets, spider and passive checks  | Only `security-live-scan`, started by a person                  | A live target is authorized                       |
+| Nuclei                                  | Running web targets, active checks              | Not run: active attack scans are out of scope                   | A live target is authorized                       |
 | Burp Suite Professional                 | Running web targets                             | Needs the user's licensed installation and an authorized target | The user configured it and a target is authorized |
 
 ## Scanning
@@ -131,6 +134,103 @@ scanner image unless the team has adopted it. When such a run changes
 security-sensitive paths, it records `security.scan_recommended`, and its
 completion still reports that security review is pending.
 
+## Live targets
+
+Dynamic testing sends attack traffic, so the graph tests only software it
+starts itself, from images the owner authorized in writing. Targets are
+declared in `.graph/project.json`:
+
+```json
+"security": {
+  "liveTargets": [
+    {
+      "id": "juice-shop",
+      "image": "bkimminich/juice-shop@sha256:<64 hex>",
+      "port": 3000,
+      "path": "/",
+      "authorizedBy": "Milton Adina (owner)",
+      "authorizedOn": "2026-09-27",
+      "note": "What was authorized and on whose instruction"
+    }
+  ]
+}
+```
+
+Each entry needs an ID, an image pinned by digest (`name@sha256:<digest>`,
+or a local image ID `sha256:<digest>`), the port it serves, who authorized it
+and when, and a note; `path` is optional. The project configuration is
+refused when any of these is missing, when an image is only a tag, or when
+two targets share an ID. There is no URL field: a scan cannot be pointed at
+a host.
+
+```sh
+graph-engine security-live-scan juice-shop
+```
+
+The command, which has no MCP tool or dashboard action:
+
+1. refuses a target ID that is not declared, before touching Docker;
+2. resolves both images to local IDs, pulling a digest-pinned image when it
+   is missing (a local image ID is never pulled);
+3. creates a new network with `docker network create --internal`, so
+   nothing on it can reach the internet or the host network, and starts the
+   target on it with no published ports, all capabilities dropped and
+   `no-new-privileges`;
+4. waits, for at most three minutes, until the target answers HTTP, polling
+   from a short-lived container on the same network;
+5. runs the ZAP baseline scan (`zap-baseline.py -I`, one minute of
+   spidering by default, `--minutes` up to 10, and a bounded overall time)
+   from `ghcr.io/zaproxy/zaproxy` pinned by digest (ZAP 2.17.0), writing its
+   JSON report to a private temporary directory;
+6. always removes the containers, the network and the report directory,
+   also when the scan fails or a person presses Ctrl-C (exit code 130), and
+   names anything it could not remove.
+
+ZAP's report is read into findings with tool `zap`: one finding per alert
+(rule `<pluginid> <name>`) and URL path, with the host and query dropped and
+evidence redacted. Only the redacted findings are printed; the raw report is
+deleted. The fingerprint combines the tool, rule, path and target ID, so it
+is stable across runs whatever the container name, evidence or number of
+instances. ZAP's spider can still reach different pages from one run to the
+next, so a path found only on some runs appears as new on those runs.
+
+Findings are advisory. They are compared with their own reviewed baseline,
+`.graph/security-live-baseline.json`, in the same format as the static
+baseline, with each entry also naming its target. After reviewing a
+target's findings, `graph-engine security-live-scan <target-id>
+--update-baseline` replaces that target's entries and keeps the others.
+The command exits non-zero on new findings, as `security-scan` does, but no
+managed run reads the live baseline or runs a live-target tool:
+`security-plan` names the authorized targets and shows `runWith`, and
+`runnable` stays false. A failed scan is recorded for
+[feedback](feedback.md) only as the `live-scan` kind, never with report
+content.
+
+### This repository's targets
+
+| ID                 | Image                                                                                                    | Why                                                                                              |
+| ------------------ | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `juice-shop`       | `bkimminich/juice-shop@sha256:73c53fbf442e8337b3ea3d98c7e8550308854701ebdfce4cc39768f36b75430e` (20.2.0) | OWASP's intentionally vulnerable reference application; a scan that finds nothing here is broken |
+| `template-express` | A local image ID built by `npm run live-target:build`                                                    | The Express app the graph's own templates generate, tested as its users would run it             |
+
+The owner authorized both on 2026-09-27. `template-express` is the
+`project.node-express` scaffold composed with `backend.error-handler`, the
+simplest template-built backend: it needs no database or other service.
+`npm run live-target:build` (after building the engine) renders the two
+templates into a private build context, installs the dependency versions
+reviewed in `packages/engine/tests/fixtures/project-runtime/package-lock.json`,
+and builds
+[`infra/live-targets/template-express/Dockerfile`](../infra/live-targets/template-express/Dockerfile)
+from a digest-pinned Node image. The image is not published to a registry,
+so its entry records the local image ID, which differs on each machine and
+after each rebuild: record the ID the script prints to authorize a new
+build. Until then the scan refuses the target with that instruction.
+
+With Docker running, `GRAPH_ENGINE_LIVE_SCAN_TESTS=1 npm test -w
+@graph-engineering/engine -- tests/security-live.test.ts` scans Juice Shop
+end to end and checks that no container or network is left behind; CI runs
+it in the scanner job.
+
 ## What needs someone else
 
 - **Dependency advisories.** OSV-Scanner (pinned in the scanner image)
@@ -145,10 +245,11 @@ completion still reports that security review is pending.
   downloaded database makes the scan incomplete (so a run stops) with a
   message to run `security-db-update` again; it is never skipped silently.
   Trivy's database is not supported yet.
-- **Dynamic testing** of a running application (ZAP, Nuclei, Burp Suite) is
-  lawful and safe only against a target the owner is entitled to test. The
-  catalog selects these tools only when a target is authorized, and no
-  command records an authorization yet; until one does, the graph recommends
-  them and runs nothing against live systems.
+- **Dynamic testing** of a running application is lawful and safe only
+  against a target the owner is entitled to test. Only the ZAP baseline
+  scan runs, through `security-live-scan`, against
+  [authorized live targets](#live-targets) the scan starts itself. Scanning
+  external or production systems, active attack scans (ZAP full scan,
+  Nuclei) and gating managed runs on a live scan are not supported.
 - **Commercial tools** such as Burp Suite are used only when the user has
   installed and licensed them.
