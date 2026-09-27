@@ -989,6 +989,57 @@ export class GraphEngine {
       }
     return outcome;
   }
+  /**
+   * A person approves a run's change in place of the AI reviewer, as a
+   * senior reviewer would. Only for a run that stopped at the review gate
+   * after its required checks passed, and only for that exact snapshot: the
+   * retained workspace must still match it. Resume the run to complete it;
+   * its review is then recorded as approved by a person.
+   */
+  async approveReview(runId: string, note: string): Promise<void> {
+    if (this.active.has(runId)) throw new Error("Run is active");
+    const run = this.store.run(runId);
+    const reason = note.trim();
+    if (!reason) throw new Error("Say why you approve the change");
+    if (containsSecret(reason))
+      throw new Error("The note contains a potential secret; rephrase it");
+    if (run.status !== "failed")
+      throw new Error("Only a run that stopped at code review can be approved");
+    const events = this.store.events(runId);
+    const reviewed = events.some(
+      (event) =>
+        event.type === "review.started" ||
+        (event.type === "review.completed" && event.data.passed !== true),
+    );
+    if (!this.runReviewerId(runId) || !reviewed)
+      throw new Error("This run did not stop at code review");
+    const passed = events
+      .filter((event) => event.type === "verification.completed")
+      .at(-1);
+    const checks = passed?.data.checks;
+    const snapshotHash = passed?.data.snapshotHash;
+    if (
+      !Array.isArray(checks) ||
+      !checks.length ||
+      !checks.every((check) => (check as { code?: unknown }).code === 0) ||
+      typeof snapshotHash !== "string"
+    )
+      throw new Error(
+        "The run's last required checks did not pass; a review cannot stand in for them",
+      );
+    if (
+      !run.workspace ||
+      (await workspaceFingerprint(run.workspace, this.config.policy)) !==
+        snapshotHash
+    )
+      throw new Error(
+        "The retained workspace no longer matches the snapshot whose checks passed",
+      );
+    this.store.event(runId, "review.person_approved", {
+      snapshotHash,
+      note: redact(reason),
+    });
+  }
   async resume(runId: string, reconciled = false): Promise<RunRecord> {
     if (this.active.has(runId)) throw new Error("Run is already active");
     const run = this.store.run(runId);
@@ -1234,7 +1285,29 @@ export class GraphEngine {
       const reviewChange = async (
         stepId: string,
         checks: Awaited<ReturnType<typeof verifyInContainer>>,
+        snapshotHash: string,
       ) => {
+        // A person's approval of this exact verified snapshot stands in for
+        // the AI reviewer, and is recorded as a person's, never as the AI's.
+        const approval = this.store
+          .events(run.id)
+          .filter((event) => event.type === "review.person_approved")
+          .at(-1);
+        if (approval && approval.data.snapshotHash === snapshotHash) {
+          this.store.event(
+            run.id,
+            "review.completed",
+            {
+              by: "person",
+              passed: true,
+              verdict: "approved-by-person",
+              summary: String(approval.data.note ?? ""),
+              note: "A person approved this snapshot in place of the reviewer; human acceptance is recorded separately.",
+            },
+            stepId,
+          );
+          return { passed: true, feedback: "", exportable: true };
+        }
         const policy = this.config.policy;
         let reviewer: ProviderConfig;
         let diff: string;
@@ -1671,7 +1744,7 @@ export class GraphEngine {
         // Stale review feedback must not describe a later check failure.
         reviewFeedback = "";
         if (verified && reviewerId) {
-          const outcome = await reviewChange(stepId, checks);
+          const outcome = await reviewChange(stepId, checks, after);
           reviewFeedback = outcome.passed ? "" : outcome.feedback;
           reviewFeedbackExportable = outcome.exportable;
           if (!outcome.passed) {

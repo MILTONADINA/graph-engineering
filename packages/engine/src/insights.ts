@@ -15,7 +15,12 @@ export interface OutcomeSummary {
   acceptance: { pending: number; accepted: number; rejected: number };
   gates: {
     checks: { passed: number; failed: number; notRun: number };
-    review: { approved: number; changesRequested: number; notRun: number };
+    review: {
+      approved: number;
+      approvedByPerson: number;
+      changesRequested: number;
+      notRun: number;
+    };
     security: { passed: number; failed: number; notRun: number };
   };
   cost: { knownUsd: number; runsWithUnknownCost: number };
@@ -65,7 +70,12 @@ export function summarizeOutcomes(
     acceptance: { pending: 0, accepted: 0, rejected: 0 },
     gates: {
       checks: { passed: 0, failed: 0, notRun: 0 },
-      review: { approved: 0, changesRequested: 0, notRun: 0 },
+      review: {
+        approved: 0,
+        approvedByPerson: 0,
+        changesRequested: 0,
+        notRun: 0,
+      },
       security: { passed: 0, failed: 0, notRun: 0 },
     },
     cost: { knownUsd: 0, runsWithUnknownCost: 0 },
@@ -84,6 +94,8 @@ export function summarizeOutcomes(
     else if (outcome.automatedChecksPassed === false) checks.failed++;
     else checks.notRun++;
     if (!outcome.review) review.notRun++;
+    else if (outcome.review.passed && outcome.review.by === "person")
+      review.approvedByPerson++;
     else if (outcome.review.passed) review.approved++;
     else review.changesRequested++;
     if (outcome.security === "passed") security.passed++;

@@ -831,6 +831,19 @@ cli
   .command("cancel <runId>")
   .action((runId) => withEngine(async (engine) => engine.cancel(runId)));
 cli
+  .command("review-approve <runId>")
+  .description(
+    "Approve a run's change yourself, in place of the AI reviewer, when it stopped at code review after its checks passed; the run resumes and its review is recorded as approved by a person",
+  )
+  .requiredOption("--note <text>", "What you reviewed, for the record")
+  .action((runId, options) =>
+    withEngine(async (engine) => {
+      await engine.approveReview(runId, options.note);
+      await engine.resume(runId, true);
+      return noteFailedRun(await engine.wait(runId));
+    }),
+  );
+cli
   .command("resume <runId>")
   .option(
     "--reconciled",

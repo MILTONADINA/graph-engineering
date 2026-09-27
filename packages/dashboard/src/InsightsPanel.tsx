@@ -50,8 +50,10 @@ export function InsightsPanel({ summary }: { summary: OutcomeSummary }) {
         <div>
           <dt>Code review</dt>
           <dd>
-            {gates.review.approved} approved · {gates.review.changesRequested}{" "}
-            changes requested · {gates.review.notRun} not run
+            {gates.review.approved} approved ·{" "}
+            {gates.review.approvedByPerson ?? 0} approved by a person ·{" "}
+            {gates.review.changesRequested} changes requested ·{" "}
+            {gates.review.notRun} not run
           </dd>
         </div>
         <div>

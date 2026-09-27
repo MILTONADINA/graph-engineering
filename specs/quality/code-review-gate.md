@@ -28,6 +28,11 @@ A team does not call work done because its author says so or because tests pass;
   - Test: packages/engine/tests/execution.test.ts :: refuses a cloud reviewer for non-exportable changes and reports a failed review
   - Test: packages/engine/tests/review.test.ts :: refuses secrets for cloud reviewers, oversized changes and installed agents
 
+- AC7: A person can approve a run's change in place of the reviewer, from the command line only, when the run stopped at review after its required checks passed and its retained workspace still matches that snapshot; the run then completes, and its review is recorded as approved by a person, shown separately from AI approvals.
+  - Test: packages/engine/tests/execution.test.ts :: lets a person approve in place of the reviewer, recorded as a person's approval
+  - Test: packages/engine/tests/execution.test.ts :: refuses a person's approval when the checks did not pass or the change moved
+  - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
+
 ## Security considerations
 
 The diff shown to the reviewer is built from raw bytes outside the repository, with no Git attributes, diff drivers or configuration, so a change cannot hide itself with `.gitattributes` tricks. The operator's own uncommitted files are excluded so they are neither reviewed as the worker's nor sent to a cloud reviewer. Cloud reviewers receive only exportable, secret-free diffs. A reviewer can only hold a change back: it cannot accept a change, skip checks or the security gate, or stand in for human acceptance. Stored review records redact evidence and messages.

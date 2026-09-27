@@ -760,6 +760,10 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(
       (await names(local.client)).some((name) => /feedback|report/.test(name)),
     ).toBe(false);
+    // Approving plans or reviews and accepting results stay with a person.
+    expect(
+      (await names(local.client)).some((name) => /approve|accept/.test(name)),
+    ).toBe(false);
     const refused = await local.client.callTool({
       name: "plan_create",
       arguments: { objective: "Fix addition", acceptance: [] },
