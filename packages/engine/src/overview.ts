@@ -25,6 +25,7 @@ export interface OverviewCard {
     checks: "passed" | "failed" | "pending" | "not-run";
     review:
       | "approved"
+      | "approved-by-person"
       | "changes-requested"
       | "not-configured"
       | "pending"
@@ -150,7 +151,9 @@ function card(
     : options.reviewerConfigured;
   const reviewGate: OverviewCard["gates"]["review"] = review
     ? review.data.passed === true
-      ? "approved"
+      ? review.data.by === "person"
+        ? "approved-by-person"
+        : "approved"
       : "changes-requested"
     : !configured
       ? "not-configured"

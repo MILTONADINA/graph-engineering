@@ -71,6 +71,7 @@ export interface OverviewCard {
     checks: "passed" | "failed" | "pending" | "not-run";
     review:
       | "approved"
+      | "approved-by-person"
       | "changes-requested"
       | "not-configured"
       | "pending"
@@ -109,7 +110,12 @@ export interface OutcomeSummary {
   acceptance: { pending: number; accepted: number; rejected: number };
   gates: {
     checks: { passed: number; failed: number; notRun: number };
-    review: { approved: number; changesRequested: number; notRun: number };
+    review: {
+      approved: number;
+      approvedByPerson?: number;
+      changesRequested: number;
+      notRun: number;
+    };
     security: { passed: number; failed: number; notRun: number };
   };
   cost: { knownUsd: number; runsWithUnknownCost: number };

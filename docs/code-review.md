@@ -73,3 +73,23 @@ run would not show the reviewer that patch; the window is a single write,
 and required checks and the security gate still cover the workspace. Every review is recorded as
 `review.completed` with the verdict, criteria and findings (evidence and
 messages redacted).
+
+## A person's review
+
+A reviewer can hold a change back, and a run can also stop at review
+because its turn budget ran out. When the required checks passed, you can
+review the change yourself and approve it in place of the reviewer, as a
+senior reviewer would:
+
+```sh
+graph-engine review-approve <run-id> --note "What you reviewed"
+```
+
+The command refuses unless the run stopped at code review, its last
+required checks passed, and its retained workspace still matches the
+snapshot those checks ran on. It records your approval for that snapshot
+only and resumes the run, which then completes without calling the
+reviewer again. The outcome records the review as `approved-by-person`,
+shown separately from the reviewer's approvals on the board and in
+`outcomes --summary`. Accepting the result is still a separate step
+(`graph-engine accept`). Connected AI clients cannot approve a review.

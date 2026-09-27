@@ -1447,6 +1447,86 @@ describe("code review gate", () => {
     };
   };
 
+  it("lets a person approve in place of the reviewer, recorded as a person's approval", async () => {
+    const changes: Review = {
+      verdict: "request-changes",
+      summary: "Add more tests",
+      criteria: [{ criterion: "2 + 3 is 5", met: "yes", evidence: "a + b" }],
+      findings: [],
+    };
+    // One attempt: the run stops at review with its checks passed.
+    const { engine, result } = await setup({
+      reviews: [changes, changes, changes],
+      attempts: 1,
+    });
+    expect(result.status).toBe("failed");
+    await expect(engine.approveReview(result.id, "   ")).rejects.toThrow(
+      "Say why you approve the change",
+    );
+    await engine.approveReview(
+      result.id,
+      "I reviewed the change and the tests myself",
+    );
+    await engine.resume(result.id, true);
+    const resumed = await engine.wait(result.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    const outcome = engine.store.outcomes(result.id).at(-1)!;
+    expect(outcome.review).toEqual({
+      verdict: "approved-by-person",
+      passed: true,
+      by: "person",
+    });
+    await engine.recordAcceptance(result.id, { accepted: true });
+    expect(engine.store.outcomes(result.id).at(-1)!.humanAcceptance).toBe(
+      "accepted",
+    );
+  });
+
+  it("refuses a person's approval when the checks did not pass or the change moved", async () => {
+    const changes: Review = {
+      verdict: "request-changes",
+      summary: "Add more tests",
+      criteria: [],
+      findings: [],
+    };
+    const { engine, result } = await setup({
+      reviews: [changes, changes, changes],
+      attempts: 1,
+    });
+    // The retained change no longer matches the snapshot that passed.
+    await writeFile(
+      path.join(result.workspace!, "math.cjs"),
+      "exports.add = (a, b) => a * b;\n",
+    );
+    await expect(engine.approveReview(result.id, "Looks fine")).rejects.toThrow(
+      "no longer matches the snapshot whose checks passed",
+    );
+    // A run that never reached review cannot be approved this way.
+    const { engine: other, result: noReview } = await (async () => {
+      const { root } = await fixture();
+      const plain = await GraphEngine.open(root, {
+        dockerAvailable: async () => true,
+        worker: async () => {
+          throw new Error("worker unavailable");
+        },
+      });
+      engines.push(plain);
+      const plan = await plain.createPlan({
+        objective: "Fix addition",
+        acceptance: ["2 + 3 is 5"],
+      });
+      return {
+        engine: plain,
+        result: await plain.wait((await plain.start(plan.id)).id),
+      };
+    })();
+    expect(noReview.status).toBe("failed");
+    await expect(other.approveReview(noReview.id, "ok")).rejects.toThrow(
+      "did not stop at code review",
+    );
+  });
+
   it("completes only after the reviewer approves, and records the review", async () => {
     const { result, reviewed, events } = await setup({ reviews: [approve] });
     expect(result.error ?? "").toBe("");

@@ -306,7 +306,8 @@ export interface RunOutcome {
   kind: "terminal" | "acceptance";
   status: RunStatus;
   automatedChecksPassed: boolean | null;
-  review: { verdict: string; passed: boolean } | null;
+  /** `by: "person"` when a person approved in place of the AI reviewer. */
+  review: { verdict: string; passed: boolean; by?: "person" } | null;
   security: "not-run" | "passed" | "failed";
   humanAcceptance: "pending" | "accepted" | "rejected" | null;
   /** The verified workspace snapshot the outcome refers to, if any. */

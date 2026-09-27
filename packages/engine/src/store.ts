@@ -512,6 +512,7 @@ export class RunStore {
         ? {
             verdict: String(review.data.verdict),
             passed: review.data.passed === true,
+            ...(review.data.by === "person" ? { by: "person" as const } : {}),
           }
         : null,
       security:

@@ -36,6 +36,7 @@ type Tone = "neutral" | "green" | "orange" | "red";
 const GATE_TONES: Record<string, Tone> = {
   passed: "green",
   approved: "green",
+  "approved-by-person": "green",
   accepted: "green",
   failed: "red",
   "changes-requested": "red",
