@@ -442,7 +442,7 @@ cli
 cli
   .command("security-live-scan <targetId>")
   .description(
-    `Scan a live target authorized in security.liveTargets with the ZAP baseline scan, in containers on a new internal Docker network the scan creates and removes, and report findings not in the reviewed live baseline (${LIVE_BASELINE_FILE}). Advisory: managed runs never run or read it; exits non-zero on new findings`,
+    `Scan a live target authorized in security.liveTargets with the ZAP baseline scan, in containers the scan starts in a loopback-only network namespace and removes, and report findings not in the reviewed live baseline (${LIVE_BASELINE_FILE}). Advisory: managed runs never run or read it; exits non-zero on new findings`,
   )
   .option("--minutes <n>", "Minutes ZAP spiders the target (1-10)", "1")
   .option(
@@ -456,9 +456,18 @@ cli
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10)
       throw new Error("Live scan refused: --minutes must be 1 to 10");
     const controller = new AbortController();
-    const cancel = () => controller.abort();
-    process.once("SIGINT", cancel);
-    process.once("SIGTERM", cancel);
+    // Stays registered until cleanup has finished, so a repeated Ctrl-C
+    // cannot end the process while containers are still being removed.
+    const cancel = () => {
+      if (!controller.signal.aborted) {
+        process.stderr.write(
+          "Cancelling the live scan; removing its containers...\n",
+        );
+        controller.abort();
+      }
+    };
+    process.on("SIGINT", cancel);
+    process.on("SIGTERM", cancel);
     let scan: Awaited<ReturnType<typeof runLiveScan>>;
     try {
       scan = await runLiveScan({

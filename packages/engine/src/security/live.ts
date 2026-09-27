@@ -1,13 +1,18 @@
 // Dynamic security testing of a live target the owner has authorized in
 // writing (security.liveTargets in .graph/project.json). The scan starts the
-// target itself, from a digest-pinned image, on a new internal Docker network
-// with no route out, runs the ZAP baseline scan (spider and passive checks)
-// from a digest-pinned image on the same network, and removes the containers
-// and the network afterwards. There is no way to point it at a URL: only a
-// container it started is ever sent traffic. Only a person runs it, from the
-// command line; managed runs and MCP clients cannot.
+// target itself, from a digest-pinned image, with Docker's `none` network: a
+// network namespace holding only a loopback interface, so there is no route,
+// no gateway and no host address to reach. A readiness probe and the ZAP
+// baseline scan (spider and passive checks, from a digest-pinned image) join
+// that namespace and reach the target at 127.0.0.1. Before ZAP starts, the
+// probe checks that the namespace has no route and cannot reach the Docker
+// bridge gateway or the internet, and refuses the scan if it can. Every
+// container is labelled with the scan's ID and removed afterwards. There is
+// no way to point a scan at a URL. Only a person runs it, from the command
+// line; managed runs and MCP clients cannot.
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { LiveTarget, ProjectConfig } from "@graph-engineering/contracts";
@@ -33,6 +38,8 @@ export interface LiveFinding extends SecurityFinding {
 }
 
 export interface LiveScan {
+  /** This scan's ID, the value of its containers' ID label. */
+  id: string;
   target: string;
   tools: ["zap"];
   findings: LiveFinding[];
@@ -71,12 +78,20 @@ export function liveBaselineFrom(
   };
 }
 
-const RISKS: Record<string, LiveRisk> = {
-  "0": "informational",
-  "1": "low",
-  "2": "medium",
-  "3": "high",
-};
+const RISKS = new Map<string, LiveRisk>([
+  ["0", "informational"],
+  ["1", "low"],
+  ["2", "medium"],
+  ["3", "high"],
+]);
+
+/** On every container a live scan starts. */
+export const LIVE_SCAN_LABEL = "graph-engineering.live-scan";
+/** Carries the scan's own ID, so cleanup finds what a cancelled call left. */
+export const LIVE_SCAN_ID_LABEL = "graph-engineering.live-scan.id";
+/** Engines before 26 forwarded DNS out of internal networks; defence in depth. */
+export const MIN_DOCKER_MAJOR = 26;
+const MAX_REPORT_BYTES = 20_000_000;
 
 /**
  * The authorized target with this ID. Anything else, including a URL, is
@@ -127,7 +142,7 @@ export function parseZap(text: string): Omit<LiveFinding, "fingerprint">[] {
     for (const alert of site.alerts ?? []) {
       const name = (alert.name ?? alert.alert ?? "unnamed alert").slice(0, 200);
       const rule = `${alert.pluginid ?? "unknown"} ${name}`;
-      const risk = RISKS[String(alert.riskcode)] ?? "informational";
+      const risk = RISKS.get(String(alert.riskcode)) ?? "informational";
       for (const instance of alert.instances?.length
         ? alert.instances
         : [{ uri: "/" }]) {
@@ -216,11 +231,106 @@ const HARDENED = [
   "--security-opt=no-new-privileges",
 ];
 
+// Run in the probe container, inside the target's namespace. It refuses
+// (exit 3) when the namespace has any IPv4 route, any IPv6 route off the
+// loopback interface, or can connect towards the Docker bridge gateway or
+// the internet; then it waits for the target to answer HTTP (exit 0) or
+// gives up (exit 1).
+const PROBE = `
+import errno, socket, sys, time, urllib.error, urllib.request
+gateway, url, attempts = sys.argv[1], sys.argv[2], int(sys.argv[3])
+routes = [line for line in open("/proc/net/route").read().splitlines()[1:] if line.strip()]
+try:
+    routes += [line for line in open("/proc/net/ipv6_route").read().splitlines() if line.strip() and line.split()[-1] != "lo"]
+except OSError:
+    pass
+if routes:
+    print("ISOLATION: route", flush=True)
+    sys.exit(3)
+for host, port in ((gateway, 22), (gateway, 111), (gateway, 2375), ("1.1.1.1", 443)):
+    probe = socket.socket()
+    probe.settimeout(3)
+    result = probe.connect_ex((host, port))
+    probe.close()
+    if result not in (errno.ENETUNREACH, errno.EHOSTUNREACH):
+        print("ISOLATION: reachable", flush=True)
+        sys.exit(3)
+for _ in range(attempts):
+    try:
+        urllib.request.urlopen(url, timeout=5)
+        sys.exit(0)
+    except urllib.error.HTTPError:
+        sys.exit(0)
+    except Exception:
+        time.sleep(2)
+sys.exit(1)
+`;
+
+/** The Docker server's major version, refusing engines older than 26. */
+async function checkDocker(
+  run: CommandRunner,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const docker = await run(
+    "docker",
+    ["version", "--format", "{{.Server.Version}}"],
+    { timeoutMs: 15_000, signal },
+  ).catch(() => undefined);
+  if (!docker || docker.code !== 0)
+    throw new Error("Live scan needs Docker; start it and retry");
+  const major = /^(\d+)\./.exec(docker.stdout.trim())?.[1];
+  if (!major || Number(major) < MIN_DOCKER_MAJOR)
+    throw new Error(
+      `Live scan refused: it needs Docker Engine ${MIN_DOCKER_MAJOR} or later (this server reports ${JSON.stringify(docker.stdout.trim().slice(0, 40))}); older engines forwarded DNS out of isolated networks`,
+    );
+}
+
 /**
- * Starts the target and ZAP on a new internal network, scans, and always
- * removes both containers and the network, also when the scan fails or the
- * signal aborts. The report is read from a private temporary directory that
- * is deleted afterwards; only redacted findings leave this function.
+ * The report ZAP wrote, read without following a symlink, only when it is a
+ * regular file of at most 20 MB. Errors never quote the file.
+ */
+export async function readReport(file: string): Promise<string> {
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    // O_NONBLOCK so a FIFO planted in its place cannot hang the read.
+    handle = await open(
+      file,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    throw new Error(
+      code === "ENOENT"
+        ? "Live scan: ZAP wrote no report"
+        : code === "ELOOP" || code === "EMLINK"
+          ? "Live scan: ZAP's report is not a regular file"
+          : `Live scan could not open ZAP's report (${code ?? "error"})`,
+      // An open error carries the path and code, never the file's content.
+      { cause: error },
+    );
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile())
+      throw new Error("Live scan: ZAP's report is not a regular file");
+    if (info.size > MAX_REPORT_BYTES)
+      throw new Error("Live scan: ZAP's report is larger than 20 MB");
+    const text = await handle.readFile("utf8");
+    if (Buffer.byteLength(text) > MAX_REPORT_BYTES)
+      throw new Error("Live scan: ZAP's report is larger than 20 MB");
+    return text;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Starts the target in a loopback-only network namespace, checks that the
+ * namespace is isolated, scans it with ZAP from inside that namespace, and
+ * always removes every container carrying this scan's ID label, also when
+ * the scan fails or the signal aborts, even if the call that created one
+ * never returned. The report is read from a private temporary directory
+ * that is deleted afterwards; only redacted findings leave this function.
  */
 export async function runLiveScan(options: {
   target: LiveTarget;
@@ -239,54 +349,78 @@ export async function runLiveScan(options: {
   const { target, signal } = options;
   const minutes = options.minutes ?? 1;
   const maxMinutes = options.maxMinutes ?? 10;
-  const docker = await run(
-    "docker",
-    ["version", "--format", "{{.Server.Version}}"],
-    { timeoutMs: 15_000, signal },
-  ).catch(() => undefined);
-  if (!docker || docker.code !== 0)
-    throw new Error("Live scan needs Docker; start it and retry");
+  await checkDocker(run, signal);
   const targetImage = await imageId(run, target.image, signal);
   const zapImage = await imageId(run, options.zapImage ?? ZAP_IMAGE, signal);
-  const suffix = randomBytes(6).toString("hex");
-  const network = `graph-live-${suffix}`;
-  const targetName = `graph-live-target-${suffix}`;
-  const probeName = `graph-live-probe-${suffix}`;
-  const zapName = `graph-live-zap-${suffix}`;
-  const url = `http://${targetName}:${target.port}${target.path ?? "/"}`;
+  // The address a container on Docker's default bridge would reach the host
+  // at; the probe proves the target's namespace cannot reach it.
+  const bridge = await run(
+    "docker",
+    [
+      "network",
+      "inspect",
+      "--format",
+      "{{range .IPAM.Config}}{{.Gateway}} {{end}}",
+      "bridge",
+    ],
+    { timeoutMs: 15_000, signal },
+  ).catch(() => undefined);
+  const gateway =
+    bridge?.stdout
+      .trim()
+      .split(/\s+/)
+      .find((address) => /^\d{1,3}(\.\d{1,3}){3}$/.test(address)) ??
+    "172.17.0.1";
+  const id = randomBytes(6).toString("hex");
+  const labels = [
+    "--label",
+    `${LIVE_SCAN_LABEL}=1`,
+    "--label",
+    `${LIVE_SCAN_ID_LABEL}=${id}`,
+  ];
+  const targetName = `graph-live-target-${id}`;
+  const probeName = `graph-live-probe-${id}`;
+  const zapName = `graph-live-zap-${id}`;
+  const names = [zapName, probeName, targetName];
+  // The target's own namespace: loopback only.
+  const namespace = `container:${targetName}`;
+  const url = `http://127.0.0.1:${target.port}${target.path ?? "/"}`;
   const work = await mkdtemp(path.join(os.tmpdir(), "graph-live-scan-"));
   const out = path.join(work, "out");
   const stop = () => {
-    for (const name of [zapName, probeName, targetName])
+    for (const name of names)
       void run("docker", ["kill", name], { timeoutMs: 10_000 }).catch(() => {});
   };
   signal?.addEventListener("abort", stop, { once: true });
   const cleanup: string[] = [];
-  let networkCreated = false;
+  // Containers carrying this scan's ID, or undefined when Docker cannot say.
+  const labelled = async () => {
+    const listed = await run(
+      "docker",
+      [
+        "ps",
+        "--all",
+        "--quiet",
+        "--no-trunc",
+        "--filter",
+        `label=${LIVE_SCAN_ID_LABEL}=${id}`,
+      ],
+      { timeoutMs: 30_000 },
+    ).catch(() => undefined);
+    return listed?.code === 0
+      ? listed.stdout.split(/\s+/).filter(Boolean)
+      : undefined;
+  };
   const cleanUp = async () => {
     signal?.removeEventListener("abort", stop);
-    const remove = await run(
-      "docker",
-      ["rm", "--force", zapName, probeName, targetName],
-      { timeoutMs: 60_000 },
-    ).catch(() => undefined);
-    // rm --force reports missing containers as errors; only a container that
-    // still exists is a failed cleanup.
-    if (!remove || remove.code !== 0)
-      for (const name of [zapName, probeName, targetName]) {
-        const left = await run(
-          "docker",
-          ["container", "inspect", "--format", "{{.Id}}", name],
-          { timeoutMs: 10_000 },
-        ).catch(() => undefined);
-        if (!left || left.code === 0) cleanup.push(`container ${name}`);
-      }
-    if (networkCreated) {
-      const removed = await run("docker", ["network", "rm", network], {
-        timeoutMs: 30_000,
-      }).catch(() => undefined);
-      if (!removed || removed.code !== 0) cleanup.push(`network ${network}`);
-    }
+    const found = (await labelled()) ?? [];
+    await run("docker", ["rm", "--force", ...new Set([...found, ...names])], {
+      timeoutMs: 60_000,
+    }).catch(() => undefined);
+    const left = await labelled();
+    if (left === undefined)
+      cleanup.push(`containers labelled ${LIVE_SCAN_ID_LABEL}=${id}`);
+    else for (const container of left) cleanup.push(`container ${container}`);
     await rm(work, { recursive: true, force: true }).catch(() =>
       cleanup.push(`temporary report directory ${work}`),
     );
@@ -298,33 +432,17 @@ export async function runLiveScan(options: {
     // directory is mounted; its private parent keeps other local users out.
     await mkdir(out);
     await chmod(out, 0o777);
-    const created = await run(
-      "docker",
-      [
-        "network",
-        "create",
-        "--internal",
-        "--label",
-        "graph-engineering.live-scan=1",
-        network,
-      ],
-      { timeoutMs: 30_000, signal },
-    );
-    if (created.code !== 0)
-      throw new Error(
-        `Live scan could not create its internal network: ${created.stderr.slice(-300)}`,
-      );
-    networkCreated = true;
     const started = await run(
       "docker",
       [
         "run",
         "--detach",
         ...HARDENED,
+        ...labels,
         "--name",
         targetName,
         "--network",
-        network,
+        "none",
         "--pids-limit=1024",
         "--memory=2g",
         "--cpus=2",
@@ -336,7 +454,6 @@ export async function runLiveScan(options: {
       throw new Error(
         `Live scan could not start the target: ${started.stderr.slice(-300)}`,
       );
-    // Polled from inside the network: nothing is published to the host.
     const attempts = Math.max(
       1,
       Math.ceil((options.readyTimeoutMs ?? 180_000) / 2_000),
@@ -347,18 +464,21 @@ export async function runLiveScan(options: {
         "run",
         "--rm",
         ...HARDENED,
+        ...labels,
         "--name",
         probeName,
         "--network",
-        network,
+        namespace,
         "--pids-limit=64",
         "--memory=256m",
         "--entrypoint",
-        "sh",
+        "python3",
         zapImage,
         "-c",
-        `i=0; while [ "$i" -lt ${attempts} ]; do code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$0"); [ "$code" != "000" ] && exit 0; i=$((i+1)); sleep 2; done; exit 1`,
+        PROBE,
+        gateway,
         url,
+        String(attempts),
       ],
       {
         timeoutMs: (options.readyTimeoutMs ?? 180_000) + 120_000,
@@ -366,6 +486,12 @@ export async function runLiveScan(options: {
       },
     );
     if (signal?.aborted) throw new Error("Live scan cancelled");
+    if (ready.code === 3)
+      throw new Error(
+        "Live scan refused: the target's network namespace is not isolated (it has a route or reaches the Docker gateway or the internet)",
+      );
+    if (/non[- ]running container|is not running/i.test(ready.stderr))
+      throw new Error("Live scan target exited before it answered HTTP");
     if (ready.code !== 0)
       throw new Error(
         "Live scan target did not answer HTTP within its start-up time",
@@ -376,10 +502,11 @@ export async function runLiveScan(options: {
         "run",
         "--rm",
         ...HARDENED,
+        ...labels,
         "--name",
         zapName,
         "--network",
-        network,
+        namespace,
         "--pids-limit=4096",
         "--memory=4g",
         "--cpus=2",
@@ -409,11 +536,7 @@ export async function runLiveScan(options: {
       throw new Error(
         `Live scan: ZAP exited ${scanned.code}: ${redact(scanned.stdout.slice(-300))}`,
       );
-    const report = await readFile(path.join(out, "report.json"), "utf8").catch(
-      () => {
-        throw new Error("Live scan: ZAP wrote no report");
-      },
-    );
+    const report = await readReport(path.join(out, "report.json"));
     findings = withFingerprints(
       parseZap(report).map((finding) => ({
         ...finding,
@@ -436,12 +559,11 @@ export async function runLiveScan(options: {
         { cause: caught },
       );
     if (signal?.aborted)
-      throw new Error(
-        "Live scan cancelled; its containers and network were removed",
-        { cause: caught },
-      );
+      throw new Error("Live scan cancelled; its containers were removed", {
+        cause: caught,
+      });
     throw caught;
   }
   await cleanUp();
-  return { target: target.id, tools: ["zap"], findings, cleanup };
+  return { id, target: target.id, tools: ["zap"], findings, cleanup };
 }

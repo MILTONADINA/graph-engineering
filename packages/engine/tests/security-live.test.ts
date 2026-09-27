@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   assertProjectConfig,
@@ -9,7 +18,11 @@ import {
 } from "@graph-engineering/contracts";
 import {
   LIVE_BASELINE_FILE,
+  LIVE_SCAN_ID_LABEL,
+  LIVE_SCAN_LABEL,
+  MIN_DOCKER_MAJOR,
   liveBaselineFrom,
+  readReport,
   liveTarget,
   parseZap,
   runLiveScan,
@@ -180,6 +193,29 @@ describe("ZAP reports", () => {
     expect(raw[0]!.message).toContain("2 instances");
     expect(raw[2]!.message).toContain("[REDACTED]");
     expect(() => parseZap("{}")).toThrow("Live scan: ZAP report has no sites");
+    // Inherited object keys are not risk levels.
+    const odd = parseZap(
+      JSON.stringify({
+        site: [
+          {
+            alerts: ["__proto__", "constructor", "toString", "9"].map(
+              (riskcode, index) => ({
+                pluginid: String(index),
+                name: "odd",
+                riskcode,
+                instances: [{ uri: "/" }],
+              }),
+            ),
+          },
+        ],
+      }),
+    );
+    expect(odd.map(({ risk }) => risk)).toEqual([
+      "informational",
+      "informational",
+      "informational",
+      "informational",
+    ]);
   });
 
   it("keeps fingerprints stable across runs whatever the host, instances or evidence", async () => {
@@ -264,100 +300,155 @@ describe("ZAP reports", () => {
   });
 });
 
-// A fake Docker: records every call and writes a report where ZAP would.
+// A fake Docker: records every call, keeps the containers a call would have
+// left behind (by their ID label), and writes a report where ZAP would.
 function fakeDocker(
   options: {
+    version?: string;
     zapExit?: number;
+    probeExit?: number;
     onZap?: () => void;
+    /** Aborts during this step; the container is created anyway. */
+    abortDuring?: { step: "target" | "probe"; controller: AbortController };
     missing?: string[];
-    failNetworkRemove?: boolean;
+    failRemove?: boolean;
+    report?: (file: string) => Promise<void>;
   } = {},
 ) {
   const calls: string[][] = [];
+  const containers = new Map<string, string>(); // name -> scan ID label
+  const labelOf = (argv: string[]) =>
+    argv
+      .find((arg) => arg.startsWith(`${LIVE_SCAN_ID_LABEL}=`))
+      ?.slice(LIVE_SCAN_ID_LABEL.length + 1) ?? "";
   const run: CommandRunner = async (executable, argv, runOptions) => {
     expect(executable).toBe("docker");
     calls.push(argv);
     const ok = (stdout = "") => ({ code: 0, stdout, stderr: "" });
+    if (argv[0] === "version") return ok(`${options.version ?? "29.8.0"}\n`);
+    if (argv[0] === "network" && argv[1] === "inspect")
+      return ok("172.17.0.1\n");
     if (argv[0] === "image" && argv[1] === "inspect")
       return options.missing?.includes(argv.at(-1)!)
         ? { code: 1, stdout: "", stderr: "No such image" }
         : ok(
             `sha256:${argv.at(-1)!.endsWith(DIGEST) ? "b" : "c"}${"0".repeat(63)}\n`,
           );
-    if (argv[0] === "run" && argv.includes("zap-baseline.py")) {
+    if (argv[0] === "ps") {
+      const id = argv.at(-1)!.split("=").at(-1)!;
+      return ok(
+        [...containers]
+          .filter(([, label]) => label === id)
+          .map(([name]) => `id-${name}`)
+          .join("\n"),
+      );
+    }
+    if (argv[0] === "rm") {
+      if (!options.failRemove)
+        for (const name of [...containers.keys()])
+          if (argv.includes(`id-${name}`) || argv.includes(name))
+            containers.delete(name);
+      return ok();
+    }
+    if (argv[0] === "run") {
+      const name = argv[argv.indexOf("--name") + 1]!;
+      const step = argv.includes("--detach")
+        ? "target"
+        : argv.includes("zap-baseline.py")
+          ? "zap"
+          : "probe";
+      containers.set(name, labelOf(argv));
+      if (options.abortDuring?.step === step) {
+        options.abortDuring.controller.abort();
+        throw new Error("Command terminated (timeout or cancellation)");
+      }
+      if (step === "target") return ok(`${name}\n`);
+      containers.delete(name);
+      if (step === "probe")
+        return { code: options.probeExit ?? 0, stdout: "", stderr: "" };
       options.onZap?.();
       if (runOptions?.signal?.aborted)
         throw new Error("Command terminated (timeout or cancellation)");
       const mount = argv[argv.indexOf("--mount") + 1]!;
       const source = /source=([^,]+)/.exec(mount)![1]!;
-      await writeFile(
-        path.join(source, "report.json"),
-        await readFile(REPORT, "utf8"),
-      );
+      const file = path.join(source, "report.json");
+      if (options.report) await options.report(file);
+      else await writeFile(file, await readFile(REPORT, "utf8"));
       return { code: options.zapExit ?? 0, stdout: "WARN-NEW: 3", stderr: "" };
     }
-    if (argv[0] === "network" && argv[1] === "rm" && options.failNetworkRemove)
-      return { code: 1, stdout: "", stderr: "network in use" };
     return ok();
   };
-  return { calls, run };
+  return { calls, run, containers };
 }
 
+// The target has only a loopback interface; the probe and ZAP join its
+// namespace. Nothing is published and nothing uses the host network.
 function assertIsolated(calls: string[][]) {
-  const create = calls.find(
-    (argv) => argv[0] === "network" && argv[1] === "create",
-  )!;
-  expect(create).toContain("--internal");
-  const network = create.at(-1)!;
-  expect(network).toMatch(/^graph-live-[a-f0-9]{12}$/);
+  expect(
+    calls.some((argv) => argv[0] === "network" && argv[1] === "create"),
+  ).toBe(false);
   const runs = calls.filter((argv) => argv[0] === "run");
-  expect(runs.length).toBeGreaterThanOrEqual(2);
+  expect(runs.length).toBeGreaterThanOrEqual(1);
+  const [start, ...rest] = runs;
+  const targetName = start![start!.indexOf("--name") + 1]!;
+  expect(start![start!.indexOf("--network") + 1]).toBe("none");
+  const id = targetName.replace("graph-live-target-", "");
+  expect(id).toMatch(/^[a-f0-9]{12}$/);
+  for (const argv of rest)
+    expect(argv[argv.indexOf("--network") + 1]).toBe(`container:${targetName}`);
   for (const argv of runs) {
-    expect(argv[argv.indexOf("--network") + 1]).toBe(network);
     expect(argv).toContain("--cap-drop=ALL");
     expect(argv).toContain("--security-opt=no-new-privileges");
     expect(argv).toContain("--pull=never");
+    expect(argv).toEqual(
+      expect.arrayContaining([
+        "--label",
+        `${LIVE_SCAN_LABEL}=1`,
+        `${LIVE_SCAN_ID_LABEL}=${id}`,
+      ]),
+    );
     for (const forbidden of ["-p", "-P", "--publish", "--publish-all"])
       expect(argv).not.toContain(forbidden);
     expect(
-      argv.some((arg) => /^--(publish|network=host|net=host)/.test(arg)),
+      argv.some((arg) => /^--(publish|network=|net=)|^host$/.test(arg)),
     ).toBe(false);
-    expect(argv[argv.indexOf("--network") + 1]).not.toBe("host");
   }
-  return network;
+  return id;
 }
 
-function assertCleanedUp(calls: string[][], network: string) {
-  const remove = calls.find((argv) => argv[0] === "rm")!;
-  expect(remove).toEqual(expect.arrayContaining(["--force"]));
-  const names = calls
-    .filter((argv) => argv[0] === "run")
-    .map((argv) => argv[argv.indexOf("--name") + 1]);
-  expect(remove).toEqual(expect.arrayContaining(names));
-  expect(calls).toContainEqual(["network", "rm", network]);
-  expect(
-    calls.findIndex((argv) => argv[0] === "network" && argv[1] === "rm"),
-  ).toBeGreaterThan(calls.indexOf(remove));
+function assertCleanedUp(docker: ReturnType<typeof fakeDocker>, id: string) {
+  const filter = `label=${LIVE_SCAN_ID_LABEL}=${id}`;
+  const listed = docker.calls.filter(
+    (argv) => argv[0] === "ps" && argv.at(-1) === filter,
+  );
+  // Listed before removing, and again to confirm nothing is left.
+  expect(listed.length).toBeGreaterThanOrEqual(2);
+  expect(docker.calls.find((argv) => argv[0] === "rm")).toContain("--force");
+  expect(docker.containers.size).toBe(0);
 }
 
 describe("live scan orchestration", () => {
-  it("starts the target and ZAP on a new internal network and removes both afterwards", async () => {
+  it("starts the target in a loopback-only namespace, checks isolation, scans and removes everything", async () => {
     const docker = fakeDocker();
     const scan = await runLiveScan({ target, run: docker.run });
-    const network = assertIsolated(docker.calls);
-    assertCleanedUp(docker.calls, network);
+    const id = assertIsolated(docker.calls);
+    expect(scan.id).toBe(id);
+    assertCleanedUp(docker, id);
     const runs = docker.calls.filter((argv) => argv[0] === "run");
     const [start, probe, zap] = runs;
     expect(start).toContain("--detach");
     expect(start!.at(-1)).toBe(`sha256:b${"0".repeat(63)}`);
-    const host = start![start!.indexOf("--name") + 1]!;
-    // Readiness is polled from inside the network.
-    expect(probe!.at(-1)).toBe(`http://${host}:3000/`);
+    // The isolation check and readiness poll run inside the namespace,
+    // against the Docker bridge gateway and the internet, before ZAP.
+    expect(probe).toEqual(expect.arrayContaining(["python3", "172.17.0.1"]));
+    expect(probe![probe!.indexOf("-c") + 1]).toContain("ISOLATION");
+    expect(probe![probe!.indexOf("-c") + 1]).toContain("1.1.1.1");
+    expect(probe).toContain("http://127.0.0.1:3000/");
     expect(zap).toEqual(
       expect.arrayContaining([
         "zap-baseline.py",
         "-t",
-        `http://${host}:3000/`,
+        "http://127.0.0.1:3000/",
         "-J",
         "report.json",
         "-I",
@@ -386,39 +477,124 @@ describe("live scan orchestration", () => {
     );
   });
 
-  it("removes the containers and network when the scan fails or is cancelled", async () => {
+  it("refuses to scan when the target's namespace is not isolated", async () => {
+    const docker = fakeDocker({ probeExit: 3 });
+    await expect(runLiveScan({ target, run: docker.run })).rejects.toThrow(
+      "Live scan refused: the target's network namespace is not isolated",
+    );
+    expect(docker.calls.some((argv) => argv.includes("zap-baseline.py"))).toBe(
+      false,
+    );
+    assertCleanedUp(docker, assertIsolated(docker.calls));
+  });
+
+  it("removes the containers when the scan fails or is cancelled", async () => {
     const failed = fakeDocker({ zapExit: 3 });
     await expect(runLiveScan({ target, run: failed.run })).rejects.toThrow(
       "Live scan: ZAP exited 3",
     );
-    assertCleanedUp(failed.calls, assertIsolated(failed.calls));
+    assertCleanedUp(failed, assertIsolated(failed.calls));
 
     const controller = new AbortController();
     const cancelled = fakeDocker({ onZap: () => controller.abort() });
     await expect(
       runLiveScan({ target, run: cancelled.run, signal: controller.signal }),
-    ).rejects.toThrow(
-      "Live scan cancelled; its containers and network were removed",
-    );
-    const network = assertIsolated(cancelled.calls);
-    assertCleanedUp(cancelled.calls, network);
+    ).rejects.toThrow("Live scan cancelled; its containers were removed");
+    assertCleanedUp(cancelled, assertIsolated(cancelled.calls));
     expect(cancelled.calls.filter((argv) => argv[0] === "kill")).toHaveLength(
       3,
     );
 
-    const stuck = fakeDocker({ zapExit: 3, failNetworkRemove: true });
+    const stuck = fakeDocker({ zapExit: 3, failRemove: true });
     await expect(runLiveScan({ target, run: stuck.run })).rejects.toThrow(
-      /Live scan cleanup also failed for network graph-live-/,
+      /Live scan cleanup also failed for container id-graph-live-target-/,
     );
   });
 
-  it("refuses a local target image that is not on this machine, before creating anything", async () => {
+  const cancelDuring = async (step: "target" | "probe") => {
+    const controller = new AbortController();
+    const docker = fakeDocker({ abortDuring: { step, controller } });
+    await expect(
+      runLiveScan({ target, run: docker.run, signal: controller.signal }),
+    ).rejects.toThrow("Live scan cancelled; its containers were removed");
+    const id = assertIsolated(docker.calls);
+    // The call never returned, yet its container is found by label.
+    const remove = docker.calls.find((argv) => argv[0] === "rm")!;
+    expect(remove).toContain(
+      step === "target"
+        ? `id-graph-live-target-${id}`
+        : `id-graph-live-probe-${id}`,
+    );
+    assertCleanedUp(docker, id);
+  };
+  it("removes a container created during the target's docker run when cancelled before it returned", () =>
+    cancelDuring("target"));
+  it("removes a container created during the probe's docker run when cancelled before it returned", () =>
+    cancelDuring("probe"));
+
+  it("refuses a Docker server older than 26 or one it cannot read", async () => {
+    for (const version of ["25.0.5", "20.10.24", "not-a-version", ""]) {
+      const docker = fakeDocker({ version });
+      await expect(runLiveScan({ target, run: docker.run })).rejects.toThrow(
+        "Live scan refused: it needs Docker Engine 26 or later",
+      );
+      expect(docker.calls.some((argv) => argv[0] === "run")).toBe(false);
+    }
+    expect(MIN_DOCKER_MAJOR).toBe(26);
+  });
+
+  it("refuses a report that is a symlink or larger than 20 MB, without quoting it", async () => {
+    const sentinel = "zq7-report-sentinel";
+    const outside = await mkdtemp(
+      path.join(os.tmpdir(), "graph-live-outside-"),
+    );
+    try {
+      const secret = path.join(outside, "secret.json");
+      await writeFile(secret, JSON.stringify({ site: [], sentinel }));
+      const cases: [string, (file: string) => Promise<void>, string][] = [
+        [
+          "symlink",
+          (file) => symlink(secret, file),
+          "Live scan: ZAP's report is not a regular file",
+        ],
+        [
+          "directory",
+          (file) => mkdir(file),
+          "Live scan: ZAP's report is not a regular file",
+        ],
+        [
+          "oversized",
+          (file) =>
+            writeFile(
+              file,
+              `{"sentinel":"${sentinel}","x":"${"a".repeat(20_000_001)}"}`,
+            ),
+          "Live scan: ZAP's report is larger than 20 MB",
+        ],
+        ["missing", async () => {}, "Live scan: ZAP wrote no report"],
+      ];
+      for (const [label, report, message] of cases) {
+        const docker = fakeDocker({ report });
+        const error = await runLiveScan({ target, run: docker.run }).then(
+          () => undefined,
+          (caught: Error) => caught,
+        );
+        expect(error?.message, label).toBe(message);
+        expect(String(error?.message)).not.toContain(sentinel);
+        assertCleanedUp(docker, assertIsolated(docker.calls));
+      }
+      await expect(readReport(secret)).resolves.toContain(sentinel);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a local target image that is not on this machine, before starting anything", async () => {
     const local = { ...target, image: `sha256:${"d".repeat(64)}` };
     const docker = fakeDocker({ missing: [local.image] });
     await expect(
       runLiveScan({ target: local, run: docker.run }),
     ).rejects.toThrow("npm run live-target:build");
-    expect(docker.calls.some((argv) => argv[0] === "network")).toBe(false);
     expect(docker.calls.some((argv) => argv[0] === "run")).toBe(false);
   });
 });
@@ -465,7 +641,7 @@ describe("live scans stay a person's advisory tool", () => {
   });
 
   it.runIf(process.env.GRAPH_ENGINE_LIVE_SCAN_TESTS === "1")(
-    "scans OWASP Juice Shop on an isolated network, finds alerts and leaves nothing behind",
+    "scans OWASP Juice Shop in a loopback-only namespace, finds alerts and leaves nothing behind",
     async () => {
       const project = JSON.parse(
         await readFile(new URL(".graph/project.json", REPOSITORY), "utf8"),
@@ -478,35 +654,121 @@ describe("live scans stay a person's advisory tool", () => {
       for (const finding of scan.findings) {
         expect(finding.tool).toBe("zap");
         expect(finding.path.startsWith("/")).toBe(true);
-        expect(finding.message).not.toContain("graph-live-target-");
       }
       const left = await command(
         "docker",
         [
           "ps",
           "--all",
+          "--quiet",
           "--filter",
-          "name=graph-live-",
+          `label=${LIVE_SCAN_ID_LABEL}=${scan.id}`,
+        ],
+        { timeoutMs: 15_000 },
+      );
+      expect(left.code).toBe(0);
+      expect(left.stdout.trim()).toBe("");
+    },
+    30 * 60_000,
+  );
+
+  it.runIf(process.env.GRAPH_ENGINE_LIVE_SCAN_TESTS === "1")(
+    "gives a scanned target no route to the Docker gateway or the internet",
+    async () => {
+      const id = `probe${Date.now().toString(16)}`;
+      const name = `graph-live-isolation-${id}`;
+      const labels = [
+        "--label",
+        `${LIVE_SCAN_LABEL}=1`,
+        "--label",
+        `${LIVE_SCAN_ID_LABEL}=${id}`,
+      ];
+      const bridge = await command(
+        "docker",
+        [
+          "network",
+          "inspect",
           "--format",
-          "{{.Names}}",
+          "{{range .IPAM.Config}}{{.Gateway}} {{end}}",
+          "bridge",
+        ],
+        { timeoutMs: 15_000 },
+      );
+      const gateway = bridge.stdout
+        .trim()
+        .split(/\s+/)
+        .find((address) => /^\d+\.\d+\.\d+\.\d+$/.test(address))!;
+      expect(gateway).toBeTruthy();
+      try {
+        // The same layout as a scan: a loopback-only container, and a probe
+        // joining its namespace.
+        const started = await command(
+          "docker",
+          [
+            "run",
+            "--detach",
+            "--pull=never",
+            "--cap-drop=ALL",
+            ...labels,
+            "--name",
+            name,
+            "--network",
+            "none",
+            "--entrypoint",
+            "sleep",
+            ZAP_IMAGE,
+            "120",
+          ],
+          { timeoutMs: 60_000 },
+        );
+        expect(started.code, started.stderr).toBe(0);
+        const probe = await command(
+          "docker",
+          [
+            "run",
+            "--rm",
+            "--pull=never",
+            "--cap-drop=ALL",
+            ...labels,
+            "--network",
+            `container:${name}`,
+            "--entrypoint",
+            "python3",
+            ZAP_IMAGE,
+            "-c",
+            [
+              "import errno, socket, sys",
+              "for host, port in ((sys.argv[1], 22), (sys.argv[1], 111), (sys.argv[1], 2375), ('1.1.1.1', 443), ('1.1.1.1', 80)):",
+              "    s = socket.socket(); s.settimeout(3)",
+              "    print(host, port, errno.errorcode.get(s.connect_ex((host, port)), 'connected'))",
+            ].join("\n"),
+            gateway,
+          ],
+          { timeoutMs: 60_000 },
+        );
+        expect(probe.code, probe.stderr).toBe(0);
+        const lines = probe.stdout.trim().split("\n");
+        expect(lines).toHaveLength(5);
+        for (const line of lines)
+          expect(line).toMatch(/ (ENETUNREACH|EHOSTUNREACH)$/);
+      } finally {
+        await command("docker", ["rm", "--force", name], {
+          timeoutMs: 30_000,
+        });
+      }
+      const left = await command(
+        "docker",
+        [
+          "ps",
+          "--all",
+          "--quiet",
+          "--filter",
+          `label=${LIVE_SCAN_ID_LABEL}=${id}`,
         ],
         { timeoutMs: 15_000 },
       );
       expect(left.stdout.trim()).toBe("");
-      const networks = await command(
-        "docker",
-        [
-          "network",
-          "ls",
-          "--filter",
-          "label=graph-engineering.live-scan=1",
-          "--format",
-          "{{.Name}}",
-        ],
-        { timeoutMs: 15_000 },
-      );
-      expect(networks.stdout.trim()).toBe("");
     },
-    30 * 60_000,
+    5 * 60_000,
   );
 });

@@ -57,7 +57,7 @@
         "path": "/",
         "authorizedBy": "Milton Adina (owner)",
         "authorizedOn": "2026-09-27",
-        "note": "OWASP Juice Shop 20.2.0, an intentionally vulnerable reference application, pinned by its multi-platform digest. Authorized on the owner's instruction of 2026-09-27 to choose professional live targets; scanned only in a container the live scan starts on its own internal network."
+        "note": "OWASP Juice Shop 20.2.0, an intentionally vulnerable reference application, pinned by its multi-platform digest. Authorized on the owner's instruction of 2026-09-27 to choose professional live targets; scanned only in a container the live scan starts itself, with a loopback-only network namespace."
       },
       {
         "id": "template-express",
@@ -66,7 +66,7 @@
         "path": "/",
         "authorizedBy": "Milton Adina (owner)",
         "authorizedOn": "2026-09-27",
-        "note": "The Express app the graph's own templates generate (project.node-express with backend.error-handler), built locally by npm run live-target:build from infra/live-targets/template-express/Dockerfile. This local image ID is specific to the machine that built it; a rebuild is a new image and needs its ID recorded here again. Authorized on the owner's instruction of 2026-09-27 to choose professional live targets; scanned only in a container the live scan starts on its own internal network."
+        "note": "The Express app the graph's own templates generate (project.node-express with backend.error-handler), built locally by npm run live-target:build from infra/live-targets/template-express/Dockerfile. This local image ID is specific to the machine that built it; a rebuild is a new image and needs its ID recorded here again. Authorized on the owner's instruction of 2026-09-27 to choose professional live targets; scanned only in a container the live scan starts itself, with a loopback-only network namespace."
       }
     ]
   }
