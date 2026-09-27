@@ -32,6 +32,7 @@ import {
   preparePromotionGrantRequest,
   readPromotionBundle,
   requireDistinctSigners,
+  requireDistinctUsedKeys,
   requireReadinessInputs,
   type SignerClaim,
 } from "../src/promotion-importer.js";
@@ -240,7 +241,7 @@ async function signedSyntheticBundle() {
 }
 
 describe("verify-only importer", () => {
-  it("refuses a fully signed synthetic cohort at step 1 because no controller is selected", async () => {
+  it("refuses a synthetic cohort with signed reviews, aggregate and approval at step 1 because no controller is selected", async () => {
     const bundle = await signedSyntheticBundle();
     const project = await temporary("promotion-project");
     const before = await snapshot(bundle);
@@ -487,6 +488,7 @@ const request = () => {
     },
     routeMetrics: {
       calibrationCount: 50,
+      calibrationAccuracy: 0.95,
       heldOutCount: 200,
       taskCount: 60,
       calibrationError: 0.05,
@@ -569,6 +571,7 @@ describe("unsigned grant-request schema (owner decisions as constraints)", () =>
       ["heldOutCount", 199],
       ["taskCount", 59],
       ["calibrationError", 0.051],
+      ["calibrationAccuracy", 0.949],
     ] as const)
       expect(bad((value) => (value.routeMetrics[field] = number))).toBe(false);
     expect(
@@ -717,22 +720,23 @@ describe("importer step checks refuse with closed codes", () => {
     );
   });
 
-  it("step 8 refuses unresolved signer keys and keys or actors reused across roles", async () => {
-    const claims: SignerClaim[] = [
-      { role: "labeler", keyId: "l" },
-      { role: "reviewer", keyId: "r" },
-    ];
-    const pin = (
+  it("step 8 refuses a custody pin whose key differs from the key the bundle used", async () => {
+    const claim = (
       role: SignerClaim["role"],
       keyId: string,
       key: string,
       actor: string,
-    ) => ({
+    ): SignerClaim => ({
       role,
       keyId,
-      publicKeySha256: key.repeat(64),
       actorId: actor,
+      publicKeySha256: key.repeat(64),
     });
+    const claims = [
+      claim("labeler", "l", "1", "a"),
+      claim("reviewer", "r", "2", "b"),
+    ];
+    expect(requireDistinctSigners(claims, claims)).toBeUndefined();
     expect(
       await refusal(() =>
         requireDistinctSigners(claims, [undefined, undefined]),
@@ -741,27 +745,58 @@ describe("importer step checks refuse with closed codes", () => {
     expect(
       await refusal(() =>
         requireDistinctSigners(claims, [
-          pin("reviewer", "l", "1", "a"),
-          pin("reviewer", "r", "2", "b"),
+          claim("reviewer", "l", "1", "a"),
+          claims[1]!,
         ]),
       ),
     ).toBe("signer-key-unresolved");
+    // Same role and key ID, another key: the name matches, the key does not.
     expect(
       await refusal(() =>
         requireDistinctSigners(claims, [
-          pin("labeler", "l", "1", "a"),
-          pin("reviewer", "r", "1", "b"),
+          claim("labeler", "l", "9", "a"),
+          claims[1]!,
+        ]),
+      ),
+    ).toBe("signer-key-mismatch");
+    expect(
+      await refusal(() =>
+        requireDistinctSigners(claims, [
+          claim("labeler", "l", "1", "someone-else"),
+          claims[1]!,
+        ]),
+      ),
+    ).toBe("signer-key-mismatch");
+  });
+
+  it("step 8 refuses one used key or actor across two roles", async () => {
+    const used = (role: SignerClaim["role"], key: string, actor: string) => ({
+      role,
+      keyId: `${role}-key`,
+      actorId: actor,
+      publicKeySha256: key.repeat(64),
+    });
+    expect(
+      await refusal(() =>
+        requireDistinctUsedKeys([
+          used("worker", "1", "w"),
+          used("oracle", "1", "o"),
         ]),
       ),
     ).toBe("signer-keys-not-distinct");
     expect(
       await refusal(() =>
-        requireDistinctSigners(claims, [
-          pin("labeler", "l", "1", "a"),
-          pin("reviewer", "r", "2", "a"),
+        requireDistinctUsedKeys([
+          used("worker", "1", "same"),
+          used("oracle", "2", "same"),
         ]),
       ),
     ).toBe("signer-keys-not-distinct");
+    // Custody cannot hide reuse: matching pins still refuse.
+    const claims = [used("labeler", "1", "a"), used("reviewer", "1", "b")];
+    expect(await refusal(() => requireDistinctSigners(claims, claims))).toBe(
+      "signer-keys-not-distinct",
+    );
   });
 
   it("step 9 refuses other policy bytes, shadow mode, unlisted categories and a partial cohort", async () => {

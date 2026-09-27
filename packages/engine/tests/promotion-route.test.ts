@@ -176,6 +176,47 @@ describe("per-route promotion check in the decision path", () => {
       });
   });
 
+  it("keeps the baseline when a route admitted before dispatch is refused after the response", async () => {
+    // Planted admission before dispatch isolates the after-response check.
+    vi.spyOn(
+      promotionAuthority,
+      "authorizesPromotionFromBinding",
+    ).mockResolvedValue(true);
+    const route = vi
+      .spyOn(promotionRoute, "checkPromotionRoute")
+      .mockImplementation((phase) =>
+        phase === "before-dispatch"
+          ? { phase, admitted: true, refusal: null, routeSha256: null }
+          : {
+              phase,
+              admitted: false,
+              refusal: "reported-model-drift",
+              routeSha256: null,
+            },
+      );
+    confidentProvider();
+    const result = await batch(
+      { decisionMode: "promoted", promotedCategories: ["worker"] },
+      ["worker"],
+    );
+    expect(route.mock.calls.map((call) => call[0])).toEqual([
+      "before-dispatch",
+      "after-response",
+    ]);
+    // The response's reported model is passed to the after-response check.
+    expect(route.mock.calls[1]![2]).toBe(model);
+    expect(result.selections).toEqual({ worker: "safe" });
+    expect(result.records[0]).toMatchObject({
+      mode: "shadow",
+      selected: "alternative",
+      evidence: {
+        promotionAuthority: "unverified",
+        promotionRefusal: "reported-model-drift",
+        promotionRefusalPhase: "after-response",
+      },
+    });
+  });
+
   it("never evaluates the per-route check in shadow mode or for an unlisted category", async () => {
     const route = vi.spyOn(promotionRoute, "checkPromotionRoute");
     confidentProvider();

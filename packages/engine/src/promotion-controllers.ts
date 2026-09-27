@@ -8,9 +8,13 @@
 
 export type EvidenceSignerRole =
   | "curator"
+  | "selector"
+  | "auditor"
   | "source"
   | "labeler"
   | "reviewer"
+  | "collector"
+  | "aggregate-reviewer"
   | "worker"
   | "oracle"
   | "approver"
@@ -28,6 +32,9 @@ export interface SignedCollectionCheckpoint {
   projectId: string;
   collectionId: string;
   challenge: string;
+  /** ISO times; a reply is fresh only inside a short bounded window. */
+  issuedAt: string;
+  expiresAt: string;
   checkpointSha256: string;
   frozenDigests: Readonly<Record<string, string>>;
 }
@@ -38,7 +45,8 @@ export interface SignedGrantStatus {
   grantId: string;
   challenge: string;
   status: "unregistered" | "active" | "revoked";
-  witnessTimeMs: number;
+  issuedAt: string;
+  expiresAt: string;
 }
 
 export interface AttestedModelIdentity {

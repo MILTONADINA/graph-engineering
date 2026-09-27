@@ -85,8 +85,8 @@ and never signed by the engine. It binds exactly one route and one report:
   decision-implementation digest and candidate-configuration digest.
 - **Evidence**: collection, plan, trust-policy and evaluation-artifact digests;
   the digest of the exact full-cohort route report the preflight emits; the
-  preflight, readiness and approval digests; route metrics and whole-cohort
-  measured costs. The numeric gates are schema constraints, so a grant below
+  preflight, readiness and approval digests; route metrics (including
+  calibration accuracy) and whole-cohort measured costs. The numeric gates are schema constraints, so a grant below
   any gate cannot be parsed.
 - **Approval, issuer and witness**: the approval ID and operator, the approver
   and issuer key digests, and the witness checkpoint, registration revision,
@@ -223,6 +223,15 @@ selectable: a same-key restart can sign a shorter history.
      uid and therefore by agents; the design review rejected it as the sole
      anchor.
    - Either way, the separation that matters is D5, D6 and D7.
+   - **Linux user-namespace caveat (option A).** Where unprivileged user
+     namespaces are enabled, a process can map its own uid to 0 in a new user
+     and mount namespace and bind-mount a file it owns over the compiled path.
+     Inside that namespace the file looks root-owned and the reader's
+     ownership and mode checks pass. The engine cannot tell from inside such a
+     namespace, so on Linux the anchor is only as strong as the host's policy:
+     disable unprivileged user namespaces
+     (`kernel.unprivileged_userns_clone=0`, or the AppArmor restriction on
+     current Ubuntu) on machines that hold an anchor. macOS has no equivalent.
 2. **Policy identity (owner decision).** Keep the current strict
    `util.hash(policy)` binding, which is key-order sensitive and fails safe on
    any edit; switch to canonical JSON hashing; or bind a governed subset of

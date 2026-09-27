@@ -50,6 +50,8 @@ export const promotionGrantRequestSchema = z
     routeMetrics: z
       .object({
         calibrationCount: z.number().int().min(50),
+        // Decision accuracy on calibration rows at or above the fitted threshold.
+        calibrationAccuracy: z.number().finite().min(0.95).max(1),
         heldOutCount: z.number().int().min(200),
         taskCount: z.number().int().min(60),
         calibrationError: z.number().finite().min(0).max(0.05),
