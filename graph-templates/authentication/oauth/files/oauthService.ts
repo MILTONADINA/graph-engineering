@@ -1,4 +1,4 @@
-import { createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, hkdfSync, randomBytes, timingSafeEqual, verify, type KeyObject } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { database } from '../config/database';
 import { oauthAccountTable, refreshTokenTable } from '../config/schema';
@@ -12,6 +12,12 @@ export const OAUTH_STATE_COOKIE = '__Host-graph_oauth';
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 export const OAUTH_HTTP_TIMEOUT_MS = 10 * 1000;
 const MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024;
+/** Signing keys are cached for the JWKS response's max-age, clamped to [5 minutes, 1 hour]. */
+export const JWKS_MIN_TTL_MS = 5 * 60 * 1000;
+export const JWKS_MAX_TTL_MS = 60 * 60 * 1000;
+/** An unknown kid refetches a still-fresh key set at most once per interval, so unknown kids cannot hammer the provider. */
+export const JWKS_REFETCH_INTERVAL_MS = 60 * 1000;
+const MAX_JWKS_KEYS = 32;
 /** Lax so the provider's top-level redirect back carries it; Secure and __Host- so no other origin can plant it. */
 export const oauthStateCookieOptions = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: '/', maxAge: OAUTH_STATE_TTL_MS };
 
@@ -137,7 +143,8 @@ export function beginLink(providerId: unknown, userId: string, returnTo: unknown
   return begin(providerId, returnTo, 'link', userId);
 }
 
-async function requestJson(endpoint: string, init: RequestInit): Promise<unknown> {
+/** Bounded provider request: HTTPS only, no redirects, a timeout and a 64 KiB body limit enforced while streaming. */
+async function providerRequest(endpoint: string, init: RequestInit): Promise<{ body: unknown; headers: Headers }> {
   const url = new URL(endpoint);
   if (url.protocol !== 'https:') fail();
   let response: Response;
@@ -152,10 +159,13 @@ async function requestJson(endpoint: string, init: RequestInit): Promise<unknown
   }
   const text = await readLimited(response);
   try {
-    return JSON.parse(text) as unknown;
+    return { body: JSON.parse(text) as unknown, headers: response.headers };
   } catch {
     fail();
   }
+}
+async function requestJson(endpoint: string, init: RequestInit): Promise<unknown> {
+  return (await providerRequest(endpoint, init)).body;
 }
 /** Reads the body incrementally and stops as soon as it exceeds the limit, whatever content-length claims. */
 async function readLimited(response: Response): Promise<string> {
@@ -198,21 +208,152 @@ async function exchangeCode(provider: OAuthProviderConfig, code: string, verifie
   return result as Record<string, unknown>;
 }
 
+type IdTokenAlgorithm = 'RS256' | 'ES256';
+interface VerificationKey {
+  key: KeyObject;
+  alg: IdTokenAlgorithm;
+}
+/** kid -> key; null marks a listed kid whose key is unusable (bad material, wrong type, duplicate), which never verifies. */
+interface KeySet {
+  keys: Map<string, VerificationKey | null>;
+  expiresAt: number;
+}
+const KEY_ID = /^[\x21-\x7e]{1,256}$/;
+const SEGMENT = /^[A-Za-z0-9_-]+$/;
+const keySets = new Map<string, KeySet>();
+const lastKeySetFetch = new Map<string, number>();
+const pendingKeySets = new Map<string, Promise<KeySet>>();
 /**
- * The ID token comes straight from the token endpoint over server-side TLS, so (OIDC Core 3.1.3.7)
- * TLS server validation stands in for signature verification; issuer, audience, expiry and nonce are still checked.
+ * Per-URI generation, bumped by resetOAuthKeyCache and never cleared: a fetch that started before a reset sees a
+ * different generation when it settles, so it neither caches its keys nor removes a newer fetch's pending entry.
  */
-export function verifyIdTokenClaims(provider: OAuthProviderConfig, idToken: unknown, nonce: string, now = Date.now()): OAuthProfile {
-  if (provider.kind !== 'oidc' || typeof idToken !== 'string' || idToken.length > 8192) fail();
-  const parts = idToken.split('.');
-  if (parts.length !== 3) fail();
-  let claims: Record<string, unknown>;
+const keySetGenerations = new Map<string, number>();
+
+/** Drops every cached signing key, for example after a provider reports a key compromise (and between tests). */
+export function resetOAuthKeyCache(): void {
+  for (const [uri, generation] of keySetGenerations) keySetGenerations.set(uri, generation + 1);
+  keySets.clear();
+  lastKeySetFetch.clear();
+  pendingKeySets.clear();
+}
+/**
+ * Builds a verification key from only the public members of a JWK. RS256 needs an RSA key of at least 2048 bits
+ * with public exponent 65537 (Node accepts e = 1, under which PKCS#1 v1.5 signatures are trivially forged, and
+ * other small exponents), ES256 a P-256 key; a JWK's own alg or use, when present, must agree. Anything else is unusable.
+ */
+function verificationKey(value: Record<string, unknown>): VerificationKey | null {
+  if (value.use !== undefined && value.use !== 'sig') return null;
   try {
-    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as Record<string, unknown>;
+    if (value.kty === 'RSA' && (value.alg === undefined || value.alg === 'RS256') &&
+      typeof value.n === 'string' && typeof value.e === 'string') {
+      const key = createPublicKey({ key: { kty: 'RSA', n: value.n, e: value.e }, format: 'jwk' });
+      const bits = key.asymmetricKeyDetails?.modulusLength ?? 0;
+      return key.asymmetricKeyType === 'rsa' && bits >= 2048 && bits <= 8192 &&
+        Number(key.asymmetricKeyDetails?.publicExponent) === 65537 ? { key, alg: 'RS256' } : null;
+    }
+    if (value.kty === 'EC' && value.crv === 'P-256' && (value.alg === undefined || value.alg === 'ES256') &&
+      typeof value.x === 'string' && typeof value.y === 'string') {
+      const key = createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: value.x, y: value.y }, format: 'jwk' });
+      return key.asymmetricKeyType === 'ec' && key.asymmetricKeyDetails?.namedCurve === 'prime256v1' ? { key, alg: 'ES256' } : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+/** Cache-Control max-age clamped to [JWKS_MIN_TTL_MS, JWKS_MAX_TTL_MS]; absent, no-store or no-cache get the minimum. */
+function keySetLifetime(cacheControl: string | null): number {
+  const match = /(?:^|,)\s*max-age\s*=\s*"?(\d{1,10})"?\s*(?:,|$)/i.exec(cacheControl ?? '');
+  const seconds = match ? Number(match[1]) : 0;
+  return Math.min(JWKS_MAX_TTL_MS, Math.max(JWKS_MIN_TTL_MS, seconds * 1000));
+}
+function parseKeySet(body: unknown, headers: Headers, now: number): KeySet {
+  const list = body && typeof body === 'object' ? (body as { keys?: unknown }).keys : undefined;
+  if (!Array.isArray(list) || list.length === 0 || list.length > MAX_JWKS_KEYS) fail();
+  const keys = new Map<string, VerificationKey | null>();
+  for (const item of list) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const kid = (item as { kid?: unknown }).kid;
+    if (typeof kid !== 'string' || !KEY_ID.test(kid)) continue;
+    // A kid listed twice is ambiguous, so it never verifies.
+    keys.set(kid, keys.has(kid) ? null : verificationKey(item as Record<string, unknown>));
+  }
+  return { keys, expiresAt: now + keySetLifetime(headers.get('cache-control')) };
+}
+/** One fetch per URI at a time through the bounded provider request; concurrent callers share it. */
+function fetchKeySet(uri: string, now: number): Promise<KeySet> {
+  const pending = pendingKeySets.get(uri);
+  if (pending) return pending;
+  lastKeySetFetch.set(uri, now);
+  const generation = keySetGenerations.get(uri) ?? 0;
+  keySetGenerations.set(uri, generation);
+  const current = () => keySetGenerations.get(uri) === generation;
+  const request: Promise<KeySet> = providerRequest(uri, { headers: { accept: 'application/json' } })
+    .then(({ body, headers }) => {
+      // Keys fetched before a reset are discarded, and the sign-in that waited for them fails.
+      if (!current()) fail();
+      const keySet = parseKeySet(body, headers, now);
+      keySets.set(uri, keySet);
+      return keySet;
+    })
+    .finally(() => {
+      if (current() && pendingKeySets.get(uri) === request) pendingKeySets.delete(uri);
+    });
+  pendingKeySets.set(uri, request);
+  return request;
+}
+async function verificationKeyFor(uri: string, kid: string, now: number): Promise<VerificationKey | null> {
+  const cached = keySets.get(uri);
+  if (cached && cached.expiresAt > now) {
+    if (cached.keys.has(kid)) return cached.keys.get(kid) ?? null;
+    // An unknown kid may mean the provider rotated its keys: refetch, but at most once per interval.
+    if (now - (lastKeySetFetch.get(uri) ?? -Infinity) < JWKS_REFETCH_INTERVAL_MS && !pendingKeySets.has(uri)) return null;
+  }
+  // A missing or expired set is fetched again; a failed fetch fails the sign-in rather than using stale keys.
+  return (await fetchKeySet(uri, now)).keys.get(kid) ?? null;
+}
+/**
+ * Verifies the JWS signature with a key from the provider's configured jwks_uri only (jku, jwk and x5c headers are
+ * ignored). Only RS256 and ES256 are accepted: alg none, HMAC algorithms, a missing or unknown kid, a crit header,
+ * a key of the wrong type and a signature mismatch all fail with the generic error.
+ */
+async function verifyIdTokenSignature(provider: OAuthProviderConfig, parts: string[], now: number): Promise<void> {
+  if (!provider.jwksUri || !parts.every((part) => SEGMENT.test(part))) fail();
+  let header: Record<string, unknown>;
+  try {
+    header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')) as Record<string, unknown>;
   } catch {
     fail();
   }
-  if (!claims || typeof claims !== 'object') fail();
+  if (!header || typeof header !== 'object' || Array.isArray(header)) fail();
+  const { alg, kid } = header;
+  if ((alg !== 'RS256' && alg !== 'ES256') || typeof kid !== 'string' || !KEY_ID.test(kid) || header.crit !== undefined) fail();
+  const key = await verificationKeyFor(provider.jwksUri, kid, now);
+  // The key already selects the verification algorithm below, so a header naming the other algorithm could not make
+  // a wrong signature verify. Refusing the mismatch anyway (defence in depth, and RFC 7515's rule that alg names the
+  // algorithm actually used) rejects a genuine signature presented under a mislabeled header.
+  if (!key || key.alg !== alg) fail();
+  const input = Buffer.from(`${parts[0]}.${parts[1]}`, 'ascii');
+  const signature = Buffer.from(parts[2], 'base64url');
+  let valid = false;
+  try {
+    valid = key.alg === 'RS256'
+      ? verify('sha256', input, key.key, signature)
+      : signature.length === 64 && verify('sha256', input, { key: key.key, dsaEncoding: 'ieee-p1363' }, signature);
+  } catch {
+    valid = false;
+  }
+  if (!valid) fail();
+}
+/** Claim checks, run only on a payload whose signature has already been verified. */
+function idTokenProfile(provider: OAuthProviderConfig, payload: string, nonce: string, now: number): OAuthProfile {
+  let claims: Record<string, unknown>;
+  try {
+    claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    fail();
+  }
+  if (!claims || typeof claims !== 'object' || Array.isArray(claims)) fail();
   const seconds = Math.floor(now / 1000);
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (typeof claims.iss !== 'string' || !provider.issuers.includes(claims.iss) || !audiences.includes(provider.clientId) ||
@@ -221,6 +362,17 @@ export function verifyIdTokenClaims(provider: OAuthProviderConfig, idToken: unkn
     !nonce || !safeEqual(claims.nonce, nonce) || typeof claims.sub !== 'string' || !SUBJECT.test(claims.sub)) fail();
   const email = normalizeEmail(claims.email);
   return { subject: claims.sub, email, emailVerified: email !== null && claims.email_verified === true };
+}
+/**
+ * Verifies an OIDC ID token: first its signature against the provider's JWKS, then issuer, audience, azp, expiry,
+ * issued-at and nonce. Only then is email_verified trusted.
+ */
+export async function verifyIdToken(provider: OAuthProviderConfig, idToken: unknown, nonce: string, now = Date.now()): Promise<OAuthProfile> {
+  if (provider.kind !== 'oidc' || typeof idToken !== 'string' || idToken.length > 8192) fail();
+  const parts = idToken.split('.');
+  if (parts.length !== 3) fail();
+  await verifyIdTokenSignature(provider, parts, now);
+  return idTokenProfile(provider, parts[1], nonce, now);
 }
 /** GitHub: only an email that is BOTH primary and verified counts. */
 export function selectGithubEmail(emails: unknown): string | null {
@@ -337,7 +489,7 @@ export async function completeLogin(
   const tokens = await exchangeCode(provider, query.code, transaction.verifier);
   const profile = provider.kind === 'github'
     ? await githubProfile(String(tokens.access_token))
-    : verifyIdTokenClaims(provider, tokens.id_token, transaction.nonce);
+    : await verifyIdToken(provider, tokens.id_token, transaction.nonce);
   const returnTo = allowedReturnTo(transaction.returnTo);
   if (transaction.intent === 'link') {
     await linkToAccount(provider, profile, transaction.userId);

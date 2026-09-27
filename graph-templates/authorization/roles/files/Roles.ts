@@ -1,13 +1,45 @@
-import { and, asc, count, eq, isNotNull, ne, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
 import { database } from '../config/database';
-import { roleTable, rolePermissionTable, userRoleTable, userTable } from '../config/schema';
-import { MAX_PERMISSIONS_PER_ROLE, MAX_ROLES } from '../utils/roleNames';
+import { roleAuditLogTable, roleTable, rolePermissionTable, userRoleTable, userTable } from '../config/schema';
+import { AUDIT_PAGE_MAX, MAX_PERMISSIONS_PER_ROLE, MAX_ROLES, type RoleAuditOutcome } from '../utils/roleNames';
 
 /** The pool or a transaction. Every statement is built by Drizzle and sends values as bound parameters. */
 export type RoleExecutor = Pick<typeof database, 'select' | 'insert' | 'update' | 'delete' | 'execute'>;
 export interface RoleRecord { id: string; name: string; builtIn: boolean }
+/** One audit row as written: identifiers, a fixed action name and the outcome; never free text. */
+export interface RoleAuditEntry {
+  actorId: string | null;
+  action: string;
+  target: string | null;
+  /** The role, permission or new role name the change was about; always a validated name. */
+  detail: string | null;
+  outcome: RoleAuditOutcome;
+  status: number | null;
+}
+export interface RoleAuditRecord {
+  id: string;
+  occurredAt: Date;
+  actorId: string | null;
+  action: string;
+  target: string | null;
+  detail: string | null;
+  outcome: string;
+  status: number | null;
+}
+/** Already validated by the service: before is a row id, outcome and action are from the closed lists. */
+export interface RoleAuditQuery {
+  limit: number;
+  before?: string;
+  outcome?: RoleAuditOutcome;
+  action?: string;
+}
 
 const roleColumns = { id: roleTable.id, name: roleTable.name, builtIn: roleTable.builtIn };
+const auditColumns = {
+  id: roleAuditLogTable.id, occurredAt: roleAuditLogTable.occurredAt, actorId: roleAuditLogTable.actorId,
+  action: roleAuditLogTable.action, target: roleAuditLogTable.target, detail: roleAuditLogTable.detail,
+  outcome: roleAuditLogTable.outcome, status: roleAuditLogTable.status,
+};
 
 export const roleRepository = {
   /** Serializes every role mutation, so last-administrator checks cannot race. */
@@ -99,5 +131,30 @@ export const roleRepository = {
       .where(and(eq(rolePermissionTable.roleId, roleId), eq(rolePermissionTable.permission, permission)))
       .returning({ id: rolePermissionTable.id });
     return rows.length === 1;
+  },
+  /** Append-only: there is deliberately no update or delete for audit rows. */
+  async insertAuditEntry(db: RoleExecutor, entry: RoleAuditEntry): Promise<void> {
+    await db.insert(roleAuditLogTable).values(entry);
+  },
+  /**
+   * Newest first, bounded to 1..AUDIT_PAGE_MAX rows whatever the caller passes. `before` is the id
+   * of the last row of the previous page: the next page holds rows strictly older in
+   * (occurred_at, id) order, compared in the database so timestamps keep full precision. An
+   * unknown cursor matches no rows.
+   */
+  async listAuditEntries(db: RoleExecutor, query: RoleAuditQuery): Promise<RoleAuditRecord[]> {
+    const bounded = Number.isInteger(query.limit) ? Math.min(Math.max(query.limit, 1), AUDIT_PAGE_MAX) : 1;
+    const cursorTime = query.before === undefined ? undefined : db.select({ occurredAt: roleAuditLogTable.occurredAt })
+      .from(roleAuditLogTable).where(eq(roleAuditLogTable.id, query.before));
+    return db.select(auditColumns).from(roleAuditLogTable)
+      .where(and(
+        query.outcome === undefined ? undefined : eq(roleAuditLogTable.outcome, query.outcome),
+        query.action === undefined ? undefined : eq(roleAuditLogTable.action, query.action),
+        cursorTime === undefined || query.before === undefined ? undefined : or(
+          lt(roleAuditLogTable.occurredAt, cursorTime),
+          and(eq(roleAuditLogTable.occurredAt, cursorTime), lt(roleAuditLogTable.id, query.before)),
+        ),
+      ))
+      .orderBy(desc(roleAuditLogTable.occurredAt), desc(roleAuditLogTable.id)).limit(bounded);
   },
 };

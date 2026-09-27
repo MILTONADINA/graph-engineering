@@ -53,7 +53,8 @@
       "required": [
         "issuer",
         "authorizationEndpoint",
-        "tokenEndpoint"
+        "tokenEndpoint",
+        "jwksUri"
       ],
       "properties": {
         "issuer": {
@@ -67,6 +68,11 @@
           "pattern": "^https://"
         },
         "tokenEndpoint": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^https://"
+        },
+        "jwksUri": {
           "type": "string",
           "maxLength": 512,
           "pattern": "^https://"

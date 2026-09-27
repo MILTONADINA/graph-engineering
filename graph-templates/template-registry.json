@@ -1,6 +1,6 @@
 {
   "$schema": "template-registry.schema.json",
-  "generatedAt": "2026-09-26T17:28:28.453Z",
+  "generatedAt": "2026-09-27T05:19:52.905Z",
   "templateCount": 56,
   "templates": [
     {
@@ -383,7 +383,7 @@
       "category": "authentication",
       "subcategory": "oauth",
       "status": "implemented",
-      "description": "Third-party sign-in through the OAuth 2.0 authorization-code flow with PKCE (S256), with ready presets for Google (OIDC) and GitHub and one generic OIDC provider configured by static HTTPS endpoints. It extends authentication.jwt rather than replacing it: after a successful callback it issues the same access/refresh tokens authentication.jwt defines. A login may create a new account, but only for a provider-verified email address that no account uses. A first-time login whose verified email already belongs to an account is refused by default; the owner signs in the usual way and links the provider through the authenticated POST /api/auth/oauth/:provider/link flow, which requires the provider-verified email to equal the account's email. The per-provider linkVerifiedEmailToExistingAccount input restores automatic linking as a documented risk. Provider identities are stored as provider + provider subject id in an oauth_accounts table; users themselves stay behind an application-owned account directory adapter.",
+      "description": "Third-party sign-in through the OAuth 2.0 authorization-code flow with PKCE (S256), with ready presets for Google (OIDC) and GitHub and one generic OIDC provider configured by static HTTPS endpoints. OIDC ID token signatures are verified (RS256 or ES256) against the provider's JWKS before any claim is trusted. It extends authentication.jwt rather than replacing it: after a successful callback it issues the same access/refresh tokens authentication.jwt defines. A login may create a new account, but only for a provider-verified email address that no account uses. A first-time login whose verified email already belongs to an account is refused by default; the owner signs in the usual way and links the provider through the authenticated POST /api/auth/oauth/:provider/link flow, which requires the provider-verified email to equal the account's email. The per-provider linkVerifiedEmailToExistingAccount input restores automatic linking as a documented risk. Provider identities are stored as provider + provider subject id in an oauth_accounts table; users themselves stay behind an application-owned account directory adapter.",
       "tags": [
         "authentication",
         "oauth",
@@ -790,7 +790,7 @@
       "category": "authorization",
       "subcategory": "roles",
       "status": "implemented",
-      "description": "Application-defined, runtime-configurable roles: roles, user_roles and role_permissions tables, a repository and service, admin-only management routes (create, rename and delete roles, assign and revoke them, grant and revoke resource:action permissions) and requireAssignedRole/requireAssignedPermission middleware that read the caller's current roles from the database on every request. Unlike authorization.rbac's fixed customer/admin enum (and its requireRole, which reads users.role), an administrator can add roles without a code change. The JWT role claim is never used for these decisions.",
+      "description": "Application-defined, runtime-configurable roles: roles, user_roles, role_permissions and an append-only role_audit_log table, a repository and service, admin-only management routes (create, rename and delete roles, assign and revoke them, grant and revoke resource:action permissions, read the audit log) and requireAssignedRole/requireAssignedPermission middleware that read the caller's current roles from the database on every request. Unlike authorization.rbac's fixed customer/admin enum (and its requireRole, which reads users.role), an administrator can add roles without a code change. The JWT role claim is never used for these decisions.",
       "tags": [
         "authorization",
         "roles",

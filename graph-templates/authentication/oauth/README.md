@@ -19,9 +19,13 @@ provider to their existing account.
 
 - One generic OAuth2/OIDC provider shape with ready presets for Google (OIDC,
   `openid email profile`) and GitHub (`read:user user:email`). The `oidc`
-  provider takes a static HTTPS issuer, authorization endpoint and token
-  endpoint as template inputs, so the configuration is reviewable and the
-  rendering deterministic.
+  provider takes a static HTTPS issuer, authorization endpoint, token
+  endpoint and `jwksUri` as template inputs (no runtime discovery), so the
+  configuration is reviewable and the rendering deterministic.
+- ID token signatures are verified with `node:crypto` against the provider's
+  published keys (Google: `https://www.googleapis.com/oauth2/v3/certs`;
+  generic OIDC: the `jwksUri` input), with no new dependency. GitHub is OAuth2
+  without ID tokens and is unchanged.
 - An OAuth login may create a new account, but only for a provider-verified
   email address that no account uses yet.
 - A first-time provider login is never attached to an existing account by
@@ -62,7 +66,8 @@ accepts it. The renderer refuses to run without these files.
 
 **Configure via.** Inputs `providers` (default `["google", "github"]`),
 `postLoginRedirects` (exact relative paths, default `["/"]`),
-`linkVerifiedEmailToExistingAccount` (default `[]`) and `oidc` when the
+`linkVerifiedEmailToExistingAccount` (default `[]`) and `oidc` (`issuer`,
+`authorizationEndpoint`, `tokenEndpoint` and `jwksUri`, all HTTPS) when the
 generic provider is enabled. Environment variables, all required with no
 defaults: `OAUTH_REDIRECT_BASE_URL`, plus `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`,
 `GITHUB_OAUTH_CLIENT_ID`/`_SECRET` or `OIDC_CLIENT_ID`/`_SECRET` for each
@@ -78,14 +83,19 @@ appended to `schema.ts`, the environment bindings in `helpers.ts`, and
 
 **Test.** `npm test -- authenticationOauth` checks the RFC 7636 S256 vector,
 state/nonce binding and rejection, the redirect allowlist, the server-side
-token request, the streamed 64 KiB response limit, ID token claim checks,
+token request, the streamed 64 KiB response limit, ID token signature
+verification (valid RS256 and ES256, tampered payload or signature, `alg:
+none`, HS256 keyed with the public key, missing or unknown `kid`, bad key
+material including RSA exponents 1 and 3, a genuine signature under a
+mislabeled `alg`, the unknown-`kid` refetch limit, a fetch in flight across a
+cache reset, the cache lifetime, and an oversized or non-HTTPS key set), ID token claim checks,
 GitHub primary-and-verified email selection, ASCII-only emails, the refusal to
 attach a first-time login to an existing account, the authenticated link flow,
 token issuance, and the routes through Express with `supertest` (state cookie
 set and cleared with exact attributes on success and failure, auth cookies,
 303 redirect target, generic rejection). The OIDC claim test runs only when
-Google or `oidc` is enabled, so the test count depends on the selected
-providers (19 with all three).
+Google or `oidc` is enabled, and so do the seven ID token signature tests, so
+the test count depends on the selected providers (26 with all three).
 
 **Security.**
 
@@ -104,9 +114,27 @@ providers (19 with all three).
   streams (reading stops and the stream is cancelled once it is passed, even
   without a `content-length`), and every failure returns
   the same generic `OAuth sign-in failed`.
-- Google and generic OIDC: the ID token comes straight from the token endpoint
-  over TLS, so (OIDC Core 3.1.3.7) its issuer, audience, `azp`, expiry and
-  nonce are checked and `email_verified` must be `true`. GitHub: the email
+- Google and generic OIDC: the ID token's signature is verified before any of
+  its claims are read. Keys come only from the provider's fixed HTTPS
+  `jwks_uri` (the token's `jku`, `jwk` and `x5c` headers are ignored), fetched
+  through the same bounded request as other provider calls, and are built with
+  `crypto.createPublicKey({ key: jwk, format: "jwk" })` from the JWK's public
+  members only. Only RS256 (RSA keys of at least 2048 bits with public
+  exponent 65537; Node accepts `e = 1`, under which signatures are trivially
+  forged) and ES256 (P-256) are accepted. The key, not the header, selects the
+  verification algorithm; as defence in depth the header's `alg` must also
+  match it and any `alg` the JWK declares; `alg: none`, HMAC algorithms, a missing or unknown `kid`, a
+  `crit` header, unusable key material and a signature mismatch all fail with
+  the generic error. Keys are cached in memory for the response's
+  `Cache-Control` `max-age`, clamped to between 5 minutes and 1 hour (5
+  minutes when absent). An unknown `kid` refetches a still-fresh key set at
+  most once a minute, and concurrent refetches share one request, so a flood
+  of unknown `kid`s cannot hammer the provider; a failed fetch fails the
+  sign-in rather than using expired keys. `resetOAuthKeyCache()` drops the
+  cache, for example after a provider reports a key compromise; a key set
+  fetched before the reset is discarded when it arrives. Then the
+  issuer, audience, `azp`, expiry, issued-at and nonce are checked and
+  `email_verified` must be `true`. GitHub: the email
   must be both primary and verified according to `/user/emails`. Addresses must
   be printable ASCII, checked before lower-casing, so Unicode look-alikes and
   case mappings onto ASCII (such as the Kelvin sign) are rejected rather than
@@ -115,6 +143,8 @@ providers (19 with all three).
 - Identity comes only from the provider. Accounts are keyed by provider and
   provider subject id, never by anything the client sends.
 
-**Not covered.** Generic OAuth2 providers without OIDC ID tokens, provider
+**Not covered.** OIDC discovery (the endpoints and `jwksUri` are static
+inputs), signing algorithms other than RS256 and ES256, a key cache shared
+between processes, generic OAuth2 providers without OIDC ID tokens, provider
 token storage or API access on the user's behalf, account unlinking, and
 signing in with an unverified email.

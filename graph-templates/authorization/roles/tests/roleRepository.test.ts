@@ -30,7 +30,8 @@ describe('authorization.roles repository', () => {
     await roleRepository.userHasPermission(db, userId, hostile);
     await roleRepository.insertPermission(db, userId, hostile);
     await roleRepository.countActiveAssignments(db, userId, hostile);
-    expect(recorded.length).toBe(10);
+    await roleRepository.insertAuditEntry(db, { actorId: userId, action: 'role.create', target: hostile, detail: null, outcome: 'succeeded', status: null });
+    expect(recorded.length).toBe(11);
     for (const statement of recorded) {
       expect(statement.text).not.toContain('DROP TABLE');
       expect(statement.text).not.toContain('graph-roles:administration');
@@ -45,6 +46,20 @@ describe('authorization.roles repository', () => {
     await roleRepository.renameRole(db, userId, 'editor');
     await roleRepository.deleteRole(db, userId);
     for (const statement of recorded) expect(statement.text).toMatch(/"built_in" = \$\d+/);
+  });
+
+  it('appends audit rows and reads them newest first with a bounded limit, filters and a cursor', async () => {
+    recorded.length = 0;
+    await roleRepository.listAuditEntries(db, { limit: 10_000 });
+    await roleRepository.listAuditEntries(db, { limit: 0 });
+    expect(recorded[0].text).toMatch(/from "role_audit_log" order by (?:"role_audit_log"\.)?"occurred_at" desc, (?:"role_audit_log"\.)?"id" desc limit \$1$/);
+    expect(recorded.map((statement) => statement.values)).toEqual([[200], [1]]);
+    recorded.length = 0;
+    await roleRepository.listAuditEntries(db, { limit: 5, before: userId, outcome: 'denied', action: hostile });
+    expect(recorded[0].text).not.toContain('DROP TABLE');
+    expect(recorded[0].text).toMatch(/< \(select "occurred_at" from "role_audit_log" where "role_audit_log"\."id" = \$\d+\)/);
+    expect(recorded[0].values).toEqual(expect.arrayContaining(['denied', hostile, userId, 5]));
+    expect(Object.keys(roleRepository).filter((name) => /audit/i.test(name)).sort()).toEqual(['insertAuditEntry', 'listAuditEntries']);
   });
 
   it('counts only active, verified administrators', async () => {
