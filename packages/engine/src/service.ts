@@ -1005,13 +1005,33 @@ export class GraphEngine {
       throw new Error("The note contains a potential secret; rephrase it");
     if (run.status !== "failed")
       throw new Error("Only a run that stopped at code review can be approved");
+    await this.refresh();
+    if (hash(this.config.policy) !== run.plan.policyHash)
+      throw new Error(
+        "Policy changed since this run was planned; a review approval could not be applied",
+      );
     const events = this.store.events(runId);
-    const reviewed = events.some(
+    // The run must have stopped at review: its last review either asked for
+    // changes or never finished, and nothing ran after it (a later security
+    // or publication failure is not a review the person can stand in for).
+    const lastReview = events.findLastIndex(
       (event) =>
-        event.type === "review.started" ||
-        (event.type === "review.completed" && event.data.passed !== true),
+        event.type === "review.started" || event.type === "review.completed",
     );
-    if (!this.runReviewerId(runId) || !reviewed)
+    const stoppedAtReview =
+      lastReview >= 0 &&
+      (events[lastReview]!.type === "review.started" ||
+        events[lastReview]!.data.passed !== true) &&
+      !events
+        .slice(lastReview + 1)
+        .some((event) =>
+          [
+            "security.scan_started",
+            "publication.started",
+            "verification.started",
+          ].includes(event.type),
+        );
+    if (!this.runReviewerId(runId) || !stoppedAtReview)
       throw new Error("This run did not stop at code review");
     const passed = events
       .filter((event) => event.type === "verification.completed")
@@ -2031,7 +2051,9 @@ export class GraphEngine {
           priorEvents.some(
             (event) =>
               event.type === "publication.started" ||
-              (event.type === "patch.applied" && event.stepId === step.id),
+              ((event.type === "patch.applied" ||
+                event.type === "solution.cache_hit") &&
+                event.stepId === step.id),
           )
         ) {
           if (await verify(step.id)) {
