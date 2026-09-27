@@ -13,7 +13,7 @@
 // registries that hold only "none", so every run stops at step 1 today.
 // Behind step 1, steps 4, 8, 10 and 11 would also refuse through the "none"
 // witness, custody and attestor.
-import { randomBytes } from "node:crypto";
+import { createHash, createPublicKey, randomBytes } from "node:crypto";
 import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectPolicy } from "@graph-engineering/contracts";
@@ -32,6 +32,7 @@ import {
   type PromotionControllers,
   type PublicKeyPin,
   type SignedCollectionCheckpoint,
+  type SignedGrantStatus,
 } from "./promotion-controllers.js";
 import {
   PROMOTION_RUNTIME_GRANT_PURPOSE,
@@ -410,6 +411,50 @@ export function checkCalibrationDisjoint(
     );
 }
 
+/**
+ * Step 6: decision accuracy on the route's calibration rows at or above its
+ * fitted threshold (0 when none qualify). The request schema requires 0.95.
+ */
+export function routeCalibrationAccuracy(
+  calibration: unknown,
+  route: {
+    category: string;
+    provider: string;
+    model: string;
+    minimumConfidence: number;
+  },
+): number {
+  const rows = z
+    .object({
+      rows: z.array(
+        z
+          .object({
+            category: z.string(),
+            provider: z.string(),
+            model: z.string(),
+            selected: z.string().nullable(),
+            expected: z.string(),
+            confidence: z.number(),
+          })
+          .passthrough(),
+      ),
+    })
+    .passthrough()
+    .parse(decodeJson(calibration)).rows;
+  const accepted = rows.filter(
+    (row) =>
+      row.category === route.category &&
+      row.provider === route.provider &&
+      row.model === route.model &&
+      row.selected !== null &&
+      row.confidence >= route.minimumConfidence,
+  );
+  return accepted.length
+    ? accepted.filter((row) => row.selected === row.expected).length /
+        accepted.length
+    : 0;
+}
+
 /** Step 7: whole-cohort cost must be measured on both arms, candidate strictly lower. */
 export function checkMeasuredCost(
   projection: {
@@ -435,27 +480,19 @@ export function checkMeasuredCost(
 export interface SignerClaim {
   role: EvidenceSignerRole;
   keyId: string;
+  actorId: string;
+  /** SHA-256 of the SPKI key the bundle's trust files verify this signer with. */
+  publicKeySha256: string;
 }
 
-/** Step 8: keys and actors must be pairwise distinct across roles. */
-export function requireDistinctSigners(
-  claims: readonly SignerClaim[],
-  resolved: readonly (PublicKeyPin | undefined)[],
-): void {
-  if (resolved.length !== claims.length)
-    refuse("signer-key-unresolved", "signer inventory is incomplete");
+/** Keys and actors actually used by the bundle must be pairwise distinct across roles. */
+export function requireDistinctUsedKeys(claims: readonly SignerClaim[]): void {
   const keyRole = new Map<string, EvidenceSignerRole>();
   const actorRole = new Map<string, EvidenceSignerRole>();
-  for (const [index, claim] of claims.entries()) {
-    const pin = resolved[index];
-    if (!pin || pin.role !== claim.role || pin.keyId !== claim.keyId)
-      refuse(
-        "signer-key-unresolved",
-        `${claim.role} key ${claim.keyId} is not held by the selected custody`,
-      );
+  for (const claim of claims)
     for (const [map, value] of [
-      [keyRole, pin!.publicKeySha256],
-      [actorRole, pin!.actorId],
+      [keyRole, claim.publicKeySha256],
+      [actorRole, claim.actorId],
     ] as const) {
       const role = map.get(value);
       if (role !== undefined && role !== claim.role)
@@ -465,64 +502,185 @@ export function requireDistinctSigners(
         );
       map.set(value, claim.role);
     }
+}
+
+/**
+ * Step 8: every custody pin must name the same role, key ID and actor as the
+ * signer it resolves AND carry the exact key the bundle used to verify that
+ * signer's signatures. A matching name with another key is refused.
+ */
+export function requireDistinctSigners(
+  claims: readonly SignerClaim[],
+  resolved: readonly (PublicKeyPin | undefined)[],
+): void {
+  if (resolved.length !== claims.length)
+    refuse("signer-key-unresolved", "signer inventory is incomplete");
+  requireDistinctUsedKeys(claims);
+  for (const [index, claim] of claims.entries()) {
+    const pin = resolved[index];
+    if (!pin || pin.role !== claim.role || pin.keyId !== claim.keyId)
+      refuse(
+        "signer-key-unresolved",
+        `${claim.role} key ${claim.keyId} is not held by the selected custody`,
+      );
+    if (
+      pin!.publicKeySha256 !== claim.publicKeySha256 ||
+      pin!.actorId !== claim.actorId
+    )
+      refuse(
+        "signer-key-mismatch",
+        `${claim.role} key ${claim.keyId} differs from the key custody holds`,
+      );
   }
 }
 
-const keyRowsSchema = z
+/** SHA-256 of a canonical Ed25519 SPKI public key, as the inspectors compute it. */
+export function publicKeyFingerprint(publicKeyPem: string): string {
+  let key;
+  try {
+    key = createPublicKey(publicKeyPem);
+  } catch {
+    return refuse("signer-key-mismatch", "a signer public key is malformed");
+  }
+  if (
+    key.asymmetricKeyType !== "ed25519" ||
+    key.export({ type: "spki", format: "pem" }).toString() !== publicKeyPem
+  )
+    refuse("signer-key-mismatch", "a signer key is not canonical Ed25519");
+  return createHash("sha256")
+    .update(key.export({ type: "spki", format: "der" }))
+    .digest("hex");
+}
+
+const registryKeysSchema = z
   .object({
     keys: z.array(
       z
         .object({
           keyId: z.string(),
-          roles: z.array(z.string()).optional(),
+          actorId: z.string(),
+          roles: z.array(z.string()),
+          publicKeyPem: z.string(),
         })
         .passthrough(),
     ),
+    revokedKeyIds: z.array(z.string()),
   })
   .passthrough();
-const pinRowsSchema = z.array(
-  z
-    .object({ pin: z.object({ keyId: z.string() }).passthrough() })
-    .passthrough(),
-);
-const keyIdSchema = z.object({ keyId: z.string() }).passthrough();
+const pinSchema = z
+  .object({
+    keyId: z.string(),
+    publicKeyPem: z.string(),
+    publicKeySha256: digestSchema,
+  })
+  .passthrough();
+const pinRowsSchema = z.array(z.object({ pin: pinSchema }).passthrough());
+const actorOf = (pin: Record<string, unknown>, field: string) =>
+  typeof pin[field] === "string"
+    ? (pin[field] as string)
+    : refuse("signer-role-unknown", `a signer pin lacks ${field}`);
 
-/** Every signer the bundle relies on, by role. */
+/**
+ * Every key the bundle's trust files use to verify a signature, by role, with
+ * the fingerprint derived from its public key. A registry key with no role or
+ * a role its registry does not define is refused.
+ */
 export function collectSignerClaims(bundle: PromotionBundle): SignerClaim[] {
   const { readiness } = bundle.manifest;
   const aggregate = aggregateInputSchema.parse(
     doc(bundle, readiness.aggregate.input),
   );
   const claims: SignerClaim[] = [];
-  const add = (role: EvidenceSignerRole, keyId: string) => {
-    if (!claims.some((item) => item.role === role && item.keyId === keyId))
-      claims.push({ role, keyId });
+  const add = (claim: SignerClaim) => {
+    if (
+      !claims.some(
+        (item) => item.role === claim.role && item.keyId === claim.keyId,
+      )
+    )
+      claims.push(claim);
   };
-  for (const key of keyRowsSchema.parse(doc(bundle, readiness.population.trust))
-    .keys)
-    add("curator", key.keyId);
-  for (const key of keyRowsSchema.parse(aggregate.rowTrust).keys)
-    for (const role of key.roles ?? [])
-      if (role === "labeler" || role === "reviewer") add(role, key.keyId);
-  for (const key of keyRowsSchema.parse(aggregate.aggregateTrust).keys)
-    add("reviewer", key.keyId);
-  if (readiness.sourceAttestation)
-    add(
-      "source",
-      keyIdSchema.parse(doc(bundle, readiness.sourceAttestation.pin)).keyId,
-    );
-  if (readiness.workerDeliveries)
-    for (const row of pinRowsSchema.parse(
-      doc(bundle, readiness.workerDeliveries),
-    ))
-      add("worker", row.pin.keyId);
-  if (readiness.oracleExecutions)
-    for (const row of pinRowsSchema.parse(
-      doc(bundle, readiness.oracleExecutions),
-    ))
-      add("oracle", row.pin.keyId);
+  const registry = (
+    input: unknown,
+    roles: Readonly<Record<string, EvidenceSignerRole>>,
+    label: string,
+  ) => {
+    const parsed = registryKeysSchema.safeParse(input);
+    if (!parsed.success)
+      refuse("signer-role-unknown", `${label} trust is not a key registry`);
+    for (const key of parsed.data!.keys) {
+      if (
+        !key.roles.length ||
+        key.roles.some((role) => !Object.hasOwn(roles, role))
+      )
+        refuse(
+          "signer-role-unknown",
+          `${label} key ${key.keyId} has no role or an unknown role`,
+        );
+      if (parsed.data!.revokedKeyIds.includes(key.keyId)) continue;
+      const publicKeySha256 = publicKeyFingerprint(key.publicKeyPem);
+      for (const role of key.roles)
+        add({
+          role: roles[role]!,
+          keyId: key.keyId,
+          actorId: key.actorId,
+          publicKeySha256,
+        });
+    }
+  };
+  const pinned = (
+    role: EvidenceSignerRole,
+    input: unknown,
+    actorField: string,
+  ) => {
+    const parsed = pinSchema.safeParse(input);
+    if (!parsed.success)
+      refuse("signer-key-mismatch", `a ${role} pin is malformed`);
+    const pin = parsed.data!;
+    const publicKeySha256 = publicKeyFingerprint(pin.publicKeyPem);
+    if (publicKeySha256 !== pin.publicKeySha256)
+      refuse(
+        "signer-key-mismatch",
+        `${role} pin fingerprint differs from its key`,
+      );
+    add({
+      role,
+      keyId: pin.keyId,
+      actorId: actorOf(pin, actorField),
+      publicKeySha256,
+    });
+  };
+  registry(
+    doc(bundle, readiness.population.trust),
+    { selector: "selector", auditor: "auditor" },
+    "population",
+  );
+  registry(
+    aggregate.rowTrust,
+    { labeler: "labeler", reviewer: "reviewer" },
+    "row",
+  );
+  registry(
+    aggregate.aggregateTrust,
+    { collector: "collector", reviewer: "aggregate-reviewer" },
+    "aggregate",
+  );
+  const must = (file: string | undefined) =>
+    doc(bundle, file ?? refuse("readiness-input-missing"));
+  const source =
+    readiness.sourceAttestation ?? refuse("readiness-input-missing");
+  pinned("source", doc(bundle, source.pin), "sourceAuthorityId");
+  const rows = (file: string | undefined, label: string) => {
+    const parsed = pinRowsSchema.safeParse(must(file));
+    if (!parsed.success)
+      refuse("signer-key-mismatch", `${label} pins are malformed`);
+    return parsed.data!;
+  };
+  for (const row of rows(readiness.workerDeliveries, "worker"))
+    pinned("worker", row.pin, "workerId");
+  for (const row of rows(readiness.oracleExecutions, "oracle"))
+    pinned("oracle", row.pin, "oracleExecutorId");
   for (const route of bundle.manifest.routes)
-    add("approver", keyIdSchema.parse(doc(bundle, route.approval.pin)).keyId);
+    pinned("approver", doc(bundle, route.approval.pin), "operatorId");
   return claims;
 }
 
@@ -591,6 +749,134 @@ async function step<T>(
 }
 
 const challenge = () => randomBytes(32).toString("hex");
+const challengeSchema = z.string().regex(/^[a-f0-9]{64}$/);
+/** Mirrors sealed-governance-witness.ts: a reply is fresh for at most 60 s. */
+const WITNESS_MAX_AGE_MS = 60_000;
+const WITNESS_MAX_SKEW_MS = 5_000;
+const witnessReplyTimes = {
+  issuedAt: time,
+  expiresAt: time,
+};
+const checkpointReplySchema = z
+  .object({
+    witnessId: name,
+    projectId: name,
+    collectionId: name,
+    challenge: challengeSchema,
+    ...witnessReplyTimes,
+    checkpointSha256: digestSchema,
+    frozenDigests: z.record(name, digestSchema),
+  })
+  .strict();
+const grantStatusReplySchema = z
+  .object({
+    witnessId: name,
+    projectId: name,
+    grantId: digestSchema,
+    challenge: challengeSchema,
+    status: z.enum(["unregistered", "active", "revoked"]),
+    ...witnessReplyTimes,
+  })
+  .strict();
+
+function freshWitnessReply(
+  reply: { issuedAt: string; expiresAt: string },
+  nowMs: number,
+): boolean {
+  const issuedAt = Date.parse(reply.issuedAt);
+  const expiresAt = Date.parse(reply.expiresAt);
+  return (
+    issuedAt <= nowMs + WITNESS_MAX_SKEW_MS &&
+    issuedAt >= nowMs - WITNESS_MAX_AGE_MS &&
+    expiresAt > nowMs &&
+    expiresAt > issuedAt &&
+    expiresAt - issuedAt <= WITNESS_MAX_AGE_MS
+  );
+}
+
+/**
+ * Check a checkpoint reply against the exact request that asked for it: the
+ * same fresh challenge, witness, project and collection, inside a bounded
+ * freshness window. A replayed or redirected reply is refused.
+ */
+export function checkWitnessCheckpointReply(
+  reply: unknown,
+  query: Readonly<{
+    witnessId: string;
+    projectId: string;
+    collectionId: string;
+    challenge: string;
+  }>,
+  nowMs: number,
+): SignedCollectionCheckpoint {
+  let parsed;
+  try {
+    parsed = checkpointReplySchema.safeParse(decodeJson(reply));
+  } catch {
+    return refuse("witness-reply-invalid", "checkpoint reply is not JSON");
+  }
+  if (!parsed.success)
+    return refuse("witness-reply-invalid", "checkpoint reply is malformed");
+  const value = parsed.data;
+  if (
+    value.challenge !== query.challenge ||
+    value.witnessId !== query.witnessId ||
+    value.projectId !== query.projectId ||
+    value.collectionId !== query.collectionId ||
+    !freshWitnessReply(value, nowMs)
+  )
+    return refuse(
+      "witness-reply-invalid",
+      "checkpoint reply is stale or answers another request",
+    );
+  return value;
+}
+
+/** The same checks for a grant-status reply, bound to its grant ID. */
+export function checkWitnessGrantStatusReply(
+  reply: unknown,
+  query: Readonly<{
+    witnessId: string;
+    projectId: string;
+    grantId: string;
+    challenge: string;
+  }>,
+  nowMs: number,
+): SignedGrantStatus {
+  let parsed;
+  try {
+    parsed = grantStatusReplySchema.safeParse(decodeJson(reply));
+  } catch {
+    return refuse("witness-reply-invalid", "grant status reply is not JSON");
+  }
+  if (!parsed.success)
+    return refuse("witness-reply-invalid", "grant status reply is malformed");
+  const value = parsed.data;
+  if (
+    value.challenge !== query.challenge ||
+    value.witnessId !== query.witnessId ||
+    value.projectId !== query.projectId ||
+    value.grantId !== query.grantId ||
+    !freshWitnessReply(value, nowMs)
+  )
+    return refuse(
+      "witness-reply-invalid",
+      "grant status reply is stale or answers another request",
+    );
+  return value;
+}
+
+async function readCheckpoint(
+  witness: PromotionControllers["witness"],
+  request: { witnessId: string; projectId: string; collectionId: string },
+) {
+  const query = Object.freeze({ ...request, challenge: challenge() });
+  return checkWitnessCheckpointReply(
+    await witness.readCollectionCheckpoint(query),
+    query,
+    Date.now(),
+  );
+}
 const checkpointState = (checkpoint: SignedCollectionCheckpoint) => ({
   witnessId: checkpoint.witnessId,
   projectId: checkpoint.projectId,
@@ -703,10 +989,7 @@ async function runSteps(
 
   // 4. Trust and registry digests against the witness's pre-run freeze.
   const opening = await step(4, "witness-freeze-mismatch", async () => {
-    const opening = await controllers.witness.readCollectionCheckpoint({
-      ...witnessRequest,
-      challenge: challenge(),
-    });
+    const opening = await readCheckpoint(controllers.witness, witnessRequest);
     compareFrozenDigests(opening.frozenDigests, bundleTrustDigests(bundle));
     return opening;
   });
@@ -768,7 +1051,13 @@ async function runSteps(
       );
       if (approval.reportSha256 !== preflight.reportSha256)
         refuse("approval-invalid", "approval names another report");
-      results.push({ route, preflight, approval });
+      const calibrationAccuracy = routeCalibrationAccuracy(cohort.calibration, {
+        category: preflight.category,
+        provider: preflight.providerKind,
+        model: preflight.expectedModel,
+        minimumConfidence: preflight.minimumConfidence,
+      });
+      results.push({ route, preflight, approval, calibrationAccuracy });
     }
     return results;
   });
@@ -782,6 +1071,8 @@ async function runSteps(
   // 8. Every signer key through the selected custody, pairwise distinct.
   await step(8, "signer-key-unresolved", async () => {
     const claims = collectSignerClaims(bundle);
+    // The keys the bundle actually used must be distinct before custody is asked.
+    requireDistinctUsedKeys(claims);
     const nowMs = Date.now();
     const resolved = [];
     for (const claim of claims) {
@@ -875,28 +1166,28 @@ async function runSteps(
     return results;
   });
 
-  const unsigned = routes.map(({ route, preflight, approval }, index) => {
-    const routeIdentity = granted[index]!;
-    return {
-      route,
-      preflight,
-      approval,
-      routeIdentity,
-      grantId: hashJson({
-        purpose: PROMOTION_RUNTIME_GRANT_PURPOSE,
-        route: routeIdentity,
-        reportSha256: preflight.reportSha256,
-        approvalClaimSha256: approval.approvalClaimSha256,
-      }),
-    };
-  });
+  const unsigned = routes.map(
+    ({ route, preflight, approval, calibrationAccuracy }, index) => {
+      const routeIdentity = granted[index]!;
+      return {
+        route,
+        preflight,
+        approval,
+        calibrationAccuracy,
+        routeIdentity,
+        grantId: hashJson({
+          purpose: PROMOTION_RUNTIME_GRANT_PURPOSE,
+          route: routeIdentity,
+          reportSha256: preflight.reportSha256,
+          approvalClaimSha256: approval.approvalClaimSha256,
+        }),
+      };
+    },
+  );
 
   // 11. Two fresh checkpoints bracket the audit; no grant is registered yet.
   const closing = await step(11, "witness-checkpoint-changed", async () => {
-    const closing = await controllers.witness.readCollectionCheckpoint({
-      ...witnessRequest,
-      challenge: challenge(),
-    });
+    const closing = await readCheckpoint(controllers.witness, witnessRequest);
     if (
       hashJson(checkpointState(closing)) !== hashJson(checkpointState(opening))
     )
@@ -905,13 +1196,18 @@ async function runSteps(
         "the witness moved during the audit",
       );
     for (const item of unsigned) {
-      const status = await controllers.witness.readGrantStatus({
+      const query = Object.freeze({
         witnessId: anchor.witnessId,
         projectId: manifest.projectId,
         grantId: item.grantId,
         challenge: challenge(),
       });
-      if (status.status !== "unregistered" || status.grantId !== item.grantId)
+      const status = checkWitnessGrantStatusReply(
+        await controllers.witness.readGrantStatus(query),
+        query,
+        Date.now(),
+      );
+      if (status.status !== "unregistered")
         refuse("grant-already-registered", "the grant is already registered");
     }
     return closing;
@@ -919,62 +1215,74 @@ async function runSteps(
 
   const readinessSha256 = hashJson(readiness);
   return step(11, "grant-request-invalid", () =>
-    unsigned.map(({ route, preflight, approval, routeIdentity, grantId }) => {
-      const projection = preflight.advisoryCohortProjection!;
-      const parsed = promotionGrantRequestSchema.safeParse({
-        version: "1.0.0",
-        kind: "unsigned-promotion-grant-request",
-        purpose: PROMOTION_RUNTIME_GRANT_PURPOSE,
-        signed: false,
+    unsigned.map(
+      ({
+        route,
+        preflight,
+        approval,
+        calibrationAccuracy,
+        routeIdentity,
         grantId,
-        route: routeIdentity,
-        policyIdentity: {
-          algorithm: STRICT_POLICY_HASH,
-          policyVersion: routeIdentity.policyVersion,
-        },
-        evidence: {
-          collectionId: preflight.collectionId,
-          planSha256: preflight.planSha256,
-          trustPolicySha256: preflight.trustPolicySha256,
-          evaluationArtifactSha256: preflight.evaluationArtifactSha256,
-          reportSha256: preflight.reportSha256,
-          preflightSha256: approval.preflightSha256,
-          readinessSha256,
-        },
-        routeMetrics: projection.routeDecisionMetrics,
-        wholeCohort: {
-          baselineMeasuredApiCostUsd:
-            projection.wholeCohortAccounting.baselineMeasuredApiCostUsd,
-          candidateMeasuredApiCostUsd:
-            projection.wholeCohortAccounting.candidateMeasuredApiCostUsd,
-          candidatePolicyViolationAssignments:
-            projection.wholeCohortAccounting
-              .candidatePolicyViolationAssignments,
-          additionalFailureTasks:
-            projection.wholeCohortAccounting.additionalFailureTasks,
-        },
-        approval: {
-          approvalId: approval.approvalId,
-          operatorId: approval.operatorId,
-          approvalClaimSha256: approval.approvalClaimSha256,
-          approverKeySha256: approval.keyFingerprintSha256,
-          approvedAt: approval.approvedAt,
-          expiresAt: approval.expiresAt,
-        },
-        lease: route.lease,
-        witness: {
-          witnessId: anchor.witnessId,
-          openingCheckpointSha256: hashJson(checkpointState(opening)),
-          closingCheckpointSha256: hashJson(checkpointState(closing)),
-        },
-      });
-      if (!parsed.success)
-        refuse(
-          "grant-request-invalid",
-          "a request is below a gate or beyond a lifetime limit",
-        );
-      return parsed.data!;
-    }),
+      }) => {
+        const projection = preflight.advisoryCohortProjection!;
+        const parsed = promotionGrantRequestSchema.safeParse({
+          version: "1.0.0",
+          kind: "unsigned-promotion-grant-request",
+          purpose: PROMOTION_RUNTIME_GRANT_PURPOSE,
+          signed: false,
+          grantId,
+          route: routeIdentity,
+          policyIdentity: {
+            algorithm: STRICT_POLICY_HASH,
+            policyVersion: routeIdentity.policyVersion,
+          },
+          evidence: {
+            collectionId: preflight.collectionId,
+            planSha256: preflight.planSha256,
+            trustPolicySha256: preflight.trustPolicySha256,
+            evaluationArtifactSha256: preflight.evaluationArtifactSha256,
+            reportSha256: preflight.reportSha256,
+            preflightSha256: approval.preflightSha256,
+            readinessSha256,
+          },
+          routeMetrics: {
+            ...projection.routeDecisionMetrics,
+            calibrationAccuracy,
+          },
+          wholeCohort: {
+            baselineMeasuredApiCostUsd:
+              projection.wholeCohortAccounting.baselineMeasuredApiCostUsd,
+            candidateMeasuredApiCostUsd:
+              projection.wholeCohortAccounting.candidateMeasuredApiCostUsd,
+            candidatePolicyViolationAssignments:
+              projection.wholeCohortAccounting
+                .candidatePolicyViolationAssignments,
+            additionalFailureTasks:
+              projection.wholeCohortAccounting.additionalFailureTasks,
+          },
+          approval: {
+            approvalId: approval.approvalId,
+            operatorId: approval.operatorId,
+            approvalClaimSha256: approval.approvalClaimSha256,
+            approverKeySha256: approval.keyFingerprintSha256,
+            approvedAt: approval.approvedAt,
+            expiresAt: approval.expiresAt,
+          },
+          lease: route.lease,
+          witness: {
+            witnessId: anchor.witnessId,
+            openingCheckpointSha256: hashJson(checkpointState(opening)),
+            closingCheckpointSha256: hashJson(checkpointState(closing)),
+          },
+        });
+        if (!parsed.success)
+          refuse(
+            "grant-request-invalid",
+            "a request is below a gate or beyond a lifetime limit",
+          );
+        return parsed.data!;
+      },
+    ),
   );
 }
 

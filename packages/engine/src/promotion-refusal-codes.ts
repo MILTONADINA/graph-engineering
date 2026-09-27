@@ -50,6 +50,7 @@ export const PROMOTION_IMPORT_REFUSAL_CODES = [
   "readiness-input-missing",
   // Step 4 and step 11: the witness.
   "witness-not-selected",
+  "witness-reply-invalid",
   "witness-freeze-mismatch",
   "witness-checkpoint-changed",
   "grant-already-registered",
@@ -66,6 +67,8 @@ export const PROMOTION_IMPORT_REFUSAL_CODES = [
   "cost-not-lower",
   // Step 8: signer custody.
   "signer-key-unresolved",
+  "signer-key-mismatch",
+  "signer-role-unknown",
   "signer-keys-not-distinct",
   // Step 9: policy bytes and the promoted cohort.
   "policy-bytes-mismatch",
