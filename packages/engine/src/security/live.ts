@@ -12,7 +12,7 @@
 // line; managed runs and MCP clients cannot.
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { LiveTarget, ProjectConfig } from "@graph-engineering/contracts";
@@ -290,6 +290,17 @@ async function checkDocker(
  * regular file of at most 20 MB. Errors never quote the file.
  */
 export async function readReport(file: string): Promise<string> {
+  // O_NOFOLLOW is not available on Windows, so the path itself is checked
+  // first on every platform; the open below still refuses a symlink where
+  // the flag exists.
+  const entry = await lstat(file).catch(
+    (error: NodeJS.ErrnoException) => error,
+  );
+  if (entry instanceof Error) {
+    if (entry.code === "ENOENT")
+      throw new Error("Live scan: ZAP wrote no report");
+  } else if (!entry.isFile())
+    throw new Error("Live scan: ZAP's report is not a regular file");
   let handle: Awaited<ReturnType<typeof open>>;
   try {
     // O_NONBLOCK so a FIFO planted in its place cannot hang the read.
