@@ -65,6 +65,7 @@ import { serveMcp } from "./mcp.js";
 import { listTemplates, scaffold, validateArtifacts } from "./templates.js";
 import { evaluateDecisions, type EvaluationRow } from "./decisions.js";
 import { PROMOTION_IMPORT_BLOCKED } from "./promotion-authority.js";
+import { preparePromotionGrantRequest } from "./promotion-importer.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 import { backupProject, restoreProject } from "./operations.js";
 import { readRunReceipt } from "./store.js";
@@ -1107,6 +1108,26 @@ cli
       promotionEligible: false,
       authorityStatus: "unverified",
     });
+  });
+const promotion = cli
+  .command("promotion")
+  .description(
+    "Verify-only promotion tooling; never signs, writes grants or confers authority",
+  );
+promotion
+  .command("prepare-grant <bundle>")
+  .description(
+    "Verify a promotion bundle in order and emit unsigned grant requests; stops at the first refusal",
+  )
+  .action(async (bundle) => {
+    const result = await preparePromotionGrantRequest(root(), bundle);
+    if (result.outcome === "refused") {
+      // A refusal is an outcome, not a failure to report as a difficulty.
+      process.stderr.write(`${JSON.stringify(result, null, 2)}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    print(result);
   });
 cli
   .command("serve")
