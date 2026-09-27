@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHash, createHmac, generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, randomBytes, sign, type KeyObject } from 'node:crypto';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
@@ -449,7 +449,7 @@ describe('authentication.oauth ID token signatures', () => {
       `${segment({ alg: 'none', kid: 'rsa-1' })}.${body}.`,
       `${segment({ alg: 'none', kid: 'rsa-1' })}.${body}.${signToken(claims).split('.')[2]}`,
       `${hmacInput}.${createHmac('sha256', publicPem).update(hmacInput).digest('base64url')}`,
-      `${segment({ alg: 'HS256', kid: 'shared' })}.${body}.${createHmac('sha256', 'secret').update(`${segment({ alg: 'HS256', kid: 'shared' })}.${body}`).digest('base64url')}`,
+      `${segment({ alg: 'HS256', kid: 'shared' })}.${body}.${createHmac('sha256', randomBytes(32)).update(`${segment({ alg: 'HS256', kid: 'shared' })}.${body}`).digest('base64url')}`,
       signToken(claims, { alg: 'RS256' }),
       signToken(claims, { alg: 'RS256', kid: '' }),
       signToken(claims, { alg: 'RS256', kid: 'rsa-1', crit: ['exp'] }),
