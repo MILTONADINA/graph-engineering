@@ -334,10 +334,24 @@ real-world pilot, and offer privacy-safe feedback reports.
 All of it landed through
 [#57](https://github.com/MILTONADINA/graph-engineering/pull/57).
 
-Still for the owner: the acceptance of the `context/index.ts` refactor run
-`ee0166fc` (above), the self-built run `80586c65` (inspect it; it failed
-in review, and its code was taken into #57), the security baseline in #44, promotion evidence, live security
-targets, and Kevin's review of `align/kevin-templates-20260926`.
+Owner decisions on 2026-09-27, carried out on the owner's instruction:
+
+- the `context/index.ts` refactor run `ee0166fc` is accepted;
+- the reviewed security baseline landed through
+  [#44](https://github.com/MILTONADINA/graph-engineering/pull/44)
+  (`57472a7`), regenerated on the current `dev` with each new finding
+  reviewed, so this repository's own managed runs are now security-gated;
+- the generated OAuth app verifies ID token signatures
+  ([#58](https://github.com/MILTONADINA/graph-engineering/pull/58),
+  `7a3072f`), after an adversarial review whose findings were fixed;
+- the template kit was proposed to Kevin's repository as
+  [NdahayoKevin25/graph-engineering#2](https://github.com/NdahayoKevin25/graph-engineering/pull/2)
+  from the fork branch `align/kevin-templates-20260926`; merging it is
+  Kevin's decision.
+
+Still for the owner: the self-built run `80586c65` (it failed in review,
+and its code was taken into #57), promotion evidence for Jev and Laya,
+and any live security targets.
 
 ## Where the work stands
 
