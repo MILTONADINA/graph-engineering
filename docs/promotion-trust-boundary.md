@@ -99,7 +99,8 @@ of them promoted together.
 
 ## Importer (verify-only)
 
-`promotion prepare-grant <bundle>` (a later PR) verifies and emits an
+`promotion prepare-grant <bundle>` (PR-3,
+[spec](../specs/decisions/promotion-importer.md)) verifies and emits an
 **unsigned** grant request. It never signs, never writes grant files, and
 stops at the first refusal. In order:
 
@@ -251,10 +252,13 @@ tests.
 
 1. **PR-1 (this):** this document, the bypass tripwires and the engine-level
    shadow tests. No source changes.
-2. **PR-2:** live route identity and the per-route check in the decision path;
-   the closed refusal codes; the controller interfaces with null
-   implementations. Every grant still refuses with no verified issuer.
-3. **PR-3:** the verify-only importer and `promotion prepare-grant`.
+2. **PR-2 (implemented):** live route identity and the per-route check in the
+   decision path; the closed refusal codes; the controller interfaces with
+   null implementations. Every grant still refuses with no verified issuer.
+3. **PR-3 (implemented):** the verify-only importer and
+   `promotion prepare-grant`, with a read-only reader for the anchor file
+   `promotion-trust-anchor.json` at the decision 1 (A) path, which step 1
+   needs. The engine never creates that file.
 4. **PR-4:** the trust-anchor loader (per decision 1), enrollment and the
    witness high-water state, with a backup/restore exclusion test.
 5. **PR-5, only after the external parties exist and the owner and Kevin
