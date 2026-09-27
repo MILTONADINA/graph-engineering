@@ -223,16 +223,23 @@ const SEGMENT = /^[A-Za-z0-9_-]+$/;
 const keySets = new Map<string, KeySet>();
 const lastKeySetFetch = new Map<string, number>();
 const pendingKeySets = new Map<string, Promise<KeySet>>();
+/**
+ * Per-URI generation, bumped by resetOAuthKeyCache and never cleared: a fetch that started before a reset sees a
+ * different generation when it settles, so it neither caches its keys nor removes a newer fetch's pending entry.
+ */
+const keySetGenerations = new Map<string, number>();
 
 /** Drops every cached signing key, for example after a provider reports a key compromise (and between tests). */
 export function resetOAuthKeyCache(): void {
+  for (const [uri, generation] of keySetGenerations) keySetGenerations.set(uri, generation + 1);
   keySets.clear();
   lastKeySetFetch.clear();
   pendingKeySets.clear();
 }
 /**
- * Builds a verification key from only the public members of a JWK. RS256 needs an RSA key of at least 2048 bits,
- * ES256 a P-256 key; a JWK's own alg or use, when present, must agree. Anything else is unusable.
+ * Builds a verification key from only the public members of a JWK. RS256 needs an RSA key of at least 2048 bits
+ * with public exponent 65537 (Node accepts e = 1, under which PKCS#1 v1.5 signatures are trivially forged, and
+ * other small exponents), ES256 a P-256 key; a JWK's own alg or use, when present, must agree. Anything else is unusable.
  */
 function verificationKey(value: Record<string, unknown>): VerificationKey | null {
   if (value.use !== undefined && value.use !== 'sig') return null;
@@ -241,7 +248,8 @@ function verificationKey(value: Record<string, unknown>): VerificationKey | null
       typeof value.n === 'string' && typeof value.e === 'string') {
       const key = createPublicKey({ key: { kty: 'RSA', n: value.n, e: value.e }, format: 'jwk' });
       const bits = key.asymmetricKeyDetails?.modulusLength ?? 0;
-      return key.asymmetricKeyType === 'rsa' && bits >= 2048 && bits <= 8192 ? { key, alg: 'RS256' } : null;
+      return key.asymmetricKeyType === 'rsa' && bits >= 2048 && bits <= 8192 &&
+        Number(key.asymmetricKeyDetails?.publicExponent) === 65537 ? { key, alg: 'RS256' } : null;
     }
     if (value.kty === 'EC' && value.crv === 'P-256' && (value.alg === undefined || value.alg === 'ES256') &&
       typeof value.x === 'string' && typeof value.y === 'string') {
@@ -277,13 +285,20 @@ function fetchKeySet(uri: string, now: number): Promise<KeySet> {
   const pending = pendingKeySets.get(uri);
   if (pending) return pending;
   lastKeySetFetch.set(uri, now);
-  const request = providerRequest(uri, { headers: { accept: 'application/json' } })
+  const generation = keySetGenerations.get(uri) ?? 0;
+  keySetGenerations.set(uri, generation);
+  const current = () => keySetGenerations.get(uri) === generation;
+  const request: Promise<KeySet> = providerRequest(uri, { headers: { accept: 'application/json' } })
     .then(({ body, headers }) => {
+      // Keys fetched before a reset are discarded, and the sign-in that waited for them fails.
+      if (!current()) fail();
       const keySet = parseKeySet(body, headers, now);
       keySets.set(uri, keySet);
       return keySet;
     })
-    .finally(() => pendingKeySets.delete(uri));
+    .finally(() => {
+      if (current() && pendingKeySets.get(uri) === request) pendingKeySets.delete(uri);
+    });
   pendingKeySets.set(uri, request);
   return request;
 }
@@ -314,6 +329,9 @@ async function verifyIdTokenSignature(provider: OAuthProviderConfig, parts: stri
   const { alg, kid } = header;
   if ((alg !== 'RS256' && alg !== 'ES256') || typeof kid !== 'string' || !KEY_ID.test(kid) || header.crit !== undefined) fail();
   const key = await verificationKeyFor(provider.jwksUri, kid, now);
+  // The key already selects the verification algorithm below, so a header naming the other algorithm could not make
+  // a wrong signature verify. Refusing the mismatch anyway (defence in depth, and RFC 7515's rule that alg names the
+  // algorithm actually used) rejects a genuine signature presented under a mislabeled header.
   if (!key || key.alg !== alg) fail();
   const input = Buffer.from(`${parts[0]}.${parts[1]}`, 'ascii');
   const signature = Buffer.from(parts[2], 'base64url');
