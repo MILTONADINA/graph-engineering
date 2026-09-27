@@ -9,6 +9,7 @@ import type { PromotionEvidence } from "../src/decisions.js";
 import { routePlan } from "../src/planning.js";
 import { hash } from "../src/util.js";
 import * as promotionAuthority from "../src/promotion-authority.js";
+import * as promotionRoute from "../src/promotion-route.js";
 
 const model = "unit-pinned-model";
 // Synthetic stand-in configuration tests gates only; this is not saved evidence.
@@ -92,13 +93,23 @@ const tokenHosted = () => ({
 });
 const response = (answers: object, extra: object = {}) =>
   new Response(JSON.stringify({ model, answers, ...extra }));
-// These synthetic routing tests isolate behavior AFTER authority verification.
-// Unmocked forgery/JSON-boundary tests live in promotion-authority.test.ts.
-beforeEach(() =>
-  vi
-    .spyOn(promotionAuthority, "authorizesPromotionFromBinding")
-    .mockResolvedValue(true),
-);
+// These synthetic routing tests isolate behavior AFTER authority verification
+// and the per-route check. Unmocked forgery/JSON-boundary tests live in
+// promotion-authority.test.ts and promotion-route.test.ts.
+beforeEach(() => {
+  vi.spyOn(
+    promotionAuthority,
+    "authorizesPromotionFromBinding",
+  ).mockResolvedValue(true);
+  vi.spyOn(promotionRoute, "checkPromotionRoute").mockImplementation(
+    (phase) => ({
+      phase,
+      admitted: true,
+      refusal: null,
+      routeSha256: "0".repeat(64),
+    }),
+  );
+});
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

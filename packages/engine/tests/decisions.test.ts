@@ -9,6 +9,7 @@ import {
   type PromotionEvidence,
 } from "../src/decisions.js";
 import * as promotionAuthority from "../src/promotion-authority.js";
+import * as promotionRoute from "../src/promotion-route.js";
 
 const model = "pinned-test-model";
 const row = (
@@ -193,6 +194,14 @@ describe("bounded decision dispatch", () => {
       promotionAuthority,
       "authorizesPromotionFromBinding",
     ).mockResolvedValue(true);
+    vi.spyOn(promotionRoute, "checkPromotionRoute").mockImplementation(
+      (phase) => ({
+        phase,
+        admitted: true,
+        refusal: null,
+        routeSha256: "0".repeat(64),
+      }),
+    );
     const fetch = vi.fn(async () => answer());
     vi.stubGlobal("fetch", fetch);
     const input = {

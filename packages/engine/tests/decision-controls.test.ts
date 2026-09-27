@@ -10,6 +10,7 @@ import {
 } from "../src/decision-controls.js";
 import type { PromotionEvidence } from "../src/decisions.js";
 import * as promotionAuthority from "../src/promotion-authority.js";
+import * as promotionRoute from "../src/promotion-route.js";
 
 const model = "test-checkpoint";
 function session(categories: string[] = []): DecisionSession {
@@ -70,13 +71,23 @@ function answer(choices: Record<string, string>) {
     ),
   );
 }
-// Scope-controller unit tests simulate an already verified authority boundary.
-// They never issue or persist a real grant; unmocked forgery tests are separate.
-beforeEach(() =>
-  vi
-    .spyOn(promotionAuthority, "authorizesPromotionFromBinding")
-    .mockResolvedValue(true),
-);
+// Scope-controller unit tests simulate an already verified authority boundary
+// and per-route check. They never issue or persist a real grant; unmocked
+// forgery and route tests are separate.
+beforeEach(() => {
+  vi.spyOn(
+    promotionAuthority,
+    "authorizesPromotionFromBinding",
+  ).mockResolvedValue(true);
+  vi.spyOn(promotionRoute, "checkPromotionRoute").mockImplementation(
+    (phase) => ({
+      phase,
+      admitted: true,
+      refusal: null,
+      routeSha256: "0".repeat(64),
+    }),
+  );
+});
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
