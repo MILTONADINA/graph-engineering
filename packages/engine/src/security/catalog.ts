@@ -2,7 +2,9 @@
 // them. Selection is explained: every tool is either selected with a reason or
 // skipped with a reason, so a scan never runs tools blindly. Offline tools run
 // in `graph-engine security-scan`; tools that need a vulnerability database or
-// a live target are recommended with what they still need.
+// a live target are recommended with what they still need. ZAP runs only
+// through `graph-engine security-live-scan`, which a person starts against a
+// target authorized in security.liveTargets; managed runs never run it.
 import { isDockerfile } from "./files.js";
 
 export type SecurityCategory =
@@ -18,7 +20,7 @@ export type SecurityMode = "offline" | "needs-database" | "live-target";
 export interface ProjectProfile {
   /** Repository-relative paths of tracked files. */
   files: readonly string[];
-  /** Live targets the owner has authorized for dynamic testing. */
+  /** IDs of live targets the owner has authorized for dynamic testing. */
   authorizedTargets: readonly string[];
   /** Security tools the user has installed or licensed, by catalog id. */
   configuredTools: readonly string[];
@@ -36,6 +38,8 @@ export interface SecurityTool {
   appliesTo(profile: ProjectProfile): string | undefined;
   /** What the user must provide before the tool can run. */
   needs?: string;
+  /** The only command that runs it, when security-scan does not. */
+  runWith?: string;
 }
 
 const extensions = (profile: ProjectProfile, ...values: string[]) =>
@@ -99,10 +103,10 @@ export const LOCKFILES = [
 ];
 const liveTargets = (profile: ProjectProfile) =>
   profile.authorizedTargets.length
-    ? `${profile.authorizedTargets.length} authorized live target(s)`
+    ? `${profile.authorizedTargets.length} authorized live target(s): ${profile.authorizedTargets.join(", ")}`
     : undefined;
 const LIVE_NEEDS =
-  "a running target the owner has authorized, and network permission to reach it";
+  "an active attack scan, which the graph does not run; only the ZAP baseline scan runs, through security-live-scan";
 
 export const SECURITY_TOOLS: readonly SecurityTool[] = [
   {
@@ -183,12 +187,14 @@ export const SECURITY_TOOLS: readonly SecurityTool[] = [
   },
   {
     id: "zap",
-    name: "OWASP ZAP",
+    name: "OWASP ZAP (baseline scan)",
     category: "dynamic",
     mode: "live-target",
     license: "open-source",
     appliesTo: liveTargets,
-    needs: LIVE_NEEDS,
+    needs:
+      "a target authorized in security.liveTargets; a person runs it from the command line, and managed runs never do",
+    runWith: "graph-engine security-live-scan <target-id>",
   },
   {
     id: "nuclei",
@@ -218,7 +224,10 @@ export const SECURITY_TOOLS: readonly SecurityTool[] = [
 export interface SecuritySelection {
   tool: SecurityTool;
   reason: string;
-  /** Whether security-scan runs it now, offline. */
+  /**
+   * Whether security-scan (and so a managed run's gate) runs it now,
+   * offline. Live-target tools never are.
+   */
   runnable: boolean;
 }
 

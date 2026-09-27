@@ -734,7 +734,10 @@ export async function scannerImageId(
   return id;
 }
 
-function assertBaseline(value: unknown): SecurityBaseline {
+function assertBaseline(
+  value: unknown,
+  file: string = BASELINE_FILE,
+): SecurityBaseline {
   const baseline = value as SecurityBaseline | null;
   if (
     !baseline ||
@@ -744,7 +747,7 @@ function assertBaseline(value: unknown): SecurityBaseline {
       (finding) => typeof finding?.fingerprint !== "string",
     )
   )
-    throw new Error(`${BASELINE_FILE} is not a valid security baseline`);
+    throw new Error(`${file} is not a valid security baseline`);
   return baseline;
 }
 
@@ -782,10 +785,12 @@ export async function readCommittedBaseline(
 
 export async function readBaseline(
   root: string,
+  file: string = BASELINE_FILE,
 ): Promise<SecurityBaseline | undefined> {
   try {
     return assertBaseline(
-      JSON.parse(await readFile(path.join(root, BASELINE_FILE), "utf8")),
+      JSON.parse(await readFile(path.join(root, file), "utf8")),
+      file,
     );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -794,22 +799,33 @@ export async function readBaseline(
 }
 
 /** Whether the baseline differs from the committed version, so it needs review. */
-export async function baselineChanged(root: string): Promise<boolean> {
-  const status = await command(
-    "git",
-    ["status", "--porcelain", "--", BASELINE_FILE],
-    { cwd: root, timeoutMs: 10000 },
-  );
+export async function baselineChanged(
+  root: string,
+  file: string = BASELINE_FILE,
+): Promise<boolean> {
+  const status = await command("git", ["status", "--porcelain", "--", file], {
+    cwd: root,
+    timeoutMs: 10000,
+  });
   return status.code === 0 && status.stdout.trim().length > 0;
 }
 
 export async function writeBaseline(
   root: string,
   scan: Pick<SecurityScan, "findings">,
+  file: string = BASELINE_FILE,
 ) {
-  await mkdir(path.join(root, ".graph"), { recursive: true });
+  await writeBaselineFile(root, baselineFrom(scan), file);
+}
+
+export async function writeBaselineFile(
+  root: string,
+  baseline: SecurityBaseline,
+  file: string = BASELINE_FILE,
+) {
+  await mkdir(path.dirname(path.join(root, file)), { recursive: true });
   await writeFile(
-    path.join(root, BASELINE_FILE),
-    `${JSON.stringify(baselineFrom(scan), null, 2)}\n`,
+    path.join(root, file),
+    `${JSON.stringify(baseline, null, 2)}\n`,
   );
 }

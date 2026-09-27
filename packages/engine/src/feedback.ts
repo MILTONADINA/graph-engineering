@@ -13,6 +13,12 @@ export const FEEDBACK_REPOSITORY = "MILTONADINA/graph-engineering";
  */
 export const ERROR_KINDS = [
   {
+    // Before the Docker and configuration kinds, whose words its errors use.
+    kind: "live-scan",
+    pattern: /Live scan|security-live-scan/,
+    description: "A live security scan could not run",
+  },
+  {
     kind: "worker-unavailable",
     pattern:
       /No permitted worker|Selected worker .* unavailable|is not a configured provider|installed .* client is not available/,
@@ -116,6 +122,7 @@ const PHASES: Record<string, string> = {
   "security-scan": "security",
   "security-plan": "security",
   "security-db-update": "security",
+  "security-live-scan": "security",
   serve: "dashboard",
   mcp: "mcp",
 };

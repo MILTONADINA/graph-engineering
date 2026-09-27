@@ -52,7 +52,14 @@ import {
   osvDatabase,
   OSV_DATABASE_HOST,
   updateOsvDatabase,
+  writeBaselineFile,
 } from "./security/scan.js";
+import {
+  LIVE_BASELINE_FILE,
+  liveBaselineFrom,
+  liveTarget,
+  runLiveScan,
+} from "./security/live.js";
 import { createServer } from "./server.js";
 import { serveMcp } from "./mcp.js";
 import { listTemplates, scaffold, validateArtifacts } from "./templates.js";
@@ -333,8 +340,12 @@ const securityDataDir = async () =>
   projectDataDir((await loadProject(root())).projectId);
 const securityProfile = async () => ({
   files: await trackedFiles(root()),
-  // Dynamic testing needs a target the owner authorizes; none is recorded yet.
-  authorizedTargets: [],
+  // Targets the owner authorized in writing. This only explains the plan:
+  // security-scan never runs a live-target tool, and only security-live-scan
+  // scans one.
+  authorizedTargets: (
+    (await loadProject(root())).security?.liveTargets ?? []
+  ).map((target) => target.id),
   configuredTools: [],
   databases: (await osvDatabase(await securityDataDir()))
     ? ["osv-scanner"]
@@ -357,6 +368,7 @@ cli
         reason,
         runnable,
         ...(tool.needs ? { needs: tool.needs } : {}),
+        ...(tool.runWith ? { runWith: tool.runWith } : {}),
       })),
       skipped: plan.skipped.map(({ tool, reason }) => ({
         id: tool.id,
@@ -426,6 +438,72 @@ cli
         : "not downloaded; run graph-engine security-db-update to scan dependencies",
     });
     if (fresh.length || scan.errors.length) process.exitCode = 1;
+  });
+cli
+  .command("security-live-scan <targetId>")
+  .description(
+    `Scan a live target authorized in security.liveTargets with the ZAP baseline scan, in containers on a new internal Docker network the scan creates and removes, and report findings not in the reviewed live baseline (${LIVE_BASELINE_FILE}). Advisory: managed runs never run or read it; exits non-zero on new findings`,
+  )
+  .option("--minutes <n>", "Minutes ZAP spiders the target (1-10)", "1")
+  .option(
+    "--update-baseline",
+    "Accept this target's current findings into the live baseline after review",
+  )
+  .action(async (targetId: string, options) => {
+    // Refused before Docker is touched: only an authorized target is scanned.
+    const target = liveTarget(await loadProject(root()), targetId);
+    const minutes = Number(options.minutes);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10)
+      throw new Error("Live scan refused: --minutes must be 1 to 10");
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    process.once("SIGINT", cancel);
+    process.once("SIGTERM", cancel);
+    let scan: Awaited<ReturnType<typeof runLiveScan>>;
+    try {
+      scan = await runLiveScan({
+        target,
+        minutes,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+      // A person's own cancel: cleanup has run; say so, without a report.
+      process.stderr.write(`${errorMessage(error)}\n`);
+      process.exitCode = 130;
+      return;
+    } finally {
+      process.off("SIGINT", cancel);
+      process.off("SIGTERM", cancel);
+    }
+    if (options.updateBaseline)
+      await writeBaselineFile(
+        root(),
+        liveBaselineFrom(scan, await readBaseline(root(), LIVE_BASELINE_FILE)),
+        LIVE_BASELINE_FILE,
+      );
+    const fresh = newFindings(
+      scan,
+      await readBaseline(root(), LIVE_BASELINE_FILE),
+    );
+    const risks = ["high", "medium", "low", "informational"] as const;
+    print({
+      target: scan.target,
+      tools: scan.tools,
+      findings: scan.findings.length,
+      byRisk: Object.fromEntries(
+        risks.map((risk) => [
+          risk,
+          scan.findings.filter((finding) => finding.risk === risk).length,
+        ]),
+      ),
+      baselined: scan.findings.length - fresh.length,
+      baselineChanged: await baselineChanged(root(), LIVE_BASELINE_FILE),
+      new: fresh.slice(0, 200),
+      ...(fresh.length > 200 ? { omitted: fresh.length - 200 } : {}),
+      ...(scan.cleanup.length ? { cleanupFailed: scan.cleanup } : {}),
+    });
+    if (fresh.length || scan.cleanup.length) process.exitCode = 1;
   });
 cli
   .command("security-db-update")
