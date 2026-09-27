@@ -108,7 +108,16 @@ constant time. Redirect URIs are fixed per provider from
 `OAUTH_REDIRECT_BASE_URL`, and a post-login redirect must exactly equal an
 allowlisted relative path. The code is exchanged server-side over HTTPS with
 the client secret only in the POST body, with a 10-second timeout, a 64 KiB
-response limit enforced while streaming, and one generic error message. A new
+response limit enforced while streaming, and one generic error message. Google
+and generic OIDC ID token signatures are verified with `node:crypto` before any
+claim is read, against keys fetched through the same bounded request from a
+fixed HTTPS `jwks_uri` (Google's published certs, or the required `jwksUri`
+input for the generic provider). Only RS256 and ES256 are accepted; `alg:
+none`, HMAC algorithms, a missing or unknown `kid`, bad key material and a
+signature mismatch fail with the generic error. Keys are cached in memory for
+the response's `max-age`, clamped to between 5 minutes and 1 hour, and an
+unknown `kid` refetches at most once a minute. Issuer, audience, `azp`, expiry
+and nonce are then checked. A new
 account is created only for an unused provider-verified ASCII email (Google/OIDC
 `email_verified`, GitHub primary and verified `/user/emails`). A first-time
 provider login whose email already belongs to an account is refused by default,
@@ -121,7 +130,7 @@ access/refresh cookies as password login. See the
 [node contract](../graph-templates/authentication/oauth/README.md). Offline
 checks: `tests/template-runtime-oauth.test.ts`; with
 `GRAPH_ENGINE_BACKEND_DOCKER_TESTS=1` the backend fixture also type-checks the
-generated code and runs its 19 generated tests (service and Express routes via
+generated code and runs its 25 generated tests (service and Express routes via
 supertest) with the network disabled; CI runs it in the "Generated
 authentication with isolated PostgreSQL races" step.
 

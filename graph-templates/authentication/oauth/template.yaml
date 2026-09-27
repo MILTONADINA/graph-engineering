@@ -4,7 +4,9 @@ version: 1.0.0
 description: >
   Third-party sign-in through the OAuth 2.0 authorization-code flow with PKCE
   (S256), with ready presets for Google (OIDC) and GitHub and one generic OIDC
-  provider configured by static HTTPS endpoints. It extends authentication.jwt
+  provider configured by static HTTPS endpoints. OIDC ID token signatures are
+  verified (RS256 or ES256) against the provider's JWKS before any claim is
+  trusted. It extends authentication.jwt
   rather than replacing it: after a successful callback it issues the same
   access/refresh tokens authentication.jwt defines. A login may create a new
   account, but only for a provider-verified email address that no account uses.
@@ -26,7 +28,7 @@ inputs:
   - { name: providers, type: array<string>, required: false, default: [google, github], description: "Enabled providers, a unique subset of google, github and oidc." }
   - { name: postLoginRedirects, type: array<string>, required: false, default: ["/"], description: "Exact relative paths a successful sign-in may return to; the first is the default." }
   - { name: linkVerifiedEmailToExistingAccount, type: array<string>, required: false, default: [], description: "Opt-in risk: providers whose first-time login may attach to an EXISTING account with the same verified email. Default none: such a login is refused and the owner links the provider while signed in." }
-  - { name: oidc, type: object, required: false, description: "Generic OIDC issuer, authorizationEndpoint and tokenEndpoint (HTTPS); required when providers includes oidc." }
+  - { name: oidc, type: object, required: false, description: "Generic OIDC issuer, authorizationEndpoint, tokenEndpoint and jwksUri (all HTTPS); required when providers includes oidc. ID token signatures are verified only against keys from jwksUri." }
 
 outputs:
   - { name: files, type: array<string>, description: "src/config/oauthProviders.ts, src/services/oauthService.ts, src/routes/oauthRoutes.ts, schema.ts, helpers.ts and app.ts (modified), tests/authenticationOauth.test.ts" }
@@ -96,7 +98,8 @@ security:
     - "state (and nonce for OIDC) are 32 random bytes, bound to a sealed (HMAC) __Host- cookie that is httpOnly, Secure, SameSite=Lax and lives 10 minutes; they are compared in constant time and a missing, forged, expired or mismatched value is rejected before any provider request."
     - "Redirect URIs are exactly <OAUTH_REDIRECT_BASE_URL>/api/auth/oauth/<provider>/callback for enabled providers only; a post-login redirect is honored only when it exactly equals an allowlisted relative path, so there is no open redirect."
     - "The code is exchanged server-side over HTTPS with the client secret in the POST body only; secrets are never logged, placed in URLs or returned to the browser. Provider calls use global fetch with a 10s timeout, no redirects and a 64 KiB response bound enforced while streaming the body, and every failure returns one generic message."
-    - "Only provider-verified email addresses create or link accounts: Google/OIDC need email_verified === true in the ID token (issuer, audience, expiry and nonce checked), GitHub needs an email that is both primary and verified from /user/emails. Emails must be ASCII (checked before lower-casing) so Unicode look-alikes and case mappings cannot collide with another address."
+    - "Google/OIDC ID token signatures are verified with node:crypto before any claim is trusted, against keys fetched only from the provider's fixed HTTPS jwks_uri (Google https://www.googleapis.com/oauth2/v3/certs, generic OIDC the jwksUri input) through the same bounded request, never from token headers. Only RS256 (RSA of at least 2048 bits) and ES256 (P-256) are accepted and the header alg must match the key type; alg none, HMAC algorithms, a missing or unknown kid, a crit header, bad key material and signature mismatches fail with the generic error. Keys are cached in memory for the Cache-Control max-age clamped to 5 minutes to 1 hour, and an unknown kid refetches a fresh key set at most once a minute with concurrent refetches shared."
+    - "Only provider-verified email addresses create or link accounts: Google/OIDC need email_verified === true in the signature-verified ID token (issuer, audience, azp, expiry, issued-at and nonce checked), GitHub needs an email that is both primary and verified from /user/emails. Emails must be ASCII (checked before lower-casing) so Unicode look-alikes and case mappings cannot collide with another address."
     - "A first-time provider login never attaches to an existing account by default, so a weaker provider's verified email (a re-registered domain, a self-service IdP) cannot take over a password or other-provider account. Linking is an explicit, authenticated, trusted-origin POST whose account id is sealed into the state cookie, and the provider-verified email must equal the account's email. linkVerifiedEmailToExistingAccount opts a provider back into automatic linking (only to accounts whose own email is verified) and should be enabled only for providers whose email verification you trust with the whole account."
     - "Identity comes only from the provider's token endpoint and APIs, never from request fields; accounts are keyed by provider + provider subject id."
 

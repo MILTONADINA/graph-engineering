@@ -4,10 +4,12 @@ import { SECRETS } from '../utils/helpers';
 export type OAuthProviderId = 'google' | 'github' | 'oidc';
 export interface OAuthProviderConfig {
   readonly id: OAuthProviderId;
-  /** 'oidc' validates an ID token from the token endpoint; 'github' reads the verified primary email from the REST API. */
+  /** 'oidc' verifies the signature and claims of an ID token from the token endpoint; 'github' reads the verified primary email from the REST API. */
   readonly kind: 'oidc' | 'github';
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
+  /** Fixed HTTPS URL of the provider's JSON Web Key Set, used to verify ID token signatures; null for GitHub (no ID token). */
+  readonly jwksUri: string | null;
   readonly issuers: readonly string[];
   readonly scopes: readonly string[];
   readonly clientId: string;
@@ -23,8 +25,9 @@ interface OidcSettings {
   issuer: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  jwksUri: string;
 }
-type ProviderPreset = Pick<OAuthProviderConfig, 'kind' | 'authorizationEndpoint' | 'tokenEndpoint' | 'issuers' | 'scopes'>;
+type ProviderPreset = Pick<OAuthProviderConfig, 'kind' | 'authorizationEndpoint' | 'tokenEndpoint' | 'jwksUri' | 'issuers' | 'scopes'>;
 
 export const OAUTH_PROVIDERS: readonly OAuthProviderId[] = Object.freeze({{json input.providers}} as OAuthProviderId[]);
 /** Exact relative paths a successful sign-in may return to; the first entry is the default. */
@@ -37,6 +40,7 @@ const PRESETS: Record<OAuthProviderId, () => ProviderPreset> = {
     kind: 'oidc',
     authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenEndpoint: 'https://oauth2.googleapis.com/token',
+    jwksUri: 'https://www.googleapis.com/oauth2/v3/certs',
     issuers: ['https://accounts.google.com', 'accounts.google.com'],
     scopes: ['openid', 'email', 'profile'],
   }),
@@ -44,6 +48,7 @@ const PRESETS: Record<OAuthProviderId, () => ProviderPreset> = {
     kind: 'github',
     authorizationEndpoint: 'https://github.com/login/oauth/authorize',
     tokenEndpoint: 'https://github.com/login/oauth/access_token',
+    jwksUri: null,
     issuers: [],
     scopes: ['read:user', 'user:email'],
   }),
@@ -53,6 +58,7 @@ const PRESETS: Record<OAuthProviderId, () => ProviderPreset> = {
       kind: 'oidc',
       authorizationEndpoint: OIDC_SETTINGS.authorizationEndpoint,
       tokenEndpoint: OIDC_SETTINGS.tokenEndpoint,
+      jwksUri: OIDC_SETTINGS.jwksUri,
       issuers: [OIDC_SETTINGS.issuer],
       scopes: ['openid', 'email', 'profile'],
     };
@@ -93,12 +99,14 @@ export const OAUTH_REDIRECT_URIS: Readonly<Partial<Record<OAuthProviderId, strin
 const providers = new Map<string, OAuthProviderConfig>(
   OAUTH_PROVIDERS.map((id) => {
     const preset = PRESETS[id]();
+    if (preset.kind === 'oidc' && !preset.jwksUri) throw new Error('OIDC providers require a jwksUri to verify ID token signatures');
     const [clientVariable, secretVariable] = CREDENTIAL_VARIABLES[id];
     const config: OAuthProviderConfig = Object.freeze({
       id,
       kind: preset.kind,
       authorizationEndpoint: httpsEndpoint(preset.authorizationEndpoint),
       tokenEndpoint: httpsEndpoint(preset.tokenEndpoint),
+      jwksUri: preset.jwksUri === null ? null : httpsEndpoint(preset.jwksUri),
       issuers: Object.freeze([...preset.issuers]),
       scopes: Object.freeze([...preset.scopes]),
       clientId: configured(clientVariable),

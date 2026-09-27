@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { createHash, randomBytes } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  generateKeyPairSync,
+  randomBytes,
+  sign,
+} from "node:crypto";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import ts from "typescript";
@@ -35,7 +41,27 @@ const oidc = {
   issuer: "https://login.example.test",
   authorizationEndpoint: "https://login.example.test/oauth2/authorize",
   tokenEndpoint: "https://login.example.test/oauth2/token",
+  jwksUri: "https://login.example.test/oauth2/jwks",
 };
+// The fake provider signs ID tokens with this key and publishes its public
+// half at each OIDC provider's jwks_uri.
+const signingKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const signingJwk = {
+  ...signingKey.publicKey.export({ format: "jwk" }),
+  kid: "fixture-rsa",
+  alg: "RS256",
+  use: "sig",
+};
+const encode = (value: unknown) =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+function signIdToken(
+  claims: Record<string, unknown>,
+  header: Record<string, unknown> = { alg: "RS256", kid: "fixture-rsa" },
+  key = signingKey.privateKey,
+) {
+  const input = `${encode(header)}.${encode(claims)}`;
+  return `${input}.${sign("sha256", Buffer.from(input), key).toString("base64url")}`;
+}
 const roots: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -305,16 +331,25 @@ async function loadRuntime(workspace: string) {
     const seconds = Math.floor(Date.now() / 1000);
     const json = (body: unknown) =>
       new Response(JSON.stringify(body), { status: 200 });
-    const segment = (value: unknown) =>
-      Buffer.from(JSON.stringify(value)).toString("base64url");
     return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
+      if (settings.jwksUri && url === settings.jwksUri)
+        return json({ keys: [signingJwk] });
       if (url === settings.tokenEndpoint)
         return json({
           access_token: "provider-access",
           ...(settings.kind === "oidc"
             ? {
-                id_token: `${segment({ alg: "RS256" })}.${segment({ iss: settings.issuers[0], aud: settings.clientId, sub: "subject-1", email, email_verified: verified, nonce, iat: seconds, exp: seconds + 300 })}.unchecked`,
+                id_token: signIdToken({
+                  iss: settings.issuers[0],
+                  aud: settings.clientId,
+                  sub: "subject-1",
+                  email,
+                  email_verified: verified,
+                  nonce,
+                  iat: seconds,
+                  exp: seconds + 300,
+                }),
               }
             : {}),
         });
@@ -796,6 +831,189 @@ describe("audited OAuth login runtime", () => {
     expect(runtime.directory.findAccountByEmail).not.toHaveBeenCalled();
   });
 
+  it("verifies OIDC ID token signatures against the provider JWKS before trusting claims", async () => {
+    const runtime = await loadRuntime(await renderedWorkspace());
+    expect(runtime.provider("google").jwksUri).toBe(
+      "https://www.googleapis.com/oauth2/v3/certs",
+    );
+    expect(runtime.provider("oidc").jwksUri).toBe(oidc.jwksUri);
+    expect(runtime.provider("github").jwksUri).toBeNull();
+    // A signed ID token signs in through the callback; the keys come only
+    // from the fixed jwks_uri through the bounded provider request.
+    for (const id of ["google", "oidc"]) {
+      const { cookie } = runtime.service.beginLogin(id, "/");
+      const transaction = runtime.service.openTransaction(cookie);
+      const fetchSpy = runtime.fakeProvider(id, transaction.nonce, true);
+      runtime.directory.findAccountByEmail.mockResolvedValueOnce(null);
+      runtime.directory.createAccountForVerifiedEmail.mockResolvedValueOnce({
+        id: userId,
+      });
+      runtime.db.selects.push([], [{ userId }]);
+      const result = await runtime.route("GET /oauth/:provider/callback", {
+        params: { provider: id },
+        query: { code: "c", state: transaction.state },
+        cookies: { "__Host-graph_oauth": cookie },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.res.statusCode).toBe(303);
+      const keyRequests = fetchSpy.mock.calls.filter(
+        ([url]) => String(url) === runtime.provider(id).jwksUri,
+      );
+      expect(keyRequests).toHaveLength(1);
+      expect(keyRequests[0]![1]?.redirect).toBe("error");
+      expect(keyRequests[0]![1]?.signal).toBeInstanceOf(AbortSignal);
+      vi.restoreAllMocks();
+    }
+    const config = runtime.provider("oidc");
+    const nonce = "N".repeat(43);
+    const now = Date.now();
+    const seconds = Math.floor(now / 1000);
+    const claims = {
+      iss: config.issuers[0],
+      aud: config.clientId,
+      sub: "subject-1",
+      email: "person@example.com",
+      email_verified: true,
+      nonce,
+      iat: seconds,
+      exp: seconds + 300,
+    };
+    runtime.service.resetOAuthKeyCache();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ keys: [signingJwk] }), { status: 200 }),
+      );
+    const valid = signIdToken(claims);
+    const [header, payload, signature] = valid.split(".");
+    const hmacInput = `${encode({ alg: "HS256", kid: "fixture-rsa" })}.${payload}`;
+    const publicPem = signingKey.publicKey.export({
+      type: "spki",
+      format: "pem",
+    });
+    for (const forged of [
+      `${header}.${encode({ ...claims, sub: "subject-2" })}.${signature}`,
+      `${encode({ alg: "none", kid: "fixture-rsa" })}.${payload}.`,
+      `${encode({ alg: "none", kid: "fixture-rsa" })}.${payload}.${signature}`,
+      `${hmacInput}.${createHmac("sha256", publicPem).update(hmacInput).digest("base64url")}`,
+      signIdToken(claims, { alg: "RS256" }),
+      signIdToken(claims, { alg: "RS256", kid: "fixture-rsa", crit: ["x"] }),
+      signIdToken(
+        claims,
+        { alg: "RS256", kid: "fixture-rsa" },
+        generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey,
+      ),
+    ])
+      await expect(
+        runtime.service.verifyIdToken(config, forged, nonce, now),
+      ).rejects.toThrow(/^OAuth sign-in failed$/);
+    expect(
+      await runtime.service.verifyIdToken(config, valid, nonce, now),
+    ).toEqual({
+      subject: "subject-1",
+      email: "person@example.com",
+      emailVerified: true,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Bad key material behind a known kid never verifies.
+    runtime.service.resetOAuthKeyCache();
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            keys: [{ kty: "RSA", kid: "fixture-rsa", n: "AAAA", e: "AQAB" }],
+          }),
+          { status: 200 },
+        ),
+    );
+    await expect(
+      runtime.service.verifyIdToken(config, valid, nonce, now),
+    ).rejects.toThrow(/^OAuth sign-in failed$/);
+    // Verification uses node:crypto only: no new package, keys built from JWK.
+    expect(runtime.sources.service).toMatch(
+      /createPublicKey\(\{ key: \{ kty: 'RSA', n: value\.n, e: value\.e \}, format: 'jwk' \}\)/,
+    );
+    expect(runtime.sources.service).not.toMatch(
+      /from '(?:jose|jsonwebtoken|jwks-rsa)'/,
+    );
+  });
+
+  it("caches provider signing keys for a bounded lifetime and refetches at most once per interval for an unknown kid", async () => {
+    const runtime = await loadRuntime(await renderedWorkspace());
+    const config = runtime.provider("oidc");
+    const nonce = "N".repeat(43);
+    const t0 = Date.now();
+    const seconds = Math.floor(t0 / 1000);
+    const claims = {
+      iss: config.issuers[0],
+      aud: config.clientId,
+      sub: "subject-1",
+      email: "person@example.com",
+      email_verified: true,
+      nonce,
+      iat: seconds,
+      exp: seconds + 3 * 3600,
+    };
+    const token = signIdToken(claims);
+    const unknown = signIdToken(claims, { alg: "RS256", kid: "unknown" });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ keys: [signingJwk] }), {
+          status: 200,
+          headers: { "cache-control": "public, max-age=86400" },
+        }),
+    );
+    const verifyAt = (value: string, offset: number) =>
+      runtime.service.verifyIdToken(config, value, nonce, t0 + offset);
+    const refused = /^OAuth sign-in failed$/;
+    await verifyAt(token, 0);
+    // max-age=86400 is capped at one hour.
+    await verifyAt(token, 59 * 60_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await expect(verifyAt(unknown, 30_000)).rejects.toThrow(refused);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    await expect(verifyAt(unknown, 61_000)).rejects.toThrow(refused);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    await expect(verifyAt(unknown, 62_000)).rejects.toThrow(refused);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    await verifyAt(token, 61_000 + 60 * 60_000);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(String(fetchSpy.mock.calls[0]![0])).toBe(oidc.jwksUri);
+    // An oversized key set is cut off while streaming, and a non-HTTPS
+    // jwks_uri is never contacted.
+    runtime.service.resetOAuthKeyCache();
+    vi.restoreAllMocks();
+    let cancelled = false;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(16 * 1024).fill(32));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(verifyAt(token, 0)).rejects.toThrow(refused);
+    expect(cancelled).toBe(true);
+    vi.restoreAllMocks();
+    const plain = vi.spyOn(globalThis, "fetch");
+    await expect(
+      runtime.service.verifyIdToken(
+        { ...config, jwksUri: "http://login.example.test/oauth2/jwks" },
+        token,
+        nonce,
+        t0,
+      ),
+    ).rejects.toThrow(refused);
+    expect(plain).not.toHaveBeenCalled();
+  });
+
   it("declares provider credentials as required environment variables without default values", async () => {
     const workspace = await fixture();
     await apply(workspace, "authentication.oauth", {
@@ -872,6 +1090,18 @@ describe("audited OAuth login runtime", () => {
         oidc: { ...oidc, authorizationEndpoint: "https://login.test/a#frag" },
       },
       { providers: ["oidc"], oidc: { ...oidc, extra: "value" } },
+      {
+        providers: ["oidc"],
+        oidc: { ...oidc, jwksUri: undefined },
+      },
+      {
+        providers: ["oidc"],
+        oidc: { ...oidc, jwksUri: "http://login.example.test/oauth2/jwks" },
+      },
+      {
+        providers: ["oidc"],
+        oidc: { ...oidc, jwksUri: "https://login.example.test/jwks#keys" },
+      },
     ])
       await expect(
         renderTemplateProposal(
@@ -964,7 +1194,7 @@ describe("audited OAuth login runtime", () => {
       );
       expect(checks[0].code, checks[0].stdout + checks[0].stderr).toBe(0);
       expect(checks[0].stdout.replace(/\x1b\[[0-9;]*m/g, "")).toMatch(
-        /Tests\s+19 passed/,
+        /Tests\s+25 passed/,
       );
     },
     180000,

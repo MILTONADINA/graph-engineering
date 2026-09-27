@@ -5,7 +5,8 @@
     "oidc": {
       "issuer": "https://login.example.com",
       "authorizationEndpoint": "https://login.example.com/oauth2/authorize",
-      "tokenEndpoint": "https://login.example.com/oauth2/token"
+      "tokenEndpoint": "https://login.example.com/oauth2/token",
+      "jwksUri": "https://login.example.com/oauth2/jwks"
     }
   },
   "expectedOutputs": {
