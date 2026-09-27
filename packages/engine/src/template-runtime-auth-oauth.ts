@@ -101,6 +101,7 @@ function oidcSettings(
   issuer: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  jwksUri: string;
 } | null {
   if (!enabled.includes("oidc")) {
     if (value !== undefined)
@@ -108,12 +109,16 @@ function oidcSettings(
     return null;
   }
   if (!value || typeof value !== "object")
-    throw new Error("The oidc provider requires issuer and endpoint settings");
+    throw new Error(
+      "The oidc provider requires issuer, endpoint and jwksUri settings",
+    );
   const settings = value as Record<string, unknown>;
   return {
     issuer: httpsUrl(settings.issuer),
     authorizationEndpoint: httpsUrl(settings.authorizationEndpoint),
     tokenEndpoint: httpsUrl(settings.tokenEndpoint),
+    // ID token signatures are verified against keys fetched only from here.
+    jwksUri: httpsUrl(settings.jwksUri),
   };
 }
 function fill(source: string, placeholder: string, value: unknown): string {
