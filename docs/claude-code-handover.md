@@ -349,9 +349,26 @@ Owner decisions on 2026-09-27, carried out on the owner's instruction:
   from the fork branch `align/kevin-templates-20260926`; merging it is
   Kevin's decision.
 
-Still for the owner: the self-built run `80586c65` (it failed in review,
-and its code was taken into #57), promotion evidence for Jev and Laya,
-and any live security targets.
+Later on 2026-09-27, also on the owner's instruction:
+
+- the owner reviewed the self-built run `80586c65` independently. A person
+  can now approve a change in place of the AI reviewer
+  ([#60](https://github.com/MILTONADINA/graph-engineering/pull/60)), and
+  the run completed as succeeded with its review recorded as approved by a
+  person. The owner accepted it.
+- live security targets were chosen and built
+  ([#61](https://github.com/MILTONADINA/graph-engineering/pull/61)). OWASP
+  Juice Shop and an app built by the `project.node-express` template are
+  scanned with the ZAP baseline scan. Each target runs in a loopback-only
+  network namespace the scan starts itself, so no traffic reaches systems
+  the team does not control. Findings are advisory.
+
+Still for the owner: promotion evidence for Jev and Laya. The owner reported
+an independent review, but no signed held-out labels or trust registry
+exist yet. An AI in this session cannot be that reviewer, because it
+produced and curated the work. The next step is a labelling packet from
+`evaluation-export`/`evaluation-labels` for an independent person to label
+and sign ([promotion trust boundary](promotion-trust-boundary.md)).
 
 ## Where the work stands
 
