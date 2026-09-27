@@ -1370,6 +1370,11 @@ describe("code review gate", () => {
     attempts?: number;
     extraChanges?: { path: string; before: null; after: string }[];
     prepare?: (root: string) => Promise<void>;
+    securityScan?: Parameters<typeof GraphEngine.open>[1] extends infer D
+      ? D extends { securityScan?: infer S }
+        ? S
+        : never
+      : never;
   }) => {
     const { root, config, data } = await fixture();
     const reviewerKind = options.reviewer?.kind ?? "local";
@@ -1423,6 +1428,7 @@ describe("code review gate", () => {
         };
       },
       verify: passingVerify,
+      ...(options.securityScan ? { securityScan: options.securityScan } : {}),
       review: async (input) => {
         reviewed.push(input.diff);
         const next = reviews.shift() ?? approve;
@@ -1523,6 +1529,45 @@ describe("code review gate", () => {
     })();
     expect(noReview.status).toBe("failed");
     await expect(other.approveReview(noReview.id, "ok")).rejects.toThrow(
+      "did not stop at code review",
+    );
+  });
+
+  it("refuses a person's approval for a run the reviewer approved that failed afterwards", async () => {
+    const { engine, result } = await setup({
+      reviews: [approve],
+      attempts: 1,
+      prepare: async (root) => {
+        await writeFile(
+          path.join(root, ".graph/security-baseline.json"),
+          JSON.stringify({ version: 1, findings: [] }),
+        );
+        await checked("git", ["add", ".graph/security-baseline.json"], {
+          cwd: root,
+        });
+        await checked("git", ["commit", "-m", "test: baseline"], {
+          cwd: root,
+        });
+      },
+      securityScan: async () => ({
+        tools: ["semgrep"],
+        findings: [
+          {
+            tool: "semgrep",
+            rule: "javascript.eval-detected",
+            path: "math.cjs",
+            line: 1,
+            message: "eval",
+            fingerprint: "new",
+          },
+        ],
+        errors: [],
+        unscanned: [],
+      }),
+    });
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("Security scan found");
+    await expect(engine.approveReview(result.id, "Looks fine")).rejects.toThrow(
       "did not stop at code review",
     );
   });

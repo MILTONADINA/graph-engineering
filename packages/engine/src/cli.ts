@@ -840,7 +840,23 @@ cli
     withEngine(async (engine) => {
       await engine.approveReview(runId, options.note);
       await engine.resume(runId, true);
-      return noteFailedRun(await engine.wait(runId));
+      const run = noteFailedRun(await engine.wait(runId));
+      const events = engine.store.events(runId);
+      const approved = events.findLastIndex(
+        (event) => event.type === "review.person_approved",
+      );
+      if (
+        !events
+          .slice(approved + 1)
+          .some(
+            (event) =>
+              event.type === "review.completed" && event.data.by === "person",
+          )
+      )
+        console.error(
+          "Your approval was not used: the resumed run did not reach the approved snapshot's review. Inspect the run's events.",
+        );
+      return run;
     }),
   );
 cli
