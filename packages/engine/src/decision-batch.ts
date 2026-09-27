@@ -16,6 +16,10 @@ import {
   authorizesPromotionFromBinding,
   type PromotionDispatchBinding,
 } from "./promotion-authority.js";
+import {
+  checkPromotionRoute,
+  type PromotionRouteVerdict,
+} from "./promotion-route.js";
 
 export interface DecisionQuestion {
   id: string;
@@ -197,11 +201,32 @@ export async function decideBatch(
   const resolved = new Set<string>(),
     records: DecisionRecord[] = [],
     usages: DecisionCallUsage[] = [];
-  for (const provider of z
-    .array(decisionProviderSchema)
-    .parse(options.providers)) {
+  const providers = z.array(decisionProviderSchema).parse(options.providers);
+  // Shadow short-circuit: only a promoted category under decisionMode
+  // "promoted" reaches the per-route check; nothing else does trust, grant
+  // or witness work.
+  const promotedScope = (question: DecisionQuestion) =>
+    policy.decisionMode === "promoted" &&
+    policy.promotedCategories.includes(question.category);
+  for (const provider of providers) {
     const pending = questions.filter((question) => !resolved.has(question.id));
     if (!pending.length) break;
+    // Recompute each promoted route's live identity before dispatch. A refusal
+    // keeps the baseline and is recorded; the provider is still asked so its
+    // answer stays in shadow, and nothing is retried under weaker checks.
+    const routeVerdicts = new Map<string, PromotionRouteVerdict>();
+    for (const question of pending)
+      if (promotedScope(question))
+        routeVerdicts.set(
+          question.id,
+          checkPromotionRoute("before-dispatch", {
+            projectId: options.projectId,
+            policy,
+            category: question.category,
+            provider,
+            providers,
+          }),
+        );
     const callId = id();
     const stateObject =
       provider.id === "jev" ? options.cloudState : options.state;
@@ -410,10 +435,24 @@ export async function decideBatch(
           item.provider === provider.id &&
           item.model === provider.model,
       );
+      let routeVerdict = routeVerdicts.get(question.id);
+      // Re-check after the response only for a route admitted before dispatch.
+      if (routeVerdict?.admitted)
+        routeVerdict = checkPromotionRoute(
+          "after-response",
+          {
+            projectId: options.projectId,
+            policy,
+            category: question.category,
+            provider,
+            providers,
+          },
+          typeof result?.model === "string" ? result.model : null,
+        );
       const eligible =
         !policyChanged &&
-        policy.decisionMode === "promoted" &&
-        policy.promotedCategories.includes(question.category) &&
+        promotedScope(question) &&
+        routeVerdict?.admitted === true &&
         !!proof &&
         meetsPromotionMetrics(proof) &&
         (await authorizesPromotionFromBinding(options.promotionBinding, proof, {
@@ -479,6 +518,12 @@ export async function decideBatch(
           stateHash: hash(state),
           promotionVersion: proof?.version ?? null,
           promotionAuthority: promoted ? "verified" : "unverified",
+          ...(routeVerdict && !routeVerdict.admitted
+            ? {
+                promotionRefusal: routeVerdict.refusal,
+                promotionRefusalPhase: routeVerdict.phase,
+              }
+            : {}),
           ...(questionFailure ? { failure: questionFailure } : {}),
           ...(question.id === pending[0]?.id && callUsage
             ? { usage: callUsage }
