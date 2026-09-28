@@ -65,7 +65,9 @@ pass fails with a message naming code review, never "checks failed".
   `exportPaths` is recorded as `review.blocked` rather than
   `review.started`, since nothing reached the reviewer. In each case the
   run stopped at code review, so when its checks passed a person can
-  [review it instead](#a-persons-review). Cloud implementers get the
+  [review it instead](#a-persons-review). A blocked review stays blocked
+  on resume, since the run's reviewer and export policy are fixed, so a
+  person's review is then the only way on. Cloud implementers get the
   review's details only when every changed path is exportable.
 - **Reviews are paid calls.** They share the run's worker slots, turn budget
   and cost reservations, and a change too large for the reviewer's context

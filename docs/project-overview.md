@@ -39,7 +39,11 @@ receive the change) lists
 the command itself applies ([a person's review](code-review.md#a-persons-review)).
 Resuming it asks the reviewer again, so a spent turn budget stops it at
 review again; raising `policy.maxTurns` changes the policy, which voids
-both commands for that run. A resume that stopped before reaching review
+both commands for that run. A review blocked because a cloud reviewer may
+not receive the change is the exception: the run's reviewer and
+`exportPaths` are fixed for it, so a resume is blocked at review the same
+way without asking the reviewer, and the card lists only `review-approve`
+(which resumes the run itself) as the way forward. A resume that stopped before reaching review
 again lists only `resume`, as its gates show: the command refuses an
 earlier attempt's review.
 

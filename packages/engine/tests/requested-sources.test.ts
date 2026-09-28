@@ -589,6 +589,20 @@ describe("directory and missing-file requests", () => {
     ).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(UnexportableRequestError);
     expect((refused as UnexportableRequestError).paths).toEqual([named]);
+    // Its feedback and error count the name rather than repeat it: a cloud
+    // worker's feedback holding a potential secret is refused at dispatch.
+    const feedback = unexportableRequestFeedback([
+      "src/private.ts",
+      named,
+      named.replace("Q7", "R8"),
+    ]);
+    expect(feedback).toContain(
+      "You requested src/private.ts, 2 paths whose name looks like a credential, which this project does not share with your provider",
+    );
+    expect(containsSecret(feedback)).toBe(false);
+    expect((refused as Error).message).toBe(
+      "Source request is not exportable: 1 path whose name looks like a credential",
+    );
     // A listing leaves it out, and is not anchored to it.
     const result = await request(
       root,

@@ -314,6 +314,10 @@ function card(
     configured &&
     stoppedAtReview(events) &&
     passedChecksSnapshot(events) !== undefined;
+  // Except when nothing was sent: the run's reviewer and its export policy
+  // are fixed, so a resume is blocked at review the same way and a person's
+  // review is the only way on (`review-approve` resumes the run itself).
+  const blocked = latestReview?.type === "review.blocked";
   const [next, commands]: [string, string[]] = active
     ? ["The graph is working; nothing needed from you yet.", []]
     : run.status === "succeeded"
@@ -330,15 +334,20 @@ function card(
         ? ["Inspect the retained workspace and events, then resume.", [resume]]
         : run.status === "cancelled"
           ? ["Cancelled. To continue, inspect it and resume.", [resume]]
-          : approvable
+          : approvable && blocked
             ? [
-                "Stopped at code review after its required checks passed. Read the error, then review the change and approve it yourself with a note; or fix the cause and resume, which asks the reviewer again (a spent turn budget stops it again, and changing the policy voids both for this run).",
-                [`graph-engine review-approve ${run.id} --note "…"`, resume],
+                "Stopped at code review after its required checks passed: the change touches paths a cloud reviewer may not receive, so nothing was sent. Review the change and approve it yourself with a note, which resumes the run. A resume alone is blocked at review the same way: this run's reviewer and export policy are fixed, and changing the policy voids both review-approve and resume for this run.",
+                [`graph-engine review-approve ${run.id} --note "…"`],
               ]
-            : [
-                "Stopped before passing its gates. Read the error; to continue, fix the cause and resume.",
-                [resume],
-              ];
+            : approvable
+              ? [
+                  "Stopped at code review after its required checks passed. Read the error, then review the change and approve it yourself with a note; or fix the cause and resume, which asks the reviewer again (a spent turn budget stops it again, and changing the policy voids both for this run).",
+                  [`graph-engine review-approve ${run.id} --note "…"`, resume],
+                ]
+              : [
+                  "Stopped before passing its gates. Read the error; to continue, fix the cause and resume.",
+                  [resume],
+                ];
 
   return {
     runId: run.id,

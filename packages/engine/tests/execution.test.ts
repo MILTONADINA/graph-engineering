@@ -15,6 +15,7 @@ import {
 } from "../src/project.js";
 import { GraphEngine } from "../src/service.js";
 import { applyProposal } from "../src/execution/workspace.js";
+import { invokeApiWorker } from "../src/workers/api.js";
 import { checked, writeJson } from "../src/util.js";
 import * as util from "../src/util.js";
 import { RunStore } from "../src/store.js";
@@ -1213,6 +1214,98 @@ describe("managed execution", () => {
         .map((event) => event.data.reason),
     ).toEqual(["not-exportable"]);
   });
+  it("answers a cloud worker's request for a credential-named file with feedback it can receive, then applies its change", async () => {
+    const { root, config, data } = await fixture();
+    // Built at run time, so this source holds no token-shaped literal.
+    const tokenName = "gh" + "p_" + "Q7mZ2xK9vB4nR8tW3yL6pD1sF5hJ0cGa";
+    const named = `fixtures/${tokenName}.json`;
+    await mkdir(path.join(root, "fixtures"));
+    await writeFile(path.join(root, named), '{ "fixture": true }\n');
+    config.policy = {
+      ...config.policy,
+      inference: "allowlisted",
+      network: "allowlisted",
+      allowedHosts: ["api.openai.com"],
+      providers: ["cloud"],
+      // Exportable by policy: the refusal is the credential screen's.
+      exportPaths: ["math.cjs", "fixtures/**"],
+    };
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await checked("git", ["add", "."], { cwd: root });
+    await checked("git", ["commit", "-m", "test: credential-named fixture"], {
+      cwd: root,
+    });
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+      apiKeyEnv: "GRAPH_TEST_API_KEY",
+    });
+    vi.stubEnv("GRAPH_TEST_API_KEY", "fixture-only-not-a-real-key");
+    const proposals = [
+      { summary: "Need the fixture", requests: [named], changes: [] },
+      {
+        summary: "Fix addition",
+        requests: [],
+        changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+      },
+    ];
+    const sent: string[] = [];
+    // The real API worker, so its dispatch guard sees the feedback.
+    const providerFetch = vi.fn(
+      async (_url: string, init: { body: string }) => {
+        sent.push(String(init.body));
+        return new Response(
+          JSON.stringify({
+            model: "fixture",
+            output: [
+              {
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify(proposals[sent.length - 1]),
+                  },
+                ],
+              },
+            ],
+            usage: { input_tokens: 10, output_tokens: 5 },
+          }),
+        );
+      },
+    );
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: (input) => invokeApiWorker(input, providerFetch),
+      verify: async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "",
+          stderr: "",
+          snapshotHash,
+        })),
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["passes"],
+    });
+    const run = await engine.wait((await engine.start(plan.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    // One round of feedback, which counts the path rather than naming it.
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toContain(
+      "You requested 1 path whose name looks like a credential, which this project does not share with your provider, so nothing was read.",
+    );
+    for (const body of sent) expect(body).not.toContain(tokenName);
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "proposal.returned")
+        .map((event) => event.data.reason),
+    ).toEqual(["not-exportable"]);
+  });
   it("allows repeated close notifications", async () => {
     const { root } = await fixture();
     const engine = await GraphEngine.open(root);
@@ -2270,6 +2363,20 @@ describe("code review gate", () => {
       providerId: "reviewer",
       reason: "the change touches paths a cloud reviewer may not receive",
     });
+    // The run's reviewer and export policy are fixed, so a resume alone is
+    // blocked at review the same way and never reaches the reviewer.
+    await engine.resume(result.id, true);
+    const retried = await engine.wait(result.id);
+    expect(retried.status).toBe("failed");
+    expect(retried.error).toContain(
+      "the change touches paths a cloud reviewer may not receive",
+    );
+    expect(
+      engine.store
+        .events(result.id)
+        .filter((event) => event.type === "review.blocked"),
+    ).toHaveLength(2);
+    expect(reviewed).toEqual([]);
     // The checks passed, so a person can stand in for the reviewer.
     await engine.approveReview(result.id, "Reviewed the private change myself");
     await engine.resume(result.id, true);
