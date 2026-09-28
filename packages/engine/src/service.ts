@@ -2911,10 +2911,13 @@ async function applyWholePatch(
     try {
       await restoreOriginals(originals);
       if ((await workspaceFingerprint(workspace, policy)) !== before)
-        throw new Error("the workspace does not match its pre-patch state");
+        throw new Error("the workspace does not match its pre-patch state", {
+          cause: error,
+        });
     } catch (restoreError) {
       throw new DagReconciliationError(
         `A patch failed while its files were written (${errorMessage(error)}) and could not be rolled back (${errorMessage(restoreError)}); inspect ${paths.join(", ")} in the retained workspace, then resume with reconciliation acknowledgement or create a new plan`,
+        { cause: restoreError },
       );
     }
     record.rolledBack(applying, paths, errorMessage(error));
