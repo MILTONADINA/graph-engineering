@@ -15,7 +15,9 @@ import {
   projectDataDir,
   PROJECT_FILE,
 } from "../src/project.js";
-import { checked, writeJson } from "../src/util.js";
+import { checked, readJson, writeJson } from "../src/util.js";
+import type { DagCheckpoint } from "../src/execution/dag.js";
+import { workspaceFingerprint } from "../src/execution/workspace.js";
 import {
   invokeApiWorker,
   type WorkerInput,
@@ -258,6 +260,53 @@ describe("managed DAG safety boundaries", () => {
         .events(run.id)
         .filter((entry) => entry.type === "dag.step.completed"),
     ).toHaveLength(2);
+  });
+
+  it("resolves a crash-interrupted patch on an acknowledged resume when the workspace matches its post-patch state", async () => {
+    const { root, config, data } = await fixture();
+    const calls: string[] = [];
+    const engine = await open(root, {
+      worker: async (input) => {
+        calls.push(input.objective);
+        if (input.objective === "two")
+          throw new Error("Simulated transport failure");
+        return result(input.objective);
+      },
+    });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    // Simulate a crash after step two's patch reached disk but before its
+    // completion was recorded: the checkpoint keeps only the pending marker.
+    const checkpointPath = path.join(data, "checkpoints", `${run.id}.json`);
+    const checkpoint = await readJson<DagCheckpoint>(checkpointPath);
+    const beforeHash = checkpoint.workspaceHash;
+    const second = path.join(run.workspace!, "second.js");
+    await writeFile(
+      second,
+      (await readFile(second, "utf8")).replace("= 2", "= 4"),
+    );
+    const afterHash = await workspaceFingerprint(run.workspace!, config.policy);
+    await writeJson(checkpointPath, {
+      ...checkpoint,
+      pending: {
+        stepId: "two",
+        proposalHash: "a".repeat(64),
+        beforeHash,
+        afterHash,
+        paths: ["second.js"],
+      },
+    });
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.status).toBe("succeeded");
+    expect(calls).toEqual(["one", "two"]);
+    expect(
+      engine.store
+        .events(run.id)
+        .find((entry) => entry.type === "dag.step.reconciled")?.data,
+    ).toEqual(expect.objectContaining({ outcome: "applied" }));
   });
 
   it("rejects unaffordable parallel calls before dispatch and preserves the budget on resume", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -7,11 +7,13 @@ import {
   type ExecutionStep,
 } from "@graph-engineering/contracts";
 import {
+  DagReconciliationError,
   runDag,
   untilAborted,
   validateDag,
   writeScope,
   type DagCheckpoint,
+  type DagEvent,
 } from "../src/execution/dag.js";
 import { checked } from "../src/util.js";
 import type { WorkerResult } from "../src/workers/api.js";
@@ -60,28 +62,66 @@ const proposal = (
 });
 
 describe("dependency DAG execution", () => {
-  it("retains a pending checkpoint when an ignore-rule edit hides an earlier generated file", async () => {
+  it("rolls back a patch whose ignore-rule edit hides an earlier generated file and stays resumable", async () => {
     const workspace = await fixture();
     let saved: DagCheckpoint | undefined;
+    const events: DagEvent[] = [];
+    const options = {
+      workspace,
+      policy: DEFAULT_POLICY,
+      steps: [step("source"), step("hide", ["source"])],
+      saveCheckpoint: async (value: DagCheckpoint) => {
+        saved = structuredClone(value);
+      },
+      onEvent: (value: DagEvent) => {
+        events.push(value);
+      },
+    };
     await expect(
       runDag({
-        workspace,
-        policy: DEFAULT_POLICY,
-        steps: [step("source"), step("hide", ["source"])],
-        saveCheckpoint: async (value) => {
-          saved = structuredClone(value);
-        },
+        ...options,
         generate: async (current) =>
           current.id === "source"
             ? proposal("generated.ts", "export const value = 1;\n")
             : proposal(".gitignore", "generated.ts\n"),
       }),
-    ).rejects.toThrow(/verification inventory/);
+    ).rejects.toThrow(/verification inventory[\s\S]*patch was rolled back/);
     expect(saved?.completed.map((item) => item.id)).toEqual(["source"]);
-    expect(saved?.pending?.stepId).toBe("hide");
+    expect(saved?.pending).toBeUndefined();
+    await expect(access(path.join(workspace, ".gitignore"))).rejects.toThrow();
     expect(
       await readFile(path.join(workspace, "generated.ts"), "utf8"),
     ).toContain("value = 1");
+    const rolledBack = events.find(
+      (value) => value.type === "dag.step.rolled_back",
+    );
+    expect(rolledBack?.stepId).toBe("hide");
+    expect(rolledBack?.data.error).toMatch(/verification inventory/);
+    const result = await runDag({
+      ...options,
+      checkpoint: saved,
+      generate: async () => proposal("notes.txt", "kept visible\n"),
+    });
+    expect(result.appliedStepIds).toEqual(["hide"]);
+  });
+  it("rolls back a Git-ignored new file and the directories its patch created", async () => {
+    const workspace = await fixture();
+    await writeFile(path.join(workspace, ".gitignore"), "*.log\n");
+    let saved: DagCheckpoint | undefined;
+    await expect(
+      runDag({
+        workspace,
+        policy: DEFAULT_POLICY,
+        steps: [step("a")],
+        saveCheckpoint: async (value) => {
+          saved = structuredClone(value);
+        },
+        generate: async () => proposal("nested/deeper/output.log", "hidden"),
+      }),
+    ).rejects.toThrow(/verification inventory/);
+    expect(saved?.pending).toBeUndefined();
+    expect(saved?.completed).toEqual([]);
+    await expect(access(path.join(workspace, "nested"))).rejects.toThrow();
   });
   it("permits ordered edits of the same file and rejects stale resume state", async () => {
     const workspace = await fixture();
@@ -306,6 +346,7 @@ describe("dependency DAG execution", () => {
       }),
     ).rejects.toThrow("storage unavailable");
     expect(checkpoint?.pending?.stepId).toBe("a");
+    expect(checkpoint?.pending?.afterHash).toMatch(/^[a-f0-9]{64}$/);
     expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("a");
     await expect(
       runDag({
@@ -319,6 +360,83 @@ describe("dependency DAG execution", () => {
         },
       }),
     ).rejects.toThrow("interrupted");
+  });
+  // Leaves a pending marker with the patch fully on disk, as a crash between
+  // applying a patch and recording its completion would.
+  async function interrupted() {
+    const workspace = await fixture();
+    let checkpoint: DagCheckpoint | undefined;
+    await expect(
+      runDag({
+        workspace,
+        policy: DEFAULT_POLICY,
+        steps: [step("a")],
+        saveCheckpoint: async (value) => {
+          if (value.completed.length) throw new Error("simulated crash");
+          checkpoint = structuredClone(value);
+        },
+        generate: async () => proposal("a.txt", "a"),
+      }),
+    ).rejects.toThrow("simulated crash");
+    const events: DagEvent[] = [];
+    const generated: string[] = [];
+    const resume = (value = checkpoint) =>
+      runDag({
+        workspace,
+        policy: DEFAULT_POLICY,
+        steps: [step("a")],
+        checkpoint: value,
+        reconcilePending: true,
+        saveCheckpoint: async () => {},
+        onEvent: (entry) => {
+          events.push(entry);
+        },
+        generate: async (current) => {
+          generated.push(current.id);
+          return proposal("a.txt", "a");
+        },
+      });
+    return { workspace, checkpoint: checkpoint!, events, generated, resume };
+  }
+  it("records a pending step as applied when the acknowledged workspace matches its post-patch state", async () => {
+    const { checkpoint, events, generated, resume } = await interrupted();
+    const result = await resume();
+    expect(generated).toEqual([]);
+    expect(result.appliedStepIds).toEqual([]);
+    expect(result.checkpoint.pending).toBeUndefined();
+    expect(result.checkpoint.completed.map((item) => item.id)).toEqual(["a"]);
+    expect(result.checkpoint.workspaceHash).toBe(checkpoint.pending!.afterHash);
+    expect(events.find((e) => e.type === "dag.step.reconciled")?.data).toEqual(
+      expect.objectContaining({ outcome: "applied", paths: ["a.txt"] }),
+    );
+  });
+  it("re-runs a pending step when the acknowledged workspace is back at its pre-patch state", async () => {
+    const { workspace, events, generated, resume } = await interrupted();
+    await rm(path.join(workspace, "a.txt"));
+    const result = await resume();
+    expect(generated).toEqual(["a"]);
+    expect(result.appliedStepIds).toEqual(["a"]);
+    expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("a");
+    expect(events.find((e) => e.type === "dag.step.reconciled")?.data).toEqual(
+      expect.objectContaining({ outcome: "not_applied" }),
+    );
+  });
+  it("refuses to reconcile a pending step whose workspace matches neither fingerprint", async () => {
+    const { workspace, checkpoint, generated, resume } = await interrupted();
+    await writeFile(path.join(workspace, "a.txt"), "partially written");
+    const refusal = resume();
+    await expect(refusal).rejects.toBeInstanceOf(DagReconciliationError);
+    await expect(refusal).rejects.toThrow(
+      /matches neither[\s\S]*a\.txt[\s\S]*create a new plan/,
+    );
+    // A pending record without a post-patch fingerprint never counts as applied.
+    await writeFile(path.join(workspace, "a.txt"), "a");
+    const legacy = structuredClone(checkpoint);
+    delete legacy.pending!.afterHash;
+    await expect(resume(legacy)).rejects.toThrow(
+      /no complete patch was recorded[\s\S]*create a new plan/,
+    );
+    expect(generated).toEqual([]);
   });
   it("accounts for successful siblings of failures and detects worker filesystem mutation", async () => {
     const workspace = await fixture();
