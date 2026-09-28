@@ -1313,6 +1313,136 @@ describe("managed execution", () => {
     await Promise.all([engine.close(), engine.close()]);
     await expect(engine.close()).resolves.toBeUndefined();
   });
+  // A person's Ctrl-C closes the engine while `run` or `resume` may still be
+  // checking that the run can go ahead. close() then finds no run to cancel,
+  // so the run must not be launched once those checks finish.
+  it("launches no run when the engine starts closing while start or resume checks it can run", async () => {
+    const { root, data, config } = await fixture();
+    const worker = vi.fn(async () => ({
+      model: "fixture",
+      proposal: {
+        summary: "Fix addition",
+        requests: [],
+        changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+      },
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cachedTokens: 0,
+        costUsd: 0,
+        estimated: false,
+      },
+    }));
+    let checks = 0;
+    // Holds the Docker probe once armed, so the test can close the engine
+    // while start or resume awaits it.
+    let held: { probed: () => void; answer: Promise<boolean> } | undefined;
+    const engineWith = async () => {
+      const engine = await GraphEngine.open(root, {
+        dockerAvailable: async () => {
+          if (!held) return true;
+          held.probed();
+          return held.answer;
+        },
+        worker,
+        verify: async (_workspace, commands, _policy, snapshotHash) => {
+          if (++checks === 1)
+            throw new Error("Verification temporarily unavailable");
+          return commands.map((check) => ({
+            ...check,
+            code: 0,
+            stdout: "passed",
+            stderr: "",
+            snapshotHash,
+          }));
+        },
+      });
+      engines.push(engine);
+      return engine;
+    };
+    // Starts `setup` and, while it awaits the Docker probe, closes the
+    // engine. The context engine's close is held until setup has settled,
+    // as one still indexing holds it, so setup would otherwise reach the
+    // run store before it closes.
+    const closeDuringSetup = async <T>(
+      engine: GraphEngine,
+      setup: () => Promise<T>,
+    ) => {
+      let probed!: () => void;
+      const probing = new Promise<void>((resolve) => (probed = resolve));
+      let answer!: (available: boolean) => void;
+      held = {
+        probed,
+        answer: new Promise<boolean>((resolve) => (answer = resolve)),
+      };
+      const settled = setup().then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      await probing;
+      held = undefined;
+      const closeContext = engine.context.close.bind(engine.context);
+      let finish!: () => void;
+      const finishing = new Promise<void>((resolve) => (finish = resolve));
+      vi.spyOn(engine.context, "close").mockImplementation(async () => {
+        await finishing;
+        await closeContext();
+      });
+      const closing = engine.close();
+      answer(true);
+      try {
+        return await settled;
+      } finally {
+        finish();
+        await closing;
+      }
+    };
+    const stored = () => {
+      const store = new RunStore(data, config.projectId);
+      try {
+        return store.runs();
+      } finally {
+        store.close();
+      }
+    };
+
+    // A run whose first attempt failed after its workspace was created, so
+    // a resume goes straight from its checks to launching the run.
+    const first = await engineWith();
+    const plan = await first.createPlan({
+      objective: "Fix addition",
+      acceptance: ["addition passes"],
+    });
+    const failed = await first.wait((await first.start(plan.id)).id);
+    expect(failed.status).toBe("failed");
+    expect(failed.workspace).toBeTruthy();
+    expect(worker).toHaveBeenCalledTimes(1);
+    expect(checks).toBe(1);
+    const resumed = await closeDuringSetup(first, () =>
+      first.resume(failed.id, true),
+    );
+    expect(resumed).toEqual({
+      error: new Error("The engine is closing, so the run was not resumed"),
+    });
+    expect(stored()).toMatchObject([{ id: failed.id, status: "failed" }]);
+
+    // A fresh plan, since a plan starts only one run.
+    const second = await engineWith();
+    const fresh = await second.createPlan({
+      objective: "Fix addition again",
+      acceptance: ["addition passes"],
+    });
+    const started = await closeDuringSetup(second, () =>
+      second.start(fresh.id),
+    );
+    expect(started).toEqual({
+      error: new Error("The engine is closing, so the run was not started"),
+    });
+    expect(stored()).toMatchObject([{ id: failed.id, status: "failed" }]);
+    // Neither setup reached the worker or the checks.
+    expect(worker).toHaveBeenCalledTimes(1);
+    expect(checks).toBe(1);
+  });
   it.runIf(process.env.GRAPH_ENGINE_DOCKER_TESTS === "1")(
     "executes real offline Docker verification on an isolated source view",
     async () => {
