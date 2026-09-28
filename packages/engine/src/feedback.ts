@@ -107,6 +107,7 @@ export function classifyError(message: string): ErrorKind {
 const PHASES: Record<string, string> = {
   init: "setup",
   "provider-add": "setup",
+  "provider-enable": "setup",
   policy: "setup",
   reviewer: "setup",
   tester: "setup",

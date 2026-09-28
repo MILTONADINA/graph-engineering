@@ -46,7 +46,7 @@ closed registries' `none` entries.
 
 - AC1: `anchor-prepare` builds a strict, versioned `1.1.0` anchor from the three public keys and this project's repository identity, writes its canonical bytes to a new file (never overwriting it, and never at or inside a compiled anchor location), and reports that file's SHA-256.
   - Test: packages/engine/tests/promotion-anchor-enrollment.test.ts :: writes a canonical, schema-valid anchor from the public keys and never the root path
-  - Test: packages/engine/tests/promotion-anchor-enrollment.test.ts :: CLI anchor-prepare writes only the chosen file and prints the install commands
+  - Test: packages/engine/tests/promotion-anchor-enrollment.test.ts :: CLI anchor-prepare writes only the chosen file and prints the install commands and follow-ups with its key directory
 - AC2: `anchor-prepare` reads only `<role>.pub.pem`; a missing key or key directory refuses with `owner-public-key-missing` and the hint `run npm run promotion-key -- setup first`, and a key that is not a canonical Ed25519 PEM, or one key shared by two roles, is refused.
   - Test: packages/engine/tests/promotion-anchor-enrollment.test.ts :: refuses a missing, invalid or shared public key and reads only .pub.pem files
 - AC3: The printed install commands create the compiled directory and install the file with owner root, group `wheel` (macOS) or `root` (Linux) and mode 0644, then print its SHA-256; the engine never runs them.
@@ -67,6 +67,8 @@ closed registries' `none` entries.
   - Test: packages/engine/tests/promotion-anchor-enrollment.test.ts :: keeps the enrollment record and witness state out of the repository, project backups and MCP exports
   - Test: packages/engine/tests/promotion-bypass-invariants.test.ts :: never backs up or restores promotion trust, grant or witness state
   - Test: packages/engine/tests/promotion-bypass-invariants.test.ts :: has no environment override for promotion trust
+- AC9: When `anchor-prepare` read the public keys from a directory given with `--key-dir`, the `anchor-verify` and `enroll` commands it prints carry the same `--key-dir`, so they compare the anchor with those keys rather than the default directory.
+  - Test: packages/engine/tests/promotion-anchor-enrollment.test.ts :: CLI anchor-prepare writes only the chosen file and prints the install commands and follow-ups with its key directory
 
 ## Security considerations
 

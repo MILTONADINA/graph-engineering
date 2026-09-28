@@ -324,7 +324,7 @@ describe("promotion anchor-prepare", () => {
   );
 
   it.runIf(unix)(
-    "CLI anchor-prepare writes only the chosen file and prints the install commands",
+    "CLI anchor-prepare writes only the chosen file and prints the install commands and follow-ups with its key directory",
     async () => {
       const before = anchorPathExisted();
       const keyDir = await testKeyDir();
@@ -356,6 +356,13 @@ describe("promotion anchor-prepare", () => {
       expect(stdout).toContain(`Anchor SHA-256: ${digest}`);
       for (const command of anchorInstallCommands(out))
         expect(stdout).toContain(command);
+      // Verify and enroll must read the same keys, not the default directory.
+      expect(stdout).toContain(
+        `npm run graph:local -- promotion anchor-verify --key-dir '${keyDir}'\n`,
+      );
+      expect(stdout).toContain(
+        `npm run graph:local -- promotion enroll --key-dir '${keyDir}'\n`,
+      );
       expect(readdirSync(path.dirname(out))).toEqual(["anchor.json"]);
       expect(anchorPathExisted()).toEqual(before);
     },

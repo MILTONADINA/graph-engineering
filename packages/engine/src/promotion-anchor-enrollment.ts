@@ -324,6 +324,23 @@ export function anchorInstallCommands(
   ];
 }
 
+/**
+ * The commands that check and then enroll the installed anchor. They carry
+ * the key directory anchor-prepare read, when one was given, since verify
+ * and enroll compare the anchor with the public keys in that directory and
+ * otherwise read the default one.
+ */
+export function anchorFollowUpCommands(keyDir?: string): {
+  verify: string;
+  enroll: string;
+} {
+  const keys = keyDir ? ` --key-dir ${shellQuote(keyDir)}` : "";
+  return {
+    verify: `npm run graph:local -- promotion anchor-verify${keys}`,
+    enroll: `npm run graph:local -- promotion enroll${keys}`,
+  };
+}
+
 const compiledAnchorLocations = (): string[] =>
   Object.values(PROMOTION_TRUST_ANCHOR_PATHS).flatMap((target) => [
     target,

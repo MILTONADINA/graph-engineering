@@ -155,7 +155,7 @@ describe("managed execution", () => {
       acceptance: ["The addition test passes"],
     });
     await expect(plan).rejects.toThrow(
-      "No permitted worker is available. Configured workers that cannot be used: local: Project policy does not allow provider local (add it to policy.providers, for example with graph-engine provider-add local local fixture --enable); cloud: Project policy does not allow provider cloud",
+      "No permitted worker is available. Configured workers that cannot be used: local: Project policy does not allow provider local (add it to policy.providers with graph-engine provider-enable local); cloud: Project policy does not allow provider cloud",
     );
     await expect(
       engine.createPlan({

@@ -349,7 +349,7 @@ export class GraphEngine {
             (error as Error).message.startsWith(
               "Project policy does not allow provider",
             )
-              ? ` (add it to policy.providers, for example with graph-engine provider-add ${p.id} ${p.kind} ${p.model} --enable)`
+              ? ` (add it to policy.providers with graph-engine provider-enable ${p.id})`
               : ""
           }`,
         };
@@ -2685,18 +2685,14 @@ export class GraphEngine {
         events.findLastIndex((e) => e.type === "publication.completed");
       // Publication may have committed, pushed or opened a PR before a
       // cancellation took effect, so that state outranks a plain cancel.
-      save(
+      run.status =
         publishing || error instanceof DagReconciliationError
           ? "needs_reconciliation"
           : signal.aborted
             ? "cancelled"
-            : "failed",
-      );
-      this.store.event(run.id, "run.stopped", {
-        status: run.status,
-        error: run.error,
-      });
-      this.store.recordOutcome(this.store.outcomeFor(run, "terminal"));
+            : "failed";
+      run.updatedAt = now();
+      this.store.stopRun(run);
     }
   }
   close(): Promise<void> {

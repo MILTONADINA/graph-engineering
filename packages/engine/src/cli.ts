@@ -10,8 +10,10 @@ import {
   assertProjectConfig,
   type ProviderConfig,
   type ProjectPolicy,
+  type RunStatus,
 } from "@graph-engineering/contracts";
 import { GraphEngine } from "./service.js";
+import { runExitCode } from "./run-exit-code.js";
 import { repositoryProfile } from "./scale.js";
 import { summarizeOutcomes } from "./insights.js";
 import {
@@ -67,6 +69,7 @@ import { evaluateDecisions, type EvaluationRow } from "./decisions.js";
 import { PROMOTION_IMPORT_BLOCKED } from "./promotion-authority.js";
 import { preparePromotionGrantRequest } from "./promotion-importer.js";
 import {
+  anchorFollowUpCommands,
   enrollPromotionTrustAnchor,
   OWNER_KEY_ROLES,
   preparePromotionTrustAnchor,
@@ -86,9 +89,12 @@ import {
   distFreshnessMessage,
 } from "./build-source.js";
 
+// Program options (-C, --version, --help) are read only before the command,
+// so check-add can store a check's own -C, -V, -h or -- untouched.
 const cli = new Command()
   .name("graph-engine")
   .description("Local context, engineering memory, and controlled coding runs")
+  .enablePositionalOptions()
   .version("0.1.0")
   .option("-C, --project <path>", "Project root", process.cwd());
 // Before any command runs, compare this dist with the source beside it. A cloud
@@ -349,9 +355,13 @@ cli
   .description(
     "Register a verification command, run with network disabled in a provisioned image",
   )
+  // Everything after the image is the check's command, stored as typed.
+  .passThroughOptions()
   .allowUnknownOption()
-  .action(async (image, argv) => {
+  .action(async (image, argv: string[]) => {
     const project = await loadProject(root());
+    // A leading -- only separates the command from check-add's own options.
+    if (argv[0] === "--") argv = argv.slice(1);
     project.verification.push({ image, argv });
     assertProjectConfig(project);
     await writeJson(path.join(root(), PROJECT_FILE), project);
@@ -573,7 +583,7 @@ async function warnIfUnusable(
     );
   else if (!project.policy.providers.includes(providerId))
     console.error(
-      `${providerId} is not permitted by the project policy; add it to policy.providers (graph-engine provider-add ... --enable) before planning.`,
+      `${providerId} is not permitted by the project policy; add it to policy.providers with graph-engine provider-enable ${providerId} before planning.`,
     );
 }
 cli
@@ -596,7 +606,7 @@ cli
 cli
   .command("tester [providerId]")
   .description(
-    "Set the worker provider that writes tests for each acceptance criterion after implementation (test files only), or show the current tester",
+    "Set the worker provider that writes tests for each acceptance criterion before implementation (new test files only, which implementers may not change), or show the current tester",
   )
   .option("--writes <glob...>", "Test-file globs the tester may write")
   .option("--clear", "Stop adding a tester step to plans")
@@ -681,13 +691,38 @@ cli
     }
     if (!project.policy.providers.includes(id))
       console.error(
-        `${id} is configured but not permitted by the project policy; rerun with --enable, or add it to policy.providers, to let plans use it.`,
+        `${id} is configured but not permitted by the project policy; run graph-engine provider-enable ${id} to let plans use it.`,
       );
     if (kind !== "local" && project.policy.maxCostUsd === null)
       console.error(
         "This project has no spending cap (policy.maxCostUsd is null). Set a numeric cap before running metered workers.",
       );
     print(provider);
+  });
+// Permitting a configured worker must not touch its stored configuration:
+// running provider-add again would replace every option not repeated.
+cli
+  .command("provider-enable <id>")
+  .description(
+    "Permit a configured worker in the project policy, leaving its configuration unchanged",
+  )
+  .action(async (id) => {
+    const project = await loadProject(root());
+    const provider = (
+      await loadProviders(projectDataDir(project.projectId))
+    ).find((configured) => configured.id === id);
+    if (!provider)
+      throw new Error(
+        `${id} is not a configured provider; add it with graph-engine provider-add`,
+      );
+    project.policy.providers = [...new Set([...project.policy.providers, id])];
+    assertProjectConfig(project);
+    await writeJson(path.join(root(), PROJECT_FILE), project);
+    if (provider.kind !== "local" && project.policy.maxCostUsd === null)
+      console.error(
+        "This project has no spending cap (policy.maxCostUsd is null). Set a numeric cap before running metered workers.",
+      );
+    print(project.policy.providers);
   });
 cli.command("providers").action(async () => {
   const project = await loadProject(root());
@@ -1165,11 +1200,12 @@ promotion
   .option("--key-dir <dir>", "Directory holding <role>.pub.pem")
   .option("--out <file>", "New file to write (default: the user data dir)")
   .action(async (options) => {
+    const keyDir = options.keyDir ? path.resolve(options.keyDir) : undefined;
     let prepared;
     try {
       prepared = await preparePromotionTrustAnchor({
         projectRoot: root(),
-        keyDir: options.keyDir ? path.resolve(options.keyDir) : undefined,
+        keyDir,
         out: options.out ? path.resolve(options.out) : undefined,
       });
     } catch (error) {
@@ -1177,6 +1213,7 @@ promotion
         return anchorRefused(error.code, error.message);
       throw error;
     }
+    const followUp = anchorFollowUpCommands(keyDir);
     const lines = [
       `Wrote ${prepared.file}`,
       `Anchor SHA-256: ${prepared.anchorSha256}`,
@@ -1191,7 +1228,8 @@ promotion
       ...prepared.installCommands.map((command) => `  ${command}`),
       "",
       `The last command must print ${prepared.anchorSha256}.`,
-      "Then check it: npm run graph:local -- promotion anchor-verify",
+      `Then check it: ${followUp.verify}`,
+      `and enroll it: ${followUp.enroll}`,
     ];
     process.stdout.write(`${lines.join("\n")}\n`);
   });
@@ -1312,11 +1350,14 @@ cli
 
 // Feedback: a run that failed, or a command that errored, is recorded as a
 // difficulty kind locally, and a person at a terminal is offered a report.
+// A command that waited for a run also exits with that run's code
+// (runExitCode): 0 only when it succeeded.
 let failedRunError: string | undefined;
-function noteFailedRun<T extends { status: string; error?: string | null }>(
+function noteFailedRun<T extends { status: RunStatus; error?: string | null }>(
   run: T,
 ): T {
   if (run.status === "failed" && run.error) failedRunError = run.error;
+  process.exitCode = runExitCode(run.status);
   return run;
 }
 const ENGINE_VERSION = (() => {

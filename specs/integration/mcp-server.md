@@ -24,6 +24,8 @@ Developers use AI clients such as Claude Code, Codex and Cursor, which should be
   - Test: packages/engine/tests/mcp.test.ts :: run_status is withheld from cloud clients unless explicitly allowed
 - AC6: Planning, decomposition, starting, following, listing and cancelling runs are available only when the server was started with `--allow-run`.
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
+- AC8: `run_events` reports `complete` only once the run's recorded status is final and no engine in this process is still executing it, so a client following a run that another process (the CLI, the dashboard or another server) is executing keeps polling until that run stops; a run's final status is saved together with its last event.
+  - Test: packages/engine/tests/mcp.test.ts :: follows a run another engine is executing until that run stops
 - AC7: The built engine records a hash of its source in `dist/build-source.json`; when `src/` sits beside `dist/`, a cloud MCP server refuses to start on a mismatch or a missing record, other commands warn on stderr, and an installed engine without `src/`, or one run from `src/` directly, is not checked.
   - Test: packages/engine/tests/build-source.test.ts :: passes a dist built from the current source
   - Test: packages/engine/tests/build-source.test.ts :: refuses cloud MCP and warns other commands when src changed after the build
