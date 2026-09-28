@@ -26,6 +26,8 @@ import {
   checkLabeler,
   collectPairs,
   companionPaths,
+  engineModule,
+  gateProgress,
   loadPacket,
   loadProgress,
   readStore,
@@ -192,6 +194,44 @@ function fixture() {
     }),
   );
   return { directory, packetPath };
+}
+
+/**
+ * A baseline run (accepted, 0.5) and a candidate run (rejected, 0.25) of one
+ * objective, each with its own plan and one decision, plus a run of another
+ * objective and an unfinished run.
+ */
+function pairedFixture() {
+  const directory = freshDir();
+  const decisions = [
+    record("rec-b1", "laya", "q1", "fast", 0.7),
+    record("rec-c1", "laya", "q1", "careful", 0.9),
+    record("rec-x1", "laya", "q1", "fast", 0.6),
+  ];
+  const objective = "Synthetic objective B, private text";
+  makeStore(directory, {
+    decisions,
+    runs: [
+      run("run-base-0001", objective),
+      run("run-cand-0001", objective, {
+        createdAt: "2026-01-01T00:05:00.000Z",
+        usage: { ...run("x", "").usage, costUsd: 0.25 },
+        completion: {
+          automatedChecksPassed: true,
+          humanAcceptance: "rejected",
+          reviewScope: "normal",
+        },
+      }),
+      run("run-other-001", "A different objective"),
+      run("run-live-0001", objective, { status: "running" }),
+    ],
+    events: [
+      decisionEvent("event-b", "run-base-0001", ["rec-b1"]),
+      decisionEvent("event-c", "run-cand-0001", ["rec-c1"]),
+      decisionEvent("event-x", "run-other-001", ["rec-x1"]),
+    ],
+  });
+  return { directory, decisions };
 }
 
 /** Scripted terminal: keys, then lines; running out of keys quits. */
@@ -424,34 +464,7 @@ test("labelling export validates against the engine's evaluation label schema", 
 });
 
 test("collect-paired pairs baseline and candidate runs of one task", async () => {
-  const directory = freshDir();
-  const decisions = [
-    record("rec-b1", "laya", "q1", "fast", 0.7),
-    record("rec-c1", "laya", "q1", "careful", 0.9),
-    record("rec-x1", "laya", "q1", "fast", 0.6),
-  ];
-  const objective = "Synthetic objective B, private text";
-  makeStore(directory, {
-    decisions,
-    runs: [
-      run("run-base-0001", objective),
-      run("run-cand-0001", objective, {
-        usage: { ...run("x", "").usage, costUsd: 0.25 },
-        completion: {
-          automatedChecksPassed: true,
-          humanAcceptance: "rejected",
-          reviewScope: "normal",
-        },
-      }),
-      run("run-other-001", "A different objective"),
-      run("run-live-0001", objective, { status: "running" }),
-    ],
-    events: [
-      decisionEvent("event-b", "run-base-0001", ["rec-b1"]),
-      decisionEvent("event-c", "run-cand-0001", ["rec-c1"]),
-      decisionEvent("event-x", "run-other-001", ["rec-x1"]),
-    ],
-  });
+  const { directory } = pairedFixture();
   const store = readStore(directory, PROJECT);
   const result = collectPairs(store, ["run-base:run-cand"], {
     datasetId: "paired-test",
@@ -464,22 +477,23 @@ test("collect-paired pairs baseline and candidate runs of one task", async () =>
   assert.equal(result.pairs.tasks[taskId].candidate.costUsd, 0.25);
   assert.equal(JSON.stringify(result).includes("private text"), false);
   assert.throws(
-    () => collectPairs(store, ["run-base:run-other"], { datasetId: "d" }),
+    () =>
+      collectPairs(store, ["run-base:run-other"], { datasetId: "paired-d" }),
     /different objectives/,
   );
   assert.throws(
-    () => collectPairs(store, ["run-base:run-live"], { datasetId: "d" }),
+    () => collectPairs(store, ["run-base:run-live"], { datasetId: "paired-d" }),
     /has not finished/,
   );
   assert.throws(
     () =>
       collectPairs(store, ["run-base:run-cand", "run-base:run-cand"], {
-        datasetId: "d",
+        datasetId: "paired-d",
       }),
     /more than one pair/,
   );
   assert.throws(
-    () => collectPairs(store, ["run-:run-cand"], { datasetId: "d" }),
+    () => collectPairs(store, ["run-:run-cand"], { datasetId: "paired-d" }),
     /ambiguous/,
   );
 
@@ -556,4 +570,239 @@ test("labelling export declares outcomes the labeler typed rather than measured"
       ),
     ),
   );
+});
+
+test("collect-paired binds its pairs file to the packet and the labeller refuses a missing or mismatched one", async () => {
+  const { directory } = pairedFixture();
+  const store = readStore(directory, PROJECT);
+  // A paired dataset ID is marked, so a packet that lost its pairs file can
+  // be recognised.
+  assert.throws(
+    () => collectPairs(store, ["run-base:run-cand"], { datasetId: "plain" }),
+    { code: EXIT.usage },
+  );
+  const out = path.join(directory, "labelling");
+  const written = await collect({
+    projectId: PROJECT,
+    dataRoot: directory,
+    pairs: ["run-base:run-cand"],
+    stamp: "bound",
+    out,
+  });
+  const packet = loadPacket(written.files.packet);
+  const pairsText = readFileSync(written.files.pairs, "utf8");
+  const pairs = JSON.parse(pairsText);
+  assert.equal(pairs.packetSha256, packet.sha256);
+  assert.equal(pairs.datasetId, packet.packet.datasetId);
+  const label = (extra = {}) =>
+    labelSession(
+      session({ directory, packetPath: written.files.packet }, extra),
+      script(["c", "l", "n", "2", "e"]),
+    );
+
+  // A pairs file collected for other packet bytes or another dataset is
+  // refused, not used for outcomes.
+  writeFileSync(
+    written.files.pairs,
+    JSON.stringify({ ...pairs, packetSha256: "0".repeat(64) }),
+  );
+  await assert.rejects(label(), { code: EXIT.refused });
+  writeFileSync(
+    written.files.pairs,
+    JSON.stringify({ ...pairs, datasetId: "paired-another" }),
+  );
+  await assert.rejects(label(), { code: EXIT.refused });
+  const { packetSha256: _unbound, ...unbound } = pairs;
+  writeFileSync(written.files.pairs, JSON.stringify(unbound));
+  await assert.rejects(label(), { code: EXIT.refused });
+
+  // Without its pairs file, a paired packet is refused, export included.
+  rmSync(written.files.pairs);
+  await assert.rejects(label(), { code: EXIT.refused });
+  await assert.rejects(label({ exportOnly: true }), { code: EXIT.refused });
+  const paths = companionPaths(written.files.packet);
+  assert.equal(existsSync(paths.progress), false);
+  assert.equal(existsSync(paths.export), false);
+
+  // Put back, the bound pairs file is used.
+  writeFileSync(written.files.pairs, pairsText);
+  const io = script(["c", "l", "n", "2", "2", "e"]);
+  await labelSession(
+    session({ directory, packetPath: written.files.packet }),
+    io,
+  );
+  assert.match(io.output, /candidateSuccess: false \(from recorded runs\)/);
+  assert.match(io.output, /Exported 2 rows/);
+});
+
+test("labelling asks outcomes when a task's runs span plans and no pairs file names the arms", async () => {
+  // Both arms' decisions under one task, as in a paired packet, but in a
+  // packet that has no pairs file and is not marked as paired.
+  const { directory, decisions } = pairedFixture();
+  const packetPath = path.join(directory, "packet-two-plans.json");
+  writeFileSync(
+    packetPath,
+    JSON.stringify({
+      version: "1.0.0",
+      datasetId: "synthetic-two-plans",
+      observations: decisions
+        .slice(0, 2)
+        .map((item) => observation(item, "task-two")),
+    }),
+  );
+  const io = script(["c", "l", "y", "n", "n", "1"], ["0.5", "0.25"]);
+  await labelSession(session({ directory, packetPath }), io);
+  assert.match(io.output, /run run-base: succeeded/);
+  assert.match(io.output, /run run-cand: succeeded/);
+  assert.match(io.output, /belong to 2 plans/);
+  assert.match(io.output, /Did the baseline run succeed/);
+  assert.match(io.output, /Would the candidate/);
+  assert.match(io.output, /Baseline cost in USD/);
+  assert.match(io.output, /Candidate cost in USD/);
+  assert.doesNotMatch(io.output, /from recorded runs/);
+  const saved = JSON.parse(
+    readFileSync(companionPaths(packetPath).progress, "utf8"),
+  );
+  const task = saved.tasks["task-two"];
+  assert.deepEqual(task.derived, []);
+  assert.equal(task.baselineSuccess, true);
+  assert.equal(task.candidateSuccess, false);
+  assert.equal(task.baselineCost, 0.5);
+  assert.equal(task.candidateCost, 0.25);
+});
+
+/**
+ * One route's rows for `gateProgress`: each row is its own task with the
+ * given split, confidence, correctness and completeness.
+ */
+function gateCase(rows) {
+  const observations = [],
+    progress = { labeler: "owner-actor", answers: {}, tasks: {} };
+  rows.forEach((row, position) => {
+    const recordId = `gate-${position}`,
+      taskId = `gate-task-${position}`;
+    observations.push({
+      recordId,
+      caseId: recordId,
+      taskId,
+      category: "route",
+      provider: "laya",
+      model: "laya-model-1",
+      selected: "fast",
+      confidence: row.confidence,
+      candidates: ["fast", "careful"],
+      observedAt: "2026-01-01T00:00:00.000Z",
+      stateHash: "state-1",
+    });
+    progress.answers[recordId] = {
+      expected: row.correct ? "fast" : "careful",
+      at: "2026-01-02T00:00:00.000Z",
+    };
+    progress.tasks[taskId] = {
+      asked: true,
+      derived: [],
+      split: row.split,
+      risk: "low",
+      baselineSuccess: true,
+      candidateSuccess: row.complete ? true : null,
+      policyViolation: false,
+      baselineCost: 0.5,
+      candidateCost: 0.5,
+      estimated: false,
+      outcomeEvidence: `sha256:${"a".repeat(64)}`,
+    };
+  });
+  return {
+    packet: { version: "1.0.0", datasetId: "synthetic-gates", observations },
+    progress: {
+      ...progress,
+      packet: { file: "packet-gates.json", sha256: "b".repeat(64) },
+    },
+  };
+}
+
+const rowsOf = (count, row) =>
+  Array.from({ length: count }, () => ({ ...row }));
+
+test("labelling gate progress counts only rows the engine can count", async () => {
+  const route = (rows) => {
+    const { packet, progress } = gateCase(rows);
+    return gateProgress(packet, progress).routes[0];
+  };
+  const calibration = { split: "calibration", correct: true, complete: true };
+  // Correct answers the engine cannot count do not meet the gate: below
+  // its lowest confidence threshold, or in a task with an unknown outcome.
+  for (const rows of [
+    rowsOf(50, { ...calibration, confidence: 0.4, complete: false }),
+    rowsOf(50, { ...calibration, confidence: 0.4 }),
+    rowsOf(50, { ...calibration, confidence: 0.9, complete: false }),
+  ]) {
+    const report = route(rows);
+    assert.equal(report.met, false);
+    assert.equal(report.labelled, 0);
+    assert.equal(report.accuracy, null);
+  }
+  assert.equal(
+    route(rowsOf(50, { ...calibration, confidence: 0.4 })).scorable,
+    0,
+  );
+  const met = route(rowsOf(50, { ...calibration, confidence: 0.9 }));
+  assert.equal(met.met, true);
+  assert.equal(met.threshold, 0.5);
+  assert.equal(met.labelled, 50);
+
+  // Ten wrong answers at 0.55 fail the gate at 0.5, so it fits at 0.6, and
+  // held-out rows count at that threshold and only in complete tasks.
+  const rows = [
+    ...rowsOf(50, { ...calibration, confidence: 0.9 }),
+    ...rowsOf(10, { ...calibration, confidence: 0.55, correct: false }),
+    ...rowsOf(5, {
+      split: "held-out",
+      confidence: 0.9,
+      correct: true,
+      complete: true,
+    }),
+    ...rowsOf(3, {
+      split: "held-out",
+      confidence: 0.55,
+      correct: true,
+      complete: true,
+    }),
+    ...rowsOf(4, {
+      split: "held-out",
+      confidence: 0.9,
+      correct: true,
+      complete: false,
+    }),
+  ];
+  const fitted = route(rows);
+  assert.deepEqual(
+    {
+      met: fitted.met,
+      threshold: fitted.threshold,
+      labelled: fitted.labelled,
+      accuracy: fitted.accuracy,
+      heldOut: fitted.heldOut,
+      heldOutTasks: fitted.heldOutTasks,
+    },
+    {
+      met: true,
+      threshold: 0.6,
+      labelled: 50,
+      accuracy: 1,
+      heldOut: 5,
+      heldOutTasks: 5,
+    },
+  );
+  // The engine counts the exported rows the same way.
+  const { packet, progress } = gateCase(rows);
+  const dataset = await validateExport(
+    buildExport(packet, progress, { repositoryId: "repository-synthetic" })
+      .input,
+  );
+  const { evaluateDecisions } = await engineModule("decisions.js");
+  const [report] = evaluateDecisions(dataset).reports;
+  assert.equal(report.calibrationCount, fitted.labelled);
+  assert.equal(report.heldOutCount, fitted.heldOut);
+  assert.equal(report.taskCount, fitted.heldOutTasks);
 });

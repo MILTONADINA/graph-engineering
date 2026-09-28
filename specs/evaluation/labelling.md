@@ -31,14 +31,21 @@ guide is [labelling decisions](../../docs/labelling.md).
   - Test: scripts/labelling.test.mjs :: labelling export declares outcomes the labeler typed rather than measured
 - AC5: The collector pairs finished runs of the same objective under a hashed task ID, maps both arms' decisions to it, records each arm's outcome and cost, refuses mismatched, unfinished, reused or ambiguous runs, writes a packet the engine's draft schema accepts without overwriting, copies no objective text, and the labeller takes the candidate's outcome and cost from it.
   - Test: scripts/labelling.test.mjs :: collect-paired pairs baseline and candidate runs of one task
+- AC6: The collector gives the packet a `paired-` dataset ID and records the packet's dataset ID and SHA-256 in the pairs file; the labeller refuses (exit 5) a pairs file whose dataset ID or packet SHA-256 differs from the packet or is missing, and a `paired-` packet whose pairs file is missing, export included, before writing anything. Without a pair, a task whose runs belong to more than one plan has no outcome or cost derived; all of them are asked.
+  - Test: scripts/labelling.test.mjs :: collect-paired binds its pairs file to the packet and the labeller refuses a missing or mismatched one
+  - Test: scripts/labelling.test.mjs :: labelling asks outcomes when a task's runs span plans and no pairs file names the arms
+- AC7: Gate progress is per route and counts only rows the engine can use: answered, with a provider choice and a confidence of at least 0.5, in a complete task. Calibration and held-out rows are counted at the route's fitted confidence threshold (or 0.5 until one fits), a route is met only when a threshold fits, and the counts equal the engine's `calibrationCount`, `heldOutCount` and `taskCount` for the exported rows.
+  - Test: scripts/labelling.test.mjs :: labelling gate progress counts only rows the engine can count
 
 ## Security considerations
 
 Both tools run only for the owner at a terminal and use no network. They
 read the project's run store read-only and write only beside the packet
 (or to `--out`), mode 0600. The collector copies only the packet's existing
-fields plus each arm's run ID, status, acceptance and cost; task IDs are
-hashes, so objective text stays in the store. The labeller shows the run
+fields plus each arm's run ID, status, acceptance and cost, and the packet's
+SHA-256; task IDs are hashes, so objective text stays in the store. A pairs
+file is used only beside the packet it was collected for, so a separated or
+stale file cannot supply measured outcomes. The labeller shows the run
 objective on screen but never writes it. Labels are unsigned owner labels:
 analysis-only evidence that cannot grant promotion. No dependency is added.
 

@@ -12,12 +12,14 @@ import { fileURLToPath } from "node:url";
 import {
   EXIT,
   LabelError,
+  PAIRED_DATASET_PREFIX,
   collectPairs,
   dataRoot,
   engineModule,
   labellingDir,
   listTasks,
   localProjectId,
+  packetText,
   readStore,
   requireInteractiveOwner,
   writeNewFile,
@@ -28,7 +30,8 @@ const HELP = `Usage: npm run collect-paired -- [options]
   --list                       Show finished runs grouped by task, to pick pairs
   --pair BASELINE:CANDIDATE    A baseline run and a candidate run of the same
                                task (unique run-ID prefixes work); repeatable
-  --dataset <id>               Dataset ID (default: paired-<stamp>)
+  --dataset <id>               Dataset ID, starting paired- (default:
+                               paired-<stamp>)
   --stamp <stamp>              File stamp (default: today, UTC, YYYY-MM-DD)
   --out <dir>                  Output directory (default: the labelling directory)
   --project <id>               Project (default: .graph/project.json here)
@@ -36,7 +39,8 @@ const HELP = `Usage: npm run collect-paired -- [options]
   --help                       Show this help
 
 Writes packet-<stamp>.json, mapping-<stamp>.json and pairs-<stamp>.json
-(mode 0600) and refuses to overwrite. Then run: npm run label -- --packet
+(mode 0600) and refuses to overwrite. The pairs file records the packet's
+SHA-256; keep the two together. Then run: npm run label -- --packet
 <out>/packet-<stamp>.json. Refuses when CI is set or without a terminal.
 `;
 
@@ -73,7 +77,7 @@ export function parseArguments(argv) {
 export async function collect(options) {
   const store = readStore(options.dataRoot, options.projectId);
   const stamp = options.stamp ?? new Date().toISOString().slice(0, 10);
-  const datasetId = options.dataset ?? `paired-${stamp}`;
+  const datasetId = options.dataset ?? `${PAIRED_DATASET_PREFIX}${stamp}`;
   const result = collectPairs(store, options.pairs, { datasetId });
   // The engine's own draft schema is the check; no copy of it lives here.
   const { evaluationDraftSchema } = await engineModule(
@@ -93,7 +97,8 @@ export async function collect(options) {
         EXIT.refused,
       );
   mkdirSync(options.out, { recursive: true, mode: 0o700 });
-  writeNewFile(files.packet, `${JSON.stringify(result.packet, null, 2)}\n`);
+  // The pairs file holds the hash of exactly these bytes.
+  writeNewFile(files.packet, packetText(result.packet));
   writeNewFile(files.mapping, `${JSON.stringify(result.mapping, null, 2)}\n`);
   writeNewFile(files.pairs, `${JSON.stringify(result.pairs, null, 2)}\n`);
   return {
