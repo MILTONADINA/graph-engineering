@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
-import { mkdir, open, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -917,26 +917,33 @@ cli
 // A steps file left in the project is untracked source: a plan made while
 // it is there binds it in its snapshot, so moving it changes the source
 // before the run, and a run that publishes refuses the unclean checkout.
-// Warn before the planner call so a person can stop without spending it.
+// Warn before the planner call so a person can stop without spending it,
+// and say whether it warned, so the next step does not name the file as is.
 // Never throws, so the claimed file is still removed if the call fails.
-async function warnIfBoundAsSource(out: string, shown: string): Promise<void> {
-  const relative = path.relative(root(), out);
-  if (
-    !relative ||
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative)
-  )
-    return;
+async function warnIfBoundAsSource(
+  out: string,
+  shown: string,
+): Promise<boolean> {
   try {
-    // A relative path: macOS /var and /private/var name the same checkout.
+    // Both sides through symlinks: a project reached through a link, or an
+    // --out through one, is still the same checkout (so is macOS /var and
+    // /private/var). The file exists: decompose has just created it.
+    const [base, target] = await Promise.all([realpath(root()), realpath(out)]);
+    const relative = path.relative(base, target);
+    if (
+      !relative ||
+      relative === ".." ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    )
+      return false;
     const ignored = await runCommand(
       "git",
       [
         "-c",
         "core.fsmonitor=false",
         "-C",
-        root(),
+        base,
         "check-ignore",
         "-q",
         "--",
@@ -945,12 +952,14 @@ async function warnIfBoundAsSource(out: string, shown: string): Promise<void> {
       { timeoutMs: 10_000 },
     );
     // 0 is ignored, 1 is not; anything else (not a Git checkout) says nothing.
-    if (ignored.code === 1)
-      process.stderr.write(
-        `warning: ${shown} is inside the project and not ignored by Git. A plan made while it is there binds it as source, so it must stay unchanged until the run starts, and a run that publishes refuses the unclean checkout. Before plan --steps, move it outside the project or to a Git-ignored path.\n`,
-      );
+    if (ignored.code !== 1) return false;
+    process.stderr.write(
+      `warning: ${shown} is inside the project and not ignored by Git. A plan made while it is there binds it as source, so it must stay unchanged until the run starts, and a run that publishes refuses the unclean checkout. Before plan --steps, move it outside the project or to a Git-ignored path.\n`,
+    );
+    return true;
   } catch {
     // The warning is advice; failing to check changes nothing.
+    return false;
   }
 }
 cli
@@ -984,9 +993,10 @@ cli
       process.on("SIGINT", cancel);
       process.on("SIGTERM", cancel);
       let proposal: Awaited<ReturnType<GraphEngine["proposeSteps"]>>;
+      let bound: boolean;
       try {
         // Inside the cancellable span, so Ctrl-C here still removes the file.
-        await warnIfBoundAsSource(out, options.out);
+        bound = await warnIfBoundAsSource(out, options.out);
         proposal = await engine.proposeSteps({
           objective,
           acceptance: options.accept,
@@ -1008,9 +1018,14 @@ cli
         process.off("SIGTERM", cancel);
       }
       await file.close();
+      const plan = `graph-engine plan ${JSON.stringify(objective)} --accept ...`;
       return {
         ...proposal,
-        next: `Review ${options.out}, then: graph-engine plan ${JSON.stringify(objective)} --accept ... --steps ${options.out}`,
+        // A file bound as source is moved before planning, so the next
+        // step cannot name where it is now.
+        next: bound
+          ? `Review ${options.out}, move it outside the project or to a Git-ignored path, then: ${plan} --steps <its new path>`
+          : `Review ${options.out}, then: ${plan} --steps ${options.out}`,
       };
     }),
   );
