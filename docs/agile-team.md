@@ -37,7 +37,7 @@ acceptance before it counts as done.
 | Definition of done                    | Checks passed, review approved and security gate passed (where configured), and a person accepted the result                                                                                                                                                                          | `graph-engine accept <run-id>`                                             |
 | Retrospective                         | Counts of how runs ended, per gate, decision option and memory; recorded facts, never scores ([outcomes](outcomes.md))                                                                                                                                                                | `graph-engine outcomes --summary`                                          |
 | Improving the team                    | When the graph itself struggles, it offers you an anonymous report (version, command, difficulty kind, platform); it opens as a GitHub issue only if you agree ([feedback](feedback.md))                                                                                              | `graph-engine feedback`                                                    |
-| Team knowledge                        | Proposed memories are reviewed; accepted ones guide later work, rejected ones keep their reason                                                                                                                                                                                       | `graph-engine memory-review`                                               |
+| Team knowledge                        | Proposed memories stay private until a person accepts them; accepted ones guide later work, rejected ones keep their reason. `memory-review` only reports stale evidence and conflicts between memories; it accepts nothing                                                           | `graph-engine memories`, then `memory-accept <id>`                         |
 | Shared building blocks                | 53 audited catalog templates render reviewed code for common features (CRUD, storage, authentication with passwords, sessions or OAuth, roles and permissions), each with its generated tests; a plan step can use one instead of a worker ([templates](dag-and-template-runtime.md)) | `graph-engine templates`                                                   |
 
 ## Engineering standards
@@ -45,7 +45,9 @@ acceptance before it counts as done.
 A team works to shared standards. Record yours as constraint memories and
 accept them; accepted requirements and constraints are placed in the
 mandatory section of every context packet, so every developer, tester and
-reviewer step sees them. For example:
+reviewer step sees them. A new memory is only a proposal until you accept
+it with `memory-accept`; `memory-review` reports stale evidence and
+conflicts but accepts nothing. For example:
 
 ```sh
 graph-engine memory-add --kind constraint "Every feature has a spec with acceptance criteria linked to tests before it is built."
@@ -53,7 +55,8 @@ graph-engine memory-add --kind constraint "Validate all external input at the bo
 graph-engine memory-add --kind constraint "No secrets in source, logs or test fixtures; read them from the environment."
 graph-engine memory-add --kind constraint "Keep functions small and single-purpose, follow the existing patterns of the module, and add no dependency without a stated reason."
 graph-engine memory-add --kind constraint "Tests cover the failure paths, not only the happy path."
-graph-engine memory-review    # accept the ones you want the team to follow
+graph-engine memories                   # list the proposals and their IDs
+graph-engine memory-accept <memory-id>  # for each one the team should follow
 ```
 
 Standards guide the workers; the gates enforce what can be checked. Make

@@ -29,6 +29,7 @@ export interface OverviewCard {
       | "changes-requested"
       | "not-configured"
       | "pending"
+      | "stopped"
       | "not-run";
     security: "passed" | "failed" | "not-run" | "pending";
     acceptance: "pending" | "accepted" | "rejected" | null;
@@ -60,6 +61,52 @@ const PHASES: [string, string][] = [
   ["context.memories", "Gathering context"],
   ["run.started", "Starting"],
 ];
+
+/**
+ * Whether a run's events show it stopped at code review: its last review
+ * either asked for changes or never finished, and nothing ran after it (a
+ * later security, publication or verification step is not a review a person
+ * can stand in for). `approveReview` and the board share this test.
+ */
+export function stoppedAtReview(events: RunEvent[]): boolean {
+  const lastReview = events.findLastIndex(
+    (event) =>
+      event.type === "review.started" || event.type === "review.completed",
+  );
+  return (
+    lastReview >= 0 &&
+    (events[lastReview]!.type === "review.started" ||
+      events[lastReview]!.data.passed !== true) &&
+    !events
+      .slice(lastReview + 1)
+      .some((event) =>
+        [
+          "security.scan_started",
+          "publication.started",
+          "verification.started",
+        ].includes(event.type),
+      )
+  );
+}
+
+/**
+ * The snapshot the run's last required checks passed on, or undefined when
+ * they did not all pass: the only snapshot a person's review can stand in
+ * for the reviewer on. `approveReview` and the board share this test.
+ */
+export function passedChecksSnapshot(events: RunEvent[]): string | undefined {
+  const passed = events.findLast(
+    (event) => event.type === "verification.completed",
+  );
+  const checks = passed?.data.checks;
+  const snapshotHash = passed?.data.snapshotHash;
+  return Array.isArray(checks) &&
+    checks.length > 0 &&
+    checks.every((check) => (check as { code?: unknown }).code === 0) &&
+    typeof snapshotHash === "string"
+    ? snapshotHash
+    : undefined;
+}
 
 /**
  * A board of runs drawn only from their records and events: what each is
@@ -142,7 +189,14 @@ function card(
           ? "pending"
           : "not-run";
 
-  const review = last("review.completed");
+  // The latest review of either kind: one that started and never finished
+  // is not a review that was never reached.
+  const latestReview = attempt.findLast(
+    (event) =>
+      event.type === "review.started" || event.type === "review.completed",
+  );
+  const review =
+    latestReview?.type === "review.completed" ? latestReview : undefined;
   // A run's own recorded reviewer is authoritative; the project's current
   // setting only describes runs recorded before reviewers were pinned.
   const pinned = events.find((event) => event.type === "review.configured");
@@ -159,7 +213,9 @@ function card(
       ? "not-configured"
       : active
         ? "pending"
-        : "not-run";
+        : latestReview
+          ? "stopped"
+          : "not-run";
 
   const scanned = attempt.findLastIndex(
     (event) => event.type === "security.scan_started",
@@ -228,6 +284,14 @@ function card(
 
   const column = columnOf(run);
   const resume = `graph-engine resume ${run.id} --reconciled`;
+  // The same test `graph-engine review-approve` applies, over the whole run
+  // as it does: a person can stand in for the reviewer here, and a resume
+  // asks the reviewer again.
+  const approvable =
+    run.status === "failed" &&
+    configured &&
+    stoppedAtReview(events) &&
+    passedChecksSnapshot(events) !== undefined;
   const [next, commands]: [string, string[]] = active
     ? ["The graph is working; nothing needed from you yet.", []]
     : run.status === "succeeded"
@@ -244,10 +308,15 @@ function card(
         ? ["Inspect the retained workspace and events, then resume.", [resume]]
         : run.status === "cancelled"
           ? ["Cancelled. To continue, inspect it and resume.", [resume]]
-          : [
-              "Stopped before passing its gates. Read the error; to continue, fix the cause and resume.",
-              [resume],
-            ];
+          : approvable
+            ? [
+                "Stopped at code review after its required checks passed. Read the error, then review the change and approve it yourself with a note; or fix the cause and resume, which asks the reviewer again (a spent turn budget stops it again, and changing the policy voids both for this run).",
+                [`graph-engine review-approve ${run.id} --note "…"`, resume],
+              ]
+            : [
+                "Stopped before passing its gates. Read the error; to continue, fix the cause and resume.",
+                [resume],
+              ];
 
   return {
     runId: run.id,

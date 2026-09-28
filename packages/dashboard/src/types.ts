@@ -75,6 +75,7 @@ export interface OverviewCard {
       | "changes-requested"
       | "not-configured"
       | "pending"
+      | "stopped"
       | "not-run";
     security: "passed" | "failed" | "not-run" | "pending";
     acceptance: "pending" | "accepted" | "rejected" | null;

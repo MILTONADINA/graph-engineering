@@ -58,6 +58,39 @@ function RunTimeline({ events }: { events: RunEvent[] }) {
   );
 }
 
+const ACCEPTANCE: Record<
+  NonNullable<RunRecord["completion"]>["humanAcceptance"],
+  string
+> = {
+  pending: "Human acceptance is pending.",
+  accepted: "Accepted by a person.",
+  rejected: "Rejected by a person.",
+};
+
+/**
+ * A finished run's automated result and the person's recorded decision on
+ * it, as `graph-engine accept` or `reject` left it.
+ */
+export function CompletionNotice({
+  completion,
+}: {
+  completion: NonNullable<RunRecord["completion"]>;
+}) {
+  return (
+    <div className="notice notice-subtle">
+      <Icon name="shield" size={18} />
+      <span>
+        {completion.automatedChecksPassed
+          ? "Automated checks passed."
+          : "Automated checks are not complete."}{" "}
+        {ACCEPTANCE[completion.humanAcceptance] ?? ACCEPTANCE.pending} Review
+        scope: {readable(completion.reviewScope)}. This does not approve
+        publication or merge.
+      </span>
+    </div>
+  );
+}
+
 export function RunsPage({
   api,
   project,
@@ -479,17 +512,7 @@ export function RunsPage({
               </div>
               {run.error && <ErrorNotice message={run.error} />}
               {run.completion && (
-                <div className="notice notice-subtle">
-                  <Icon name="shield" size={18} />
-                  <span>
-                    {run.completion.automatedChecksPassed
-                      ? "Automated checks passed."
-                      : "Automated checks are not complete."}{" "}
-                    Human acceptance is pending. Review scope:{" "}
-                    {readable(run.completion.reviewScope)}. This does not
-                    approve publication or merge.
-                  </span>
-                </div>
+                <CompletionNotice completion={run.completion} />
               )}
               <div className="run-detail-toolbar">
                 <span className="small muted">

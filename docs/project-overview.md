@@ -24,9 +24,20 @@ Each card shows:
 - for a multi-step plan, each step as waiting, working or done;
 - its gates from the latest attempt: required checks, code review, the
   security gate and human acceptance (`not run` when a stopped run never
-  reached one; `not configured` when the project has no reviewer);
+  reached one; `stopped` when its code review started but never finished;
+  `not configured` when the project has no reviewer);
 - the error of a stopped run, its cost, and the next step with the exact
-  command to run (`graph-engine accept`, `reject` or `resume --reconciled`).
+  command to run (`graph-engine accept`, `reject`, `review-approve` or
+  `resume --reconciled`).
+
+A run that stopped at code review after its required checks passed (the
+reviewer asked for changes, or never finished, for example because the
+run's turn budget ran out) lists
+`graph-engine review-approve <run-id> --note "…"` first, by the same test
+the command itself applies ([a person's review](code-review.md#a-persons-review)).
+Resuming it asks the reviewer again, so a spent turn budget stops it at
+review again; raising `policy.maxTurns` changes the policy, which voids
+both commands for that run.
 
 The board refreshes every few seconds while work is running and more
 slowly when idle. It is drawn only from recorded run records and events
@@ -36,8 +47,9 @@ never shown as accepted until a person records that.
 
 ## Decisions stay with you
 
-The board shows the `accept`, `reject` and `resume` commands rather than
-buttons: those decisions are made deliberately on the command line and are
-never offered to connected AI clients ([run outcomes](outcomes.md)). The
-dashboard server listens only on loopback and requires the private token
-from the link your terminal prints.
+The board shows the `accept`, `reject`, `review-approve` and `resume`
+commands rather than buttons: those decisions are made deliberately on the
+command line and are never offered to connected AI clients
+([run outcomes](outcomes.md)). The dashboard server listens only on
+loopback and requires the private token from the link your terminal
+prints.

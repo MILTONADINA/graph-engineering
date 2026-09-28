@@ -102,3 +102,8 @@ reviewer again. The outcome records the review as `approved-by-person`,
 shown separately from the reviewer's approvals on the board and in
 `outcomes --summary`. Accepting the result is still a separate step
 (`graph-engine accept`). Connected AI clients cannot approve a review.
+
+The [project board](project-overview.md) lists this command first for a
+run in that state. Approve it rather than raise `policy.maxTurns`: a
+policy change refuses both `review-approve` and `resume` for a run planned
+before it, so the run would have to be planned again.

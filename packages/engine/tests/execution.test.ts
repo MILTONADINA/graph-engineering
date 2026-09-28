@@ -132,6 +132,14 @@ describe("managed execution", () => {
     expect(engine.turnWarning(plan)).toContain(
       "but policy.maxTurns allows 2 for the whole run",
     );
+    // A raised limit needs a fresh plan, and voids resume and review-approve
+    // for a run already started.
+    expect(engine.turnWarning(plan)).toContain(
+      "raise policy.maxTurns and plan again before starting",
+    );
+    expect(engine.turnWarning(plan)).toContain(
+      "voids resume and review-approve",
+    );
   });
 
   it("names each configured worker that cannot be used and why", async () => {
