@@ -548,7 +548,10 @@ describe("project boundaries", () => {
   it(
     "compares secret findings in long single-line and footer-less files quickly",
     {
-      timeout: 10_000,
+      // Every input here scales linearly (about 2 s in total on a fast
+      // machine, several times that on a shared Windows runner). A quadratic
+      // pattern at this size would take minutes, so the bound still fails it.
+      timeout: 60_000,
     },
     () => {
       const size = 1_600_000;
