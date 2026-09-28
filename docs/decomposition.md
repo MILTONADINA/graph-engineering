@@ -74,4 +74,9 @@ approval is the person's answer to the client, and the client's own
 permission prompt for `plan_create`. For a cloud-backed client, the planner
 sees only exportable context whatever its kind, proposed text containing a
 potential secret is refused, and the call works only while publication is
-`none`.
+`none`. Its `plan_create` is also refused unless the plan's worker steps,
+the configured tester and the configured reviewer all run on local
+providers or all on non-local ones: a local step could otherwise copy a
+file the export policy keeps private to an exported path, where a cloud
+worker or reviewer would receive it. A plan a person creates with
+`graph-engine plan` may mix them.

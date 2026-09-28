@@ -67,7 +67,10 @@ non-zero when there are new findings or a scanner's report could not be read.
   scanners off.
 - A tool's result counts only when it exits normally and its report parses
   with no errors; Checkov files it cannot parse, Semgrep rule errors and
-  unexpected exit codes make the scan incomplete, never clean.
+  unexpected exit codes make the scan incomplete, never clean. The error
+  quotes the end of the tool's stderr, redacted before it is cut, so a
+  secret the cut would split cannot leak; `security-db-update` quotes a
+  failed download the same way.
 - Files no scanner can read (binary content, larger than 50 MB, or not a
   regular file) are listed under `unscanned`, as are files a non-fatal
   Semgrep error (such as a timeout or parse failure) names. Files Semgrep

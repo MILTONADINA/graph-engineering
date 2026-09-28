@@ -164,3 +164,23 @@ export async function checked(
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+/**
+ * An error whose message names no local file, so it may be handed to a
+ * cloud-backed client, with detail such as those file names kept for a
+ * person at this machine.
+ */
+export class LocalDetailError extends Error {
+  constructor(
+    message: string,
+    readonly localDetail: string,
+  ) {
+    super(message);
+    this.name = "LocalDetailError";
+  }
+}
+/** An error's message, with any detail meant only for this machine. */
+export function localErrorMessage(error: unknown): string {
+  return error instanceof LocalDetailError
+    ? `${error.message}\n${error.localDetail}`
+    : errorMessage(error);
+}
