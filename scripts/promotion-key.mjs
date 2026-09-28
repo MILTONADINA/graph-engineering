@@ -619,12 +619,8 @@ export function refuseIfAnyRoleExists(keyDir) {
 }
 
 /** Removes only the files a run created; used to leave a clean re-run. */
-function removeCreated(keyDir, roles) {
-  for (const role of roles) {
-    const { key, pub } = keyPaths(keyDir, role);
-    rmSync(key, { force: true });
-    rmSync(pub, { force: true });
-  }
+function removeCreated(files) {
+  for (const file of files) rmSync(file, { force: true });
 }
 
 /** Opens a key envelope to its public key, zeroing the private bytes. */
@@ -641,19 +637,23 @@ function publicKeyOf(entry, role, passphrase) {
 
 /**
  * Writes each role's key envelope as given, with its public key, all or
- * nothing: on any failure the files this call created are removed.
+ * nothing: on any failure the files this call created are removed. Each
+ * file is tracked on its own, so a key or public key file that appeared
+ * after the caller's existence check (and made its write fail) is left
+ * alone. Returns the paths it wrote.
  */
-function storeEnvelopes(keyDir, envelopes, publicKeys) {
+export function storeEnvelopes(keyDir, envelopes, publicKeys) {
   const created = [];
   try {
     for (const role of ROLES) {
       const { key, pub } = keyPaths(keyDir, role);
       writeNewPrivateFile(key, envelopes[role]);
-      created.push(role);
+      created.push(key);
       writeNewPrivateFile(pub, Buffer.from(publicPem(publicKeys[role])));
+      created.push(pub);
     }
   } catch (error) {
-    removeCreated(keyDir, created);
+    removeCreated(created);
     throw error;
   }
   return created;
@@ -707,7 +707,7 @@ export function setupKeys(keyDir, out, passphrase) {
       throw new KeyError("the new backup did not open to the new keys");
     return publicKeys;
   } catch (error) {
-    removeCreated(keyDir, created);
+    removeCreated(created);
     if (wroteBackup) rmSync(out, { force: true });
     throw error;
   }

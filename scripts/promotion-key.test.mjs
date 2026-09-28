@@ -33,8 +33,11 @@ import {
   KeyError,
   askNewPassphrase,
   defaultBackupPath,
+  backupEntries,
+  ensureKeyDir,
   restoreAll,
   setupKeys,
+  storeEnvelopes,
   verifyBackup,
   EXIT,
   KEY_FORMAT,
@@ -530,6 +533,39 @@ test("promotion-key setup removes the keys it created when it fails midway", () 
   assert.equal(roleFiles(keyDir).length, 6);
   assert.equal(verifyBackup(keyDir, retry, pass(KEY_PASS)).ok, true);
   assert.equal(Object.keys(made).length, 3);
+});
+
+test("promotion-key setup cleanup leaves a public key file it did not create", () => {
+  // The source keys: envelopes as a combined backup holds them.
+  const source = freshDir();
+  const out = path.join(work, "race-source.backup.json");
+  setupKeys(source, out, pass(KEY_PASS));
+  const entries = backupEntries(readFileSync(out));
+  const envelopes = Object.fromEntries(
+    ["approver", "issuer", "labeler"].map((role) => [
+      role,
+      entries[role].bytes,
+    ]),
+  );
+  const publicKeys = Object.fromEntries(
+    ["approver", "issuer", "labeler"].map((role) => [
+      role,
+      readPublicKey(source, role),
+    ]),
+  );
+  // issuer.pub.pem appears after the existence check (a concurrent run),
+  // so this call's write of it fails with EEXIST.
+  const keyDir = freshDir();
+  ensureKeyDir(keyDir);
+  const racing = keyPaths(keyDir, "issuer").pub;
+  const theirs = Buffer.from("written by another run\n");
+  writeFileSync(racing, theirs, { mode: 0o600 });
+  assert.throws(() => storeEnvelopes(keyDir, envelopes, publicKeys), {
+    code: EXIT.refused,
+  });
+  // The other run's file is untouched; everything this call wrote is gone.
+  assert.deepEqual(readFileSync(racing), theirs);
+  assert.deepEqual(roleFiles(keyDir), [racing]);
 });
 
 test("promotion-key setup and restore-all refuse when any role or the backup exists", () => {
