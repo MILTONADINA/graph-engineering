@@ -2765,8 +2765,6 @@ function compactFailures(checks: VerificationResult[]): string {
     .slice(-12000);
 }
 
-// Test first: the tester only creates new test files, and writes at least
-// one; implementing steps make those tests pass without changing them.
 // A source request answered with feedback instead of evidence: one that
 // added nothing new, or one naming paths this worker may not receive. Any
 // other error is not the worker's to fix.
@@ -2783,6 +2781,8 @@ function refusedRequest(
   return undefined;
 }
 
+// Test first: the tester only creates new test files, and writes at least
+// one; implementing steps make those tests pass without changing them.
 function testFirstFeedback(
   step: ExecutionStep,
   proposal: WorkerResult["proposal"],
