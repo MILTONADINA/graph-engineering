@@ -154,3 +154,55 @@ it("requires a local token, rejects hostile origins, and returns real persisted 
     });
   }
 });
+
+// A run's event stream stays open until its client leaves, and closing the
+// server waits for every open request, so without ending the streams `serve`
+// could not stop, and the engine that cancels its runs would never close.
+it("ends an open run event stream when the server closes, after sending the events recorded so far", async () => {
+  const events: { type: string }[] = [{ type: "run.started" }];
+  const engine = {
+    store: { run: () => ({}), events: () => events },
+  } as unknown as GraphEngine;
+  const { app } = createServer(engine, "test-token");
+  const address = await app.listen({ host: "127.0.0.1", port: 0 });
+  let closed: Promise<string> | undefined;
+  try {
+    const response = await fetch(`${address}/api/runs/run-1/events`, {
+      headers: { authorization: "Bearer test-token" },
+    });
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    const stream = (async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return "ended";
+        text += decoder.decode(value, { stream: true });
+      }
+    })().catch((error: unknown) => `failed: ${String(error)}`);
+    // Recorded after the stream's first flush.
+    events.push({ type: "run.cancelled" });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    closed = app.close().then(() => "closed");
+    const outcome = await Promise.race([
+      closed,
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve("still open after 5 s"), 5000);
+      }),
+    ]);
+    clearTimeout(timer);
+    expect(outcome).toBe("closed");
+    expect(await stream).toBe("ended");
+    expect(
+      text
+        .split("\n\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line.replace(/^data: /, ""))),
+    ).toEqual(events);
+  } finally {
+    // Frees a close the stream held open, so a failure cannot hang the file.
+    app.server.closeAllConnections();
+    await (closed ?? app.close());
+  }
+});
