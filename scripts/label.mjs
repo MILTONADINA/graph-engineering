@@ -16,7 +16,9 @@ import {
   buildExport,
   buildItems,
   checkLabeler,
+  checkPacket,
   companionPaths,
+  currentOutcome,
   dataRoot,
   deriveTask,
   evidenceRef,
@@ -126,6 +128,7 @@ function progressLines(progressReport) {
 export async function labelSession(options, io) {
   const packetPath = options.packetPath;
   const { packet, sha256: packetSha256 } = loadPacket(packetPath);
+  await checkPacket(packet, options.engineRoot);
   const paths = companionPaths(packetPath);
   const progress = loadProgress(paths.progress, {
     packetFile: packetPath,
@@ -207,6 +210,10 @@ export async function labelSession(options, io) {
         out(
           `  these runs belong to ${derived.source.plans} plans and no pairs file says which is the baseline: outcomes and costs are asked`,
         );
+      else if (derived.source.unfinished?.length)
+        out(
+          `  not finished yet: ${derived.source.unfinished.map(short).join(", ")}; its outcome and cost are not known, so outcomes and costs are asked (once it stops, press t on one of this task's questions to derive them)`,
+        );
     } else out("  no recorded runs found for this task");
     const task = { asked: false, derived: [] };
     const split = await askKey("Split: c calibration · h held-out › ", [
@@ -287,7 +294,10 @@ export async function labelSession(options, io) {
     const report = gateProgress(packet, progress);
     const task = progress.tasks[item.taskId];
     const run = item.runId ? index.runs.get(item.runId) : null;
-    const outcome = item.runId ? index.outcomes.get(item.runId) : null;
+    // An earlier attempt's outcome row is stale once the run is resumed.
+    const outcome = item.runId
+      ? currentOutcome(run, index.outcomes.get(item.runId))
+      : null;
     io.write("\x1b[2J\x1b[H");
     out(
       `${path.basename(packetPath)} · labeler ${progress.labeler} · question ${position + 1}/${items.length} · ${report.answered}/${report.total} observations labelled, ${report.skipped} skipped`,
@@ -299,7 +309,7 @@ export async function labelSession(options, io) {
     );
     if (run) {
       out(
-        `Run ${short(run.id)} · ${outcome?.status ?? run.status} · acceptance ${outcome?.humanAcceptance ?? run.completion?.humanAcceptance ?? "-"} · stage ${item.stage ?? "-"}`,
+        `Run ${short(run.id)} · ${run.status} · acceptance ${outcome?.humanAcceptance ?? run.completion?.humanAcceptance ?? "-"} · stage ${item.stage ?? "-"}`,
       );
       if (run.plan?.objective)
         out(`Objective: ${String(run.plan.objective).slice(0, 300)}`);

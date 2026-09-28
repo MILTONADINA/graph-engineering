@@ -13,9 +13,9 @@ import {
   EXIT,
   LabelError,
   PAIRED_DATASET_PREFIX,
+  checkPacket,
   collectPairs,
   dataRoot,
-  engineModule,
   labellingDir,
   listTasks,
   localProjectId,
@@ -80,11 +80,7 @@ export async function collect(options) {
   const datasetId = options.dataset ?? `${PAIRED_DATASET_PREFIX}${stamp}`;
   const result = collectPairs(store, options.pairs, { datasetId });
   // The engine's own draft schema is the check; no copy of it lives here.
-  const { evaluationDraftSchema } = await engineModule(
-    "decision-evaluation.js",
-    options.engineRoot,
-  );
-  evaluationDraftSchema.parse(result.packet);
+  await checkPacket(result.packet, options.engineRoot);
   const files = {
     packet: path.join(options.out, `packet-${stamp}.json`),
     mapping: path.join(options.out, `mapping-${stamp}.json`),

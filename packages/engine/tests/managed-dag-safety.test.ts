@@ -2557,6 +2557,51 @@ describe("tester role", () => {
       "Tester absent is not a configured provider the policy permits",
     );
   });
+
+  it("names why a configured tester cannot be used", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.policy.maxCostUsd = 0;
+      value.tester = { providerId: "tester" };
+    });
+    // The implementer has its zero prices recorded; the tester has none, so
+    // the cost cap refuses it although it is configured and permitted.
+    await configureProvider(data, {
+      id: "local",
+      kind: "local",
+      model: "fixture",
+      inputCostPerMillion: 0,
+      outputCostPerMillion: 0,
+    });
+    await configureProvider(data, {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const engine = await open(root, {});
+    const unpriced = plan(engine, [step("one")]);
+    await expect(unpriced).rejects.toThrow(
+      "Tester tester is unavailable: This provider cannot support the configured cost budget until its prices are recorded",
+    );
+    await expect(unpriced).rejects.toThrow(
+      "graph-engine provider-add tester local tester-fixture --input-cost 0 --output-cost 0",
+    );
+  });
+
+  it("points a configured tester the policy does not permit to provider-enable", async () => {
+    const { root, data } = await fixture((value) => {
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(data, {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const engine = await open(root, {});
+    await expect(plan(engine, [step("one")])).rejects.toThrow(
+      "Tester tester is unavailable: Project policy does not allow provider tester (add it to policy.providers with graph-engine provider-enable tester)",
+    );
+  });
 });
 
 describe("approval of publishing plans", () => {

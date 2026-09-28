@@ -1185,6 +1185,50 @@ describe("command line", () => {
     expect((await graph(...planArgs)).code).toBe(0);
   }, 120_000);
 
+  it("tells an installed agent under a cost cap that recorded prices cannot admit it, when it is set up and at planning", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    // A policy that permits installed agents, still capped at 0 as the
+    // checked-in project is.
+    const file = path.join(root, ".graph/project.json");
+    const config = JSON.parse(await readFile(file, "utf8"));
+    config.policy.inference = "allowlisted";
+    config.policy.network = "allowlisted";
+    config.policy.maxCostUsd = 0;
+    await writeFile(file, JSON.stringify(config));
+    const refusal =
+      "an installed claude agent reports no cost the engine can enforce, so it cannot run under a numeric policy.maxCostUsd whatever prices are recorded for it. Use an openai, anthropic or local worker";
+    // Recording prices is not the fix, so the advice never asks for them.
+    const added = await graph(
+      "provider-add",
+      "sub",
+      "claude",
+      "fixture",
+      "--input-cost",
+      "3",
+      "--output-cost",
+      "15",
+      "--enable",
+    );
+    expect(added.code).toBe(0);
+    expect(added.stderr).toContain(refusal);
+    expect(added.stderr).not.toContain("configure pricing");
+    expect((await graph("tester", "sub")).stderr).toContain(refusal);
+    const refused = await graph(
+      "plan",
+      "Fix addition",
+      "--accept",
+      "The addition test passes",
+      "--provider",
+      "sub",
+    );
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      `sub: This provider cannot support the configured cost budget: ${refusal}`,
+    );
+    expect(refused.stderr).not.toContain("configure pricing");
+  }, 120_000);
+
   it("names memory-accept as how a person accepts a cited knowledge finding", async () => {
     const { graph } = await project();
     const help = await graph("knowledge-cite", "--help");

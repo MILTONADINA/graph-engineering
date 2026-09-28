@@ -25,8 +25,10 @@ and scanned before the run can succeed.
 - AC3: A tester edit outside its test-file scope is returned as feedback and never applied.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns an out-of-scope edit to the worker as feedback
   - Test: packages/engine/tests/dag.test.ts :: refuses a step's write outside its declared globs and accepts one inside
-- AC4: Planning refuses a tester the project's policy does not permit, and a user step that uses the reserved `tester` ID.
+- AC4: Planning refuses a tester the project's policy does not permit, and a user step that uses the reserved `tester` ID. A configured tester that cannot be used is refused with the actual reason and its fix, as for a selected worker: not permitted (with `provider-enable`), refused by the cost cap (with the prices to record), or an installed client that is not available.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses to plan with a tester the policy does not permit
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: names why a configured tester cannot be used
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: points a configured tester the policy does not permit to provider-enable
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: reserves the tester's step ID
 - AC5: When the combined checks fail, the implementer's repair may not change the tests the tester wrote; it must fix the implementation.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: never lets a repair weaken the tests the tester wrote

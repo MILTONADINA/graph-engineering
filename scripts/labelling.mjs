@@ -62,6 +62,9 @@ export class LabelError extends Error {
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const TERMINAL = new Set(["succeeded", "failed", "cancelled"]);
 const FAILED = new Set(["failed", "cancelled", "needs_reconciliation"]);
+// A run in any other status (planned, running, verifying) has not stopped:
+// its cost is still growing and its outcome is not known yet.
+const STOPPED = new Set([...TERMINAL, "needs_reconciliation"]);
 
 // ---------------------------------------------------------------------------
 // Guard
@@ -439,30 +442,49 @@ export function buildItems(packet, index) {
 // ---------------------------------------------------------------------------
 // Outcomes derived from recorded runs
 
-/** A run's end-to-end success: accepted success, failure, or unknown (null). */
+/** Whether a run has stopped (succeeded, failed, cancelled or needs reconciliation). */
+export const runStopped = (run) => STOPPED.has(run?.status);
+
+/**
+ * The run's latest outcome row, or null when it describes an earlier
+ * attempt: resuming a stopped run writes no new row until it stops again,
+ * so while it runs its latest row still holds the old attempt's status.
+ */
+export const currentOutcome = (run, outcome) =>
+  outcome && outcome.status === run?.status ? outcome : null;
+
+/**
+ * A run's end-to-end success: accepted success, failure, or unknown (null).
+ * A run that has not stopped has no outcome yet.
+ */
 export function runSuccess(run, outcome) {
-  const status = outcome?.status ?? run?.status;
+  if (!runStopped(run)) return null;
+  const current = currentOutcome(run, outcome);
   const acceptance =
-    outcome?.humanAcceptance ?? run?.completion?.humanAcceptance ?? null;
-  if (!status) return null;
-  if (FAILED.has(status) || acceptance === "rejected") return false;
-  if (status === "succeeded" && acceptance === "accepted") return true;
+    current?.humanAcceptance ?? run.completion?.humanAcceptance ?? null;
+  if (FAILED.has(run.status) || acceptance === "rejected") return false;
+  if (run.status === "succeeded" && acceptance === "accepted") return true;
   return null;
 }
 
-/** What a run contributes as outcome evidence; no objective or source text. */
+/**
+ * What a run contributes as outcome evidence; no objective or source text.
+ * The live run status wins over an earlier attempt's outcome row, and a run
+ * that has not stopped gives no cost, since its usage is still growing.
+ */
 export function runSummary(run, outcome) {
+  const current = currentOutcome(run, outcome);
   return {
     runId: run.id,
-    status: outcome?.status ?? run.status,
+    status: run.status,
     humanAcceptance:
-      outcome?.humanAcceptance ?? run.completion?.humanAcceptance ?? null,
+      current?.humanAcceptance ?? run.completion?.humanAcceptance ?? null,
     automatedChecksPassed:
-      outcome?.automatedChecksPassed ??
+      current?.automatedChecksPassed ??
       run.completion?.automatedChecksPassed ??
       null,
     success: runSuccess(run, outcome),
-    costUsd: run.usage?.costUsd ?? null,
+    costUsd: runStopped(run) ? (run.usage?.costUsd ?? null) : null,
     estimated: run.usage?.estimated === true,
   };
 }
@@ -479,7 +501,9 @@ const sumCosts = (summaries) =>
  * baseline (every selection was the baseline or no answer). When those runs
  * belong to more than one plan, nothing says which run is which arm (they
  * may be a baseline and a candidate whose pairs file is missing), so nothing
- * is derived. Anything not derivable stays null and is asked.
+ * is derived. Nor is anything derived while one of the runs has not stopped
+ * (planned, running or verifying): its outcome is not known and its cost is
+ * still growing. Anything not derivable stays null and is asked.
  */
 export function deriveTask(taskId, observations, index, pairs) {
   const pair = pairs?.tasks?.[taskId];
@@ -523,6 +547,11 @@ export function deriveTask(taskId, observations, index, pairs) {
       values: {},
       estimated,
     };
+  const unfinished = runs
+    .filter((run) => !runStopped(run))
+    .map((run) => run.id);
+  if (unfinished.length)
+    return { source: { runs: summaries, unfinished }, values: {}, estimated };
   const baselineSuccess = summaries.at(-1).success;
   const baselineCost = sumCosts([...perPlan.values()]);
   const identical = observations.every((item) => {
@@ -781,13 +810,54 @@ export async function engineModule(name, root = repositoryRoot) {
   return import(pathToFileURL(file).href);
 }
 
+// Where a schema refused a value, never the value itself: a packet's strings
+// can come from a provider and are not echoed to the terminal.
+const issuePaths = (error) =>
+  [
+    ...new Set(
+      error.issues.map((issue) => issue.path.join(".") || "(top level)"),
+    ),
+  ]
+    .slice(0, 5)
+    .join(", ");
+
+/**
+ * Checks a packet with the engine's own draft schema, which applies the
+ * label importer's rules (no control characters, at most 256 characters),
+ * so a packet whose labels could never be imported is refused up front.
+ */
+export async function checkPacket(packet, root = repositoryRoot) {
+  const { evaluationDraftSchema } = await engineModule(
+    "decision-evaluation.js",
+    root,
+  );
+  const result = evaluationDraftSchema.safeParse(packet);
+  if (!result.success)
+    throw new LabelError(
+      `The packet does not match the engine's evaluation draft schema at ${issuePaths(result.error)} (for example an empty or over-long value, or one holding a control character), so the engine's label importer would refuse its labels; refusing it before anything is written`,
+      EXIT.refused,
+    );
+  return result.data;
+}
+
 /** Validates an export with the engine's own importer (fails closed). */
 export async function validateExport(input, root = repositoryRoot) {
   const { importEvaluationLabels } = await engineModule(
     "decision-evaluation.js",
     root,
   );
-  return importEvaluationLabels(input);
+  try {
+    return importEvaluationLabels(input);
+  } catch (error) {
+    throw new LabelError(
+      `The engine's label importer refused the export, so it was not written: ${
+        Array.isArray(error?.issues)
+          ? `invalid ${issuePaths(error)}`
+          : error.message
+      }`,
+      EXIT.refused,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

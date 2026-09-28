@@ -36,6 +36,12 @@ guide is [labelling decisions](../../docs/labelling.md).
   - Test: scripts/labelling.test.mjs :: labelling asks outcomes when a task's runs span plans and no pairs file names the arms
 - AC7: Gate progress is per route and counts only rows the engine can use: answered, with a provider choice and a confidence of at least 0.5, in a complete task. Calibration and held-out rows are counted at the route's fitted confidence threshold (or 0.5 until one fits), a route is met only when a threshold fits. Once a threshold fits, the counts equal the engine's `calibrationCount`, `heldOutCount` and `taskCount` for the exported rows; until then the engine counts none, and the display shows the rows at 0.5 as progress toward the gate.
   - Test: scripts/labelling.test.mjs :: labelling gate progress counts only rows the engine can count
+- AC8: Without a pair, nothing is derived for a task while one of its runs has not stopped (planned, running or verifying): its successes and costs are asked, since its outcome is unknown and its cost still growing. A run's live status wins over its latest outcome row when they differ (a resumed run keeps its earlier attempt's row until it stops again), in what is derived and on screen; a run that needs reconciliation is stopped and derives as failed.
+  - Test: scripts/labelling.test.mjs :: labelling derives no outcome or cost from a run that has not stopped, nor from a resumed run's earlier outcome
+- AC9: The engine's draft schema applies the label importer's rule to every draft string (1-256 characters, no control characters), so `evaluation-export` and the collector refuse an observation whose provider-reported model name the importer would refuse, and the labeller refuses such a packet (exit 5) before labelling or exporting, naming the field but not its value. An export the importer refuses is reported as a refusal (exit 5), not a crash.
+  - Test: packages/engine/tests/decision-evaluation.test.ts :: refuses at export a draft whose labels the importer would refuse, such as a model name with a control character
+  - Test: scripts/labelling.test.mjs :: collect-paired and the labeller refuse a packet whose model name the label importer would refuse
+  - Test: scripts/labelling.test.mjs :: labelling export validates against the engine's evaluation label schema
 
 ## Security considerations
 

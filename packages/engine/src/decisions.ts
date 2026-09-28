@@ -59,7 +59,8 @@ export interface PromotionEvidence {
   provenanceComplete?: boolean;
   datasetId?: string | null;
 }
-const labelSchema = z
+/** A short evaluation label: 1-256 characters and no control characters. */
+export const labelSchema = z
   .string()
   .min(1)
   .max(256)

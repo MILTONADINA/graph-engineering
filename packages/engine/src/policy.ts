@@ -686,7 +686,8 @@ export function assertProvider(
  * Why a worker cannot run under a numeric cost cap, with the fix, or
  * undefined when it can. A local worker (loopback only) costs nothing, but
  * it still needs its zero prices recorded; provider-add replaces the stored
- * worker, so the fix repeats its other options.
+ * worker, so the fix repeats its other options. An installed agent reports
+ * no cost the engine can enforce, so recorded prices never admit it.
  */
 export function costBudgetRefusal(
   provider: ProviderConfig,
@@ -697,6 +698,8 @@ export function costBudgetRefusal(
     provider.outputCostPerMillion !== undefined
   )
     return undefined;
+  if (["codex", "claude", "cursor"].includes(provider.kind))
+    return `This provider cannot support the configured cost budget: an installed ${provider.kind} agent reports no cost the engine can enforce, so it cannot run under a numeric policy.maxCostUsd whatever prices are recorded for it. Use an openai, anthropic or local worker with its prices recorded instead`;
   if (provider.kind === "local")
     return `This provider cannot support the configured cost budget until its prices are recorded. A local worker costs nothing, so record zero prices with graph-engine provider-add ${provider.id} local ${provider.model} --input-cost 0 --output-cost 0, repeating its other options such as --endpoint, since provider-add replaces the stored worker`;
   return "This provider cannot support the configured cost budget; configure pricing or use a metered API worker";

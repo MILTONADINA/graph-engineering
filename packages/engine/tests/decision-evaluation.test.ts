@@ -7,6 +7,7 @@ import {
   type EvaluationDataset,
 } from "../src/decisions.js";
 import {
+  evaluationDraftSchema,
   exportEvaluationDraft,
   importEvaluationLabels,
   type EvaluationLabel,
@@ -85,6 +86,28 @@ it("exports only recorded observations, requiring explicit task identity and man
   expect(dataset.rows[0]?.selected).toBe(observed.selected);
   expect(dataset.rows[0]?.expected).toBe(annotation.expected);
   expect(canPromote(evaluateDecisions(dataset).reports[0]!)).toBe(false);
+});
+
+it("refuses at export a draft whose labels the importer would refuse, such as a model name with a control character", () => {
+  // A decision provider's reported model is stored as it arrived.
+  const model = "jev-1\u001b]0;x\u0007";
+  const options = {
+    datasetId: "unit-dataset",
+    taskIds: { [observed.id]: "task-1" },
+  };
+  expect(() =>
+    exportEvaluationDraft([{ ...observed, modelVersion: model }], options),
+  ).toThrow(/"model"/);
+  const draft = exportEvaluationDraft([observed], options);
+  const tainted = {
+    ...draft,
+    observations: [{ ...draft.observations[0]!, model }],
+  };
+  // Collection checks packets with this schema, so it refuses them too.
+  expect(evaluationDraftSchema.safeParse(tainted).success).toBe(false);
+  expect(
+    importEvaluationLabels({ draft, provenance, labels: [annotation] }).rows,
+  ).toHaveLength(1);
 });
 
 it("never substitutes a made-up confidence or permits duplicate labels/observations", () => {
