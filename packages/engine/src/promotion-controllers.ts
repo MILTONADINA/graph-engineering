@@ -62,6 +62,20 @@ export interface WitnessController {
     collectionId: string;
     challenge: string;
   }): Promise<SignedCollectionCheckpoint>;
+  /**
+   * The current governance checkpoint the sealed readiness audit (step 5)
+   * parses: the `sealed-governance-current-checkpoint` v1/v2 shape in
+   * sealed-governance-witness.ts, answering the same kind of fresh challenge.
+   * It is a different document from `readCollectionCheckpoint`'s reply, so a
+   * real witness adapter must supply both; the importer never converts one
+   * into the other.
+   */
+  readGovernanceCheckpoint(request: {
+    witnessId: string;
+    projectId: string;
+    collectionId: string;
+    challenge: string;
+  }): Promise<unknown>;
   readGrantStatus(request: {
     witnessId: string;
     projectId: string;
@@ -100,6 +114,9 @@ export class WitnessNotSelectedError extends Error {
 const noneWitness: WitnessController = Object.freeze({
   kind: "none" as const,
   async readCollectionCheckpoint(): Promise<SignedCollectionCheckpoint> {
+    throw new WitnessNotSelectedError();
+  },
+  async readGovernanceCheckpoint(): Promise<unknown> {
     throw new WitnessNotSelectedError();
   },
   async readGrantStatus(): Promise<SignedGrantStatus> {

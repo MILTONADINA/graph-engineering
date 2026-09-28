@@ -1352,8 +1352,10 @@ async function runReadinessAudit(
         },
         witness: {
           witnessId,
+          // The audit parses the governance checkpoint, not the collection
+          // checkpoint steps 4 and 11 compare.
           readCurrent: (query) =>
-            controllers.witness.readCollectionCheckpoint(query),
+            controllers.witness.readGovernanceCheckpoint(query),
         },
         identityBytes: {
           manifest: doc(bundle, identity.manifest),
