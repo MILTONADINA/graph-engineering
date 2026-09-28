@@ -9,6 +9,7 @@ import {
 import {
   initializeProject,
   configureProvider,
+  loadProject,
   projectDataDir,
   PROJECT_FILE,
 } from "../src/project.js";
@@ -503,7 +504,8 @@ describe("managed execution", () => {
   it("never accepts a patch whose new source is Git-ignored and absent from the verifier view", async () => {
     const { root } = await fixture();
     await writeFile(path.join(root, ".gitignore"), "hidden.ts\n");
-    let checksCalled = 0;
+    let checksCalled = 0,
+      calls = 0;
     const engine = await GraphEngine.open(root, {
       dockerAvailable: async () => true,
       worker: async () => ({
@@ -512,11 +514,13 @@ describe("managed execution", () => {
           summary: "Invisible new source",
           requests: [],
           changes: [
-            {
-              path: "hidden.ts",
-              before: null,
-              after: "export const value=1;\n",
-            },
+            ++calls === 1
+              ? {
+                  path: "hidden.ts",
+                  before: null,
+                  after: "export const value=1;\n",
+                }
+              : { path: "math.cjs", before: "a - b", after: "a + b" },
           ],
         },
         usage: {
@@ -547,10 +551,25 @@ describe("managed execution", () => {
       result = await engine.wait(run.id);
     expect(result.status).toBe("failed");
     expect(checksCalled).toBe(0);
-    expect(JSON.stringify(engine.store.events(run.id))).toContain(
-      "verification inventory",
-    );
+    expect(result.error).toContain("verification inventory");
+    // The patch is rolled back, so the ignored file is in neither the
+    // checkout nor the retained workspace, and the run never recorded it as
+    // applied.
     await expect(readFile(path.join(root, "hidden.ts"))).rejects.toThrow();
+    await expect(
+      readFile(path.join(result.workspace!, "hidden.ts")),
+    ).rejects.toThrow();
+    const types = engine.store.events(run.id).map((event) => event.type);
+    expect(types).toContain("patch.rolled_back");
+    expect(types).not.toContain("patch.applied");
+    // A reconciled resume asks the worker again instead of failing on the
+    // same file.
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(calls).toBe(2);
+    expect(checksCalled).toBe(1);
   });
   it("validates a whole patch before changing any file", async () => {
     const { root } = await fixture();
@@ -749,6 +768,42 @@ describe("managed execution", () => {
     config.policy.maxAttempts = 1;
     await writeJson(path.join(root, PROJECT_FILE), config);
     await expect(engine.start(fresh.id)).rejects.toThrow("Policy changed");
+  });
+  it("reloads the policy exactly as the project file has it, dropping removed keys and keeping the file's key order", async () => {
+    const { root, config } = await fixture();
+    config.policy.allowPublicTemplateLedger = true;
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+    });
+    engines.push(engine);
+    const live = engine.config.policy;
+    expect(live.allowPublicTemplateLedger).toBe(true);
+    // The operator revokes the ledger opt-in and adds a working set in the
+    // middle of the policy, as an edit by hand would.
+    const edited: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(config.policy)) {
+      if (key === "allowPublicTemplateLedger") continue;
+      edited[key] = value;
+      if (key === "excludedPaths") edited.workingSet = ["math.cjs"];
+    }
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      policy: edited,
+    });
+    await engine.refresh();
+    const fresh = (await loadProject(root)).policy;
+    // A running DAG holds the policy object, so it is updated in place.
+    expect(engine.config.policy).toBe(live);
+    expect("allowPublicTemplateLedger" in engine.config.policy).toBe(false);
+    expect(Object.keys(engine.config.policy)).toEqual(Object.keys(fresh));
+    // A plan made in this process matches one made by a fresh process.
+    expect(util.hash(engine.config.policy)).toBe(util.hash(fresh));
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["tests pass"],
+    });
+    expect(plan.policyHash).toBe(util.hash(fresh));
   });
   it("does not mark a live process interrupted when another client opens its store", async () => {
     const { root, data, config } = await fixture();
@@ -1742,6 +1797,8 @@ describe("code review gate", () => {
     });
     expect(result.status).toBe("failed");
     expect(result.error).toContain("Security scan found");
+    // Checks passed, but a run that failed afterwards awaits no acceptance.
+    expect(result.completion).toBeUndefined();
     await expect(engine.approveReview(result.id, "Looks fine")).rejects.toThrow(
       "did not stop at code review",
     );
@@ -1977,6 +2034,56 @@ describe("code review gate", () => {
     expect(result.status).toBe("needs_reconciliation");
     expect(result.error).not.toContain("before publication");
     expect(result.error).toContain("pushed");
+  });
+
+  it("fails, not needs reconciliation, when a resumed attempt stops before publishing again", async () => {
+    const changes: Review = {
+      verdict: "request-changes",
+      summary: "Add more tests",
+      criteria: [{ criterion: "2 + 3 is 5", met: "yes", evidence: "a + b" }],
+      findings: [],
+    };
+    let pushes = 0;
+    const { engine, result } = await setup({
+      reviews: [approve, changes, changes],
+      attempts: 1,
+      // The first attempt's push fails after publication started.
+      configure: publishing(() => (++pushes === 1 ? 1 : 0)),
+    });
+    expect(result.status).toBe("needs_reconciliation");
+    await engine.resume(result.id, true);
+    const resumed = await engine.wait(result.id);
+    // The earlier attempt's publication was acknowledged on resume; this
+    // attempt stopped at code review and never published.
+    expect(resumed.error).toMatch(/^Code review (still )?requested changes/);
+    expect(resumed.status).toBe("failed");
+    expect(pushes).toBe(1);
+    // So a person can still approve it in the reviewer's place.
+    await engine.approveReview(result.id, "Reviewed by hand");
+    await engine.resume(result.id, true);
+    const approved = await engine.wait(result.id);
+    expect(approved.error ?? "").toBe("");
+    expect(approved.status).toBe("succeeded");
+    expect(pushes).toBe(2);
+  });
+
+  it("records a pending acceptance only on a run whose publication succeeded", async () => {
+    const { engine, result } = await setup({
+      reviews: [approve],
+      configure: publishing(() => 1),
+    });
+    expect(result.status).toBe("needs_reconciliation");
+    expect(result.completion).toBeUndefined();
+    expect(engine.store.run(result.id).completion).toBeUndefined();
+    expect(
+      engine.store
+        .events(result.id)
+        .some((event) => event.type === "acceptance.pending_review"),
+    ).toBe(true);
+    await engine.resume(result.id, true);
+    const resumed = await engine.wait(result.id);
+    expect(resumed.status).toBe("needs_reconciliation");
+    expect(engine.store.run(result.id).completion).toBeUndefined();
   });
 
   it("refuses a cloud reviewer for non-exportable changes and reports a failed review", async () => {
