@@ -17,6 +17,7 @@ import type {
   ProjectConfig,
   ProjectPolicy,
   ProviderConfig,
+  RunEvent,
   RunOutcome,
   RunRecord,
   Usage,
@@ -1378,33 +1379,75 @@ export class GraphEngine {
       };
       // Every file this run's workers wrote: patches, cached solutions and
       // the DAG's steps and repairs, including one an acknowledged resume
-      // recorded as applied. The operator's own uncommitted files in the
-      // workspace are not the worker's change.
-      const runWrittenPaths = () => [
-        ...new Set([
-          ...this.store
-            .events(run.id)
-            .filter((event) =>
-              [
-                "patch.applied",
-                "dag.step.completed",
-                "solution.cache_hit",
-              ].includes(event.type),
-            )
-            .flatMap((event) => {
-              const paths = event.data.paths;
-              if (
-                !Array.isArray(paths) ||
-                paths.some((item) => typeof item !== "string")
+      // recorded as applied. A single-step or cached patch counts from the
+      // moment it is recorded as applying, before its first write, so one
+      // the process died during, or whose rollback failed, is still the
+      // run's: each of its files still in the workspace (one it never
+      // reached, or one the rollback removed, has nothing to review or
+      // publish). A patch whose rollback restored the workspace wrote
+      // nothing. The operator's own uncommitted files in the workspace are
+      // not the worker's change.
+      const runWrittenPaths = async () => {
+        const events = this.store.events(run.id);
+        const inventory = (event: RunEvent) => {
+          const paths = event.data.paths;
+          if (
+            !Array.isArray(paths) ||
+            paths.some((item) => typeof item !== "string")
+          )
+            throw new Error(
+              "Retained patch lacks its verification path inventory; explicit source review is required before reuse",
+            );
+          return paths as string[];
+        };
+        const rolledBack = new Set(
+          events
+            .filter((event) => event.type === "patch.rolled_back")
+            .map((event) => event.data.applying),
+        );
+        const inWorkspace = async (file: string) => {
+          try {
+            await stat(path.join(workspace, file));
+            return true;
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code ?? "";
+            if (["ENOENT", "ENOTDIR"].includes(code)) return false;
+            throw error;
+          }
+        };
+        const applying: string[] = [];
+        for (const event of events)
+          if (event.type === "patch.applying" && !rolledBack.has(event.id))
+            for (const file of inventory(event))
+              if (await inWorkspace(file)) applying.push(file);
+        return [
+          ...new Set([
+            ...events
+              .filter((event) =>
+                [
+                  "patch.applied",
+                  "dag.step.completed",
+                  "solution.cache_hit",
+                ].includes(event.type),
               )
-                throw new Error(
-                  "Retained patch lacks its verification path inventory; explicit source review is required before reuse",
-                );
-              return paths as string[];
-            }),
-          ...(dagCheckpoint ? checkpointPaths(dagCheckpoint) : []),
-        ]),
-      ];
+              .flatMap(inventory),
+            ...applying,
+            ...(dagCheckpoint ? checkpointPaths(dagCheckpoint) : []),
+          ]),
+        ];
+      };
+      const recordPatch = (stepId: string): PatchRecorder => ({
+        applying: (paths) =>
+          this.store.event(run.id, "patch.applying", { paths }, stepId),
+        rolledBack: (applying, paths, error) => {
+          this.store.event(
+            run.id,
+            "patch.rolled_back",
+            { applying: applying.id, paths, error },
+            stepId,
+          );
+        },
+      });
       const reviewChange = async (
         stepId: string,
         checks: Awaited<ReturnType<typeof verifyInContainer>>,
@@ -1438,7 +1481,7 @@ export class GraphEngine {
         try {
           reviewer = await this.reviewer(reviewerId);
           // Only files this run's workers wrote.
-          const written = runWrittenPaths().sort();
+          const written = (await runWrittenPaths()).sort();
           exportable = written.every((file) =>
             isAllowedPath(file, policy, true),
           );
@@ -1624,7 +1667,7 @@ export class GraphEngine {
         });
         // A file this run's workers wrote that no scanner could read (for
         // example one made "binary" by a NUL byte) is not accepted unseen.
-        const workerPaths = new Set(runWrittenPaths());
+        const workerPaths = new Set(await runWrittenPaths());
         // Dependency scanning reads a downloaded database. Without one, a
         // run that changed a lockfile is not passed unscanned, and a skipped
         // dependency scan is always recorded.
@@ -1762,7 +1805,7 @@ export class GraphEngine {
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
         save("verifying");
-        const proposedPaths = runWrittenPaths();
+        const proposedPaths = await runWrittenPaths();
         await assertVerificationPaths(
           workspace,
           proposedPaths,
@@ -2182,7 +2225,12 @@ export class GraphEngine {
         let reusableProposal: WorkerResult["proposal"] | undefined;
         if (cached) {
           const proposal = cached;
-          await applyWholePatch(workspace, proposal, this.config.policy);
+          await applyWholePatch(
+            workspace,
+            proposal,
+            this.config.policy,
+            recordPatch(step.id),
+          );
           this.store.event(
             run.id,
             "solution.cache_hit",
@@ -2462,9 +2510,10 @@ export class GraphEngine {
                       workspace,
                       result.proposal,
                       this.config.policy,
+                      recordPatch(step.id),
                     );
             } catch (error) {
-              // A repair that could not be rolled back needs reconciliation.
+              // A patch that could not be rolled back needs reconciliation.
               if (error instanceof DagReconciliationError) throw error;
               const message = errorMessage(error);
               const returnedPatch = patchErrorFeedback(message, step.id);
@@ -2851,29 +2900,48 @@ function testFirstFeedback(
     : undefined;
 }
 
+// How applyWholePatch records a patch in the run's events.
+interface PatchRecorder {
+  // Before the first write: from here the patch's files count as the run's
+  // (see runWrittenPaths), even if the process dies before it completes.
+  applying(paths: string[]): RunEvent;
+  // After a rollback that restored the pre-patch workspace.
+  rolledBack(applying: RunEvent, paths: string[], error: string): void;
+}
+
 // Applies a single-step patch as a whole, as a DAG step's is: it is
 // validated first, so a patch that cannot apply goes back to the worker with
 // nothing written, and a write that fails partway (a full disk, say) is
 // undone. A file left behind would be missing from the run's record, so
-// review would skip it and publication would still commit it.
+// review would skip it and publication would still commit it: the patch is
+// recorded as applying before its first write, and only a rollback that
+// brings the workspace back to its pre-patch fingerprint records it as
+// rolled back. One that cannot needs reconciliation.
 async function applyWholePatch(
   workspace: string,
   proposal: WorkerProposal,
   policy: ProjectPolicy,
+  record: PatchRecorder,
 ): Promise<string[]> {
   await prepareProposal(workspace, proposal, policy);
   const paths = [...new Set(proposal.changes.map((change) => change.path))];
+  if (!paths.length) return applyProposal(workspace, proposal, policy);
   const originals = await captureOriginals(workspace, paths, policy);
+  const before = await workspaceFingerprint(workspace, policy);
+  const applying = record.applying(paths);
   try {
     return await applyProposal(workspace, proposal, policy);
   } catch (error) {
     try {
       await restoreOriginals(originals);
+      if ((await workspaceFingerprint(workspace, policy)) !== before)
+        throw new Error("the workspace does not match its pre-patch state");
     } catch (restoreError) {
       throw new DagReconciliationError(
         `A patch failed while its files were written (${errorMessage(error)}) and could not be rolled back (${errorMessage(restoreError)}); inspect ${paths.join(", ")} in the retained workspace, then resume with reconciliation acknowledgement or create a new plan`,
       );
     }
+    record.rolledBack(applying, paths, errorMessage(error));
     throw new Error(
       `${errorMessage(error)} The patch was rolled back; the workspace is at its state before the patch.`,
       { cause: error },
