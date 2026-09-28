@@ -38,10 +38,16 @@ decided the roles on 2026-09-27.
 The owner leads the project alone and holds every role; Kevin holds none.
 
 - **Approver (D4), grant issuer (D5) and evidence signer (D7): the owner**,
-  with separate Ed25519 keys per role, stored in the macOS Keychain behind
-  Touch ID or the owner's password for every use, and signed only through
-  an owner-run helper that shows what is being signed. Backups are
-  passphrase-encrypted and kept off the laptop.
+  with separate Ed25519 keys per role, each stored as a
+  passphrase-encrypted file and usable only when the owner types the
+  passphrase at a terminal they started, and signed only through an
+  owner-run helper that shows the SHA-256 of what is being signed (see
+  [promotion keys](../../docs/promotion-keys.md)). One passphrase protects
+  all three roles, and the backup is the same encrypted key files bundled
+  into one file kept off the laptop, so the backup plus the passphrase
+  gives every role. Touch ID in the macOS Keychain is deferred: it needs an
+  Apple-developer-signed helper, because an ad-hoc-signed one gets OSStatus
+  -34018 (`errSecMissingEntitlement`).
 - **Witness (D6): Sigstore's public Rekor log**, pinned to its API version,
   queried read-only by the graph. Allowlisting its host is a policy change
   the owner makes, which also changes the policy hash bound into grants.
