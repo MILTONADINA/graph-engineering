@@ -55,5 +55,6 @@ and propose memories over MCP. To keep a finding with its evidence, store
 the page as a pack and cite it: `knowledge-cite` proposes an `observation`
 memory whose text includes the source URL and retrieval date and whose
 source is the exact pack lines. Like every memory it is private and proposed
-until a person accepts it, and it is never a requirement or constraint, so
+until a person accepts it with `graph-engine memory-accept <id>`, and it is
+never a requirement or constraint, so
 fetched text never becomes mandatory context.

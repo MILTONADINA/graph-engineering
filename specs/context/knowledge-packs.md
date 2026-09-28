@@ -25,6 +25,8 @@ Models and tools change faster than any model's training data, so workers need c
   - Test: packages/engine/tests/knowledge.test.ts :: stays indexed under a working set, and out of reach of worker writes and range requests
 - AC6: `knowledge-list` reports each pack's age and flags packs over 180 days old, and a context packet that includes a stale pack warns about it.
   - Test: packages/engine/tests/hygiene.test.ts :: reports stale packs and warns when retrieval includes one
+- AC7: `knowledge-cite` tells the person to accept the proposed observation with `graph-engine memory-accept <id>`, not `memory-review`, which accepts nothing.
+  - Test: packages/engine/tests/cli.test.ts :: names memory-accept as how a person accepts a cited knowledge finding
 
 ## Security considerations
 

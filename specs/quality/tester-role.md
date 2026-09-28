@@ -38,11 +38,13 @@ and scanned before the run can succeed.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: limits a tester repair to the exact files it wrote, never treating them as globs
 - AC8: Protection of the tester's files ignores letter case, since common file systems do.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses an implementer edit to the tester's file under a different letter case
+- AC9: `tester --writes <glob...>` without a provider ID narrows the configured tester's test-file globs, and is refused with the command to use when no tester is set; it is never silently ignored.
+  - Test: packages/engine/tests/cli.test.ts :: narrows the configured tester's test-file globs with tester --writes, and refuses --writes when no tester is set
 
 ## Security considerations
 
 The tester is an ordinary worker under the same policy: it receives only the
-context its provider may receive, can write only files matching the test globs (a project whose production code matches them should narrow the globs with `graph-engine tester --writes`), and its
+context its provider may receive, can write only files matching the test globs (a project whose production code matches them should narrow the globs with `graph-engine tester --writes <glob...>`, which keeps the configured tester), and its
 tests run in the sealed verification container like any other change. Tests
 it writes are code and are reviewed by the reviewer gate when one is
 configured.

@@ -34,6 +34,8 @@ A team lead wants to open one page and see what the graph is doing, what is done
   - Test: packages/engine/tests/overview.test.ts :: offers review-approve for a change a cloud reviewer may not receive
 - AC9: The Runs page shows a finished run's recorded human acceptance: pending until a person decides, then accepted or rejected by a person.
   - Test: packages/dashboard/src/RunsPage.test.tsx :: shows the person's recorded acceptance decision, never pending once they decide
+- AC10: `serve` refuses a `--port` that is not a whole number from 0 to 65535 before it opens the engine, and when listening fails (for example, the port is in use) it closes the engine, so the process exits with the error instead of staying up without a dashboard.
+  - Test: packages/engine/tests/cli.test.ts :: exits when serve, mcp or watch fails, instead of keeping the process alive
 
 ## Security considerations
 

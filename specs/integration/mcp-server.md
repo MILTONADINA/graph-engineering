@@ -40,6 +40,8 @@ Developers use AI clients such as Claude Code, Codex and Cursor, which should be
   - Test: scripts/dist-freshness.test.mjs :: built mcp --client local warns about a stale dist and still serves
   - Test: scripts/dist-freshness.test.mjs :: built non-MCP commands warn about a stale dist and still run
   - Test: scripts/dist-freshness.test.mjs :: built mcp starts as a cloud server from an unmodified dist
+- AC9: `mcp` refuses a `--client` other than `local` or `cloud` with a plain message before it opens the engine, and a server that fails to start after opening the engine closes it, so the process exits with the error instead of leaving a connected client waiting on a server that never serves.
+  - Test: packages/engine/tests/cli.test.ts :: exits when serve, mcp or watch fails, instead of keeping the process alive
 
 ## Security considerations
 

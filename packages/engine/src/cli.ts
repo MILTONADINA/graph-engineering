@@ -42,7 +42,14 @@ import {
   PROJECT_FILE,
   projectDataDir,
 } from "./project.js";
-import { checked, readJson, writeJson, errorMessage } from "./util.js";
+import {
+  checked,
+  command as runCommand,
+  readJson,
+  writeJson,
+  errorMessage,
+} from "./util.js";
+import { costBudgetRefusal } from "./policy.js";
 import { trackedFiles } from "./execution/workspace.js";
 import { selectSecurityTools } from "./security/catalog.js";
 import {
@@ -120,6 +127,21 @@ async function withEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
     await engine.close();
   }
 }
+// serve, mcp and watch keep their engine open after the action returns. An
+// open engine's database worker keeps the process alive, so a step that
+// fails after the open must close it, or the error is printed and the
+// process never exits.
+async function closeOnFailure<T>(
+  engine: GraphEngine,
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    await engine.close();
+    throw error;
+  }
+}
 
 cli
   .command("init")
@@ -173,7 +195,7 @@ cli
 cli
   .command("knowledge-cite <pack>")
   .description(
-    "Propose a research finding as an observation citing exact lines of a knowledge pack; a person accepts it with memory review",
+    "Propose a research finding as an observation citing exact lines of a knowledge pack; a person accepts it with graph-engine memory-accept <id>",
   )
   .requiredOption("--lines <start-end>", "Cited line range, for example 12-18")
   .requiredOption("--claim <text>", "The finding those lines support")
@@ -292,16 +314,21 @@ cli
     2000,
   )
   .action(async (options) => {
+    const interval: number = options.interval;
+    if (!Number.isFinite(interval) || interval < 1000 || interval > 3_600_000)
+      throw new Error("Watch interval must be between 1000 and 3600000 ms");
     const engine = await GraphEngine.open(root());
-    const watcher = engine.context.watch({
-      intervalMs: options.interval,
-      onIndex: (snapshot) => {
-        print(snapshot);
-      },
-      onError: (error) => {
-        process.stderr.write(`${errorMessage(error)}\n`);
-      },
-    });
+    const watcher = await closeOnFailure(engine, async () =>
+      engine.context.watch({
+        intervalMs: interval,
+        onIndex: (snapshot) => {
+          print(snapshot);
+        },
+        onError: (error) => {
+          process.stderr.write(`${errorMessage(error)}\n`);
+        },
+      }),
+    );
     const stop = async () => {
       await watcher.close();
       await engine.close();
@@ -576,14 +603,27 @@ async function warnIfUnusable(
   project: Awaited<ReturnType<typeof loadProject>>,
   providerId: string,
 ): Promise<void> {
-  const configured = await loadProviders(projectDataDir(project.projectId));
-  if (!configured.some((provider) => provider.id === providerId))
+  const provider = (
+    await loadProviders(projectDataDir(project.projectId))
+  ).find((configured) => configured.id === providerId);
+  if (!provider)
     console.error(
       `${providerId} is not a configured worker yet; add it with graph-engine provider-add.`,
     );
   else if (!project.policy.providers.includes(providerId))
     console.error(
       `${providerId} is not permitted by the project policy; add it to policy.providers with graph-engine provider-enable ${providerId} before planning.`,
+    );
+  else warnIfUnpriced(provider, project.policy);
+}
+// Under a numeric cost cap, planning refuses a worker without recorded
+// prices; say so when it is set up, not only when a plan fails.
+function warnIfUnpriced(provider: ProviderConfig, policy: ProjectPolicy): void {
+  const refusal =
+    policy.maxCostUsd === null ? undefined : costBudgetRefusal(provider);
+  if (refusal)
+    console.error(
+      `Plans cannot use ${provider.id} under the project's cost cap (policy.maxCostUsd is ${policy.maxCostUsd}). ${refusal}.`,
     );
 }
 cli
@@ -608,17 +648,28 @@ cli
   .description(
     "Set the worker provider that writes tests for each acceptance criterion before implementation (new test files only, which implementers may not change), or show the current tester",
   )
-  .option("--writes <glob...>", "Test-file globs the tester may write")
+  .option(
+    "--writes <glob...>",
+    "Test-file globs the tester may write; without a provider ID, narrows the current tester's",
+  )
   .option("--clear", "Stop adding a tester step to plans")
   .action(async (providerId, options) => {
     const project = await loadProject(root());
+    // --writes alone narrows the current tester; it is never ignored.
+    const narrow = !options.clear && !providerId && !!options.writes?.length;
+    if (narrow && !project.tester)
+      throw new Error(
+        "No tester is set; give its provider ID: graph-engine tester <providerId> --writes <glob...>",
+      );
     if (options.clear) delete project.tester;
     else if (providerId)
       project.tester = {
         providerId,
         ...(options.writes?.length ? { writes: options.writes } : {}),
       };
-    if (options.clear || providerId) {
+    else if (narrow && project.tester)
+      project.tester = { ...project.tester, writes: options.writes };
+    if (options.clear || providerId || narrow) {
       assertProjectConfig(project);
       await writeJson(path.join(root(), PROJECT_FILE), project);
     }
@@ -697,6 +748,7 @@ cli
       console.error(
         "This project has no spending cap (policy.maxCostUsd is null). Set a numeric cap before running metered workers.",
       );
+    warnIfUnpriced(provider, project.policy);
     print(provider);
   });
 // Permitting a configured worker must not touch its stored configuration:
@@ -722,6 +774,7 @@ cli
       console.error(
         "This project has no spending cap (policy.maxCostUsd is null). Set a numeric cap before running metered workers.",
       );
+    warnIfUnpriced(provider, project.policy);
     print(project.policy.providers);
   });
 cli.command("providers").action(async () => {
@@ -861,6 +914,45 @@ cli
     print(report);
     if (report.errors.length) process.exitCode = 1;
   });
+// A steps file left in the project is untracked source: a plan made while
+// it is there binds it in its snapshot, so moving it changes the source
+// before the run, and a run that publishes refuses the unclean checkout.
+// Warn before the planner call so a person can stop without spending it.
+// Never throws, so the claimed file is still removed if the call fails.
+async function warnIfBoundAsSource(out: string, shown: string): Promise<void> {
+  const relative = path.relative(root(), out);
+  if (
+    !relative ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  )
+    return;
+  try {
+    // A relative path: macOS /var and /private/var name the same checkout.
+    const ignored = await runCommand(
+      "git",
+      [
+        "-c",
+        "core.fsmonitor=false",
+        "-C",
+        root(),
+        "check-ignore",
+        "-q",
+        "--",
+        relative,
+      ],
+      { timeoutMs: 10_000 },
+    );
+    // 0 is ignored, 1 is not; anything else (not a Git checkout) says nothing.
+    if (ignored.code === 1)
+      process.stderr.write(
+        `warning: ${shown} is inside the project and not ignored by Git. A plan made while it is there binds it as source, so it must stay unchanged until the run starts, and a run that publishes refuses the unclean checkout. Before plan --steps, move it outside the project or to a Git-ignored path.\n`,
+      );
+  } catch {
+    // The warning is advice; failing to check changes nothing.
+  }
+}
 cli
   .command("decompose <objective>")
   .description(
@@ -893,6 +985,8 @@ cli
       process.on("SIGTERM", cancel);
       let proposal: Awaited<ReturnType<GraphEngine["proposeSteps"]>>;
       try {
+        // Inside the cancellable span, so Ctrl-C here still removes the file.
+        await warnIfBoundAsSource(out, options.out);
         proposal = await engine.proposeSteps({
           objective,
           acceptance: options.accept,
@@ -1296,11 +1390,31 @@ cli
   .command("serve")
   .option("--port <number>", "Loopback port", "4317")
   .action(async (options) => {
+    const port = z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(65535)
+      .safeParse(options.port);
+    if (!port.success)
+      throw new Error(
+        `--port must be a whole number from 0 to 65535, not ${options.port}`,
+      );
     const engine = await GraphEngine.open(root());
-    const { app, token } = createServer(engine);
-    const address = await app.listen({
-      host: "127.0.0.1",
-      port: z.coerce.number().int().min(0).max(65535).parse(options.port),
+    const { app, token, address } = await closeOnFailure(engine, async () => {
+      const server = createServer(engine);
+      try {
+        return {
+          ...server,
+          address: await server.app.listen({
+            host: "127.0.0.1",
+            port: port.data,
+          }),
+        };
+      } catch (error) {
+        await server.app.close();
+        throw error;
+      }
     });
     process.stdout.write(`${address}/#token=${token}\n`);
     const close = async () => {
@@ -1323,12 +1437,17 @@ cli
     "Expose run status, usage, commit and PR metadata to a cloud client",
   )
   .action(async (options) => {
+    const client = z.enum(["local", "cloud"]).safeParse(options.client);
+    if (!client.success)
+      throw new Error(`--client must be local or cloud, not ${options.client}`);
     const engine = await GraphEngine.open(root());
-    const server = await serveMcp(engine, {
-      client: z.enum(["local", "cloud"]).parse(options.client),
-      allowRun: options.allowRun,
-      allowRunStatus: options.allowRunStatus,
-    });
+    const server = await closeOnFailure(engine, () =>
+      serveMcp(engine, {
+        client: client.data,
+        allowRun: options.allowRun,
+        allowRunStatus: options.allowRunStatus,
+      }),
+    );
     process.once(
       "SIGINT",
       () => void server.close().then(() => engine.close()),

@@ -19,8 +19,9 @@ change. It is recorded as `review.providerId` in `.graph/project.json`.
 `graph-engine tester <providerId>` adds a `tester` step to every plan that
 runs first, before the implementation: a separate worker writes tests that
 prove each acceptance criterion. It creates new test files only, never
-editing an existing test, within the test-file globs (`--writes` narrows
-them, so they must leave room for new files), and implementing steps may
+editing an existing test, within the test-file globs
+(`graph-engine tester --writes <glob...>` narrows them for the configured
+tester, so they must leave room for new files), and implementing steps may
 not change the files it wrote. The combined result is then verified and
 reviewed ([tester spec](../specs/quality/tester-role.md)).
 

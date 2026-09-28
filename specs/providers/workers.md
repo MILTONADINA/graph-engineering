@@ -42,6 +42,8 @@ Operators want to use the models they already have: hosted APIs, local OpenAI-co
 - AC9: `provider-enable <id>` permits an already configured worker in the project policy without changing its stored configuration (endpoint, key variable, prices, efforts, limits and local options), and refuses an ID that is not configured; every hint for a configured worker the policy does not permit points to it, never to re-running `provider-add`, which replaces the stored worker.
   - Test: packages/engine/tests/cli.test.ts :: permits a configured worker with provider-enable without changing its configuration
   - Test: packages/engine/tests/execution.test.ts :: names each configured worker that cannot be used and why
+- AC10: Under a numeric cost cap (including 0), planning refuses a local worker without recorded prices with the command that fixes it, `provider-add <id> local <model> --input-cost 0 --output-cost 0` repeating its other options, never with advice to use a metered API worker; `provider-add`, `provider-enable`, `reviewer` and `tester` warn at once about a worker the cap would refuse for missing prices, and a local worker with zero prices recorded can be planned under a cap of 0.
+  - Test: packages/engine/tests/cli.test.ts :: names the zero-price fix for an unpriced local worker under a cost cap, when it is set up and at planning
 
 ## Security considerations
 

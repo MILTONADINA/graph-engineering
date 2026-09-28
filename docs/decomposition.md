@@ -7,12 +7,20 @@ breakdown, and a person approves it before anything runs.
 ```sh
 graph-engine decompose "Add invoices with a list endpoint" \
   --accept "GET /invoices lists invoices" "Tests cover the endpoint" \
-  --planner <providerId> --out steps.json
-# read and edit steps.json, then:
+  --planner <providerId> --out ../invoice-steps.json
+# read and edit ../invoice-steps.json, then:
 graph-engine plan "Add invoices with a list endpoint" \
   --accept "GET /invoices lists invoices" "Tests cover the endpoint" \
-  --steps steps.json
+  --steps ../invoice-steps.json
 ```
+
+Write the steps file outside the repository, as here, or to a path Git
+ignores. A plan binds the project's source snapshot, which includes untracked
+files, so a steps file left in the checkout becomes part of the plan's
+source: moving or deleting it before the run makes `run` refuse because the
+source changed since planning, and a run that publishes (commit or draft PR)
+refuses the unclean checkout. `decompose` warns, before calling the planner,
+when `--out` is inside the project and not ignored by Git.
 
 ## What happens
 
