@@ -24,7 +24,7 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/requested-sources.test.ts :: stops a request that returns a file to content the worker already saw
 - AC5: A worker can complete a change to a large file end to end through outlines, line ranges and patch feedback.
   - Test: packages/engine/tests/execution.test.ts :: works through outlines, line ranges and patch feedback on a large file
-- AC6: Cloud workers cannot request non-exportable files, including a file whose name on disk differs in letter case from the exportable name requested (a name differing only in Unicode composition is the same file, and its on-disk name must itself be exportable), receive no range or outline of a file with a potential secret, and get patch details only for exportable paths. A request naming any path outside `exportPaths` is refused whole, by export policy alone, before any file is read; the worker is told so as feedback that names only the paths it sent, and can then propose its change.
+- AC6: Cloud workers cannot request non-exportable files, including a file whose name on disk differs in letter case from the exportable name requested (a name differing only in Unicode composition is the same file, and its on-disk name must itself be exportable), receive no range or outline of a file with a potential secret, receive no retrieved excerpt, requested file or listing entry whose path looks like a credential (as the MCP boundary also refuses), and get patch details only for exportable paths. A request naming any path outside `exportPaths` is refused whole, by export policy alone, before any file is read; the worker is told so as feedback that names only the paths it sent, and can then propose its change.
   - Test: packages/engine/tests/requested-sources.test.ts :: refuses a non-exportable request for a cloud worker before reading it
   - Test: packages/engine/tests/execution.test.ts :: answers a cloud worker's request for a non-exportable file with feedback, then applies its change
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: exports only allowed source, answers a private source request with feedback once and stops a repeat
@@ -32,12 +32,15 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/policy.test.ts :: refuses to export a file whose name on disk differs in case from the exportable request
   - Test: packages/engine/tests/policy.test.ts :: finds a decomposed file by its composed name, and checks the name on disk is exportable
   - Test: packages/engine/tests/requested-sources.test.ts :: gives a cloud worker no range or outline of a file with a potential secret
+  - Test: packages/engine/tests/requested-sources.test.ts :: gives a cloud worker no file whose name looks like a credential, requested or listed
+  - Test: packages/engine/tests/policy-export.test.ts :: leaves out of cloud worker packets an exportable file whose name looks like a credential
   - Test: packages/engine/tests/requested-sources.test.ts :: gives cloud workers patch details only for exportable paths
-- AC7: A request for a directory or a missing file is answered with the files the worker may read under the nearest directory, from Git's file list (never ignored, build, protected, excluded or, for a cloud worker, unexportable files), without revealing the private workspace path.
+- AC7: A request for a directory or a missing file is answered with the files the worker may read under the nearest directory, from Git's file list (never ignored, build, protected, excluded or, for a cloud worker, unexportable or credential-named files), without revealing the private workspace path.
   - Test: packages/engine/tests/execution.test.ts :: answers a directory or missing source request with the files the worker may read
   - Test: packages/engine/tests/execution.test.ts :: stops a worker that keeps requesting the same missing source
   - Test: packages/engine/tests/requested-sources.test.ts :: lists only files Git tracks or would track, never ignored or protected ones
   - Test: packages/engine/tests/requested-sources.test.ts :: gives a cloud worker a listing of exportable files only
+  - Test: packages/engine/tests/requested-sources.test.ts :: gives a cloud worker no file whose name looks like a credential, requested or listed
 - AC8: A request that adds nothing new, or that a cloud worker makes for a non-exportable path, is answered once with feedback and stops the step the second time; a proposal that repeats a request but also proposes changes is applied.
   - Test: packages/engine/tests/execution.test.ts :: stops repeated source requests when the worker receives no new evidence
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: applies a DAG proposal that repeats a request but also proposes changes

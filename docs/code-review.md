@@ -61,8 +61,12 @@ pass fails with a message naming code review, never "checks failed".
   stays pending on every run.
 - **Cloud reviewers get only exportable changes.** A diff touching a path
   outside `exportPaths`, or containing a potential secret, is not sent, and
-  the review fails as not completed. Cloud implementers get the review's
-  details only when every changed path is exportable.
+  the review fails as not completed. A change touching a path outside
+  `exportPaths` is recorded as `review.blocked` rather than
+  `review.started`, since nothing reached the reviewer. In each case the
+  run stopped at code review, so when its checks passed a person can
+  [review it instead](#a-persons-review). Cloud implementers get the
+  review's details only when every changed path is exportable.
 - **Reviews are paid calls.** They share the run's worker slots, turn budget
   and cost reservations, and a change too large for the reviewer's context
   budget fails the review rather than being truncated.
@@ -89,9 +93,11 @@ and findings (evidence and messages redacted).
 ## A person's review
 
 A reviewer can hold a change back, and a run can also stop at review
-because its turn budget ran out. When the required checks passed, you can
-review the change yourself and approve it in place of the reviewer, as a
-senior reviewer would:
+because its turn budget ran out or because a cloud reviewer may not
+receive the change (a path outside `exportPaths`, a potential secret, a
+change too large for its context budget). When the required checks
+passed, you can review the change yourself and approve it in place of the
+reviewer, as a senior reviewer would:
 
 ```sh
 graph-engine review-approve <run-id> --note "What you reviewed"

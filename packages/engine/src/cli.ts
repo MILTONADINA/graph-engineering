@@ -976,6 +976,9 @@ cli.command("run <planId>").action((planId) =>
     // Starting a run from the command line is the person's own approval.
     const run = await engine.start(planId, { approvedByPerson: true });
     process.stderr.write(`Run ${run.id}\n`);
+    for (const event of engine.store.events(run.id))
+      if (event.type === "security.database_missing")
+        process.stderr.write(`warning: ${String(event.data.message)}\n`);
     return noteFailedRun(await engine.wait(run.id));
   }),
 );

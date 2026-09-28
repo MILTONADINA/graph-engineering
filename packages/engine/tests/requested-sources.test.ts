@@ -16,6 +16,7 @@ import {
   unseenPatchLocation,
 } from "../src/execution/requested-sources.js";
 import { workerRequestBytes, type WorkerInput } from "../src/workers/api.js";
+import { containsSecret } from "../src/policy.js";
 import { checked } from "../src/util.js";
 
 const roots: string[] = [];
@@ -553,5 +554,55 @@ describe("directory and missing-file requests", () => {
     expect(listing.text).toContain("- src/app.ts");
     expect(listing.text).not.toContain("private");
     expect(listing.source!.path).toBe("src/app.ts");
+  });
+
+  it("gives a cloud worker no file whose name looks like a credential, requested or listed", async () => {
+    const root = await gitWorkspace();
+    // Built at run time, so this source holds no token-shaped literal.
+    const tokenName = "gh" + "p_" + "Q7mZ2xK9vB4nR8tW3yL6pD1sF5hJ0cGa";
+    const named = `fixtures/${tokenName}.json`;
+    expect(containsSecret(named)).toBe(true);
+    await mkdir(path.join(root, "fixtures"));
+    await writeFile(path.join(root, named), '{ "fixture": true }\n');
+    await writeFile(path.join(root, "fixtures/plain.json"), "{}\n");
+    const cloud = input(
+      { ...packet([]), mandatorySources: [] },
+      {
+        id: "cloud",
+        kind: "openai",
+        model: "fixture",
+        inputCostPerMillion: 0,
+        outputCostPerMillion: 0,
+      },
+    );
+    cloud.policy = {
+      ...cloud.policy,
+      exportPaths: ["fixtures/**"],
+      allowedHosts: ["api.openai.com"],
+    };
+    // Refused before it is read, like a path outside exportPaths.
+    const refused = await request(
+      root,
+      [named],
+      new SuppliedLines(),
+      cloud,
+    ).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(UnexportableRequestError);
+    expect((refused as UnexportableRequestError).paths).toEqual([named]);
+    // A listing leaves it out, and is not anchored to it.
+    const result = await request(
+      root,
+      ["fixtures/missing.json"],
+      new SuppliedLines(),
+      cloud,
+    );
+    const listing = result.items.find((item) => item.kind === "outline")!;
+    expect(listing.text).toContain("- fixtures/plain.json");
+    expect(JSON.stringify(result)).not.toContain(tokenName);
+    // A local worker is not subject to the cloud export filter.
+    const local = await request(root, ["fixtures/missing.json"]);
+    expect(local.items.find((item) => item.kind === "outline")!.text).toContain(
+      `- ${named}`,
+    );
   });
 });

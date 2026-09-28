@@ -125,8 +125,21 @@ worker created, and records `security.scan_completed`.
   failing unrelated work.
 - Dependency scanning needs a downloaded OSV database. Without one, the
   skipped scan is recorded as `security.tool_not_run`, and a run that
-  changed a lockfile fails rather than passing unscanned: run
-  `graph-engine security-db-update`, then resume it.
+  changed a lockfile fails rather than passing unscanned. When the project
+  has lockfiles but no database, starting a run records
+  `security.database_missing` and `graph-engine run` prints it as a
+  warning, before any worker is paid; the run is not refused, since one
+  that changes no lockfile passes the gate without a database.
+- To download the database, `graph-engine security-db-update` needs
+  `policy.network: "allowlisted"` with
+  `osv-vulnerabilities.storage.googleapis.com` in `allowedHosts`. A plan
+  and its runs are bound to the exact policy the plan was made under, so
+  `run` and `resume --reconciled` refuse a changed one. After the download,
+  restore `.graph/project.json` exactly as it was (undo the edit, or
+  `git checkout .graph/project.json` when the policy was committed), then
+  resume the stopped run with `graph-engine resume <run-id> --reconciled`.
+  Do not plan it again: resuming keeps the retained change, while a fresh
+  plan pays for the work again.
 
 A run that fails the gate is never published. Scanner containers are named, so
 cancelling a run stops them, and each tool is bounded by the policy's

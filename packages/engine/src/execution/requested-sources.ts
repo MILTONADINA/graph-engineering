@@ -189,13 +189,17 @@ export async function requestedSourcePacket(options: {
   const requested: ContextPacket["items"] = [];
   const partialIds = new Set<string>();
   const entries = [...new Set(options.requests)];
-  // A cloud request for a file the project does not export is refused whole,
-  // before any file is read, by export policy alone: whether the file
-  // exists is never looked up.
+  // A cloud request for a file the project does not export, or whose name
+  // looks like a credential, is refused whole, before any file is read, by
+  // export policy and credential screening alone: whether the file exists
+  // is never looked up.
   if (provider.kind !== "local") {
     const refused = [
       ...new Set(entries.map((entry) => parseRequest(entry).path)),
-    ].filter((relative) => !isAllowedPath(relative, policy, true));
+    ].filter(
+      (relative) =>
+        !isAllowedPath(relative, policy, true) || containsSecret(relative),
+    );
     if (refused.length) throw new UnexportableRequestError(refused);
   }
   for (const entry of entries) {
@@ -464,7 +468,8 @@ const NEW_EVIDENCE_SCORE = 1_000;
  * parent of a path that does not exist, as the worker may read them: Git's
  * own file list (so ignored files never appear), without build or
  * dependency output, protected or policy-excluded paths, and only
- * exportable ones for a cloud worker. Bounded to 200 entries.
+ * exportable ones whose names hold no potential secret for a cloud worker.
+ * Bounded to 200 entries.
  */
 async function directoryListing(
   workspace: string,
@@ -497,7 +502,8 @@ async function directoryListing(
       (file) =>
         file.startsWith(prefix) &&
         !excludedFromIndex(file, options.policy) &&
-        isAllowedPath(file, options.policy, options.exportOnly),
+        isAllowedPath(file, options.policy, options.exportOnly) &&
+        !(options.exportOnly && containsSecret(file)),
     )
     .sort();
   if (!all.length) return undefined;

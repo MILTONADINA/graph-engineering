@@ -1505,6 +1505,17 @@ describe("security gate", () => {
       expect(changed.result.error).toContain(
         `This run changed ${lockfile}, but no OSV vulnerability database has been downloaded`,
       );
+      // The download needs the OSV host allowed, and that policy change
+      // voids the run unless the policy is put back exactly.
+      expect(changed.result.error).toContain(
+        "osv-vulnerabilities.storage.googleapis.com in policy.allowedHosts",
+      );
+      expect(changed.result.error).toContain(
+        "restore .graph/project.json exactly as it was",
+      );
+      expect(changed.result.error).toContain(
+        `graph-engine resume ${changed.result.id} --reconciled`,
+      );
       expect(
         changed.events.find((event) => event.type === "security.tool_not_run")
           ?.data,
@@ -1514,6 +1525,69 @@ describe("security gate", () => {
       ).not.toBe("passed");
     },
   );
+
+  it("warns when a run starts that a changed lockfile would stop it for want of a dependency database", async () => {
+    const start = async (options: { lockfile: boolean; database: boolean }) => {
+      const { root, data } = await fixture();
+      await writeFile(
+        path.join(root, ".graph/security-baseline.json"),
+        JSON.stringify({ version: 1, findings: [] }),
+      );
+      if (options.lockfile)
+        await writeFile(
+          path.join(root, "package-lock.json"),
+          '{ "lockfileVersion": 3, "packages": {} }\n',
+        );
+      await checked("git", ["add", "."], { cwd: root });
+      await checked("git", ["commit", "-m", "test: baseline"], { cwd: root });
+      if (options.database) {
+        await mkdir(path.join(data, "security-db", "osv"), {
+          recursive: true,
+        });
+        await writeFile(
+          path.join(data, "security-db", "osv", "graph-updated.json"),
+          JSON.stringify({ updatedAt: new Date().toISOString() }),
+        );
+      }
+      const engine = await GraphEngine.open(root, {
+        dockerAvailable: async () => true,
+        worker: fixingWorker,
+        verify: passingVerify,
+        securityScan: async () => ({
+          tools: ["semgrep"],
+          findings: [],
+          errors: [],
+          unscanned: [],
+        }),
+      });
+      engines.push(engine);
+      const plan = await engine.createPlan({
+        objective: "Fix addition",
+        acceptance: ["2 + 3 is 5"],
+      });
+      const started = await engine.start(plan.id);
+      // Recorded before the run does any work.
+      const warning = engine.store
+        .events(started.id)
+        .find((event) => event.type === "security.database_missing");
+      await engine.wait(started.id);
+      return warning;
+    };
+    const warning = await start({ lockfile: true, database: false });
+    expect(warning?.data).toMatchObject({
+      tool: "osv-scanner",
+      lockfiles: ["package-lock.json"],
+    });
+    expect(String(warning?.data.message)).toContain(
+      "osv-vulnerabilities.storage.googleapis.com in policy.allowedHosts",
+    );
+    expect(String(warning?.data.message)).toContain(
+      "restore .graph/project.json exactly as it was",
+    );
+    // No lockfile to scan, or a downloaded database: nothing to warn about.
+    expect(await start({ lockfile: false, database: false })).toBeUndefined();
+    expect(await start({ lockfile: true, database: true })).toBeUndefined();
+  });
 
   it("records the security gate in each run's outcome", async () => {
     const failing = await run(["accepted"], async () => ({
@@ -2174,5 +2248,39 @@ describe("code review gate", () => {
     expect(broken.result.error).toBe(
       "Code review did not complete: malformed output",
     );
+  });
+
+  it("lets a person approve a change a cloud reviewer may not receive", async () => {
+    vi.stubEnv("GRAPH_TEST_REVIEW_KEY", "fixture-only-not-a-real-key");
+    const { engine, result, reviewed } = await setup({
+      reviewer: { kind: "openai" },
+      reviews: [approve],
+    });
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain(
+      "the change touches paths a cloud reviewer may not receive",
+    );
+    // Nothing was sent, and the record says the review was blocked rather
+    // than started.
+    const events = engine.store.events(result.id);
+    expect(events.map((event) => event.type)).not.toContain("review.started");
+    expect(
+      events.find((event) => event.type === "review.blocked")?.data,
+    ).toEqual({
+      providerId: "reviewer",
+      reason: "the change touches paths a cloud reviewer may not receive",
+    });
+    // The checks passed, so a person can stand in for the reviewer.
+    await engine.approveReview(result.id, "Reviewed the private change myself");
+    await engine.resume(result.id, true);
+    const resumed = await engine.wait(result.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(reviewed).toEqual([]);
+    expect(engine.store.outcomes(result.id).at(-1)!.review).toEqual({
+      verdict: "approved-by-person",
+      passed: true,
+      by: "person",
+    });
   });
 });

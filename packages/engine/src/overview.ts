@@ -76,22 +76,32 @@ export function latestAttempt(events: RunEvent[]): RunEvent[] {
 }
 
 /**
+ * A review that started, finished, or was blocked before anything was sent
+ * (a change a cloud reviewer may not receive).
+ */
+function isReviewEvent(event: RunEvent): boolean {
+  return (
+    event.type === "review.started" ||
+    event.type === "review.blocked" ||
+    event.type === "review.completed"
+  );
+}
+
+/**
  * Whether a run's latest attempt stopped at code review: its last review
- * either asked for changes or never finished, and nothing ran after it (a
- * later security, publication or verification step is not a review a person
- * can stand in for). An earlier attempt's review does not count: a resume
- * that stopped before reaching review again did not stop there.
+ * either asked for changes, never finished or was blocked before the
+ * reviewer received the change, and nothing ran after it (a later security,
+ * publication or verification step is not a review a person can stand in
+ * for). An earlier attempt's review does not count: a resume that stopped
+ * before reaching review again did not stop there.
  * `approveReview` and the board share this test.
  */
 export function stoppedAtReview(runEvents: RunEvent[]): boolean {
   const events = latestAttempt(runEvents);
-  const lastReview = events.findLastIndex(
-    (event) =>
-      event.type === "review.started" || event.type === "review.completed",
-  );
+  const lastReview = events.findLastIndex(isReviewEvent);
   return (
     lastReview >= 0 &&
-    (events[lastReview]!.type === "review.started" ||
+    (events[lastReview]!.type !== "review.completed" ||
       events[lastReview]!.data.passed !== true) &&
     !events
       .slice(lastReview + 1)
@@ -203,12 +213,10 @@ function card(
           ? "pending"
           : "not-run";
 
-  // The latest review of either kind: one that started and never finished
-  // is not a review that was never reached.
-  const latestReview = attempt.findLast(
-    (event) =>
-      event.type === "review.started" || event.type === "review.completed",
-  );
+  // The latest review of any kind: one that started and never finished, or
+  // was blocked before the reviewer received the change, is not a review
+  // that was never reached.
+  const latestReview = attempt.findLast(isReviewEvent);
   const review =
     latestReview?.type === "review.completed" ? latestReview : undefined;
   // A run's own recorded reviewer is authoritative; the project's current

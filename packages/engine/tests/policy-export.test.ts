@@ -4,7 +4,7 @@ import {
   DEFAULT_POLICY,
   type ContextPacket,
 } from "@graph-engineering/contracts";
-import { contextForProvider } from "../src/policy.js";
+import { containsSecret, contextForProvider } from "../src/policy.js";
 
 it("keeps private diagnostic paths out of cloud packets while preserving local diagnostics", () => {
   const packet: ContextPacket = {
@@ -142,4 +142,61 @@ it("refuses cloud worker packets with unauthorized, altered or unattributed mand
   expect(authorized.mandatory).toEqual(packet.mandatory);
   const local = { id: "local", kind: "local" as const, model: "configured" };
   expect(contextForProvider(packet, local, policy)).toBe(packet);
+});
+
+it("leaves out of cloud worker packets an exportable file whose name looks like a credential", () => {
+  // Built at run time, so this source holds no token-shaped literal.
+  const tokenName = "gh" + "p_" + "Q7mZ2xK9vB4nR8tW3yL6pD1sF5hJ0cGa";
+  const secretPath = `packages/app/tests/fixtures/${tokenName}.json`;
+  expect(containsSecret(secretPath)).toBe(true);
+  const item = (path: string, id: string) => ({
+    id,
+    kind: "code" as const,
+    text: '{ "fixture": true }',
+    score: 1,
+    source: {
+      path,
+      startLine: 1,
+      endLine: 1,
+      contentHash: "hash",
+      snapshotId: "snapshot-id",
+    },
+  });
+  const packet: ContextPacket = {
+    version: "1.0.0",
+    projectId: "project-id",
+    snapshotId: "snapshot-id",
+    query: "fixture",
+    mandatory: [],
+    mandatorySources: [],
+    items: [
+      item(secretPath, "named"),
+      item("packages/app/tests/fixtures/plain.json", "plain"),
+    ],
+    estimatedTokens: 100,
+    budgetTokens: 1000,
+    coverage: { semantic: false, graph: "syntactic", warnings: [] },
+  };
+  const policy = {
+    ...structuredClone(DEFAULT_POLICY),
+    inference: "allowlisted" as const,
+    network: "allowlisted" as const,
+    providers: ["cloud", "local"],
+    allowedHosts: ["api.openai.com"],
+    exportPaths: ["packages/*/tests/**"],
+  };
+  const cloud = contextForProvider(
+    packet,
+    { id: "cloud", kind: "openai", model: "configured" },
+    policy,
+  );
+  expect(cloud.items.map((kept) => kept.id)).toEqual(["plain"]);
+  expect(JSON.stringify(cloud)).not.toContain(tokenName);
+  // A local worker is not subject to the cloud export filter.
+  const local = contextForProvider(
+    packet,
+    { id: "local", kind: "local", model: "configured" },
+    policy,
+  );
+  expect(local.items).toHaveLength(2);
 });
