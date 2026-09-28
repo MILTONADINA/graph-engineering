@@ -22,6 +22,7 @@ import {
   contextForProvider,
   containsSecret,
   introducesSecret,
+  globAllowlist,
   isAllowedPath,
   redact,
   safePath,
@@ -360,6 +361,76 @@ describe("project boundaries", () => {
         verification: [],
       }),
     ).not.toThrow();
+  });
+  it("errs toward excluding: NFC-equal names, any-depth slash-free and case-blind exclusions", () => {
+    const composed = "docs/caf\u00e9.md";
+    const decomposed = "docs/cafe\u0301.md";
+    // An exclusion typed composed also covers the decomposed spelling.
+    const accent = { ...cloud, exportPaths: ["**", `!${composed}`] };
+    expect(isAllowedPath(decomposed, accent, true)).toBe(false);
+    expect(isAllowedPath(composed, accent, true)).toBe(false);
+    expect(isAllowedPath("docs/other.md", accent, true)).toBe(true);
+    // excludedPaths compare the same way.
+    const excludedAccent = {
+      ...cloud,
+      exportPaths: ["**"],
+      excludedPaths: [...cloud.excludedPaths, composed],
+    };
+    expect(isAllowedPath(decomposed, excludedAccent, true)).toBe(false);
+    // An inclusion matches either spelling of the same name.
+    const included = { ...cloud, exportPaths: [composed] };
+    expect(isAllowedPath(decomposed, included, true)).toBe(true);
+    // A slash-free exclusion applies at any depth, as in excludedPaths.
+    const pem = { ...cloud, exportPaths: ["**", "!*.pem"] };
+    expect(isAllowedPath("server.pem", pem, true)).toBe(false);
+    expect(isAllowedPath("a/deploy/server.pem", pem, true)).toBe(false);
+    expect(isAllowedPath("a/deploy/server.ts", pem, true)).toBe(true);
+    // A slash-free inclusion still means the top level only.
+    const topLevel = { ...cloud, exportPaths: ["*.md"] };
+    expect(isAllowedPath("README.md", topLevel, true)).toBe(true);
+    expect(isAllowedPath("a/b.md", topLevel, true)).toBe(false);
+    // Exclusions ignore case, as a case-insensitive file system would.
+    const secrets = { ...cloud, exportPaths: ["src/**", "!src/secrets/**"] };
+    expect(isAllowedPath("src/Secrets/key.ts", secrets, true)).toBe(false);
+    expect(isAllowedPath("src/SECRETS/key.ts", secrets, true)).toBe(false);
+    expect(isAllowedPath("src/app.ts", secrets, true)).toBe(true);
+    const writes = globAllowlist(["src/**", "!src/secrets/**", "!*.lock"]);
+    expect(writes("src/Secrets/key.ts")).toBe(false);
+    expect(writes("src/deps/yarn.lock")).toBe(false);
+    expect(writes("src/app.ts")).toBe(true);
+    // Inclusions stay case-sensitive, so they never widen.
+    expect(writes("SRC/app.ts")).toBe(false);
+  });
+  it("finds a decomposed file by its composed name, and checks the name on disk is exportable", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "graph-policy-"));
+    directories.push(root);
+    await mkdir(path.join(root, "docs"));
+    const decomposed = "cafe\u0301.md";
+    await writeFile(path.join(root, "docs", decomposed), "public\n");
+    const policy = { ...cloud, exportPaths: ["docs/**"] };
+    // The decomposed name itself always resolves.
+    await expect(
+      safePath(root, `docs/${decomposed}`, policy, { forExport: true }),
+    ).resolves.toBe(path.join(await realpath(root), "docs", decomposed));
+    // Where the file system finds it by the composed name too (macOS), the
+    // composed request resolves rather than being refused.
+    const composed = "caf\u00e9.md";
+    const findsComposed = await stat(path.join(root, "docs", composed))
+      .then(() => true)
+      .catch(() => false);
+    if (findsComposed)
+      await expect(
+        safePath(root, `docs/${composed}`, policy, { forExport: true }),
+      ).resolves.toBeTruthy();
+    // An exclusion of the composed name refuses both spellings.
+    const excluded = {
+      ...cloud,
+      exportPaths: ["docs/**", `!docs/${composed}`],
+    };
+    for (const name of [decomposed, composed])
+      await expect(
+        safePath(root, `docs/${name}`, excluded, { forExport: true }),
+      ).rejects.toThrow();
   });
   it("refuses to export a file whose name on disk differs in case from the exportable request", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "graph-policy-"));

@@ -33,8 +33,9 @@ export interface ProjectPolicy {
   /**
    * Globs of the files cloud consumers may receive. A `!pattern` entry is an
    * exclusion: a path is exportable when some other entry matches it and no
-   * exclusion does. Matching is case-sensitive, and a file is exported only
-   * when its name on disk matches too.
+   * exclusion does. Inclusions are case-sensitive; exclusions ignore case and,
+   * when slash-free, apply at any depth. Names compare in Unicode NFC, and a
+   * file is exported only when its name on disk matches and is exportable.
    */
   exportPaths: string[];
   /**
