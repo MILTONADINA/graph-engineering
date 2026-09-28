@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Temporary engine copies made by scripts/dist-freshness.test.mjs.
+packages/engine/.dist-freshness-*/
 .env
 .env.local
 *.log
