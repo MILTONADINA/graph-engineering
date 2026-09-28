@@ -99,6 +99,29 @@ export function readRunReceipt(
   }
 }
 
+// Two processes can open a new data directory at once (an MCP client
+// starting `graph-engine mcp` while the operator runs a command). Switching
+// the new run database to WAL can then report SQLITE_BUSY at once without
+// honoring busy_timeout, so it is retried with the context database's bounded
+// backoff (context/database.ts).
+function useWriteAheadLog(db: Database.Database): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      db.pragma("journal_mode = WAL");
+      return;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "SQLITE_BUSY" || attempt >= 6)
+        throw error;
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        Math.min(50 * 2 ** attempt, 500),
+      );
+    }
+  }
+}
+
 /** Small operational records only. Context DB/index work lives in the context worker. */
 export class RunStore {
   readonly schemaVersion = RUN_SCHEMA_VERSION;
@@ -110,7 +133,7 @@ export class RunStore {
     mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     this.db = new Database(path.join(dataDir, "runs.sqlite"));
     this.db.pragma("busy_timeout = 5000");
-    this.db.pragma("journal_mode = WAL");
+    useWriteAheadLog(this.db);
     const version = this.db.pragma("user_version", { simple: true }) as number;
     if (version > RUN_SCHEMA_VERSION) {
       this.db.close();

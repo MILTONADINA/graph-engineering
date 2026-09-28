@@ -49,7 +49,7 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/execution.test.ts :: fails, not needs reconciliation, when a resumed attempt stops before publishing again
 - AC11: A cached solution is reused only for the same step write scope, and never applied when it changes a file outside that scope.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: never reuses a cached solution outside a step's write scope
-- AC12: `run`, `resume` and `review-approve` exit 0 only when the run they waited for succeeded: 1 when it failed or was cancelled (as for a command error) and 2 when it needs reconciliation.
+- AC12: `run`, `resume` and `review-approve` exit 0 only when the run they waited for succeeded: 1 when it failed or was cancelled (as for a command error) and 2 when it needs reconciliation. A run the person interrupts with Ctrl-C or SIGTERM exits 130 (AC19).
   - Test: packages/engine/tests/cli.test.ts :: exits nonzero when the run it waited for did not succeed
   - Test: packages/engine/tests/run-exit-code.test.ts :: exits 0 only for a succeeded run, 2 when a person must reconcile it and 1 otherwise
 - AC13: `check-add` stores everything after the image as the check's command exactly as typed, including its own `-C`, `-V`, `--version`, `-h` and `--`; a single leading `--` only separates the command, and the program's own options such as `-C <project>` go before `check-add`.
@@ -75,6 +75,12 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/publication.test.ts :: publishes past a skip-worktree file a sparse checkout leaves off disk
 - AC18: Stored run events keep the fields the engine reads back as they were recorded: the files a patch or step wrote, snapshot hashes, and event, provider, decision, memory and call IDs. A file whose name looks like a key (`packages/sk-button-component-library/index.js`) is therefore verified and resumed, while free text such as errors, summaries and check output is still redacted.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: verifies and resumes a file whose name looks like a key, and still redacts free text
+- AC19: Ctrl-C or SIGTERM during `run`, `resume` or `review-approve` cancels the run instead of ending the process at once. Checks and installed agents run in their own process groups, which a terminal's Ctrl-C does not reach, so the command closes the engine: it kills their process groups, kills and removes the check containers, removes the verification view and records the run as `cancelled`, then prints the run and exits 130. It keeps handling the signals until that cleanup finishes, so a repeated Ctrl-C cannot end it mid-cleanup.
+  - Test: packages/engine/tests/cli.test.ts :: cancels a run on Ctrl-C, stopping its check container, and exits once it is cleaned up
+- AC20: Commands that open a project's engine at once succeed on a new data directory: switching the new run database to WAL, which SQLite can refuse at once while another process holds its write lock, is retried with the context database's bounded backoff. The run database opens before the context database worker starts, so when it cannot be opened (one left by a newer engine, or a file that is not a database) the command exits with the error instead of staying alive.
+  - Test: packages/engine/tests/store-open.test.ts :: waits for another process that holds a new run database's write lock instead of failing to switch it to WAL
+  - Test: packages/engine/tests/cli.test.ts :: opens a new project's data directory from several commands at once
+  - Test: packages/engine/tests/cli.test.ts :: exits with the error when the engine cannot open its run database, instead of keeping the process alive
 
 ## Security considerations
 

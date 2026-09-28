@@ -128,6 +128,46 @@ async function withEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
     await engine.close();
   }
 }
+// run, resume and review-approve wait on a run whose checks and installed
+// agents run in their own process groups, so a terminal's Ctrl-C reaches only
+// this process, and exiting would leave a check container or agent running
+// with no time limit. Ctrl-C or SIGTERM closes the engine instead, which
+// cancels the run: it kills those processes, removes the check containers and
+// records the run as cancelled. The handlers stay registered until the engine
+// has closed, so a repeated Ctrl-C cannot end the process mid-cleanup.
+async function withRunEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
+  const engine = await GraphEngine.open(root());
+  let interrupted = false;
+  const cancel = () => {
+    if (interrupted) return;
+    interrupted = true;
+    process.stderr.write(
+      "Cancelling the run; stopping its checks and agents...\n",
+    );
+    // Awaited again below, where a failure to close is reported.
+    engine.close().catch(() => {});
+  };
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
+  try {
+    // close() lets the run stop and closes the context before the run store,
+    // so fn can still read the run's record and events once wait() returns.
+    print(await fn(engine));
+  } catch (error) {
+    if (!interrupted) throw error;
+    // A person's own cancel, before the run started or while it was being
+    // resumed: say what stopped it, without a feedback prompt.
+    process.stderr.write(`${errorMessage(error)}\n`);
+  } finally {
+    try {
+      await engine.close();
+    } finally {
+      process.off("SIGINT", cancel);
+      process.off("SIGTERM", cancel);
+    }
+  }
+  if (interrupted) process.exitCode = 130;
+}
 // serve, mcp and watch keep their engine open after the action returns. An
 // open engine's database worker keeps the process alive, so a step that
 // fails after the open must close it, or the error is printed and the
@@ -1082,7 +1122,7 @@ cli
     }),
   );
 cli.command("run <planId>").action((planId) =>
-  withEngine(async (engine) => {
+  withRunEngine(async (engine) => {
     // Starting a run from the command line is the person's own approval.
     const run = await engine.start(planId, { approvedByPerson: true });
     process.stderr.write(`Run ${run.id}\n`);
@@ -1124,7 +1164,7 @@ cli
   )
   .requiredOption("--note <text>", "What you reviewed, for the record")
   .action((runId, options) =>
-    withEngine(async (engine) => {
+    withRunEngine(async (engine) => {
       await engine.approveReview(runId, options.note);
       await engine.resume(runId, true);
       const run = noteFailedRun(await engine.wait(runId));
@@ -1153,7 +1193,7 @@ cli
     "Acknowledge review of the retained workspace and external effects",
   )
   .action((runId, options) =>
-    withEngine(async (engine) => {
+    withRunEngine(async (engine) => {
       await engine.resume(runId, Boolean(options.reconciled));
       return noteFailedRun(await engine.wait(runId));
     }),
