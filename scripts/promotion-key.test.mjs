@@ -29,6 +29,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BACKUP_FORMAT,
+  BACKUP_SET_FORMAT,
+  KeyError,
+  askNewPassphrase,
+  defaultBackupPath,
+  restoreAll,
+  setupKeys,
+  verifyBackup,
   EXIT,
   KEY_FORMAT,
   backupKey,
@@ -117,6 +124,10 @@ test("promotion-key help lists the owner commands and rejects unknown ones", () 
   assert.equal(help.status, 0);
   for (const command of ["create", "public", "sign", "backup", "restore"])
     assert.match(help.stdout, new RegExp(`^\\s+${command} <role>`, "m"));
+  for (const command of ["setup", "restore-all", "verify-backup"])
+    assert.match(help.stdout, new RegExp(`^\\s+${command} `, "m"));
+  for (const command of ["setup", "restore-all", "verify-backup"])
+    assert.match(help.stdout, new RegExp(`^\\s+${command} `, "m"));
   const unknown = cli(["export", "approver"]);
   assert.equal(unknown.status, EXIT.usage);
   assert.match(unknown.stderr, /unknown command export/);
@@ -135,6 +146,10 @@ test("promotion-key refuses under CI first and without a terminal, before touchi
     ["sign", "approver", message],
     ["backup", "issuer", out],
     ["restore", "labeler", out],
+    ["setup"],
+    ["setup", out],
+    ["restore-all", out],
+    ["verify-backup", out],
   ]) {
     const piped = cli([...args, "--key-dir", keyDir]);
     assert.equal(
@@ -287,10 +302,6 @@ test("promotion-key backup re-encrypts, decrypts independently in Node and resto
   const made = createKey(keyDir, "issuer", pass(KEY_PASS));
   const out = path.join(work, "issuer.backup.json");
   assert.throws(
-    () => backupKey(keyDir, "issuer", out, pass(KEY_PASS), pass(KEY_PASS)),
-    /different from the key passphrase/,
-  );
-  assert.throws(
     () =>
       backupKey(
         keyDir,
@@ -383,4 +394,215 @@ test("promotion-key backup re-encrypts, decrypts independently in Node and resto
     pass("a new key passphrase"),
   );
   assert.equal(verify(null, bytes, made, signature), true);
+});
+
+function roleFiles(keyDir) {
+  return ["approver", "issuer", "labeler"].flatMap((role) =>
+    Object.values(keyPaths(keyDir, role)).filter((file) => existsSync(file)),
+  );
+}
+
+test("promotion-key setup makes three distinct keys under one passphrase and one backup that restore-all restores", () => {
+  const keyDir = freshDir();
+  const out = path.join(work, "set.backup.json");
+  const made = setupKeys(keyDir, out, pass(KEY_PASS));
+  const prints = ["approver", "issuer", "labeler"].map((role) =>
+    engineFingerprint(made[role]),
+  );
+  assert.equal(new Set(prints).size, 3);
+  if (posix) assert.equal(statSync(out).mode & 0o777, 0o600);
+  assert.equal(
+    defaultBackupPath("/home/o"),
+    path.join("/home/o", "graph-engineering-keys.backup.json"),
+  );
+
+  // The backup bundles the stored key envelopes unchanged, each with its
+  // own salt and nonce.
+  const set = JSON.parse(readFileSync(out, "utf8"));
+  assert.equal(set.format, BACKUP_SET_FORMAT);
+  assert.equal(set.version, 1);
+  const salts = new Set();
+  for (const role of ["approver", "issuer", "labeler"]) {
+    const stored = JSON.parse(readFileSync(keyPaths(keyDir, role).key, "utf8"));
+    assert.deepEqual(set.keys[role], stored);
+    assert.equal(stored.format, KEY_FORMAT);
+    salts.add(stored.salt).add(stored.nonce);
+    const bytes = Buffer.from(`as ${role}`);
+    const signature = signFile(keyDir, role, bytes, pass(KEY_PASS));
+    assert.equal(verify(null, bytes, made[role], signature), true);
+  }
+  assert.equal(salts.size, 6);
+
+  const restoredDir = freshDir();
+  assert.throws(
+    () => restoreAll(restoredDir, out, pass("not the passphrase")),
+    /wrong passphrase/,
+  );
+  assert.deepEqual(roleFiles(restoredDir), []);
+  const restored = restoreAll(restoredDir, out, pass(KEY_PASS));
+  for (const role of ["approver", "issuer", "labeler"]) {
+    assert.equal(
+      engineFingerprint(restored[role]),
+      engineFingerprint(made[role]),
+    );
+    assert.equal(
+      readFileSync(keyPaths(restoredDir, role).pub, "utf8"),
+      readFileSync(keyPaths(keyDir, role).pub, "utf8"),
+    );
+    const bytes = Buffer.from(`restored ${role}`);
+    assert.equal(
+      verify(
+        null,
+        bytes,
+        made[role],
+        signFile(restoredDir, role, bytes, pass(KEY_PASS)),
+      ),
+      true,
+    );
+  }
+  if (posix) {
+    assert.equal(
+      statSync(keyPaths(restoredDir, "issuer").key).mode & 0o777,
+      0o600,
+    );
+    assert.equal(statSync(restoredDir).mode & 0o777, 0o700);
+  }
+
+  // One role can also come back from the combined backup.
+  const single = freshDir();
+  restoreKey(
+    single,
+    "labeler",
+    openBackup(out, "labeler", pass(KEY_PASS)),
+    pass("another key passphrase"),
+  );
+  assert.equal(
+    engineFingerprint(readPublicKey(single, "labeler")),
+    engineFingerprint(made.labeler),
+  );
+});
+
+test("promotion-key verify-backup reports OK and names a mismatched role", () => {
+  const keyDir = freshDir();
+  const out = path.join(work, "verify.backup.json");
+  setupKeys(keyDir, out, pass(KEY_PASS));
+  const before = roleFiles(keyDir).map((file) => readFileSync(file));
+  const good = verifyBackup(keyDir, out, pass(KEY_PASS));
+  assert.equal(good.ok, true);
+  assert.deepEqual(
+    good.results.map((result) => result.role),
+    ["approver", "issuer", "labeler"],
+  );
+  assert.throws(
+    () => verifyBackup(keyDir, out, pass("not the passphrase")),
+    /wrong passphrase/,
+  );
+
+  // Replace the stored issuer public key with another key's.
+  const other = freshDir();
+  createKey(other, "issuer", pass(KEY_PASS));
+  const { pub } = keyPaths(keyDir, "issuer");
+  rmSync(pub);
+  writeFileSync(pub, readFileSync(keyPaths(other, "issuer").pub), {
+    mode: 0o600,
+  });
+  const bad = verifyBackup(keyDir, out, pass(KEY_PASS));
+  assert.equal(bad.ok, false);
+  assert.deepEqual(
+    bad.results.filter((result) => !result.ok).map((result) => result.role),
+    ["issuer"],
+  );
+  // Writes nothing: the other files are unchanged and no file was added.
+  const after = roleFiles(keyDir);
+  assert.equal(after.length, before.length);
+  assert.deepEqual(readFileSync(keyPaths(keyDir, "approver").key), before[0]);
+});
+
+test("promotion-key setup removes the keys it created when it fails midway", () => {
+  const keyDir = freshDir();
+  const out = path.join(work, "missing-dir", "set.backup.json");
+  assert.throws(() => setupKeys(keyDir, out, pass(KEY_PASS)));
+  assert.deepEqual(roleFiles(keyDir), []);
+  assert.equal(existsSync(out), false);
+  // A re-run starts clean.
+  const retry = path.join(work, "retry.backup.json");
+  const made = setupKeys(keyDir, retry, pass(KEY_PASS));
+  assert.equal(roleFiles(keyDir).length, 6);
+  assert.equal(verifyBackup(keyDir, retry, pass(KEY_PASS)).ok, true);
+  assert.equal(Object.keys(made).length, 3);
+});
+
+test("promotion-key setup and restore-all refuse when any role or the backup exists", () => {
+  const keyDir = freshDir();
+  createKey(keyDir, "approver", pass(KEY_PASS));
+  const existing = roleFiles(keyDir).map((file) => [file, readFileSync(file)]);
+  const out = path.join(work, "refused.backup.json");
+  assert.throws(() => setupKeys(keyDir, out, pass(KEY_PASS)), {
+    code: EXIT.refused,
+  });
+  assert.equal(existsSync(out), false);
+  assert.deepEqual(
+    roleFiles(keyDir),
+    existing.map(([file]) => file),
+  );
+  for (const [file, bytes] of existing)
+    assert.deepEqual(readFileSync(file), bytes);
+
+  const full = freshDir();
+  const backup = path.join(work, "exists.backup.json");
+  setupKeys(full, backup, pass(KEY_PASS));
+  const kept = readFileSync(backup);
+  assert.throws(() => setupKeys(freshDir(), backup, pass(KEY_PASS)), {
+    code: EXIT.refused,
+  });
+  assert.deepEqual(readFileSync(backup), kept);
+  assert.throws(() => restoreAll(keyDir, backup, pass(KEY_PASS)), {
+    code: EXIT.refused,
+  });
+  assert.deepEqual(
+    roleFiles(keyDir),
+    existing.map(([file]) => file),
+  );
+  // A single-role backup is not a combined backup.
+  const single = path.join(work, "single.backup.json");
+  backupKey(full, "issuer", single, pass(KEY_PASS), pass(BACKUP_PASS));
+  assert.throws(
+    () => restoreAll(freshDir(), single, pass(BACKUP_PASS)),
+    /combined backup/,
+  );
+});
+
+test("promotion-key re-asks a mismatched or short new passphrase up to three times", async () => {
+  const reader = (answers) => {
+    const queue = answers.map(pass);
+    return async () => queue.shift();
+  };
+  const told = [];
+  const tell = (message) => told.push(message);
+  const good = await askNewPassphrase(
+    reader([
+      "one passphrase!!",
+      "another phrase!!",
+      "short",
+      "short",
+      KEY_PASS,
+      KEY_PASS,
+    ]),
+    "key",
+    { tell },
+  );
+  assert.equal(good.toString(), KEY_PASS);
+  assert.equal(told.length, 2);
+  assert.match(told[0], /differ.*2 tries left/);
+  assert.match(told[1], /at least 12.*1 try left/);
+  await assert.rejects(
+    askNewPassphrase(reader(["a", "b", "c", "d", "e", "f"]), "key", { tell }),
+    /at least 12|differ/,
+  );
+  const cancelling = async () => {
+    throw new KeyError("cancelled", 130);
+  };
+  await assert.rejects(askNewPassphrase(cancelling, "key", { tell }), {
+    code: 130,
+  });
 });
