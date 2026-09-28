@@ -1217,6 +1217,56 @@ describe("scoped steps in managed runs", () => {
     ).toContain("= 2");
   });
 
+  it("never reuses a cached solution outside a step's write scope", async () => {
+    const { root } = await fixture();
+    let calls = 0;
+    const engine = await open(root, {
+      // The unscoped run's verified change to second.js is cached.
+      worker: vi.fn(async () => result(++calls === 1 ? "two" : "one")),
+    });
+    // An objective that retrieves source, so the solution can be cached.
+    const objective = "Update the second constant in second.js";
+    const edit = { ...step("one"), objective };
+    const start = async (steps: ExecutionStep[]) =>
+      engine.wait(
+        (
+          await engine.start(
+            (
+              await engine.createPlan({
+                objective,
+                acceptance: ["The constant is updated"],
+                providerId: "local",
+                steps,
+              })
+            ).id,
+          )
+        ).id,
+      );
+    const unscoped = await start([edit]);
+    expect(unscoped.status).toBe("succeeded");
+    expect(
+      engine.store
+        .events(unscoped.id)
+        .some((event) => event.type === "solution.capture_failed"),
+    ).toBe(false);
+    // The same objective and criteria, limited to first.js.
+    const scoped = await start([{ ...edit, writes: ["first.js"] }]);
+    expect(scoped.error ?? "").toBe("");
+    expect(scoped.status).toBe("succeeded");
+    expect(
+      engine.store
+        .events(scoped.id)
+        .some((event) => event.type === "solution.cache_hit"),
+    ).toBe(false);
+    expect(calls).toBe(2);
+    expect(
+      await readFile(path.join(scoped.workspace!, "second.js"), "utf8"),
+    ).toContain("= 2");
+    expect(
+      await readFile(path.join(scoped.workspace!, "first.js"), "utf8"),
+    ).toContain("= 3");
+  });
+
   it("returns an out-of-scope edit to the worker as feedback", async () => {
     const { root } = await fixture();
     const feedback: (string | undefined)[] = [];

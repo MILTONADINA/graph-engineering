@@ -322,6 +322,11 @@ export interface RunRecord {
   updatedAt: string;
   workspace?: string;
   branch?: string;
+  /**
+   * The commit the run workspace was created from. Reviews and gates compare
+   * against it, since the workspace HEAD moves once publication commits.
+   */
+  baseCommit?: string;
   error?: string;
   usage: Usage;
   commit?: string;

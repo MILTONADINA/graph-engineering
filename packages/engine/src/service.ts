@@ -59,6 +59,7 @@ import {
   applyProposal,
   assertVerificationPaths,
   createWorkspace,
+  recoverBaseCommit,
   prepareProposal,
   workspaceFingerprint,
   gitFiles,
@@ -954,8 +955,11 @@ export class GraphEngine {
   }
   // A project with a committed security baseline scans every run; check the
   // scanner before any worker spend rather than after verification.
-  private async assertSecurityScanner(checkout = this.root) {
-    if (!this.deps.securityScan && (await readCommittedBaseline(checkout)))
+  private async assertSecurityScanner(checkout = this.root, revision = "HEAD") {
+    if (
+      !this.deps.securityScan &&
+      (await readCommittedBaseline(checkout, revision))
+    )
       await scannerImageId(SECURITY_SCAN_IMAGE);
   }
   /** Whether a run is still executing in this process. */
@@ -1095,7 +1099,10 @@ export class GraphEngine {
       throw new Error("Configure verification commands before running work");
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
-    await this.assertSecurityScanner(run.workspace ?? this.root);
+    await this.assertSecurityScanner(
+      run.workspace ?? this.root,
+      (run.workspace && run.baseCommit) || "HEAD",
+    );
     const pinnedReviewer = this.runReviewerId(runId);
     if (pinnedReviewer) await this.reviewer(pinnedReviewer);
     if (
@@ -1141,8 +1148,14 @@ export class GraphEngine {
           ),
         );
         save("running");
+      } else if (!run.baseCommit) {
+        run.baseCommit = await recoverBaseCommit(run.workspace, run.id);
+        save("running");
       }
       const workspace = run.workspace!;
+      // Reviews and gates compare against the commit the run started from;
+      // the workspace HEAD moves once publication commits.
+      const baseCommit = run.baseCommit!;
       const budgetTokens =
         run.plan.routing?.contextBudgetTokens ??
         Math.floor(this.config.policy.maxContextTokens * 0.7);
@@ -1303,7 +1316,10 @@ export class GraphEngine {
       let securityPassedHash: string | undefined;
       // The baseline of the commit this run started from; changing the
       // project checkout later cannot turn the gate off for this run.
-      const securityBaseline = await readCommittedBaseline(workspace);
+      const securityBaseline = await readCommittedBaseline(
+        workspace,
+        baseCommit,
+      );
       // Recorded when the run first executes, so changing the configuration
       // cannot add or remove the review gate for a run in progress, even
       // across a resume.
@@ -1394,7 +1410,7 @@ export class GraphEngine {
             for (const [index, file] of written.entries()) {
               const before = `a/${index}`;
               const after = `b/${index}`;
-              const original = await gitBlob(workspace, "HEAD", file, {
+              const original = await gitBlob(workspace, baseCommit, file, {
                 signal,
               });
               await writeFile(path.join(scratch, before), original ?? "");
@@ -2101,16 +2117,26 @@ export class GraphEngine {
             model: provider.model,
             verification: run.plan.verification,
             policy: run.plan.policyHash,
+            // A solution verified under a wider scope is not reused here.
+            writes: step.writes ?? null,
           },
           snapshotId: run.plan.snapshotId,
         };
-        const cached =
+        const stored =
           resuming || step.id === DAG_REPAIR_STEP
             ? null
             : await this.context.getSolution(solutionInput);
+        const storedProposal = stored
+          ? proposalSchema.parse(JSON.parse(stored.value))
+          : undefined;
+        // The write scope applies to a cached proposal as to a worker's.
+        const cached =
+          storedProposal && !outsideWriteScope(step, storedProposal).length
+            ? storedProposal
+            : undefined;
         let reusableProposal: WorkerResult["proposal"] | undefined;
         if (cached) {
-          const proposal = proposalSchema.parse(JSON.parse(cached.value));
+          const proposal = cached;
           await applyProposal(workspace, proposal, this.config.policy);
           this.store.event(
             run.id,
@@ -2515,9 +2541,14 @@ export class GraphEngine {
           "No verified source snapshot is available for publication",
         );
       const changedPaths = [
-        ...(await checkedGit(workspace, ["diff", "--name-only", "HEAD"])).split(
-          "\n",
-        ),
+        ...(
+          await checkedGit(workspace, [
+            "diff",
+            "--name-only",
+            "--no-renames",
+            baseCommit,
+          ])
+        ).split("\n"),
         ...(
           await checkedGit(workspace, [
             "ls-files",
@@ -2598,8 +2629,9 @@ export class GraphEngine {
         commit: run.commit ?? null,
         pullRequest: run.pullRequest ?? null,
       });
-      save("succeeded");
-      this.store.event(run.id, "run.succeeded", { usage: run.usage });
+      // Memory capture awaits a decision provider, so it finishes before the
+      // run is saved as succeeded: a person's decision can be recorded only
+      // on a succeeded run, and no later save of this record may revert it.
       try {
         const memory = await controlMemoryWrite({
           ...withState({ completed: true, committed: Boolean(run.commit) }),
@@ -2617,7 +2649,9 @@ export class GraphEngine {
           error: errorMessage(error),
         });
       }
-      this.store.recordOutcome(this.store.outcomeFor(run, "terminal"));
+      run.status = "succeeded";
+      run.updatedAt = now();
+      this.store.completeRun(run);
     } catch (error) {
       run.usage = this.store.usage(run.plan.id);
       run.error = redact(errorMessage(error));
@@ -2625,11 +2659,13 @@ export class GraphEngine {
       const publishing =
         events.findLastIndex((e) => e.type === "publication.started") >
         events.findLastIndex((e) => e.type === "publication.completed");
+      // Publication may have committed, pushed or opened a PR before a
+      // cancellation took effect, so that state outranks a plain cancel.
       save(
-        signal.aborted
-          ? "cancelled"
-          : publishing || error instanceof DagReconciliationError
-            ? "needs_reconciliation"
+        publishing || error instanceof DagReconciliationError
+          ? "needs_reconciliation"
+          : signal.aborted
+            ? "cancelled"
             : "failed",
       );
       this.store.event(run.id, "run.stopped", {

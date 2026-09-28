@@ -13,6 +13,7 @@ import {
 import { checked, writeJson } from "../src/util.js";
 import type { WorkerInput } from "../src/workers/api.js";
 import { summarizeOutcomes } from "../src/insights.js";
+import { RunStore } from "../src/store.js";
 
 const directories: string[] = [],
   engines: GraphEngine[] = [];
@@ -354,6 +355,80 @@ describe("run outcomes", () => {
     await expect(
       failed.engine.recordAcceptance(failed.result.id, { accepted: true }),
     ).rejects.toThrow("Only a succeeded run");
+  });
+
+  it("never reverts a person's decision recorded while the run finishes", async () => {
+    const laya = "http://127.0.0.1:7337/v1/system-one";
+    const { root, data, config } = await fixture((config) => {
+      config.policy.providers = ["local", "laya"];
+    });
+    await writeJson(path.join(data, "decisions.json"), [
+      {
+        id: "laya",
+        endpoint: laya,
+        model: "fixture-only",
+        maxStateChars: 20000,
+      },
+    ]);
+    // Another process records a decision while the memory-write decision
+    // is still waiting on the decision provider.
+    let externalAccept: "accepted" | Error | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (String(url) !== laya)
+          throw new Error(`Unexpected network call to ${String(url)}`);
+        const questions = JSON.parse(String(init?.body)).questions as Record<
+          string,
+          { criteria: Record<string, string> }
+        >;
+        if ("memory-write" in questions) {
+          const other = new RunStore(data, config.projectId);
+          try {
+            const [running] = other.runs();
+            other.recordAcceptance(running!.id, "accepted");
+            externalAccept = "accepted";
+          } catch (error) {
+            externalAccept = error as Error;
+          } finally {
+            other.close();
+          }
+        }
+        return new Response(
+          JSON.stringify({
+            model: "fixture-only",
+            answers: Object.fromEntries(
+              Object.entries(questions).map(([id, question]) => [
+                id,
+                { choice: Object.keys(question.criteria)[0], confidence: 0.9 },
+              ]),
+            ),
+          }),
+        );
+      }),
+    );
+    const { engine, result } = await run(root);
+    expect(result.status).toBe("succeeded");
+    expect(externalAccept).toBeDefined();
+    if (externalAccept === "accepted") {
+      // A decision that was recorded must survive the run's final save.
+      expect(result.completion?.humanAcceptance).toBe("accepted");
+      expect(engine.store.outcomes(result.id).at(-1)!.humanAcceptance).toBe(
+        "accepted",
+      );
+    } else {
+      // Or it is refused because the run had not yet succeeded, and can be
+      // made once it has.
+      expect(externalAccept.message).toContain("Only a succeeded run");
+      expect(result.completion?.humanAcceptance).toBe("pending");
+      await engine.recordAcceptance(result.id, { accepted: true });
+      expect(engine.store.run(result.id).completion?.humanAcceptance).toBe(
+        "accepted",
+      );
+      expect(engine.store.outcomes(result.id).at(-1)!.humanAcceptance).toBe(
+        "accepted",
+      );
+    }
   });
 
   it("turns a rejection's note into a proposed memory", async () => {

@@ -28,7 +28,11 @@ Only after every required check passes, the reviewer receives the change as
 a unified diff of every file the run's workers wrote (and nothing else, so
 the operator's own uncommitted files are not reviewed as the worker's), the
 plan's objective, its acceptance criteria and a summary of the checks that
-ran. The diff is built from raw bytes outside the repository: each
+ran. Each file is compared with the commit the run's workspace was created
+from, which the engine records, so a run resumed after its publication
+commit (for example after a failed push) is still reviewed in full, and its
+security or architecture review scope still counts every file it changed.
+The diff is built from raw bytes outside the repository: each
 original comes from Git's object store with no conversion and each new file
 straight from disk, compared in a scratch directory with no attributes, diff
 drivers or configuration. A change cannot hide itself with `.gitattributes`
