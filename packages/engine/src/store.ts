@@ -699,9 +699,14 @@ export class RunStore {
   decisions(): DecisionRecord[] {
     return this.all("decisions").reverse() as DecisionRecord[];
   }
-  async recoverInterrupted(): Promise<void> {
+  /**
+   * Records each unfinished run whose owning process is proven dead as
+   * needing reconciliation; a live or unknown owner keeps its run. With a
+   * run ID it checks only that run.
+   */
+  async recoverInterrupted(runId?: string): Promise<void> {
     await this.ownerReady();
-    for (const run of this.runs())
+    for (const run of runId ? [this.run(runId)] : this.runs())
       if (["planned", "running", "verifying"].includes(run.status)) {
         const original = this.db
           .prepare("SELECT pid FROM run_owners WHERE run_id=?")

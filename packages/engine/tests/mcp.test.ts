@@ -1,8 +1,11 @@
 import { it, expect, vi } from "vitest";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ExecutionPlan, RunRecord } from "@graph-engineering/contracts";
@@ -1057,6 +1060,90 @@ it("follows a run another engine is executing until that run stops", async () =>
     await server.close();
     await observer.close();
     await runner.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
+it("reports a run whose owning process died as stopped instead of polling forever", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-orphan-"));
+  const config = await initializeProject(root);
+  const data = projectDataDir(config.projectId);
+  // The server's engine opens, and runs its start-up recovery, before the
+  // other process starts the run, so only run_events can notice it died.
+  const engine = await GraphEngine.open(root);
+  const server = createMcpServer(engine, { client: "local" });
+  const client = new Client({ name: "orphan-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const events = async (runId: string) =>
+    JSON.parse(
+      (
+        (await client.callTool({
+          name: "run_events",
+          arguments: { runId },
+        })) as { content: { text: string }[] }
+      ).content[0]!.text,
+    ) as {
+      status: string;
+      next: number;
+      complete: boolean;
+      events: { type: string }[];
+    };
+  // Stands in for `graph-engine run`, which records itself as the run's
+  // owner and has no signal handler, so Ctrl-C leaves the run "running".
+  const moduleUrl = new URL("../src/store.ts", import.meta.url).href;
+  const script = `
+    import { RunStore } from ${JSON.stringify(moduleUrl)};
+    const store = new RunStore(process.env.GRAPH_TEST_DATA_DIR, process.env.GRAPH_TEST_PROJECT_ID);
+    await store.ownerReady();
+    store.reserve({ id: "orphaned-run", plan: { id: "orphaned-plan" }, status: "running" }, 1);
+    process.stdout.write("READY\\n");
+    process.stdin.resume();
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", script],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        GRAPH_TEST_DATA_DIR: data,
+        GRAPH_TEST_PROJECT_ID: config.projectId,
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+  try {
+    const [chunk] = await once(child.stdout!, "data", {
+      signal: AbortSignal.timeout(10000),
+    });
+    expect(String(chunk)).toContain("READY");
+    const during = await events("orphaned-run");
+    expect(during).toMatchObject({ status: "running", complete: false });
+
+    const exited = once(child, "exit");
+    child.kill("SIGINT");
+    await exited;
+    const after = await events("orphaned-run");
+    expect(after.status).toBe("needs_reconciliation");
+    expect(after.complete).toBe(true);
+    expect(after.events.at(-1)?.type).toBe("recovery.required");
+    expect(after.next).toBe(after.events.length);
+    const again = await events("orphaned-run");
+    expect(again).toMatchObject({
+      status: "needs_reconciliation",
+      complete: true,
+      next: after.next,
+    });
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await client.close();
+    await server.close();
+    await engine.close();
     await rm(root, { recursive: true, force: true });
     await rm(data, { recursive: true, force: true });
   }
