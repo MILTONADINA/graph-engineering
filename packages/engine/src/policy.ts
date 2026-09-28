@@ -283,8 +283,11 @@ function hasAssignedCredential(text: string): boolean {
 // (plain and ENCRYPTED) and OpenPGP's PRIVATE KEY BLOCK. Detection, the END
 // marker search and redaction share it, so they agree on what a key is.
 const privateKeyLabel = String.raw`(?:[A-Z0-9.]+ )*PRIVATE KEY(?: BLOCK)?`;
+// AWS access key IDs, sk- API keys and GitHub tokens, in any letter case.
+// Detection and redaction are both built from this one source.
+const apiKey = String.raw`\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b`;
 const knownKey = new RegExp(
-  String.raw`-----BEGIN ${privateKeyLabel}-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b`,
+  String.raw`-----BEGIN ${privateKeyLabel}-----|${apiKey}`,
   "i",
 );
 // Live vendor keys recognized by their fixed, case-sensitive prefixes: Stripe
@@ -305,19 +308,37 @@ function liveTokens(text: string): RegExpExecArray[] {
 }
 // A password in a URL's userinfo (scheme://user:password@host). Group 1 is
 // everything before the password, so redaction keeps the scheme, user and
-// host. Lengths are bounded so a long run of scheme-like text stays linear.
+// host. Like a WHATWG URL parser, the last "@" before the path ends the
+// userinfo, so an unencoded "@" stays in the password. Lengths are bounded
+// so a long run of scheme-like text or of "@" stays linear.
 const urlCredential =
-  /\b([A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/([^\s:/?#@[\]"'`<>]{0,256}):)([^\s/?#@[\]"'`<>]{1,256})@(?=[^\s/?#@])/g;
-// Short passwords, the user name repeated (postgres:postgres), template or
-// masked values and passwords starting with a placeholder word are fixtures
-// and examples, not credentials.
-const trivialPassword = (user: string, password: string): boolean =>
-  password.length < 8 ||
-  password.toLowerCase() === user.toLowerCase() ||
-  /^(?:[$%{<*.]|(.)\1*$)/.test(password) ||
-  /^(?:pass|pwd|secret|credential|example|placeholder|changeme|your|test|dummy|fake|sample|redacted|fixture|xxx)/i.test(
-    password,
+  /\b([A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/([^\s:/?#@[\]"'`<>]{0,256}):)([^\s/?#[\]"'`<>]{1,256})@(?=[^\s/?#@])/g;
+const percentDecoded = (value: string): string =>
+  value.replace(/%([0-9A-Fa-f]{2})/g, (_match, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
   );
+// Template values ($VAR, ${VAR}, {name}, <name>, %(name)s, %NAME%) and
+// masked ones (****, ...) are not credentials. A percent-encoded password
+// (%2F...) is judged by its decoded value, so an encoded first character
+// no longer exempts it. A short password, the user name repeated
+// (postgres:postgres), one repeated character, and a password made only of
+// placeholder words (password, yourpassword, passwordpassword), optionally
+// followed by digits (password123) or by a separator and anything
+// (SECRET_CANARY, your-password-here), are fixtures and examples. A
+// placeholder word that merely begins a password (Password2024Summer,
+// secretS3cureProdPw, testimony9Kq2Lm) does not exempt it.
+const placeholderPassword =
+  /^(?:pass(?:word)?|pwd|secret|credential|example|placeholder|changeme|your|test|dummy|fake|sample|redacted|fixture|xxx)+(?:[_-]|\d*$)/i;
+const trivialPassword = (user: string, password: string): boolean => {
+  if (/^%(?:(?![0-9A-Fa-f]{2})|\w+%$)/.test(password)) return true;
+  const decoded = percentDecoded(password);
+  return (
+    decoded.length < 8 ||
+    decoded.toLowerCase() === percentDecoded(user).toLowerCase() ||
+    /^(?:[${<*.]|(.)\1*$)/.test(decoded) ||
+    placeholderPassword.test(decoded)
+  );
+};
 function urlCredentials(text: string): RegExpExecArray[] {
   return [...text.matchAll(urlCredential)].filter(
     (match) => !trivialPassword(match[2]!, match[3]!),
@@ -420,6 +441,10 @@ export function introducesSecret(before: string, after: string): boolean {
     if ((existing.get(finding) ?? 0) < count) return true;
   return false;
 }
+// Redaction removes what containsSecret detects. A private key header with
+// no END marker (a truncated excerpt) is redacted through the end of the
+// text: what follows may be key material, and an OpenPGP armor header can
+// hold any character, so no shorter end is safe.
 export function redact(text: string): string {
   return text
     .replace(
@@ -431,15 +456,12 @@ export function redact(text: string): string {
     )
     .replace(
       new RegExp(
-        String.raw`-----BEGIN ${privateKeyLabel}-----[\s\S]*?-----END ${privateKeyLabel}-----`,
+        String.raw`-----BEGIN ${privateKeyLabel}-----(?:[\s\S]*?-----END ${privateKeyLabel}-----|[\s\S]*)`,
         "gi",
       ),
       "[REDACTED PRIVATE KEY]",
     )
-    .replace(
-      /\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,}|(?:AKIA|ASIA)[0-9A-Z]{16})\b/g,
-      "[REDACTED]",
-    )
+    .replace(new RegExp(apiKey, "gi"), "[REDACTED]")
     .replace(liveToken, (token: string) =>
       placeholderToken(token) ? token : "[REDACTED]",
     )
