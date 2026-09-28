@@ -1,0 +1,109 @@
+# Labelling decisions
+
+`npm run label` lets you label an evaluation packet one question at a time
+with single keys, without editing JSON. It saves after every answer and
+resumes where you stopped. The result is the input for
+`graph-engine evaluation-labels`, in the engine's own label schema
+(`evaluationLabelSchema` in `packages/engine/src/decision-evaluation.ts`).
+The [labelling spec](../specs/evaluation/labelling.md) lists what is tested.
+
+Owner labels are analysis-only: they are unsigned and not an independent
+review, so they never grant promotion on their own
+([promotion trust boundary](promotion-trust-boundary.md)).
+
+## Run it
+
+From the repository root, at a terminal:
+
+```sh
+npm run label -- --labeler YOUR_ACTOR_ID   # first time
+npm run label                              # every time after that
+```
+
+It opens the newest `packet-<stamp>.json` in the labelling directory
+(`~/Library/Application Support/graph-engineering/labelling/` on macOS) and
+reads this project's recorded runs for context. Use an actor ID, never an
+email address; it is saved with your progress. `--packet <file>` picks
+another packet, `--export` writes the export and exits, and `--help` lists
+every option. It refuses when `CI` is set or when stdin or stderr is not a
+terminal.
+
+## Keys
+
+For each question you see the task, its run (status, acceptance, stage and
+objective), the options with the baseline marked, and each provider's answer
+and confidence. The same question put to several providers is shown once and
+one key labels them all.
+
+| Key          | Does                                                              |
+| ------------ | ----------------------------------------------------------------- |
+| `1`-`9`, `0` | The correct option (`0` is the tenth; past ten, `#` and a number) |
+| `s`          | Skip for now; at the end, `r` revisits skipped ones               |
+| `n`          | Type a short note that is saved with your next answer             |
+| `b`          | Back: undo your previous answer                                   |
+| `t`          | Answer this task's questions again                                |
+| `e`          | Export what is labelled so far                                    |
+| `q`          | Quit (everything is already saved)                                |
+
+The first time a task comes up you answer its questions once:
+
+| Question                         | Keys                                     |
+| -------------------------------- | ---------------------------------------- |
+| Split                            | `c` calibration, `h` held-out            |
+| Risk                             | `l` low, `m` medium, `h` high            |
+| Success or policy violation      | `y`, `n`, or `u` unknown                 |
+| Cost, only if no run recorded it | type the amount in USD, Enter if unknown |
+
+## What is derived and what is asked
+
+You judge the correct option, each task's split and risk, and whether the
+candidate broke a hard policy. The rest comes from recorded data when it
+exists:
+
+- `labeler`: your saved actor ID. `repositoryId`: the project ID in
+  `.graph/project.json` (or `--repository`).
+- `baselineSuccess`: the task's last run succeeded and a person accepted it
+  (true), or it failed, was cancelled or was rejected (false). A result still
+  awaiting acceptance is asked.
+- `baselineCost`: the recorded cost of the task's runs, each plan counted
+  once. Unknown costs are asked, never set to zero.
+- `candidateSuccess` and `candidateCost`: from a collected pair (below), or
+  equal to the baseline when no provider choice in the task differed from the
+  baseline. Otherwise they are asked; `u` keeps the task out of the export
+  until you answer them with `t`. Outcomes you type in are judgments, not measurements, and the export's
+  provenance says which fields were typed for how many tasks.
+- `labelEvidence`: the packet's SHA-256 and the hash of your answer entry.
+  `outcomeEvidence`: the hash of the run outcomes and answers used.
+
+Progress lives in `labels-<stamp>.json` beside the packet (mode 0600,
+replaced atomically). It is tied to the packet's bytes and your actor ID and
+refuses to resume against anything else. The export goes to
+`labels-export-<stamp>.json`, checked with the engine's importer before it is
+written. It holds only answered observations that have a provider confidence
+and belong to a complete task; the count left out, and why, is shown.
+
+## Progress against the gates
+
+The header shows, per route (category, provider, model), labelled
+calibration decisions against the 50 needed at 95% agreement, and held-out
+decisions and tasks against 200 and 60. A route whose provider gave no
+confident answers shows as having nothing scorable.
+
+## Collect paired runs
+
+To measure a candidate against a baseline, run the same task twice, once
+per arm, then collect the pair:
+
+```sh
+npm run collect-paired -- --list
+npm run collect-paired -- --pair BASELINE_RUN:CANDIDATE_RUN [--pair ...]
+npm run label -- --packet ~/Library/Application\ Support/graph-engineering/labelling/packet-<stamp>.json
+```
+
+`--list` groups finished runs by task. Both runs of a pair must be finished
+and have the same objective and acceptance; unique run-ID prefixes work. It
+writes `packet-<stamp>.json`, `mapping-<stamp>.json` (decision ID to task
+ID) and `pairs-<stamp>.json` (each arm's run ID, status, acceptance and
+cost), mode 0600, and never overwrites. Task IDs are hashes of the
+objective, not its text. It reads the run store read-only and uses no
+network.
