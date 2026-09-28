@@ -119,7 +119,12 @@ This is not a proof that arbitrary source contains no secret. Cloud
 unless an operator has authorized export of its exact text:
 `npm run graph:local -- memory-export-authorize <id>` prints the text and its
 SHA-256, and re-running with `--sha256 <hash>` records consent in the private
-context database; `memory-export-revoke <id>` withdraws it. Cloud `run_status` returns operational metadata outside the
+context database; `memory-export-revoke <id>` withdraws it. Only a shared
+memory that cites source evidence inside `exportPaths` can be authorized:
+replace one that does not with
+`memory-add --source <path>#L<start>-L<end> --supersedes <id>`, then accept,
+share and authorize the successor. Each refusal names the blocked memory and
+the command that unblocks it. Cloud `run_status` returns operational metadata outside the
 selected source/docs approval, so it is withheld unless the MCP server runs
 with `--allow-run-status`. `.mcp.json` runs `packages/engine/dist`: rebuild the
 engine and restart MCP clients before relying on these guards.

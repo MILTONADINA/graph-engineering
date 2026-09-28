@@ -200,3 +200,99 @@ it("leaves out of cloud worker packets an exportable file whose name looks like 
   );
   expect(local.items).toHaveLength(2);
 });
+
+it("names each blocked mandatory memory and the operator command that unblocks it, without its text, hash or private source path", () => {
+  const sha256 = (value: string) =>
+    createHash("sha256").update(value).digest("hex");
+  const entry = (id: string, text: string) => ({
+    memoryId: id,
+    text,
+    textSha256: sha256(text),
+    visibility: "shared" as const,
+    sources: [
+      {
+        path: "public/rule.ts",
+        startLine: 1,
+        endLine: 1,
+        contentHash: "hash",
+        snapshotId: "snapshot-id",
+      },
+    ],
+    exportAuthorized: false,
+  });
+  const ids = {
+    private: "11111111-1111-4111-8111-111111111111",
+    unsourced: "22222222-2222-4222-8222-222222222222",
+    outside: "33333333-3333-4333-8333-333333333333",
+    unauthorized: "44444444-4444-4444-8444-444444444444",
+  };
+  const policy = {
+    ...structuredClone(DEFAULT_POLICY),
+    inference: "allowlisted" as const,
+    network: "allowlisted" as const,
+    providers: ["cloud"],
+    allowedHosts: ["api.openai.com"],
+    exportPaths: ["public/**"],
+  };
+  const cloud = { id: "cloud", kind: "openai" as const, model: "configured" };
+  const packet = (
+    mandatorySources: ContextPacket["mandatorySources"],
+  ): ContextPacket => ({
+    version: "1.0.0",
+    projectId: "project-id",
+    snapshotId: "snapshot-id",
+    query: "rule",
+    mandatory: mandatorySources!.map((source) => source.text),
+    mandatorySources,
+    items: [],
+    estimatedTokens: 100,
+    budgetTokens: 1000,
+    coverage: { semantic: false, graph: "syntactic", warnings: [] },
+  });
+  const refusal = (mandatorySources: ContextPacket["mandatorySources"]) => {
+    try {
+      contextForProvider(packet(mandatorySources), cloud, policy);
+    } catch (error) {
+      return (error as Error).message;
+    }
+    throw new Error("expected a refusal");
+  };
+  const blocked = refusal([
+    { ...entry(ids.private, "PRIVATE_TEXT_CANARY"), visibility: "private" },
+    { ...entry(ids.unsourced, "UNSOURCED_TEXT_CANARY"), sources: [] },
+    {
+      ...entry(ids.outside, "OUTSIDE_TEXT_CANARY"),
+      sources: [
+        { ...entry("", "").sources[0]!, path: "private/SECRET_PATH_CANARY.ts" },
+      ],
+    },
+    entry(ids.unauthorized, "UNAUTHORIZED_TEXT_CANARY"),
+  ]);
+  expect(blocked).toContain(
+    "Mandatory memory is not exportable to this client",
+  );
+  expect(blocked).toContain(
+    `memory ${ids.private} is private: graph-engine memory-share ${ids.private}`,
+  );
+  for (const id of [ids.unsourced, ids.outside])
+    expect(blocked).toContain(
+      `--source <path>#L<start>-L<end> --supersedes ${id}`,
+    );
+  expect(blocked).not.toContain(ids.unauthorized);
+  expect(blocked).not.toMatch(/CANARY/);
+  expect(blocked).not.toContain(sha256("PRIVATE_TEXT_CANARY"));
+
+  const unauthorized = refusal([
+    entry(ids.unauthorized, "UNAUTHORIZED_TEXT_CANARY"),
+    { ...entry(ids.private, "AUTHORIZED_TEXT_CANARY"), exportAuthorized: true },
+  ]);
+  expect(unauthorized).toContain(
+    "Mandatory memory has not been authorized for export to this client",
+  );
+  expect(unauthorized).toContain(
+    `memory ${ids.unauthorized}: graph-engine memory-export-authorize ${ids.unauthorized}`,
+  );
+  expect(unauthorized).not.toContain(ids.private);
+  expect(unauthorized).not.toMatch(/CANARY/);
+  expect(unauthorized).not.toContain(sha256("UNAUTHORIZED_TEXT_CANARY"));
+});

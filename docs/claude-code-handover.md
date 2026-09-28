@@ -759,7 +759,12 @@ prove its failure path with focused tests before running long suites.
    from the private context database each time a run executes, resume
    included; mandatory text that only a run workspace's knowledge import adds
    stays mandatory for local workers and is refused for cloud dispatch.
-   `memory-export-revoke <id>` withdraws an authorization. Follow-on, not
+   `memory-export-revoke <id>` withdraws an authorization. An operator can
+   now reach that authorization: `memory-add --source <path>#L<a>-L<b>` (and
+   `sources` on the dashboard's `POST /api/memories`) cites evidence from a
+   fresh index snapshot, `--supersedes <id>` retires an unsourced memory when
+   its successor is accepted, and each refusal names the blocked memory and
+   the command that unblocks it, never its text or hash. Follow-on, not
    done here: rebuilding `packages/engine/dist` plus restarting MCP clients,
    which the running server needs before it enforces any of this.
 2. **Preserve the current safety boundary.** Keep `decisionMode: "shadow"`,

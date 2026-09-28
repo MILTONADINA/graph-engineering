@@ -4,22 +4,55 @@ Structured assertions describe what a reviewer explicitly declared. They do not
 prove the statement is true, verify the reviewer's identity, extract facts from
 free text, or authorize acceptance/publication.
 
-Create a private proposal, then attach a reviewed JSON file:
+Create a private proposal that cites its evidence, then attach a reviewed JSON
+file:
 
 ```sh
-graph memory-add "Use PostgreSQL for production storage." --kind constraint
+graph memory-add "Use PostgreSQL for production storage." --kind constraint \
+  --source docs/adr/0012-database.md#L5-L18
 graph memory-assertions <memory-id> reviewed-assertions.json
 graph memory-accept <memory-id>
 graph memory-share <memory-id>
+graph memory-export-authorize <memory-id>                  # prints the exact text and its SHA-256
+graph memory-export-authorize <memory-id> --sha256 <hash>  # records consent
 ```
 
-Attachment is only allowed while a record is `proposed`; acceptance and sharing
-are separate, explicit operations. Sharing does not release a memory to cloud
-consumers: `graph memory-export-authorize <memory-id>` shows its exact text and
-SHA-256, and re-running with `--sha256 <hash>` records that consent;
-`graph memory-export-revoke <memory-id>` withdraws it. To revise accepted knowledge, create a new
-proposal. The review timestamp must not predate that proposal. The authenticated
-local API equivalent is `POST /api/memories/:id/assertions` with the JSON document
+Attachment is only allowed while a record is `proposed`; acceptance, sharing and
+export authorization are separate, explicit operations. `--source
+<path>#L<start>-L<end>` (or `#L<line>`; repeat it for more sources) cites lines
+of a file in a fresh index snapshot of the working tree, which records the
+file's content hash. A file that does not exist, a file the index leaves out
+(excluded, ignored by Git, outside the working set, binary, over 1 MiB or
+matching a credential pattern) and lines past the end of the file are refused.
+
+Sharing does not release a memory to cloud consumers. A requirement or
+constraint reaches a cloud client or worker only when it cites source evidence
+inside `exportPaths`, is shared, and an operator has authorized its exact text:
+`graph memory-export-authorize <memory-id>` shows the text and its SHA-256, and
+re-running with `--sha256 <hash>` records that consent;
+`graph memory-export-revoke <memory-id>` withdraws it. Until then cloud
+`context_get` and cloud worker turns refuse the whole packet, naming each
+blocked memory and the command that unblocks it. Only the operator's command
+line records consent; no MCP tool or dashboard route can. `memory-add` warns
+when a new requirement or constraint in a project that allows cloud inference
+cites no source, or a source outside `exportPaths`, since it could not be
+authorized.
+
+To revise accepted knowledge, or to replace a requirement or constraint that
+cites no exportable evidence, propose a successor with `--supersedes <old-id>`:
+
+```sh
+graph memory-add "Use PostgreSQL 16 for production storage." --kind constraint \
+  --source docs/adr/0014-database.md#L3-L9 --supersedes <old-id>
+graph memory-accept <new-id>   # retires <old-id>: its status becomes superseded
+```
+
+Accepting the successor retires the old memory, which keeps its history but
+leaves every context packet. Only an accepted memory can be superseded, so a
+`conflicted` one cannot. An assertion review's timestamp must not predate its
+proposal. The authenticated local API equivalent is `POST /api/memories` with
+`{ text, kind, sources?: [{ path, startLine, endLine }], supersedes? }` (the
+server resolves each source's content hash and snapshot itself), then `POST /api/memories/:id/assertions` with the JSON document
 as its body, followed separately by `/accept` and, if intended, `/promote`.
 
 ```json
