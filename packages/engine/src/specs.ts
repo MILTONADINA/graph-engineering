@@ -147,6 +147,50 @@ async function specFiles(root: string): Promise<string[]> {
 }
 
 /**
+ * Source text with its `//` and `/* *\/` comments blanked out, keeping line
+ * breaks. Quotes and template literals are skipped, so a glob such as
+ * `"**\/*.md"` inside a string is not mistaken for the start of a comment
+ * that would hide every test after it.
+ */
+export function withoutComments(text: string): string {
+  let out = "";
+  let index = 0;
+  while (index < text.length) {
+    const char = text[index]!;
+    const next = text[index + 1];
+    if (char === '"' || char === "'" || char === "`") {
+      let end = index + 1;
+      while (end < text.length && text[end] !== char) {
+        if (text[end] === "\\") end++;
+        else if (char !== "`" && text[end] === "\n") break;
+        end++;
+      }
+      out += text.slice(index, end + 1);
+      index = end + 1;
+    } else if (char === "\\") {
+      // Outside strings a backslash escapes a regex character, so `\//`
+      // ends a regex rather than starting a comment.
+      out += text.slice(index, index + 2);
+      index += 2;
+    } else if (char === "/" && next === "/") {
+      const end = text.indexOf("\n", index);
+      const stop = end === -1 ? text.length : end;
+      out += " ".repeat(stop - index);
+      index = stop;
+    } else if (char === "/" && next === "*") {
+      const end = text.indexOf("*/", index + 2);
+      const stop = end === -1 ? text.length : end + 2;
+      out += text.slice(index, stop).replace(/[^\n]/g, " ");
+      index = stop;
+    } else {
+      out += char;
+      index++;
+    }
+  }
+  return out;
+}
+
+/**
  * Whether a test file defines a runnable test with exactly this name: an
  * `it(`/`test(` call (optionally `.only`, `.concurrent`, `.each(...)`, or a
  * platform `skipIf(...)`/`runIf(...)`) whose first argument is the name.
@@ -156,12 +200,8 @@ export function definesTest(text: string, name: string): boolean {
   const quoted = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const modifiers =
     "(?:\\.(?:only|concurrent|sequential))?(?:\\.(?:each|skipIf|runIf)\\((?:[^()]|\\([^()]*\\))*\\))?";
-  // Commented-out tests do not run: drop block comments and comment lines.
-  const code = text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .split("\n")
-    .filter((line) => !/^\s*\/\//.test(line))
-    .join("\n");
+  // Commented-out tests do not run, so comments are removed first.
+  const code = withoutComments(text);
   return new RegExp(
     `(?:^|[^.\\w])(?:it|test)${modifiers}\\(\\s*(["'\`])${quoted}\\1`,
     "m",
