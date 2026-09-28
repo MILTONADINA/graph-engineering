@@ -2714,5 +2714,235 @@ describe("single-step patch application", () => {
     expect(
       await readFile(path.join(resumed.workspace!, "notes/one.js"), "utf8"),
     ).toContain("note = 1");
+    // The rolled-back patch wrote nothing, so its files are counted only
+    // once the resumed patch writes them.
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "patch.rolled_back"),
+    ).toHaveLength(1);
+  });
+
+  // A patch creating two notes and changing first.js whose first write
+  // lands, then the disk fills up.
+  const notesProposal = (): WorkerResult => ({
+    ...result("one"),
+    proposal: {
+      summary: "Change first and add notes",
+      requests: [],
+      changes: [
+        {
+          path: "notes/one.js",
+          before: null,
+          after: "export const note = 1;\n",
+        },
+        {
+          path: "notes/two.js",
+          before: null,
+          after: "export const other = 2;\n",
+        },
+        { path: "first.js", before: "= 1", after: "= 3" },
+      ],
+    },
+  });
+  function failFirstWrite() {
+    const apply = workspaceModule.applyProposal;
+    let failWrite = true;
+    vi.spyOn(workspaceModule, "applyProposal").mockImplementation(
+      async (workspace, proposal, policy) => {
+        if (!failWrite) return apply(workspace, proposal, policy);
+        failWrite = false;
+        await mkdir(path.join(workspace, "notes"));
+        await writeFile(
+          path.join(workspace, "notes/one.js"),
+          "export const note = 1;\n",
+        );
+        throw Object.assign(new Error("ENOSPC: no space left on device"), {
+          code: "ENOSPC",
+        });
+      },
+    );
+  }
+
+  it("counts a single-step patch whose rollback failed as the run's, so a reconciled resume reviews the files it left", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.providers = ["local", "reviewer"];
+      value.review = { providerId: "reviewer" };
+      value.policy.maxTurns = 8;
+    });
+    await withReviewer(data);
+    const reviewed: string[] = [];
+    let calls = 0;
+    const worker = vi.fn(async (): Promise<WorkerResult> =>
+      ++calls === 1 ? notesProposal() : result("one"),
+    );
+    failFirstWrite();
+    vi.spyOn(workspaceModule, "restoreOriginals").mockRejectedValueOnce(
+      Object.assign(new Error("EIO: i/o error"), { code: "EIO" }),
+    );
+    const engine = await open(root, {
+      worker,
+      review: approvingReviewer(reviewed),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("needs_reconciliation");
+    expect(run.error).toContain("could not be rolled back");
+    expect(
+      await readFile(path.join(run.workspace!, "notes/one.js"), "utf8"),
+    ).toContain("note = 1");
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    // notes/two.js was never written, so it is not held against the run.
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(worker).toHaveBeenCalledTimes(2);
+    // The file the failed patch left is the run's: the reviewer sees it,
+    // rather than publication committing it unreviewed.
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toContain("+export const note = 1;");
+    expect(reviewed[0]).not.toContain("other = 2");
+  });
+
+  it("does not count the files of a single-step patch that was rolled back as the run's", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.providers = ["local", "reviewer"];
+      value.review = { providerId: "reviewer" };
+      value.policy.maxTurns = 8;
+    });
+    await withReviewer(data);
+    const reviewed: string[] = [];
+    let calls = 0;
+    const worker = vi.fn(async (): Promise<WorkerResult> =>
+      ++calls === 1
+        ? {
+            ...result("one"),
+            proposal: {
+              summary: "Change both constants",
+              requests: [],
+              changes: [
+                { path: "second.js", before: "= 2", after: "= 9" },
+                { path: "first.js", before: "= 1", after: "= 3" },
+              ],
+            },
+          }
+        : result("one"),
+    );
+    const apply = workspaceModule.applyProposal;
+    let failWrite = true;
+    vi.spyOn(workspaceModule, "applyProposal").mockImplementation(
+      async (workspace, proposal, policy) => {
+        if (!failWrite) return apply(workspace, proposal, policy);
+        failWrite = false;
+        // second.js is changed, then the disk fills up.
+        const file = path.join(workspace, "second.js");
+        await writeFile(
+          file,
+          (await readFile(file, "utf8")).replace("= 2", "= 9"),
+        );
+        throw Object.assign(new Error("ENOSPC: no space left on device"), {
+          code: "ENOSPC",
+        });
+      },
+    );
+    const engine = await open(root, {
+      worker,
+      review: approvingReviewer(reviewed),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    await assertUnchanged(run.workspace!);
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    // Only the resumed patch's file is the run's change.
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toContain("File first.js:");
+    expect(reviewed[0]).not.toContain("second.js");
+  });
+
+  it("needs reconciliation when a single-step rollback does not restore the pre-patch workspace", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.maxTurns = 8;
+    });
+    const worker = vi.fn(async () => notesProposal());
+    failFirstWrite();
+    // The restore reports success but leaves the new file behind.
+    vi.spyOn(workspaceModule, "restoreOriginals").mockResolvedValueOnce();
+    const engine = await open(root, {
+      worker,
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("needs_reconciliation");
+    expect(run.error).toContain(
+      "the workspace does not match its pre-patch state",
+    );
+    const events = engine.store.events(run.id);
+    expect(
+      events.find((event) => event.type === "patch.applying")?.data.paths,
+    ).toEqual(["notes/one.js", "notes/two.js", "first.js"]);
+    expect(events.some((event) => event.type === "patch.rolled_back")).toBe(
+      false,
+    );
+  });
+
+  it("reviews a single-step patch whose process stopped before it was recorded as applied", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.providers = ["local", "reviewer"];
+      value.review = { providerId: "reviewer" };
+      value.policy.maxTurns = 8;
+    });
+    await withReviewer(data);
+    const reviewed: string[] = [];
+    let calls = 0;
+    // The first patch is written whole; the resumed attempt changes second.js.
+    const worker = vi.fn(async (): Promise<WorkerResult> =>
+      ++calls === 1
+        ? {
+            ...result("one"),
+            proposal: {
+              ...notesProposal().proposal,
+              changes: notesProposal().proposal.changes.filter(
+                (change) => change.path !== "notes/two.js",
+              ),
+            },
+          }
+        : result("two"),
+    );
+    const engine = await open(root, {
+      worker,
+      review: approvingReviewer(reviewed),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const event = engine.store.event.bind(engine.store);
+    let lost = false;
+    vi.spyOn(engine.store, "event").mockImplementation((...args) => {
+      if (!lost && args[1] === "patch.applied") {
+        lost = true;
+        throw new Error("Simulated process death");
+      }
+      return event(...args);
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("Simulated process death");
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(worker).toHaveBeenCalledTimes(2);
+    // The first patch's files are the run's although it was never recorded
+    // as applied.
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toContain("+export const note = 1;");
+    expect(reviewed[0]).toContain("+export const first = 3;");
+    expect(reviewed[0]).toContain("+export const second = 4;");
   });
 });

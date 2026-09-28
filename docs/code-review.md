@@ -73,12 +73,15 @@ The reviewer is recorded as a `review.configured` event when a run first
 executes, and a resume uses that record, so changing the configuration does
 not add or remove the gate for a run in progress.
 
-A worker's file list comes from its `patch.applied` event. If the engine
-crashes after applying a patch but before recording that event, a resumed
-run would not show the reviewer that patch; the window is a single write,
-and required checks and the security gate still cover the workspace. Every review is recorded as
-`review.completed` with the verdict, criteria and findings (evidence and
-messages redacted).
+A single-step worker's file list comes from its `patch.applying` event,
+recorded before the patch's first write, and its `patch.applied` event. If
+the engine stops while the patch is being written, or cannot roll back a
+write that failed partway, a resumed run still shows the reviewer every file
+the patch left in the workspace. Only a rollback that restores the
+workspace's pre-patch fingerprint records `patch.rolled_back` and takes the
+patch's files off the list; a rollback that cannot needs reconciliation.
+Every review is recorded as `review.completed` with the verdict, criteria
+and findings (evidence and messages redacted).
 
 ## A person's review
 

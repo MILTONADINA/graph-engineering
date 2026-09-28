@@ -18,11 +18,15 @@ An operator wants a worker model to implement a planned change without touching 
 - AC3: A change to the source or policy between planning and dispatch, or to a retained workspace after a checkpoint, stops the run.
   - Test: packages/engine/tests/execution.test.ts :: rejects source and policy changes between planning and dispatch
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: fails closed on a retained workspace changed after a DAG checkpoint
-- AC4: A patch is validated as a whole before any file changes, and a patch whose new source would be Git-ignored and invisible to verification is refused. A patch that uses one path as both a file and a directory goes back to the worker as feedback with nothing written, and a single-step patch whose write fails partway is rolled back, so no file the run did not record stays in the workspace to escape review and reach publication.
+- AC4: A patch is validated as a whole before any file changes, and a patch whose new source would be Git-ignored and invisible to verification is refused. A patch that uses one path as both a file and a directory goes back to the worker as feedback with nothing written, and a single-step patch whose write fails partway is rolled back, so no file the run did not record stays in the workspace to escape review and reach publication. A single-step patch counts as the run's from before its first write: if the process stops mid-write, or the rollback cannot restore the pre-patch workspace (the run then needs reconciliation), the files it left are reviewed, scanned and held to the verification inventory on resume, and only a confirmed rollback removes its files from the run's record.
   - Test: packages/engine/tests/execution.test.ts :: validates a whole patch before changing any file
   - Test: packages/engine/tests/execution.test.ts :: never accepts a patch whose new source is Git-ignored and absent from the verifier view
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns a single-step patch that uses one path as both a file and a directory to the worker, writing nothing
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rolls back a single-step patch that fails while its files are written, so the run resumes cleanly
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: does not count the files of a single-step patch that was rolled back as the run's
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: counts a single-step patch whose rollback failed as the run's, so a reconciled resume reviews the files it left
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: needs reconciliation when a single-step rollback does not restore the pre-patch workspace
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: reviews a single-step patch whose process stopped before it was recorded as applied
 - AC5: Resuming a run re-verifies its retained patch without calling the worker again, and concurrent clients cannot resume the same run twice.
   - Test: packages/engine/tests/execution.test.ts :: re-verifies a retained patch on resume without replaying the worker
   - Test: packages/engine/tests/execution.test.ts :: reserves resumed runs transactionally across independent clients
