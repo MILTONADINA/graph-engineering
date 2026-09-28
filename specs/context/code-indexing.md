@@ -37,6 +37,8 @@ Workers and connected AI clients need accurate, bounded context about a reposito
   - Test: packages/engine/tests/context-semantic.test.ts :: binds each package that fits when the whole snapshot is over the limit
   - Test: packages/engine/tests/context-semantic.test.ts :: gives each package its ancestors' configuration, not its siblings', and reports cross-package imports plainly
   - Test: packages/engine/tests/context-semantic.test.ts :: names packages left unbound by the package limit separately from oversized ones
+- AC9: Credential screening (index omission, cloud export and worker patch checks) and redaction agree on what a credential is. Every PEM private key (RSA, EC, DSA, OpenSSH, plain or encrypted PKCS#8, and an OpenPGP private key block), live Stripe secret and restricted keys, Slack tokens, Google API keys and a non-trivial password in a URL's user information are detected and redacted. Public keys, certificates, Stripe test keys, placeholder or repeated-character values, and short, placeholder or user-name-repeating URL passwords are not.
+  - Test: packages/engine/tests/policy.test.ts :: recognizes and redacts every PEM private key, live vendor keys and URL passwords, not placeholders
 
 ## Security considerations
 

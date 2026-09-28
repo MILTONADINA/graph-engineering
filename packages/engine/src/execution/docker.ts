@@ -3,7 +3,16 @@ import type {
   ProjectPolicy,
 } from "@graph-engineering/contracts";
 import { command, checked, hash } from "../util.js";
-import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { constants } from "node:fs";
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  rm,
+} from "node:fs/promises";
 import path from "node:path";
 import { gitFiles } from "./workspace.js";
 import { isAllowedPath, safePath, wholeRepository } from "../policy.js";
@@ -26,6 +35,28 @@ export async function dockerAvailable(
     }
   }
   return false;
+}
+/**
+ * Reads a file from the verification view only when it is a regular file.
+ * Check code can replace an input with a FIFO; opening one blocks until a
+ * writer appears, and the container that could write has already exited.
+ */
+async function readRegularFile(file: string): Promise<Buffer> {
+  // O_NOFOLLOW and O_NONBLOCK are not available on Windows, so the path is
+  // checked first on every platform.
+  if (!(await lstat(file)).isFile())
+    throw new Error("Verification input is not a regular file");
+  const handle = await open(
+    file,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    if (!(await handle.stat()).isFile())
+      throw new Error("Verification input is not a regular file");
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
 }
 export interface VerificationResult {
   argv: string[];
@@ -138,7 +169,7 @@ export async function verifyInContainer(
     for (const [relative, digest] of inputs) {
       try {
         const file = await safePath(view, relative, policy);
-        if (hash((await readFile(file)).toString("base64")) !== digest)
+        if (hash((await readRegularFile(file)).toString("base64")) !== digest)
           throw new Error(`Verification modified source file ${relative}`);
       } catch {
         throw new Error(`Verification changed a source input: ${relative}`);

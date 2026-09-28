@@ -279,8 +279,50 @@ function hasAssignedCredential(text: string): boolean {
   return false;
 }
 
-const knownKey =
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b/i;
+// Every PEM private-key label: PKCS#1 (RSA), SEC1 (EC), DSA, OpenSSH, PKCS#8
+// (plain and ENCRYPTED) and OpenPGP's PRIVATE KEY BLOCK. Detection, the END
+// marker search and redaction share it, so they agree on what a key is.
+const privateKeyLabel = String.raw`(?:[A-Z0-9.]+ )*PRIVATE KEY(?: BLOCK)?`;
+const knownKey = new RegExp(
+  String.raw`-----BEGIN ${privateKeyLabel}-----|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,})\b`,
+  "i",
+);
+// Live vendor keys recognized by their fixed, case-sensitive prefixes: Stripe
+// secret and restricted keys, Slack tokens and Google API keys. A value with
+// a run of one repeated character (sk_live_xxxx…) or one starting with a
+// placeholder word (xoxb-your-token) is documentation, not a key.
+const liveToken =
+  /\b(?:[rs]k_live_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{20,}|AIza[A-Za-z0-9_-]{35}(?![A-Za-z0-9_-]))/g;
+const placeholderToken = (token: string): boolean =>
+  /([A-Za-z0-9])\1{5}/i.test(token) ||
+  /^(?:[rs]k_live_|xox[abprs]-|AIza)(?:example|placeholder|your|dummy|fake|sample|test)/i.test(
+    token,
+  );
+function liveTokens(text: string): RegExpExecArray[] {
+  return [...text.matchAll(liveToken)].filter(
+    (match) => !placeholderToken(match[0]),
+  );
+}
+// A password in a URL's userinfo (scheme://user:password@host). Group 1 is
+// everything before the password, so redaction keeps the scheme, user and
+// host. Lengths are bounded so a long run of scheme-like text stays linear.
+const urlCredential =
+  /\b([A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/([^\s:/?#@[\]"'`<>]{0,256}):)([^\s/?#@[\]"'`<>]{1,256})@(?=[^\s/?#@])/g;
+// Short passwords, the user name repeated (postgres:postgres), template or
+// masked values and passwords starting with a placeholder word are fixtures
+// and examples, not credentials.
+const trivialPassword = (user: string, password: string): boolean =>
+  password.length < 8 ||
+  password.toLowerCase() === user.toLowerCase() ||
+  /^(?:[$%{<*.]|(.)\1*$)/.test(password) ||
+  /^(?:pass|pwd|secret|credential|example|placeholder|changeme|your|test|dummy|fake|sample|redacted|fixture|xxx)/i.test(
+    password,
+  );
+function urlCredentials(text: string): RegExpExecArray[] {
+  return [...text.matchAll(urlCredential)].filter(
+    (match) => !trivialPassword(match[2]!, match[3]!),
+  );
+}
 const namedToken =
   /\b[A-Z][A-Z0-9_]*_TOKEN\s*[:=]\s*["']?(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)[A-Za-z0-9+/_-]{16,}={0,2}/;
 const bearerHeader =
@@ -290,10 +332,12 @@ export function containsSecret(text: string): boolean {
     knownKey.test(text) ||
     hasAssignedCredential(text) ||
     namedToken.test(text) ||
-    bearerHeader.test(text)
+    bearerHeader.test(text) ||
+    liveTokens(text).length > 0 ||
+    urlCredentials(text).length > 0
   );
 }
-const privateKeyFooter = /-----END [^-]*PRIVATE KEY-----/gi;
+const privateKeyFooter = new RegExp(`-----END ${privateKeyLabel}-----`, "gi");
 // The same detectors as containsSecret, counted per finding; the map is
 // non-empty exactly when containsSecret(text) is true. Detectors can match
 // only part of a credential (a key header, a token cut at "."), so a finding
@@ -355,6 +399,10 @@ export function secretFindings(text: string): Map<string, number> {
   for (const match of text.matchAll(assignedCredential))
     if (credentialName(match[2]!))
       add("assigned", match.index, match.index + match[0].length);
+  for (const match of liveTokens(text))
+    add("live", match.index, match.index + match[0].length);
+  for (const match of urlCredentials(text))
+    add("url", match.index, match.index + match[0].length);
   const findings = new Map<string, number>();
   for (const [range, count] of ranges) {
     const [detector, start, end] = range.split(":");
@@ -382,12 +430,23 @@ export function redact(text: string): string {
           : match,
     )
     .replace(
-      /-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g,
+      new RegExp(
+        String.raw`-----BEGIN ${privateKeyLabel}-----[\s\S]*?-----END ${privateKeyLabel}-----`,
+        "gi",
+      ),
       "[REDACTED PRIVATE KEY]",
     )
     .replace(
       /\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{30,}|(?:AKIA|ASIA)[0-9A-Z]{16})\b/g,
       "[REDACTED]",
+    )
+    .replace(liveToken, (token: string) =>
+      placeholderToken(token) ? token : "[REDACTED]",
+    )
+    .replace(
+      urlCredential,
+      (match, prefix: string, user: string, password: string) =>
+        trivialPassword(user, password) ? match : `${prefix}[REDACTED]@`,
     )
     .replace(
       /((?:password|api[_-]?key|secret|access[_-]?token)\s*[:=]\s*)["']?[^\s"']{12,}["']?/gi,

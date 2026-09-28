@@ -92,6 +92,62 @@ describe("project boundaries", () => {
       containsSecret("const token=authorization===undefined?cookie:header;"),
     ).toBe(false);
   });
+  it("recognizes and redacts every PEM private key, live vendor keys and URL passwords, not placeholders", () => {
+    // Built by concatenation so this file holds no literal credential.
+    const pem = (label: string) =>
+      `${"-----BEGIN "}${label}-----\nMIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6Ppy1tPf9Cnz\n${"-----END "}${label}-----`;
+    const secrets = [
+      pem("DSA " + "PRIVATE KEY"),
+      pem("ENCRYPTED " + "PRIVATE KEY"),
+      pem("PGP " + "PRIVATE KEY BLOCK"),
+      pem("RSA " + "PRIVATE KEY"),
+      pem("EC " + "PRIVATE KEY"),
+      pem("OPENSSH " + "PRIVATE KEY"),
+      pem("PRIVATE " + "KEY"),
+      `const key = \`${pem("DSA " + "PRIVATE KEY")}\`;`,
+      "sk" + "_live_" + "4eC39HqLyjWDarjtT1zdp7dc",
+      "rk" + "_live_" + "51H8aBcDeFgHiJkLmNoPqRsT",
+      "xox" + "b-" + "17653672481-19874698323-pdFZKVeTuE8sk7oOcBrzbqgy",
+      "xox" + "p-" + "17653672481-19874698323-19874698324-9f2c8e1a",
+      "AI" + "zaSyD4cX9k3lQ7mN2pR8vT1wY6zB5hJ0gFsEu",
+      "postgres://app:" + "Zq8vR2mLx9Tk" + "@db.internal:5432/app",
+      "redis://:" + "Zq8vR2mLx9Tk" + "@cache.internal:6379",
+    ];
+    for (const secret of secrets) {
+      expect(containsSecret(secret), secret).toBe(true);
+      expect(introducesSecret("", secret), secret).toBe(true);
+      expect(secretFindings(secret).size, secret).toBeGreaterThan(0);
+      const redacted = redact(secret);
+      expect(redacted, secret).toContain("[REDACTED");
+      expect(containsSecret(redacted), redacted).toBe(false);
+    }
+    expect(
+      redact("postgres://app:" + "Zq8vR2mLx9Tk" + "@db.internal:5432/app"),
+    ).toBe("postgres://app:[REDACTED]@db.internal:5432/app");
+    const notSecrets = [
+      "-----BEGIN " + "PUBLIC KEY-----",
+      "-----BEGIN " + "CERTIFICATE-----",
+      "sk" + "_test_" + "4eC39HqLyjWDarjtT1zdp7dc",
+      "sk" + "_live_" + "x".repeat(24),
+      "xox" + "b-your-bot-token-goes-here",
+      "AI" + "zaSy" + "X".repeat(33),
+      "AI" + "zaSyShort",
+      "postgres://postgres:postgres@localhost:5432/db",
+      "https://user:password@example.com",
+      "https://user:credential@example.invalid",
+      "postgresql://private_user:SECRET_CANARY@127.0.0.1:1/live",
+      "postgresql://fixture:example@remote.invalid/db",
+      "redis://:${REDIS_PASSWORD}@cache:6379",
+      "`${protocol}://${user}:${password}@${host}`",
+      "ssh://git@github.com/owner/repo.git",
+      "https://example.com/a:b@c",
+    ];
+    for (const text of notSecrets) {
+      expect(containsSecret(text), text).toBe(false);
+      expect(secretFindings(text).size, text).toBe(0);
+      expect(redact(text), text).toBe(text);
+    }
+  });
   it("counts only secret matches a change adds to existing text", () => {
     const value = "abcdefghijklmnopqrstuvwxyz0123456789";
     const samples = [
@@ -99,7 +155,11 @@ describe("project boundaries", () => {
       `SERVICE_TOKEN=${value}`,
       `const serviceApiKey = "${value}";`,
       "-----BEGIN " + "PRIVATE KEY-----",
+      "-----BEGIN " + "PGP PRIVATE KEY BLOCK-----",
       "AKIA" + "ABCDEFGHIJKLMNOP",
+      "sk" + "_live_" + "4eC39HqLyjWDarjtT1zdp7dc",
+      "postgres://app:" + "Zq8vR2mLx9Tk" + "@db.internal/app",
+      "postgres://postgres:postgres@localhost/db",
       "const accessToken = generateAccessToken(user.id);",
       "DATABASE_PASSWORD=<placeholder>",
       "plain text",
@@ -176,6 +236,11 @@ describe("project boundaries", () => {
       expect(introducesSecret(line, `${line}x`)).toBe(true);
       const headers = ("-----BEGIN " + "PRIVATE KEY-----\n").repeat(size / 28);
       expect(introducesSecret(headers, `${headers}plain\n`)).toBe(false);
+      // Scheme-like runs and many URL starts stay linear.
+      const schemes = "a+".repeat(size / 2);
+      expect(introducesSecret(schemes, `${schemes}x`)).toBe(false);
+      const urls = "s://u:passwordpassword@h ".repeat(size / 25);
+      expect(introducesSecret(urls, `${urls}x`)).toBe(false);
     },
   );
   it("requires explicit opt-in for only the public root template ledger", async () => {
