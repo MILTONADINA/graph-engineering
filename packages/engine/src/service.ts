@@ -39,6 +39,7 @@ import {
   errorMessage,
   hash,
   id,
+  LocalDetailError,
   now,
   readJson,
   writeJson,
@@ -771,6 +772,11 @@ export class GraphEngine {
     effort?: string;
     steps?: ExecutionStep[];
     spec?: ExecutionPlan["spec"];
+    /**
+     * Written by a cloud-backed MCP client: its workers, the tester and the
+     * reviewer must then all run locally or all run elsewhere.
+     */
+    cloudAuthored?: boolean;
   }): Promise<ExecutionPlan> {
     await this.refresh();
     if (
@@ -931,8 +937,52 @@ export class GraphEngine {
       } else if (!templateRuntimeCapability(step.templateId!).executable)
         throw new Error(`Template ${step.templateId} is not executable`);
     }
+    if (input.cloudAuthored) await this.assertOneSideOfExport(plan, available);
     this.store.savePlan(plan);
     return plan;
+  }
+  /**
+   * Refuses a plan whose model roles straddle the export boundary. A local
+   * worker or tester may read files the export policy keeps from cloud
+   * models and write them under exported paths, where a later cloud step or
+   * a cloud reviewer receives them. Path filters cannot tell such a copy
+   * from the project's own source, so a plan a cloud-backed client wrote
+   * keeps every role on one side; a person's own plan may mix them.
+   */
+  private async assertOneSideOfExport(
+    plan: ExecutionPlan,
+    workers: ProviderConfig[],
+  ): Promise<void> {
+    const roles: { role: string; local: boolean }[] = [];
+    for (const step of plan.steps)
+      if (step.kind === "worker") {
+        const worker = workers.find(
+          (candidate) => candidate.id === step.providerId,
+        )!;
+        roles.push({
+          role:
+            step.id === TESTER_STEP_ID
+              ? `the tester (${worker.id})`
+              : `step ${step.id} (${worker.id})`,
+          local: worker.kind === "local",
+        });
+      }
+    const reviewerId = this.config.review?.providerId;
+    // start() refuses a reviewer that is not configured.
+    const reviewer = (await this.providers()).find(
+      (provider) => provider.id === reviewerId,
+    );
+    if (reviewer)
+      roles.push({
+        role: `the reviewer (${reviewer.id})`,
+        local: reviewer.kind === "local",
+      });
+    const local = roles.filter((entry) => entry.local);
+    const remote = roles.filter((entry) => !entry.local);
+    if (local.length && remote.length)
+      throw new Error(
+        `A cloud-backed client can create a plan only when its worker steps, the configured tester and the configured reviewer all run locally or all run on non-local providers: a local model may read files the export policy keeps from cloud models and write them where a cloud model receives them. This plan runs ${local.map((entry) => entry.role).join(", ")} locally and ${remote.map((entry) => entry.role).join(", ")} on non-local providers. Choose providers on one side, or have a person create the plan with graph-engine plan.`,
+      );
   }
   /**
    * Starts a run. A plan that publishes (commit or draft PR) needs a person's
@@ -1005,9 +1055,13 @@ export class GraphEngine {
         "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",
       );
     const hidden = await hiddenIndexEntries(this.root);
+    // The message gives only the count: a cloud-backed MCP client can start
+    // a run, and these may be files the export policy keeps from it. The CLI
+    // and a local client also get the names.
     if (hidden.length)
-      throw new Error(
-        `Git skips checking files in this checkout for changes (assume-unchanged or skip-worktree): ${describeHiddenEntries(hidden)}. Clear the marks with git update-index --no-assume-unchanged or --no-skip-worktree (core.ignoreStat=true sets them on checkout) before a run that publishes, so unrelated local work cannot enter its commit`,
+      throw new LocalDetailError(
+        `Git skips checking ${hidden.length === 1 ? "1 file" : `${hidden.length} files`} in this checkout for changes (assume-unchanged or skip-worktree; git ls-files -v tags them with a lowercase letter or S). Clear the marks with git update-index --no-assume-unchanged or --no-skip-worktree (core.ignoreStat=true sets them on checkout) before a run that publishes, so unrelated local work cannot enter its commit`,
+        `Files Git skips checking: ${describeHiddenEntries(hidden)}`,
       );
   }
   // start and resume call this after their last await. A close() that began

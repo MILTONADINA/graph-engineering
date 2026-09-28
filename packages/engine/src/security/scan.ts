@@ -20,7 +20,7 @@ import {
 
 const LOCKFILE_NAMES = new Set(LOCKFILES.map((name) => name.toLowerCase()));
 import { isDockerfile } from "./files.js";
-import { redact } from "../policy.js";
+import { redact, redactTail } from "../policy.js";
 
 export interface SecurityFinding {
   tool: string;
@@ -535,7 +535,7 @@ export async function runSecurityScan(options: {
         throw new Error(
           /no offline version of the OSV database/.test(result.stderr)
             ? `${tool} has no downloaded database for an ecosystem this repository uses; ${OSV_DATABASE_ADVICE}`
-            : `${tool} exited ${result.code}: ${result.stderr.slice(-300)}`,
+            : `${tool} exited ${result.code}: ${redactTail(result.stderr, 300)}`,
         );
       return result;
     };
@@ -656,8 +656,10 @@ export async function runSecurityScan(options: {
         }
       } catch (error) {
         if (signal?.aborted) throw new Error("Run cancelled", { cause: error });
+        // Redacted before it is cut, so the cut cannot leave part of a
+        // secret too short to recognise.
         errors.push(
-          `${tool.id}: ${error instanceof Error ? error.message.slice(0, 400) : String(error)}`,
+          `${tool.id}: ${redact(error instanceof Error ? error.message : String(error)).slice(0, 400)}`,
         );
       }
     }
@@ -778,7 +780,7 @@ export async function updateOsvDatabase(options: {
     );
     if (![0, 1].includes(result.code))
       throw new Error(
-        `osv-scanner could not download its database (exit ${result.code}): ${result.stderr.slice(-300)}`,
+        `osv-scanner could not download its database (exit ${result.code}): ${redactTail(result.stderr, 300)}`,
       );
   } finally {
     await rm(work, { recursive: true, force: true });

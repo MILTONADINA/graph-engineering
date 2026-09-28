@@ -997,6 +997,231 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
   }
 });
 
+it("refuses a cloud client's plan whose workers, tester and reviewer are not all local or all non-local", async () => {
+  const { checked, writeJson } = await import("../src/util.js");
+  const { configureProvider, PROJECT_FILE } = await import("../src/project.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-boundary-"));
+  await checked("git", ["init", "-b", "dev"], { cwd: root });
+  await mkdir(path.join(root, "src"));
+  await mkdir(path.join(root, "private"));
+  await writeFile(
+    path.join(root, "src", "math.cjs"),
+    "exports.add = (a, b) => a + b;\n",
+  );
+  await writeFile(path.join(root, "private", "roadmap.md"), "Next: expand.\n");
+  const config = await initializeProject(root);
+  config.policy.providers = ["qwen", "remote"];
+  config.policy.inference = "allowlisted";
+  config.policy.network = "allowlisted";
+  config.policy.allowedHosts = ["api.openai.com"];
+  config.policy.exportPaths = ["src/**"];
+  config.verification = [{ image: "fixture", argv: ["test"] }];
+  await writeJson(path.join(root, PROJECT_FILE), config);
+  const data = projectDataDir(config.projectId);
+  await configureProvider(data, {
+    id: "qwen",
+    kind: "local",
+    model: "fixture",
+    inputCostPerMillion: 0,
+    outputCostPerMillion: 0,
+  });
+  await configureProvider(data, {
+    id: "remote",
+    kind: "openai",
+    model: "fixture",
+    inputCostPerMillion: 1,
+    outputCostPerMillion: 1,
+  });
+  const engine = await GraphEngine.open(root);
+  const saved = vi.spyOn(engine.store, "savePlan");
+  const connections: { client: Client; server: { close(): Promise<void> } }[] =
+    [];
+  const connect = async (kind: "local" | "cloud") => {
+    const server = createMcpServer(engine, { client: kind, allowRun: true });
+    const client = new Client({ name: `boundary-${kind}`, version: "1.0.0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    connections.push({ client, server });
+    return client;
+  };
+  // A local step could copy private/roadmap.md into src/, where the cloud
+  // step, or a cloud reviewer, would receive it.
+  const laundering = {
+    objective: "Publish the roadmap",
+    acceptance: ["src/roadmap.ts exports the roadmap"],
+    steps: [
+      {
+        id: "copy",
+        kind: "worker",
+        objective: "Copy private/roadmap.md into src/roadmap.ts",
+        dependsOn: [],
+        providerId: "qwen",
+      },
+      {
+        id: "polish",
+        kind: "worker",
+        objective: "Tidy src/roadmap.ts",
+        dependsOn: ["copy"],
+        providerId: "remote",
+      },
+    ],
+  };
+  const single = (providerId: string) => ({
+    objective: "Fix addition",
+    acceptance: ["2 + 3 is 5"],
+    providerId,
+  });
+  const configure = (roles: Partial<typeof config>) =>
+    writeJson(path.join(root, PROJECT_FILE), { ...config, ...roles });
+  try {
+    const cloud = await connect("cloud");
+    const refused = async (args: Record<string, unknown>) => {
+      const before = saved.mock.calls.length;
+      const response = await cloud.callTool({
+        name: "plan_create",
+        arguments: args,
+      });
+      expect(response.isError).toBe(true);
+      // Refused before anything is stored.
+      expect(saved.mock.calls.length).toBe(before);
+      return JSON.stringify(response);
+    };
+    const mixedSteps = await refused(laundering);
+    expect(mixedSteps).toContain(
+      "all run locally or all run on non-local providers",
+    );
+    expect(mixedSteps).toContain("step copy (qwen)");
+    expect(mixedSteps).toContain("step polish (remote)");
+    expect(mixedSteps).toContain("graph-engine plan");
+    // A local tester writes files a cloud implementer then reads.
+    await configure({ tester: { providerId: "qwen" } });
+    expect(await refused(single("remote"))).toContain("the tester (qwen)");
+    // A cloud reviewer receives the diff a local worker wrote.
+    await configure({ review: { providerId: "remote" } });
+    expect(await refused(single("qwen"))).toContain("the reviewer (remote)");
+    // All on one side is accepted.
+    const accepted = async (args: Record<string, unknown>) => {
+      const response = await cloud.callTool({
+        name: "plan_create",
+        arguments: args,
+      });
+      expect(response.isError).not.toBe(true);
+    };
+    await configure({
+      tester: { providerId: "remote" },
+      review: { providerId: "remote" },
+    });
+    await accepted(single("remote"));
+    await configure({
+      tester: { providerId: "qwen" },
+      review: { providerId: "qwen" },
+    });
+    await accepted(single("qwen"));
+    // An operator's own plan may mix them, as the tester role allows.
+    await configure({});
+    const local = await connect("local");
+    const mixed = await local.callTool({
+      name: "plan_create",
+      arguments: laundering,
+    });
+    expect(mixed.isError).not.toBe(true);
+  } finally {
+    for (const { client, server } of connections) {
+      await client.close();
+      await server.close();
+    }
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
+it("tells a cloud client how many checkout files Git skips checking, never their names", async () => {
+  const { checked, writeJson } = await import("../src/util.js");
+  const { configureProvider, PROJECT_FILE } = await import("../src/project.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-hidden-"));
+  await checked("git", ["init", "-b", "dev"], { cwd: root });
+  await checked("git", ["config", "user.name", "Graph Test"], { cwd: root });
+  await checked("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  await writeFile(
+    path.join(root, "math.cjs"),
+    "exports.add = (a, b) => a + b;\n",
+  );
+  // A binary file the source snapshot leaves out, so editing it keeps the
+  // plan's snapshot, and a name the export policy keeps from a cloud client.
+  const hidden = "private-roadmap.bin";
+  await writeFile(path.join(root, hidden), Buffer.from([0, 1, 2, 0]));
+  const config = await initializeProject(root);
+  config.policy.providers = ["local"];
+  config.policy.inference = "allowlisted";
+  config.policy.network = "allowlisted";
+  config.policy.exportPaths = ["math.cjs"];
+  config.policy.publication = "commit";
+  config.verification = [{ image: "fixture", argv: ["test"] }];
+  await writeJson(path.join(root, PROJECT_FILE), config);
+  await checked("git", ["add", "."], { cwd: root });
+  await checked("git", ["commit", "-m", "test: fixture"], { cwd: root });
+  const data = projectDataDir(config.projectId);
+  await configureProvider(data, {
+    id: "local",
+    kind: "local",
+    model: "fixture",
+  });
+  const engine = await GraphEngine.open(root, {
+    dockerAvailable: async () => true,
+  });
+  const connections: { client: Client; server: { close(): Promise<void> } }[] =
+    [];
+  const runStart = async (kind: "local" | "cloud", planId: string) => {
+    const server = createMcpServer(engine, { client: kind, allowRun: true });
+    const client = new Client({ name: `hidden-${kind}`, version: "1.0.0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    connections.push({ client, server });
+    return client.callTool({ name: "run_start", arguments: { planId } });
+  };
+  try {
+    // A person approved this publishing plan, so a client may start it.
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["2 + 3 is 5"],
+    });
+    engine.store.approvePlan(plan.id);
+    await checked("git", ["update-index", "--skip-worktree", hidden], {
+      cwd: root,
+    });
+    await writeFile(path.join(root, hidden), Buffer.from([0, 9, 9, 0]));
+    expect(await checked("git", ["status", "--porcelain"], { cwd: root })).toBe(
+      "",
+    );
+    const cloud = await runStart("cloud", plan.id);
+    expect(cloud.isError).toBe(true);
+    const text = JSON.stringify(cloud);
+    expect(text).toContain("Git skips checking 1 file in this checkout");
+    expect(text).not.toContain(hidden);
+    expect(text).not.toContain("roadmap");
+    // A local client's model stays on this machine, so it is told which.
+    const local = await runStart("local", plan.id);
+    expect(local.isError).toBe(true);
+    expect(JSON.stringify(local)).toContain(hidden);
+    expect(engine.store.runs()).toHaveLength(0);
+  } finally {
+    for (const { client, server } of connections) {
+      await client.close();
+      await server.close();
+    }
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
 it("follows a run another engine is executing until that run stops", async () => {
   const { checked, writeJson } = await import("../src/util.js");
   const { configureProvider, PROJECT_FILE } = await import("../src/project.js");

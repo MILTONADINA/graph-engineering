@@ -22,7 +22,12 @@ import {
   projectDataDir,
   PROJECT_FILE,
 } from "../src/project.js";
-import { checked, readJson, writeJson } from "../src/util.js";
+import {
+  checked,
+  localErrorMessage,
+  readJson,
+  writeJson,
+} from "../src/util.js";
 import type { DagCheckpoint } from "../src/execution/dag.js";
 import * as workspaceModule from "../src/execution/workspace.js";
 import { workspaceFingerprint } from "../src/execution/workspace.js";
@@ -2739,10 +2744,20 @@ describe("publication when Git skips checking files for changes", () => {
     expect(await checked("git", ["status", "--porcelain"], { cwd: root })).toBe(
       "",
     );
-    await expect(
-      engine.start(planned.id, { approvedByPerson: true }),
-    ).rejects.toThrow(
-      "Git skips checking files in this checkout for changes (assume-unchanged or skip-worktree): asset.bin. Clear the marks",
+    const refusal = await engine
+      .start(planned.id, { approvedByPerson: true })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    // The message a cloud client may receive counts the files; only a
+    // person at this machine is shown their names.
+    expect((refusal as Error).message).toContain(
+      "Git skips checking 1 file in this checkout for changes (assume-unchanged or skip-worktree; git ls-files -v tags them with a lowercase letter or S). Clear the marks",
+    );
+    expect((refusal as Error).message).not.toContain("asset.bin");
+    expect(localErrorMessage(refusal)).toContain(
+      "Files Git skips checking: asset.bin",
     );
     expect(engine.store.runs()).toHaveLength(0);
     await checked("git", ["update-index", "--no-skip-worktree", "asset.bin"], {

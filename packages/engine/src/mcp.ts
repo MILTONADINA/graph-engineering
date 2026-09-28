@@ -9,6 +9,7 @@ import {
   isAllowedPath,
 } from "./policy.js";
 import { listTemplates } from "./templates.js";
+import { LocalDetailError, localErrorMessage } from "./util.js";
 
 export interface McpServerOptions {
   client: "local" | "cloud";
@@ -277,7 +278,13 @@ export function createMcpServer(
       async ({ planId }) => {
         await allowed();
         // A plan that publishes needs a person's approval; start enforces it.
-        const run = await engine.start(planId);
+        const run = await engine.start(planId).catch((error: unknown) => {
+          // Detail such as local file names reaches only a client whose
+          // model runs on this machine.
+          if (options.client === "local" && error instanceof LocalDetailError)
+            throw new Error(localErrorMessage(error), { cause: error });
+          throw error;
+        });
         return result({ id: run.id, status: run.status });
       },
     );
@@ -379,7 +386,7 @@ export function createMcpServer(
       "plan_create",
       {
         description:
-          "Creates a plan for a change in this project and returns JSON with its id, steps and routing. A plan needs an objective and at least one explicit acceptance criterion; the engine records the current policy and source, so a later run_start fails if either changed. Without steps the plan is one worker step; steps give a dependency-ordered list of worker or template steps. A cloud-backed client can create plans only while the project's publication policy is none, so a plan it wrote cannot publish private source. It does not start work; start it with run_start.",
+          "Creates a plan for a change in this project and returns JSON with its id, steps and routing. A plan needs an objective and at least one explicit acceptance criterion; the engine records the current policy and source, so a later run_start fails if either changed. Without steps the plan is one worker step; steps give a dependency-ordered list of worker or template steps. A cloud-backed client can create plans only while the project's publication policy is none, so a plan it wrote cannot publish private source, and only when the plan's worker steps, the configured tester and the configured reviewer all run on local providers or all run on non-local ones, so a local step cannot pass files the export policy keeps from cloud models to a cloud worker or reviewer. It does not start work; start it with run_start.",
         inputSchema: {
           objective: z
             .string()
@@ -436,7 +443,10 @@ export function createMcpServer(
           throw new Error(
             "A cloud-backed client can create plans only while project publication is none: a plan it wrote could otherwise publish private source",
           );
-        const plan = await engine.createPlan(args);
+        const plan = await engine.createPlan({
+          ...args,
+          cloudAuthored: options.client !== "local",
+        });
         const warnings = engine.planWarnings(plan);
         return result({
           ...(warnings.length ? { warnings } : {}),

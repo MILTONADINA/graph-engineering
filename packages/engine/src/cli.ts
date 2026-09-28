@@ -48,6 +48,7 @@ import {
   readJson,
   writeJson,
   errorMessage,
+  localErrorMessage,
 } from "./util.js";
 import {
   containsSecret,
@@ -1715,7 +1716,9 @@ cli
     if (failedRunError) await handleDifficulty(failedRunError);
   })
   .catch(async (error) => {
-    process.stderr.write(`${errorMessage(error)}\n`);
+    // A person at this machine also sees detail kept from cloud clients,
+    // such as the names of files Git skips checking.
+    process.stderr.write(`${localErrorMessage(error)}\n`);
     process.exitCode = 1;
     await handleDifficulty(errorMessage(error));
   });
