@@ -197,8 +197,13 @@ export function parseSemgrep(
 /**
  * Files Semgrep did not fully scan. A non-fatal error (a timeout, a parse
  * failure, an out-of-memory target) is reported at level `warn` and names
- * the file; with `--verbose` the report also lists skipped paths. Either
- * way the rules did not cover all of that file, so the gate must know.
+ * the file, so the rules did not cover all of it and the gate must know.
+ *
+ * `paths.skipped` appears only under `--verbose`, which the scan does not
+ * pass: Semgrep also lists there every file no selected rule's language
+ * covers (a README, say), and counting those would fail every such run.
+ * Oversized, binary and non-regular files are caught before Semgrep runs.
+ * The branch is kept for a report that does carry skipped paths.
  */
 export function parseSemgrepUnscanned(text: string): SecurityScan["unscanned"] {
   const report = JSON.parse(text) as {
