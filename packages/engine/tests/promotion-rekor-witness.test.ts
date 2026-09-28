@@ -13,6 +13,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -87,6 +88,8 @@ interface Tamper {
   inclusion?: boolean;
   /** Serve this tree size instead of the current one. */
   servedSize?: number;
+  /** Prove entries against a head of this size instead of the current one. */
+  entrySize?: number;
   /** Serve a forked log whose leaves differ from the real ones. */
   fork?: boolean;
 }
@@ -255,7 +258,11 @@ class FakeRekor {
         (leaf) => `${TREE_HEX}${rekorLeafHash(leaf.body)}` === entry[1],
       );
       if (position < 0) return new Response("{}", { status: 404 });
-      const leaves = this.hashes(size);
+      const proofSize = Math.max(
+        this.tamper.entrySize ?? this.size,
+        position + 1,
+      );
+      const leaves = this.hashes(proofSize);
       const hashes = hex(inclusionPath(position, leaves));
       if (this.tamper.inclusion && hashes.length) hashes[0] = "e".repeat(64);
       const leaf = this.leaves[position]!;
@@ -267,11 +274,11 @@ class FakeRekor {
           logIndex: position + 1_000_000,
           verification: {
             inclusionProof: {
-              checkpoint: this.note(size),
+              checkpoint: this.note(proofSize),
               hashes,
               logIndex: position,
               rootHash: mth(leaves).toString("hex"),
-              treeSize: size,
+              treeSize: proofSize,
             },
             signedEntryTimestamp: "",
           },
@@ -619,6 +626,156 @@ describe("Rekor witness translation", () => {
     });
   });
 
+  it("proves entries whose checkpoint is older or newer than the verified head", async () => {
+    const log = new FakeRekor();
+    log.filler(3);
+    log.publish(freeze, issuer);
+    log.filler(9);
+    // Older: the entry is proven against a head of 5 while the head is 13.
+    log.tamper = { entrySize: 5 };
+    const query = collectionQuery();
+    const older = checkWitnessCheckpointReply(
+      await witness(log).readCollectionCheckpoint(query),
+      query,
+      Date.now(),
+    );
+    // Newer: the head served is 6 while the entry's proof head is 13.
+    log.tamper = { servedSize: 6 };
+    const again = collectionQuery();
+    const newer = checkWitnessCheckpointReply(
+      await witness(log).readCollectionCheckpoint(again),
+      again,
+      Date.now(),
+    );
+    expect(newer.checkpointSha256).toBe(older.checkpointSha256);
+    // Either direction still needs a valid consistency proof.
+    log.tamper = { entrySize: 5, consistency: true };
+    expect(
+      await refusal(witness(log).readCollectionCheckpoint(collectionQuery())),
+    ).toBe("rekor-consistency-invalid");
+    log.tamper = { servedSize: 6, consistency: true };
+    expect(
+      await refusal(witness(log).readCollectionCheckpoint(collectionQuery())),
+    ).toBe("rekor-consistency-invalid");
+  });
+
+  it("finds the owner statement under a flood of third-party entries", async () => {
+    const log = new FakeRekor();
+    const subject = ownerStatementSubjectDigest({
+      kind: "freeze",
+      projectId,
+      collectionId,
+    });
+    const junk = () =>
+      log.append(
+        Buffer.from(
+          canonicalJson({
+            kind: "hashedrekord",
+            junk: randomBytes(8).toString("hex"),
+          }),
+        ),
+        [subject],
+      );
+    for (let i = 0; i < 30; i++) junk();
+    log.publish(freeze, issuer);
+    for (let i = 0; i < 30; i++) junk();
+    log.publish({ ...freeze, frozenDigests: { x: d("x") } }, stranger);
+    const query = collectionQuery();
+    const reply = checkWitnessCheckpointReply(
+      await witness(log).readCollectionCheckpoint(query),
+      query,
+      Date.now(),
+    );
+    expect(reply.frozenDigests).toEqual(frozenDigests);
+    // Each of the 62 hits costs one entry read; nothing else refuses.
+    expect(
+      log.requests.filter((request) => request.url.includes("/log/entries/")),
+    ).toHaveLength(62);
+  });
+
+  it("counts a re-logged owner payload once, at its lowest index, and refuses two different payloads", async () => {
+    const log = new FakeRekor();
+    log.filler(2);
+    log.publish(freeze, issuer);
+    const query = collectionQuery();
+    const first = checkWitnessCheckpointReply(
+      await witness(log).readCollectionCheckpoint(query),
+      query,
+      Date.now(),
+    );
+    // Anyone can log the owner's public signature and payload again.
+    log.filler();
+    log.publish(freeze, issuer, { kind: "intoto" });
+    log.publish(freeze, issuer);
+    const again = collectionQuery();
+    const second = checkWitnessCheckpointReply(
+      await witness(log).readCollectionCheckpoint(again),
+      again,
+      Date.now(),
+    );
+    expect(second.checkpointSha256).toBe(first.checkpointSha256);
+    log.publish({ ...freeze, frozenDigests: { x: d("x") } }, issuer);
+    expect(
+      await refusal(witness(log).readCollectionCheckpoint(collectionQuery())),
+    ).toBe("rekor-statement-ambiguous");
+  });
+
+  it("refuses population published before registration", async () => {
+    const log = new FakeRekor();
+    const base = {
+      version: "1.0.0" as const,
+      kind: "governance-checkpoint" as const,
+      projectId,
+      collectionId,
+    };
+    log.publish(
+      {
+        ...base,
+        section: "population",
+        sourceInventorySha256: d("s"),
+        signedManifestSha256: d("m"),
+        populationTrustSha256: d("t"),
+      },
+      issuer,
+    );
+    log.publish(
+      {
+        ...base,
+        section: "registration",
+        planSha256: d("p"),
+        registrySha256: d("r"),
+        firstEventSha256: d("f"),
+      },
+      issuer,
+    );
+    log.publish(
+      { ...base, section: "first-attempt", eventSha256: d("a") },
+      issuer,
+    );
+    log.publish(
+      {
+        ...base,
+        section: "head",
+        eventCount: 3,
+        eventHeadSha256: d("h"),
+        closureSha256: d("c"),
+      },
+      issuer,
+    );
+    log.publish(
+      {
+        ...base,
+        section: "current-trust",
+        rowTrustSha256: d("rt"),
+        aggregateTrustSha256: d("at"),
+      },
+      issuer,
+    );
+    expect(
+      await refusal(witness(log).readGovernanceCheckpoint(collectionQuery())),
+    ).toBe("rekor-statement-order-invalid");
+  });
+
   it("refuses a head published before its registration", async () => {
     const log = new FakeRekor();
     const base = {
@@ -813,6 +970,80 @@ describe("Rekor witness refusals", () => {
     expect(
       await refusal(witness(log).readCollectionCheckpoint(collectionQuery())),
     ).toBe("rekor-statement-ambiguous");
+  });
+
+  it("refuses with a distinct code when the fetch budget runs out before an answer", async () => {
+    const log = new FakeRekor();
+    const grantId = d("flooded-grant");
+    const flood = (subject: string, count: number) => {
+      for (let i = 0; i < count; i++)
+        log.append(
+          Buffer.from(canonicalJson({ junk: randomBytes(8).toString("hex") })),
+          [subject],
+        );
+    };
+    flood(
+      ownerStatementSubjectDigest({ kind: "freeze", projectId, collectionId }),
+      12,
+    );
+    expect(
+      await refusal(
+        witness(log, { fetchBudgetPerSubject: 10 }).readCollectionCheckpoint(
+          collectionQuery(),
+        ),
+      ),
+    ).toBe("rekor-search-budget-exhausted");
+    // A grant subject must be read completely: an unread hit could revoke it.
+    flood(
+      ownerStatementSubjectDigest({
+        kind: "grant-revocation",
+        projectId,
+        grantId,
+      }),
+      12,
+    );
+    expect(
+      await refusal(
+        witness(log, { fetchBudgetPerSubject: 10 }).readGrantStatus(
+          grantQuery(grantId),
+        ),
+      ),
+    ).toBe("rekor-search-budget-exhausted");
+    // A hit list larger than the search byte limit is the same refusal.
+    expect(
+      await refusal(
+        witness(log, { maxSearchBytes: 200 }).readCollectionCheckpoint(
+          collectionQuery(),
+        ),
+      ),
+    ).toBe("rekor-search-budget-exhausted");
+  });
+
+  it("removes a stale high-water lock and releases its own", async () => {
+    const log = logged();
+    const stateDir = path.join(tempDir(), "rekor-witness");
+    const adapter = witness(log, { stateDir });
+    await adapter.verifyTreeHead();
+    const lock = path.join(stateDir, `${log.logId}.json.lock`);
+    writeFileSync(lock, "1\n", { mode: 0o600 });
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    log.filler(2);
+    await adapter.verifyTreeHead();
+    expect(() => statSync(lock)).toThrow();
+    // Concurrent readers never lower the mark.
+    log.filler(3);
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        witness(log, { stateDir })
+          .verifyTreeHead()
+          .catch(() => undefined),
+      ),
+    );
+    expect(
+      JSON.parse(readFileSync(path.join(stateDir, `${log.logId}.json`), "utf8"))
+        .treeSize,
+    ).toBe(String(log.size));
   });
 
   it("refuses a host that is not allowlisted before any request", async () => {

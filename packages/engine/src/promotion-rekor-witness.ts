@@ -72,6 +72,7 @@ export type RekorWitnessErrorCode =
   | "rekor-statement-missing"
   | "rekor-statement-ambiguous"
   | "rekor-statement-order-invalid"
+  | "rekor-search-budget-exhausted"
   | "rekor-state-invalid";
 
 export class RekorWitnessError extends Error {
@@ -541,6 +542,8 @@ const stateSchema = z
   .strict();
 type HighWater = { treeId: string; treeSize: bigint; rootHash: string };
 const STATE_MAX_BYTES = 4_096;
+const LOCK_WAIT_MS = 5_000;
+const LOCK_STALE_MS = 30_000;
 
 function checkPrivate(target: string, stat: Stats, kind: "dir" | "file") {
   if (stat.isSymbolicLink())
@@ -619,9 +622,60 @@ class HighWaterStore {
     };
   }
 
-  /** Replace the state atomically; never lowers a newer concurrent value. */
-  write(next: HighWater) {
+  /**
+   * Hold an O_EXCL lock file around a read-modify-write, so concurrent
+   * processes cannot lower the mark. A lock older than LOCK_STALE_MS is left
+   * by a crashed process and is removed; a live one is waited for.
+   */
+  private async locked<T>(run: () => T): Promise<T> {
     this.ensureDir();
+    const lock = `${this.file}.lock`;
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    for (;;) {
+      let fd: number | undefined;
+      try {
+        fd = openSync(
+          lock,
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_EXCL |
+            (constants.O_NOFOLLOW ?? 0),
+          0o600,
+        );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      if (fd !== undefined) {
+        try {
+          writeSync(fd, `${process.pid}\n`);
+        } finally {
+          closeSync(fd);
+        }
+        try {
+          return run();
+        } finally {
+          rmSync(lock, { force: true });
+        }
+      }
+      const stat = lstatOrNull(lock);
+      if (stat && !stat.isFile())
+        fail("rekor-state-invalid", `${lock} is not a regular file`);
+      if (stat && Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+        rmSync(lock, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline)
+        fail("rekor-state-invalid", `${lock} is held by another process`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  /** Replace the state atomically under the lock; never lowers the mark. */
+  write(next: HighWater): Promise<void> {
+    return this.locked(() => this.writeLocked(next));
+  }
+
+  private writeLocked(next: HighWater) {
     const current = this.read();
     if (
       current &&
@@ -793,7 +847,13 @@ export interface RekorWitnessOptions {
   now?: () => number;
   timeoutMs?: number;
   maxResponseBytes?: number;
-  maxEntriesPerSubject?: number;
+  /**
+   * How many search hits per subject are fetched (default 256). Hits are
+   * fetched in UUID order; third-party entries only spend this budget.
+   */
+  fetchBudgetPerSubject?: number;
+  /** The byte limit of one search response (default 4 MiB). */
+  maxSearchBytes?: number;
 }
 
 type Query = Readonly<{
@@ -845,7 +905,8 @@ class RekorWitness implements RekorWitnessController {
   private readonly now: () => number;
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
-  private readonly maxEntries: number;
+  private readonly fetchBudget: number;
+  private readonly maxSearchBytes: number;
 
   constructor(private readonly options: RekorWitnessOptions) {
     if (!id.safeParse(options.witnessId).success)
@@ -896,7 +957,8 @@ class RekorWitness implements RekorWitnessController {
     this.now = options.now ?? Date.now;
     this.timeoutMs = options.timeoutMs ?? 10_000;
     this.maxBytes = options.maxResponseBytes ?? 262_144;
-    this.maxEntries = options.maxEntriesPerSubject ?? 32;
+    this.fetchBudget = options.fetchBudgetPerSubject ?? 256;
+    this.maxSearchBytes = options.maxSearchBytes ?? 4_194_304;
   }
 
   /** The SHA-256 of the pinned log key's SPKI: Rekor's log ID. */
@@ -992,13 +1054,14 @@ class RekorWitness implements RekorWitnessController {
       );
     if (population && firstAttempt) {
       if (
+        revision(reg) >= revision(population) ||
         revision(reg) >= revision(firstAttempt) ||
         revision(population) >= revision(firstAttempt) ||
         revision(firstAttempt) >= revision(hd)
       )
         fail(
           "rekor-statement-order-invalid",
-          "publish registration and population before first-attempt, and first-attempt before head",
+          "publish registration, then population, then first-attempt, then head",
         );
     }
     const r = reg.predicate as Section<"registration">;
@@ -1122,7 +1185,10 @@ class RekorWitness implements RekorWitnessController {
   ): Promise<VerifiedOwnerStatement[][]> {
     const head = await this.verifyTreeHead();
     const results: VerifiedOwnerStatement[][] = [];
-    for (const key of keys) results.push(await this.statementsFor(key, head));
+    // Proof heads already shown consistent with `head` during this read.
+    const heads = new Set<string>();
+    for (const key of keys)
+      results.push(await this.statementsFor(key, head, heads));
     return results;
   }
 
@@ -1162,7 +1228,7 @@ class RekorWitness implements RekorWitnessController {
       await this.requireConsistent(previous, head);
     }
     // Advance only after the new head verified and is consistent.
-    this.store.write(head);
+    await this.store.write(head);
     return head;
   }
 
@@ -1198,31 +1264,57 @@ class RekorWitness implements RekorWitnessController {
       );
   }
 
-  /** Step 3: every owner entry for one subject, with inclusion proven. */
+  /**
+   * Step 3: every owner statement for one subject, with inclusion proven.
+   * Rekor is permissionless, so anyone can log entries under a subject:
+   * third-party entries are skipped and only spend the fetch budget. A
+   * re-logged copy of an owner payload counts once, at its lowest index.
+   * Grant subjects must be read completely (an unread hit could be the
+   * revocation); freeze and governance subjects need one owner statement.
+   */
   private async statementsFor(
     key: SubjectKey,
     head: RekorTreeHead,
+    heads: Set<string>,
   ): Promise<VerifiedOwnerStatement[]> {
     const subject = ownerStatementSubjectDigest(key);
+    const found = await this.postJson(
+      READ_PATHS.search,
+      { hash: `sha256:${subject}` },
+      this.maxSearchBytes,
+    );
     const uuids = z
       .array(z.string().regex(/^([a-f0-9]{16})?[a-f0-9]{64}$/))
-      .safeParse(
-        await this.postJson(READ_PATHS.search, { hash: `sha256:${subject}` }),
-      );
+      .safeParse(found);
     if (!uuids.success)
       return fail("rekor-response-invalid", "search result is malformed");
-    const unique = [...new Set(uuids.data)];
-    if (unique.length > this.maxEntries)
-      fail(
-        "rekor-statement-ambiguous",
-        `more than ${this.maxEntries} entries claim one subject`,
+    const hits = [...new Set(uuids.data)].sort();
+    const fetched = hits.slice(0, this.fetchBudget);
+    const byPayload = new Map<string, VerifiedOwnerStatement>();
+    for (const uuid of fetched) {
+      const statement = await this.verifiedEntry(
+        uuid,
+        key,
+        subject,
+        head,
+        heads,
       );
-    const statements: VerifiedOwnerStatement[] = [];
-    for (const uuid of unique) {
-      const statement = await this.verifiedEntry(uuid, key, subject, head);
-      if (statement) statements.push(statement);
+      if (!statement) continue;
+      const seen = byPayload.get(statement.payloadSha256);
+      if (!seen || statement.logIndex < seen.logIndex)
+        byPayload.set(statement.payloadSha256, statement);
     }
-    return statements.sort((a, b) => (a.logIndex < b.logIndex ? -1 : 1));
+    const complete = fetched.length === hits.length;
+    const grant =
+      key.kind === "grant-registration" || key.kind === "grant-revocation";
+    if (!complete && (grant || !byPayload.size))
+      fail(
+        "rekor-search-budget-exhausted",
+        `${hits.length} entries claim the ${key.kind} subject and the first ${fetched.length} hold no ${grant ? "complete answer" : "owner statement"}`,
+      );
+    return [...byPayload.values()].sort((a, b) =>
+      a.logIndex < b.logIndex ? -1 : 1,
+    );
   }
 
   /**
@@ -1235,6 +1327,7 @@ class RekorWitness implements RekorWitnessController {
     key: SubjectKey,
     subject: string,
     head: RekorTreeHead,
+    heads: Set<string>,
   ): Promise<VerifiedOwnerStatement | undefined> {
     const response = await this.getJson(`${READ_PATHS.entry}${uuid}`, {});
     if (
@@ -1262,6 +1355,10 @@ class RekorWitness implements RekorWitnessController {
         "rekor-inclusion-invalid",
         "entry is from another log or its body does not match its UUID",
       );
+    // Entries not signed with the issuer key are ignored before any proof,
+    // so third-party entries cost one request each and never refuse.
+    const signed = this.ownerSignature(body, entry.attestation?.data);
+    if (!signed) return undefined;
     // The proof's own head must be signed by the pinned key and consistent
     // with the verified head; then the leaf must be included in it.
     const proof = entry.verification.inclusionProof;
@@ -1279,9 +1376,13 @@ class RekorWitness implements RekorWitnessController {
         "rekor-inclusion-invalid",
         "inclusion proof does not match its signed head",
       );
-    if (proofHead.treeSize >= head.treeSize)
-      await this.requireConsistent(head, proofHead);
-    else await this.requireConsistent(proofHead, head);
+    const headKey = `${proofHead.treeSize}:${proofHead.rootHash}`;
+    if (!heads.has(headKey)) {
+      if (proofHead.treeSize >= head.treeSize)
+        await this.requireConsistent(head, proofHead);
+      else await this.requireConsistent(proofHead, head);
+      heads.add(headKey);
+    }
     const logIndex = BigInt(proof.logIndex);
     if (
       !verifyInclusion(
@@ -1297,8 +1398,6 @@ class RekorWitness implements RekorWitnessController {
         `inclusion proof for entry ${uuid} does not verify`,
       );
 
-    const signed = this.ownerSignature(body, entry.attestation?.data);
-    if (!signed) return undefined;
     const payload = await this.payloadFor(signed.payloadSha256, signed.inline);
     if (
       !verify(
@@ -1418,12 +1517,31 @@ class RekorWitness implements RekorWitnessController {
     return this.rekorRequest(url, "GET");
   }
 
-  private async postJson(pathname: string, body: unknown): Promise<unknown> {
-    return this.rekorRequest(
-      new URL(pathname, this.base),
-      "POST",
-      JSON.stringify(body),
-    );
+  private async postJson(
+    pathname: string,
+    body: unknown,
+    maxBytes: number,
+  ): Promise<unknown> {
+    try {
+      return await this.rekorRequest(
+        new URL(pathname, this.base),
+        "POST",
+        JSON.stringify(body),
+        maxBytes,
+      );
+    } catch (error) {
+      // A flooded subject whose hit list alone exceeds the limit.
+      if (
+        error instanceof RekorWitnessError &&
+        error.code === "rekor-response-invalid" &&
+        /exceeds/.test(error.message)
+      )
+        fail(
+          "rekor-search-budget-exhausted",
+          `the search result exceeds ${maxBytes} bytes`,
+        );
+      throw error;
+    }
   }
 
   /**
@@ -1434,6 +1552,7 @@ class RekorWitness implements RekorWitnessController {
     url: URL,
     method: "GET" | "POST",
     body?: string,
+    maxBytes = this.maxBytes,
   ): Promise<unknown> {
     if (url.protocol !== "https:" || !this.allowed.has(url.hostname))
       fail(
@@ -1468,7 +1587,7 @@ class RekorWitness implements RekorWitnessController {
     }
     let text: string;
     try {
-      text = await boundedBody(response, this.maxBytes);
+      text = await boundedBody(response, maxBytes);
     } catch (error) {
       if (error instanceof RekorWitnessError) throw error;
       return fail(
