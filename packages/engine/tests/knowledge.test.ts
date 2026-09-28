@@ -309,5 +309,35 @@ describe("knowledge packs", () => {
         claim: "x",
       }),
     ).rejects.toThrow("Cite lines within");
+    // The stored pack ends in a newline, which ends its last line rather
+    // than starting another: that last line can be cited, the next cannot.
+    const stored = await readFile(
+      path.join(root, ".graph/knowledge-packs/slash-commands.md"),
+      "utf8",
+    );
+    expect(stored.endsWith("\n")).toBe(true);
+    const last = stored.split("\n").length - 1;
+    await expect(
+      citeKnowledge({
+        context: engine,
+        root,
+        pack: "slash-commands",
+        startLine: last,
+        endLine: last,
+        claim: "The pack's last line",
+      }),
+    ).resolves.toMatchObject({ sources: [{ endLine: last }] });
+    await expect(
+      citeKnowledge({
+        context: engine,
+        root,
+        pack: "slash-commands",
+        startLine: last + 1,
+        endLine: last + 1,
+        claim: "Past the last line",
+      }),
+    ).rejects.toThrow(
+      `Cite lines within 1-${last} of .graph/knowledge-packs/slash-commands.md`,
+    );
   });
 });

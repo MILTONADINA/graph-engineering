@@ -11,6 +11,14 @@ export function hash(value: unknown): string {
     .update(typeof value === "string" ? value : JSON.stringify(value))
     .digest("hex");
 }
+/**
+ * The number of lines a person can cite in a text: a final newline ends the
+ * last line rather than starting another, and an empty text has none.
+ */
+export function lineCount(text: string): number {
+  if (!text) return 0;
+  return (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n").length;
+}
 export async function readJson<T>(file: string): Promise<T> {
   return JSON.parse(await readFile(file, "utf8")) as T;
 }

@@ -27,6 +27,9 @@ Models and tools change faster than any model's training data, so workers need c
   - Test: packages/engine/tests/hygiene.test.ts :: reports stale packs and warns when retrieval includes one
 - AC7: `knowledge-cite` tells the person to accept the proposed observation with `graph-engine memory-accept <id>`, not `memory-review`, which accepts nothing.
   - Test: packages/engine/tests/cli.test.ts :: names memory-accept as how a person accepts a cited knowledge finding
+- AC8: `knowledge-cite` refuses lines past the end of the pack, counting lines as memory sources do: a final newline ends the pack's last line rather than starting another, so that last line can be cited and the empty line after it cannot.
+  - Test: packages/engine/tests/knowledge.test.ts :: is indexed for local workers, never exported, and cited only as a proposed observation
+  - Test: packages/engine/tests/util.test.ts :: counts the lines a person can cite, with a final newline ending the last line
 
 ## Security considerations
 

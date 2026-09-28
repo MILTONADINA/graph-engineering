@@ -240,8 +240,9 @@ it("memory-add refuses a source it cannot resolve and a successor of a memory th
   expect(
     await refused("--source", "public/missing.ts#L1-L1", "Rule"),
   ).toContain("public/missing.ts does not exist");
-  expect(await refused("--source", "public/rule.ts#L2-L9", "Rule")).toContain(
-    "cite lines within 1-3",
+  // public/rule.ts is two lines ending in a newline: line 3 does not exist.
+  expect(await refused("--source", "public/rule.ts#L2-L3", "Rule")).toContain(
+    "public/rule.ts has 2 lines; cite lines within 1-2",
   );
   await mkdir(path.join(root, "dist"));
   await writeFile(path.join(root, "dist", "out.js"), "export {};\n");
