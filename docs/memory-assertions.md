@@ -8,13 +8,13 @@ Create a private proposal that cites its evidence, then attach a reviewed JSON
 file:
 
 ```sh
-graph memory-add "Use PostgreSQL for production storage." --kind constraint \
+graph-engine memory-add "Use PostgreSQL for production storage." --kind constraint \
   --source docs/adr/0012-database.md#L5-L18
-graph memory-assertions <memory-id> reviewed-assertions.json
-graph memory-accept <memory-id>
-graph memory-share <memory-id>
-graph memory-export-authorize <memory-id>                  # prints the exact text and its SHA-256
-graph memory-export-authorize <memory-id> --sha256 <hash>  # records consent
+graph-engine memory-assertions <memory-id> reviewed-assertions.json
+graph-engine memory-accept <memory-id>
+graph-engine memory-share <memory-id>
+graph-engine memory-export-authorize <memory-id>                  # prints the exact text and its SHA-256
+graph-engine memory-export-authorize <memory-id> --sha256 <hash>  # records consent
 ```
 
 Attachment is only allowed while a record is `proposed`; acceptance, sharing and
@@ -31,9 +31,9 @@ file has no lines to cite.
 Sharing does not release a memory to cloud consumers. A requirement or
 constraint reaches a cloud client or worker only when it cites source evidence
 inside `exportPaths`, is shared, and an operator has authorized its exact text:
-`graph memory-export-authorize <memory-id>` shows the text and its SHA-256, and
+`graph-engine memory-export-authorize <memory-id>` shows the text and its SHA-256, and
 re-running with `--sha256 <hash>` records that consent;
-`graph memory-export-revoke <memory-id>` withdraws it. Until then cloud
+`graph-engine memory-export-revoke <memory-id>` withdraws it. Until then cloud
 `context_get` and cloud worker turns refuse the whole packet, naming each
 blocked memory and the command that unblocks it. Only the operator's command
 line records consent; no MCP tool or dashboard route can. `memory-add` warns
@@ -45,9 +45,9 @@ To revise accepted knowledge, or to replace a requirement or constraint that
 cites no exportable evidence, propose a successor with `--supersedes <old-id>`:
 
 ```sh
-graph memory-add "Use PostgreSQL 16 for production storage." --kind constraint \
+graph-engine memory-add "Use PostgreSQL 16 for production storage." --kind constraint \
   --source docs/adr/0014-database.md#L3-L9 --supersedes <old-id>
-graph memory-accept <new-id>   # retires <old-id>: its status becomes superseded
+graph-engine memory-accept <new-id>   # retires <old-id>: its status becomes superseded
 ```
 
 Accepting the successor retires the old memory, which keeps its history but

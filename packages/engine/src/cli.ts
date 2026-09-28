@@ -135,15 +135,52 @@ async function withEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
     await engine.close();
   }
 }
+// The signals that stop a command: Ctrl-C, SIGTERM, and SIGHUP, which a
+// closed terminal or a dropped SSH session sends. Without a handler, SIGHUP
+// would end the process at once and skip the cleanup the others run.
+const STOP_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+let outputErrorsIgnored = false;
+// Calls stop on each of those signals until the returned function removes
+// the handlers. After a hangup the terminal is gone and writing to it fails;
+// those failures are ignored, so they cannot end the process mid-cleanup.
+function onStopSignal(stop: () => void): () => void {
+  const handle = (signal: NodeJS.Signals) => {
+    if (signal === "SIGHUP" && !outputErrorsIgnored) {
+      outputErrorsIgnored = true;
+      for (const stream of [process.stdout, process.stderr])
+        stream.on("error", () => {});
+    }
+    stop();
+  };
+  for (const signal of STOP_SIGNALS) process.on(signal, handle);
+  return () => {
+    for (const signal of STOP_SIGNALS) process.off(signal, handle);
+  };
+}
+// serve, mcp and watch run until a signal stops them. The first signal
+// closes them, which for serve and mcp cancels the runs they started; later
+// ones are ignored until that has finished, so a repeated Ctrl-C cannot end
+// the process while those runs' checks and agents are being stopped.
+function closeOnStopSignal(message: string, close: () => Promise<void>) {
+  let closing = false;
+  const release = onStopSignal(() => {
+    if (closing) return;
+    closing = true;
+    process.stderr.write(message);
+    // A failure to close is left unhandled, so it ends the process with the
+    // error instead of leaving it up on an engine that did not close.
+    void close().finally(release);
+  });
+}
 // run, resume and review-approve wait on a run whose checks and installed
 // agents run in their own process groups, so a terminal's Ctrl-C reaches only
 // this process, and exiting would leave a check container or agent running
-// with no time limit. Ctrl-C or SIGTERM closes the engine instead, which
-// cancels the run: it kills those processes, removes the check containers and
-// records the run as cancelled, or as needs_reconciliation once its
-// publication had started. A run still being set up is never launched. The
-// handlers stay registered until the engine has closed, so a repeated Ctrl-C
-// cannot end the process mid-cleanup.
+// with no time limit. Ctrl-C, SIGTERM or SIGHUP closes the engine instead,
+// which cancels the run: it kills those processes, removes the check
+// containers and records the run as cancelled, or as needs_reconciliation
+// once its publication had started. A run still being set up is never
+// launched. The handlers stay registered until the engine has closed, so a
+// repeated Ctrl-C cannot end the process mid-cleanup.
 async function withRunEngine(
   fn: (engine: GraphEngine) => Promise<{ status: RunStatus }>,
 ) {
@@ -159,8 +196,7 @@ async function withRunEngine(
     // Awaited again below, where a failure to close is reported.
     engine.close().catch(() => {});
   };
-  process.on("SIGINT", cancel);
-  process.on("SIGTERM", cancel);
+  const release = onStopSignal(cancel);
   try {
     // close() lets the run stop and closes the context before the run store,
     // so fn can still read the run's record and events once wait() returns.
@@ -175,8 +211,7 @@ async function withRunEngine(
     try {
       await engine.close();
     } finally {
-      process.off("SIGINT", cancel);
-      process.off("SIGTERM", cancel);
+      release();
     }
   }
   // A run the interrupt stopped once its publication had started needs
@@ -385,15 +420,12 @@ cli
         },
       }),
     );
-    const stop = async () => {
-      await watcher.close();
-      await engine.close();
-    };
-    process.once("SIGINT", () => {
-      void stop();
-    });
-    process.once("SIGTERM", () => {
-      void stop();
+    closeOnStopSignal("Stopping the watch...\n", async () => {
+      try {
+        await watcher.close();
+      } finally {
+        await engine.close();
+      }
     });
   });
 cli.command("templates").action(async () => print(await listTemplates()));
@@ -583,8 +615,7 @@ cli
         controller.abort();
       }
     };
-    process.on("SIGINT", cancel);
-    process.on("SIGTERM", cancel);
+    const release = onStopSignal(cancel);
     let scan: Awaited<ReturnType<typeof runLiveScan>>;
     try {
       scan = await runLiveScan({
@@ -599,8 +630,7 @@ cli
       process.exitCode = 130;
       return;
     } finally {
-      process.off("SIGINT", cancel);
-      process.off("SIGTERM", cancel);
+      release();
     }
     if (options.updateBaseline)
       await writeBaselineFile(
@@ -654,10 +684,11 @@ cli
     );
   });
 // Setting a role to a worker plans cannot use would otherwise only fail
-// later, at planning time.
+// later, at planning time, or for a reviewer only when a run starts.
 async function warnIfUnusable(
   project: Awaited<ReturnType<typeof loadProject>>,
   providerId: string,
+  role?: "reviewer",
 ): Promise<void> {
   const provider = (
     await loadProviders(projectDataDir(project.projectId))
@@ -665,6 +696,13 @@ async function warnIfUnusable(
   if (!provider)
     console.error(
       `${providerId} is not a configured worker yet; add it with graph-engine provider-add.`,
+    );
+  else if (
+    role === "reviewer" &&
+    ["codex", "claude", "cursor"].includes(provider.kind)
+  )
+    console.error(
+      `Runs cannot use ${providerId} as their reviewer: it is an installed ${provider.kind} agent, and installed agents cannot review yet. Set an openai, anthropic or local provider with graph-engine reviewer <providerId>.`,
     );
   else if (!project.policy.providers.includes(providerId))
     console.error(
@@ -696,7 +734,7 @@ cli
       assertProjectConfig(project);
       await writeJson(path.join(root(), PROJECT_FILE), project);
     }
-    if (providerId) await warnIfUnusable(project, providerId);
+    if (providerId) await warnIfUnusable(project, providerId, "reviewer");
     print({ review: project.review ?? null });
   });
 cli
@@ -915,6 +953,9 @@ cli
   .action((planId, options) =>
     withEngine(async (engine) => {
       const plan = engine.store.plan(planId);
+      // The approval binds the whole stored plan, so everything that shapes
+      // what a run does is shown: a template step's inputs set what it
+      // generates and where, as an objective does for a worker step.
       const shown = {
         planId,
         objective: plan.objective,
@@ -925,11 +966,15 @@ cli
           objective: step.objective,
           dependsOn: step.dependsOn,
           providerId: step.providerId ?? null,
+          effort: step.effort ?? null,
           templateId: step.templateId ?? null,
+          inputs: step.inputs ?? null,
           writes: step.writes ?? null,
         })),
         verification: plan.verification,
         publication: plan.publication,
+        routing: plan.routing ?? null,
+        ...(plan.exportSide ? { exportSide: plan.exportSide } : {}),
         spec: plan.spec ?? null,
       };
       if (!options.yes)
@@ -1035,7 +1080,7 @@ cli
       // be created costs no call, and remove it if no proposal reaches it.
       const out = path.resolve(options.out);
       const file = await open(out, "wx", 0o600);
-      // Ctrl-C or SIGTERM during the call (a local planner can take
+      // Ctrl-C, SIGTERM or SIGHUP during the call (a local planner can take
       // minutes) aborts it, so the claimed file is removed below instead of
       // being left empty to refuse the next attempt.
       const controller = new AbortController();
@@ -1046,8 +1091,7 @@ cli
         );
         controller.abort();
       };
-      process.on("SIGINT", cancel);
-      process.on("SIGTERM", cancel);
+      const release = onStopSignal(cancel);
       let proposal: Awaited<ReturnType<GraphEngine["proposeSteps"]>>;
       let bound: boolean;
       try {
@@ -1070,8 +1114,7 @@ cli
         process.exitCode = 130;
         return { cancelled: true };
       } finally {
-        process.off("SIGINT", cancel);
-        process.off("SIGTERM", cancel);
+        release();
       }
       await file.close();
       const plan = `graph-engine plan ${JSON.stringify(objective)} --accept ...`;
@@ -1537,12 +1580,16 @@ cli
       }
     });
     process.stdout.write(`${address}/#token=${token}\n`);
-    const close = async () => {
-      await app.close();
-      await engine.close();
-    };
-    process.once("SIGINT", () => void close());
-    process.once("SIGTERM", () => void close());
+    closeOnStopSignal(
+      "Stopping the dashboard; cancelling the runs it started...\n",
+      async () => {
+        try {
+          await app.close();
+        } finally {
+          await engine.close();
+        }
+      },
+    );
   });
 cli
   .command("mcp")
@@ -1568,13 +1615,16 @@ cli
         allowRunStatus: options.allowRunStatus,
       }),
     );
-    process.once(
-      "SIGINT",
-      () => void server.close().then(() => engine.close()),
-    );
-    process.once(
-      "SIGTERM",
-      () => void server.close().then(() => engine.close()),
+    // Output goes to stderr: stdout carries the MCP stream.
+    closeOnStopSignal(
+      "Stopping the MCP server; cancelling the runs it started...\n",
+      async () => {
+        try {
+          await server.close();
+        } finally {
+          await engine.close();
+        }
+      },
     );
   });
 cli

@@ -216,10 +216,13 @@ async function settled(child: ChildProcess, limitMs = 30_000) {
 // the fix, and a stand-in for Docker runs the check. A hung check never
 // ends, like a hung test; a passing one exits 0 at once. The stand-in
 // records the check's process ID and every other docker command it is
-// given. A plan made under `publication` commits or opens a PR.
+// given. A plan made under `publication` commits or opens a PR. With
+// `slowRemove`, removing a check container takes 3 s, so the cleanup that
+// cancelling a run performs is still going on for that long.
 async function checkProject(
   check: "hung" | "passing",
   publication: "none" | "commit" = "none",
+  { slowRemove = false } = {},
 ) {
   const { root, data, graph } = await project();
   const server = createServer((request, response) => {
@@ -305,6 +308,9 @@ async function checkProject(
       `  image) echo sha256:${"a".repeat(64)} ;;`,
       `  run) echo $$ > ${JSON.stringify(`${pidFile}.tmp`)} && mv ${JSON.stringify(`${pidFile}.tmp`)} ${JSON.stringify(pidFile)}`,
       check === "hung" ? "       exec sleep 300 ;;" : "       exit 0 ;;",
+      ...(slowRemove
+        ? [`  rm) echo "$*" >> ${JSON.stringify(log)} && sleep 3 ;;`]
+        : []),
       `  *) echo "$*" >> ${JSON.stringify(log)} ;;`,
       "esac",
       "",
@@ -319,10 +325,77 @@ async function checkProject(
     planId: JSON.parse(plan.stdout).id as string,
     pidFile,
     log,
+    graph,
     // `preload` modules replace parts of the engine for the command.
     startRun: (planId: string, preload: string[] = []) =>
       graph.startPreloadedWith(withDocker, preload, "run", planId),
+    // Another command, such as serve or mcp, with the same Docker.
+    start: (...args: string[]) => graph.startWith(withDocker, ...args),
   };
+}
+
+function alive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Waits until `ready` gives a value, failing if the command ends first or
+// the limit passes; `output` says what the command printed.
+async function until<T>(
+  child: ChildProcess,
+  what: string,
+  ready: () => Promise<T | undefined> | T | undefined,
+  output: () => string,
+  limitMs = 90_000,
+): Promise<T> {
+  const deadline = Date.now() + limitMs;
+  for (;;) {
+    const value = await ready();
+    if (value !== undefined) return value;
+    if (child.exitCode !== null || child.signalCode !== null)
+      throw new Error(`the command ended before ${what}: ${output()}`);
+    if (Date.now() > deadline)
+      throw new Error(`timed out waiting until ${what}: ${output()}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+// The process ID of a checkProject's hung check, once it has started.
+const checkPid = (pidFile: string) =>
+  readFile(pidFile, "utf8").then(
+    (text) => Number(text.trim()),
+    () => undefined,
+  );
+
+// Whether a checkProject's stand-in for Docker was asked to remove a check
+// container, which a cancelled run does last.
+const removing = (log: string) =>
+  readFile(log, "utf8").then(
+    (text) => (/^rm -f graph-check-/m.test(text) ? true : undefined),
+    () => undefined,
+  );
+
+// How a started command exited, as [code, signal], or "still running" when
+// it had not exited within the limit.
+async function exitOf(
+  exited: Promise<unknown[]>,
+  limitMs = 30_000,
+): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      exited,
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve("still running"), limitMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 describe("command line", () => {
@@ -969,14 +1042,6 @@ describe("command line", () => {
       let stderr = "";
       child.stderr.on("data", (chunk) => (stderr += chunk));
       const closed = once(child, "close");
-      const alive = (pid: number) => {
-        try {
-          process.kill(pid, 0);
-          return true;
-        } catch {
-          return false;
-        }
-      };
       let pid: number | undefined;
       try {
         // Wait until the check has started; it never ends by itself.
@@ -1100,6 +1165,270 @@ describe("command line", () => {
       }
     },
     150_000,
+  );
+
+  // A closed terminal or a dropped SSH session sends SIGHUP, and nothing
+  // the command writes afterwards can be read. Windows has no SIGHUP for a
+  // child process to receive, and the fake docker is a shell script.
+  it.skipIf(process.platform === "win32")(
+    "cancels a run on SIGHUP, as when its terminal closes, stopping its check container although its output can no longer be written",
+    async () => {
+      const { data, planId, pidFile, log, graph, startRun } =
+        await checkProject("hung");
+      const child = startRun(planId);
+      let stderr = "";
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const exited = once(child, "exit");
+      let pid: number | undefined;
+      try {
+        pid = await until(
+          child,
+          "its check started",
+          () => checkPid(pidFile),
+          () => stderr,
+        );
+        // The terminal is gone: writing to it now fails.
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.kill("SIGHUP");
+        expect({
+          exit: await exitOf(exited),
+          checkRunning: alive(pid),
+        }).toEqual({ exit: [130, null], checkRunning: false });
+      } finally {
+        child.kill("SIGKILL");
+        if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+      }
+      // Recorded as cancelled by this process, not recovered later as
+      // needs_reconciliation, as a run whose owner died would be.
+      const runs = await graph("runs");
+      expect(JSON.parse(runs.stdout)).toEqual([
+        expect.objectContaining({ status: "cancelled" }),
+      ]);
+      const commands = await readFile(log, "utf8");
+      expect(commands).toMatch(/^kill graph-check-/m);
+      expect(commands).toMatch(/^rm -f graph-check-/m);
+      expect(
+        (await readdir(data, { recursive: true })).filter((entry) =>
+          path.basename(entry).startsWith("verification-"),
+        ),
+      ).toEqual([]);
+    },
+    150_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "cancels decompose on SIGHUP during the planner call, as when its terminal closes, and removes the claimed file",
+    async () => {
+      const { root, planner, server, startDecompose } =
+        await decomposeProject();
+      planner.mode = "hold";
+      const out = path.join(root, "steps.json");
+      const arrived = once(server, "request");
+      const child = startDecompose(out);
+      let stderr = "";
+      child.stdout.resume();
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const exited = once(child, "exit");
+      try {
+        await Promise.race([
+          arrived,
+          exited.then(() => {
+            throw new Error(
+              `decompose ended before the planner call: ${stderr}`,
+            );
+          }),
+        ]);
+        child.kill("SIGHUP");
+        expect(await exitOf(exited)).toEqual([130, null]);
+      } finally {
+        child.kill("SIGKILL");
+      }
+      await expect(stat(out)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(stderr).toContain("Cancelling the decomposition");
+    },
+    120_000,
+  );
+
+  // The dashboard's runs are cancelled when serve stops. Removing the check
+  // container takes 3 s here, and a second Ctrl-C then must not end the
+  // process before the run has been stopped and recorded.
+  it.skipIf(process.platform === "win32")(
+    "keeps cancelling the runs the dashboard started when Ctrl-C is pressed again while serve stops, then exits",
+    async () => {
+      const { planId, pidFile, log, graph, start } = await checkProject(
+        "hung",
+        "none",
+        { slowRemove: true },
+      );
+      const child = start("serve", "--port", "0");
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const output = () => stdout + stderr;
+      const exited = once(child, "exit");
+      let pid: number | undefined;
+      try {
+        const [, address, token] = await until(
+          child,
+          "the dashboard listened",
+          () =>
+            /^(http:\/\/\S+)\/#token=([0-9a-f]+)$/m.exec(stdout) ?? undefined,
+          output,
+        );
+        const response = await fetch(`${address}/api/runs`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ planId }),
+        });
+        expect(response.status).toBe(200);
+        pid = await until(
+          child,
+          "its check started",
+          () => checkPid(pidFile),
+          output,
+        );
+        child.kill("SIGINT");
+        await until(
+          child,
+          "the check container was being removed",
+          () => removing(log),
+          output,
+        );
+        child.kill("SIGINT");
+        expect({
+          exit: await exitOf(exited),
+          checkRunning: alive(pid),
+        }).toEqual({ exit: [0, null], checkRunning: false });
+      } finally {
+        child.kill("SIGKILL");
+        if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+      }
+      expect(stderr.match(/Stopping the dashboard/g)).toHaveLength(1);
+      const runs = await graph("runs");
+      expect(JSON.parse(runs.stdout)).toEqual([
+        expect.objectContaining({ status: "cancelled" }),
+      ]);
+    },
+    150_000,
+  );
+
+  // An MCP client's runs are cancelled when the server stops, here on
+  // SIGHUP, as when the terminal that started it closes; the same signal
+  // arriving again while that cleanup is going on must not cut it short.
+  it.skipIf(process.platform === "win32")(
+    "stops the MCP server on SIGHUP and keeps cancelling the runs it started when the signal arrives again during cleanup",
+    async () => {
+      const { planId, pidFile, log, graph, start } = await checkProject(
+        "hung",
+        "none",
+        { slowRemove: true },
+      );
+      const child = start("mcp", "--client", "local", "--allow-run");
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const output = () => stdout + stderr;
+      const exited = once(child, "exit");
+      // Newline-delimited JSON-RPC, as an MCP client speaks it over stdio.
+      const send = (message: Record<string, unknown>) =>
+        child.stdin.write(
+          `${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`,
+        );
+      const reply = (id: number) =>
+        until(
+          child,
+          `the reply to request ${id}`,
+          () =>
+            stdout
+              .split("\n")
+              .filter((line) => line.trim())
+              .map((line) => JSON.parse(line) as { id?: number })
+              .find((message) => message.id === id) as
+              { result?: { isError?: boolean } } | undefined,
+          output,
+        );
+      let pid: number | undefined;
+      try {
+        send({
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "cli-test", version: "0.0.0" },
+          },
+        });
+        await reply(1);
+        send({ method: "notifications/initialized" });
+        send({
+          id: 2,
+          method: "tools/call",
+          params: { name: "run_start", arguments: { planId } },
+        });
+        expect((await reply(2)).result?.isError).toBeFalsy();
+        pid = await until(
+          child,
+          "its check started",
+          () => checkPid(pidFile),
+          output,
+        );
+        child.kill("SIGHUP");
+        await until(
+          child,
+          "the check container was being removed",
+          () => removing(log),
+          output,
+        );
+        child.kill("SIGHUP");
+        expect({
+          exit: await exitOf(exited),
+          checkRunning: alive(pid),
+        }).toEqual({ exit: [0, null], checkRunning: false });
+      } finally {
+        child.kill("SIGKILL");
+        if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+      }
+      expect(stderr.match(/Stopping the MCP server/g)).toHaveLength(1);
+      const runs = await graph("runs");
+      expect(JSON.parse(runs.stdout)).toEqual([
+        expect.objectContaining({ status: "cancelled" }),
+      ]);
+    },
+    150_000,
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "stops watch on SIGHUP, as when its terminal closes, closing its engine before it exits",
+    async () => {
+      const { graph } = await project();
+      await graph("init");
+      const child = graph.start("watch", "--interval", "1000");
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const exited = once(child, "exit");
+      try {
+        await until(
+          child,
+          "it indexed the project",
+          () => (stdout.includes("}") ? true : undefined),
+          () => stdout + stderr,
+        );
+        child.kill("SIGHUP");
+        expect(await exitOf(exited)).toEqual([0, null]);
+      } finally {
+        child.kill("SIGKILL");
+      }
+      expect(stderr).toContain("Stopping the watch");
+    },
+    120_000,
   );
 
   it("narrows the configured tester's test-file globs with tester --writes, and refuses --writes when no tester is set", async () => {
@@ -1227,6 +1556,117 @@ describe("command line", () => {
       `sub: This provider cannot support the configured cost budget: ${refusal}`,
     );
     expect(refused.stderr).not.toContain("configure pricing");
+  }, 120_000);
+
+  it("warns when the reviewer is set to an installed agent, which cannot review, instead of only when a run starts", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    // A policy that permits installed agents, with no cost cap (the init
+    // default), so no cost warning is given in place of this one.
+    const file = path.join(root, ".graph/project.json");
+    const config = JSON.parse(await readFile(file, "utf8"));
+    config.policy.inference = "allowlisted";
+    config.policy.network = "allowlisted";
+    expect(config.policy.maxCostUsd).toBeNull();
+    await writeFile(file, JSON.stringify(config));
+    expect(
+      (await graph("provider-add", "sub", "claude", "fixture", "--enable"))
+        .code,
+    ).toBe(0);
+    const warning = "installed agents cannot review yet";
+    const installed = await graph("reviewer", "sub");
+    expect(installed.code).toBe(0);
+    expect(installed.stderr).toContain(
+      `Runs cannot use sub as their reviewer: it is an installed claude agent, and ${warning}`,
+    );
+    expect(JSON.parse(installed.stdout)).toEqual({
+      review: { providerId: "sub" },
+    });
+    // An API or local reviewer is not warned about.
+    await graph(
+      "provider-add",
+      "qwen",
+      "local",
+      "fixture",
+      "--endpoint",
+      "http://127.0.0.1:1/v1",
+    );
+    const local = await graph("reviewer", "qwen");
+    expect(local.code).toBe(0);
+    expect(local.stderr).not.toContain(warning);
+  }, 120_000);
+
+  it("shows everything plan-approve's approval covers, including a template step's inputs and each step's effort", async () => {
+    const { graph } = await project();
+    await graph("init");
+    await graph(
+      "provider-add",
+      "qwen",
+      "local",
+      "fixture",
+      "--endpoint",
+      "http://127.0.0.1:1/v1",
+      "--efforts",
+      "low,high",
+    );
+    // Outside the project, so the steps file is not bound as source.
+    const outside = await mkdtemp(path.join(tmpdir(), "graph-cli-steps-"));
+    directories.push(outside);
+    const inputs = {
+      targetDirectory: "services/api",
+      exposeStack: true,
+      anything: "a value the approver must see",
+    };
+    const steps = path.join(outside, "steps.json");
+    await writeFile(
+      steps,
+      JSON.stringify([
+        {
+          id: "errors",
+          kind: "template",
+          objective: "Add the error handler",
+          dependsOn: [],
+          templateId: "backend.error-handler",
+          inputs,
+        },
+        {
+          id: "fix",
+          kind: "worker",
+          objective: "Fix addition",
+          dependsOn: ["errors"],
+          providerId: "qwen",
+          effort: "high",
+        },
+      ]),
+    );
+    const plan = await graph(
+      "plan",
+      "Add error handling",
+      "--accept",
+      "Errors return JSON",
+      "--steps",
+      steps,
+    );
+    expect(plan.code).toBe(0);
+    const shown = await graph("plan-approve", JSON.parse(plan.stdout).id);
+    expect(shown.code).toBe(0);
+    const output = JSON.parse(shown.stdout);
+    expect(output.steps).toEqual([
+      expect.objectContaining({
+        id: "errors",
+        templateId: "backend.error-handler",
+        inputs,
+        effort: null,
+      }),
+      expect.objectContaining({
+        id: "fix",
+        providerId: "qwen",
+        effort: "high",
+        inputs: null,
+      }),
+    ]);
+    expect(output).toHaveProperty("routing");
+    expect(output.approved).toBe(false);
   }, 120_000);
 
   it("names memory-accept as how a person accepts a cited knowledge finding", async () => {

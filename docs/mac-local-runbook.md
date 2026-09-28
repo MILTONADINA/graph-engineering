@@ -181,8 +181,14 @@ machine work.
 The private Jev key source can be loaded only through the opt-in
 `npm run graph:local -- --with-jev` path. The tracked project policy still
 allows only local Qwen and Laya, sets `maxCostUsd` to zero, and does not
-authorize Jev. No metered Jev call has been made; each operator must select
-their own provider, reviewed price and spending ceiling before enabling one.
+authorize Jev. Metered Jev calls have been made: on 2026-09-25 the owner
+authorized Jev for a session under an owner-selected per-session cap, and
+shadow-only Jev routing decisions were recorded, through a local, uncommitted
+policy edit (see
+[local validation](local-validation.md#local-stack-pilot-with-jev-routing--2026-09-25-utc)).
+That authorization covered that session only; each operator, and each
+session, must still select its own provider, reviewed price and spending
+ceiling before enabling one.
 Separately, a single bounded Claude Max subscription call passed the managed
 proposal adapter using a
 selected public source snippet; it did not apply a patch. Native subscription

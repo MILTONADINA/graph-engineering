@@ -213,7 +213,7 @@ The command, which has no MCP tool or dashboard action:
    container whose `docker run` was cancelled before it returned is removed
    too; then checks nothing with that label is left, deletes the report
    directory, and names anything it could not remove. This happens when the
-   scan fails too, and on Ctrl-C or SIGTERM (exit code 130); repeated
+   scan fails too, and on Ctrl-C, SIGTERM or SIGHUP (exit code 130); repeated
    signals are ignored until cleanup finishes.
 
 The scan needs Docker Engine 26 or later, and refuses an older or
