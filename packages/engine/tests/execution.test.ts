@@ -769,6 +769,42 @@ describe("managed execution", () => {
     await writeJson(path.join(root, PROJECT_FILE), config);
     await expect(engine.start(fresh.id)).rejects.toThrow("Policy changed");
   });
+  it("warns about a plan made without checks and, once checks exist, says to create a new plan", async () => {
+    const { root, config } = await fixture();
+    const checks = config.verification;
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      verification: [],
+    });
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["tests pass"],
+    });
+    expect(plan.verification).toEqual([]);
+    expect(engine.planWarnings(plan)).toEqual([
+      expect.stringContaining(
+        "This plan has no verification commands, so it cannot run",
+      ),
+    ]);
+    await expect(engine.start(plan.id)).rejects.toThrow(
+      "Configure verification commands with graph-engine check-add, then create a new plan",
+    );
+    // What check-add does: the project gains a check, the plan keeps none.
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await expect(engine.start(plan.id)).rejects.toThrow(
+      "This plan was created before any verification command was configured; create a new plan",
+    );
+    const fresh = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["tests pass"],
+    });
+    expect(fresh.verification).toEqual(checks);
+    expect(engine.planWarnings(fresh)).toEqual([]);
+  });
   it("reloads the policy exactly as the project file has it, dropping removed keys and keeping the file's key order", async () => {
     const { root, config } = await fixture();
     config.policy.allowPublicTemplateLedger = true;

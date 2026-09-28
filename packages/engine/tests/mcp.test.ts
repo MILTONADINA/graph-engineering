@@ -751,11 +751,33 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(await names(readOnly.client)).toEqual(
       expect.arrayContaining(["run_status", "run_list", "run_events"]),
     );
-    expect(await names(readOnly.client)).not.toContain("plan_create");
-    expect(await names(readOnly.client)).not.toContain("plan_decompose");
+    // Only --allow-run enables run control; reading runs is on for a local
+    // client and needs --allow-run-status for a cloud one.
+    const control = [
+      "plan_create",
+      "plan_decompose",
+      "run_start",
+      "run_cancel",
+    ];
+    for (const tool of control)
+      expect(await names(readOnly.client)).not.toContain(tool);
+    const cloudStatus = await connect({
+      client: "cloud",
+      allowRunStatus: true,
+    });
+    connections.push(cloudStatus);
+    expect(await names(cloudStatus.client)).toEqual(
+      expect.arrayContaining(["run_status", "run_list", "run_events"]),
+    );
+    for (const tool of control)
+      expect(await names(cloudStatus.client)).not.toContain(tool);
     const cloudDefault = await connect({ client: "cloud", allowRun: true });
     connections.push(cloudDefault);
-    expect(await names(cloudDefault.client)).not.toContain("run_events");
+    expect(await names(cloudDefault.client)).toEqual(
+      expect.arrayContaining(control),
+    );
+    for (const tool of ["run_status", "run_list", "run_events"])
+      expect(await names(cloudDefault.client)).not.toContain(tool);
 
     const local = await connect({ client: "local", allowRun: true });
     connections.push(local);
@@ -912,6 +934,26 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     expect(cloudProposal.isError).not.toBe(true);
     expect(plannerSaw).toHaveLength(calls + 1);
     expect(plannerSaw.at(-1)).toEqual([]);
+
+    // A plan keeps the checks configured when it was created, so the client
+    // is told when a plan has none and can never run.
+    expect(json(cloudPlan).warnings).toBeUndefined();
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      verification: [],
+    });
+    const unverified = json(
+      await local.client.callTool({
+        name: "plan_create",
+        arguments: { objective: "Fix addition", acceptance: ["2 + 3 is 5"] },
+      }),
+    );
+    expect(unverified.warnings).toEqual([
+      expect.stringContaining(
+        "This plan has no verification commands, so it cannot run",
+      ),
+    ]);
+    await writeJson(path.join(root, PROJECT_FILE), config);
 
     // A plan that publishes needs a person's approval before an AI starts it.
     const publishing2 = {

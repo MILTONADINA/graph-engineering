@@ -225,8 +225,8 @@ export function createServer(
         .parse(request.body),
     );
     // Additive: the dashboard shows it beside the plan.
-    const warning = engine.turnWarning(plan);
-    return warning ? { ...plan, warnings: [warning] } : plan;
+    const warnings = engine.planWarnings(plan);
+    return warnings.length ? { ...plan, warnings } : plan;
   });
   app.post("/api/runs", (request) =>
     engine.start(

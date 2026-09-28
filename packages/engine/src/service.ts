@@ -333,6 +333,32 @@ export class GraphEngine {
       ? `This plan may need about ${needed} model calls (its steps, reviews and repair attempts), but policy.maxTurns allows ${this.config.policy.maxTurns} for the whole run. To allow more, raise policy.maxTurns and plan again before starting: a policy change refuses this plan, and once a run starts it voids resume and review-approve for that run.`
       : undefined;
   }
+  /**
+   * What to tell the person about a plan they just created, before a run
+   * refuses it: a plan without verification commands can never run, and
+   * one that needs more model calls than policy.maxTurns may stop half way.
+   */
+  planWarnings(plan: Pick<ExecutionPlan, "steps" | "verification">): string[] {
+    const turns = this.turnWarning(plan);
+    return [
+      ...(plan.verification.length === 0
+        ? [
+            "This plan has no verification commands, so it cannot run: a plan keeps the commands configured when it was created. Add a check with graph-engine check-add <image> <command...>, then create a new plan.",
+          ]
+        : []),
+      ...(turns ? [turns] : []),
+    ];
+  }
+  // A plan keeps the verification configured when it was created, so adding
+  // checks later never makes it runnable; say which of the two to do.
+  private assertPlanVerification(plan: Pick<ExecutionPlan, "verification">) {
+    if (plan.verification.length > 0) return;
+    throw new Error(
+      this.config.verification.length > 0
+        ? "This plan was created before any verification command was configured; create a new plan"
+        : "Configure verification commands with graph-engine check-add, then create a new plan: a plan keeps the commands configured when it was created",
+    );
+  }
   // Configured workers the policy permits and, for installed agents, that
   // are installed.
   /**
@@ -920,8 +946,7 @@ export class GraphEngine {
       throw new Error("Policy changed since planning; create a new plan");
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
-    if (plan.verification.length === 0)
-      throw new Error("Configure verification commands before running work");
+    this.assertPlanVerification(plan);
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
     await this.assertSecurityScanner();
@@ -1107,8 +1132,7 @@ export class GraphEngine {
       throw new Error("Policy changed; create a fresh plan");
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
-    if (run.plan.verification.length === 0)
-      throw new Error("Configure verification commands before running work");
+    this.assertPlanVerification(run.plan);
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
     await this.assertSecurityScanner(

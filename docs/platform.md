@@ -96,7 +96,7 @@ npm run graph -- -C /path/to/project plan 'Fix the failing addition test' --acce
 npm run graph -- -C /path/to/project run PLAN_ID
 ```
 
-`provider-add` stores a worker's whole configuration, replacing any worker with the same ID, and permits a local worker. A cloud or installed worker needs `--enable`; to permit a worker that is already configured, run `provider-enable <id>`, which adds it to `policy.providers` and leaves its endpoint, key variable, prices, efforts and limits unchanged. The program's own options, such as `-C <project>`, go before the command.
+`provider-add` stores a worker's whole configuration, replacing any worker with the same ID, and permits a local worker. A cloud or installed worker needs `--enable`; to permit a worker that is already configured, run `provider-enable <id>`, which adds it to `policy.providers` and leaves its endpoint, key variable, prices, efforts and limits unchanged. The program's own options, such as `-C <project>`, go before the command. Register checks with `check-add` before planning: a plan keeps the verification commands configured when it was created, so `plan` (and `plan_create` and the dashboard) warns about a plan with none, and `run` refuses it and, once checks exist, says to create a new plan.
 
 The local endpoint must support OpenAI-compatible chat completions and structured JSON responses. Graph Engineering does not install or assume a particular generative model. Cloud API providers use `openai` or `anthropic`; configure their model, supported efforts, and credential environment variable explicitly. Installed-agent capability restrictions are described in `installed-workers.md`.
 

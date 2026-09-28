@@ -384,7 +384,9 @@ export function RunsPage({
                     ))
                   ) : (
                     <p>
-                      No verification commands are configured for this project.
+                      This plan has no verification commands, so it cannot run.
+                      Add a check with graph-engine check-add, then create a new
+                      plan.
                     </p>
                   )}
                 </div>

@@ -44,10 +44,15 @@ acceptance before it counts as done.
 
 A team works to shared standards. Record yours as constraint memories and
 accept them; accepted requirements and constraints are placed in the
-mandatory section of every context packet, so every developer, tester and
-reviewer step sees them. A new memory is only a proposal until you accept
-it with `memory-accept`; `memory-review` reports stale evidence and
-conflicts but accepts nothing. For example:
+mandatory section of every developer and tester step's context packet, so
+the workers that write the change and its tests see them. The code
+reviewer does not: it judges only the plan's objective, its acceptance
+criteria, the diff and a summary of the checks
+([what the reviewer sees](code-review.md#what-the-reviewer-sees-and-decides)),
+so a standard the reviewer must hold a change to belongs in the acceptance
+criteria, or in a check when it can be tested. A new memory is only a
+proposal until you accept it with `memory-accept`; `memory-review` reports
+stale evidence and conflicts but accepts nothing. For example:
 
 ```sh
 graph-engine memory-add --kind constraint "Every feature has a spec with acceptance criteria linked to tests before it is built."

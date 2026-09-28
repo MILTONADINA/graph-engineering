@@ -17,7 +17,9 @@ graph-engine check-add my-project-verify:local <the check command>
 Everything after the image is stored as the check's command exactly as
 typed, including its own options and `--` (`make -C sub test`,
 `mvn -B -V verify`, `npm test -- --run`). Put graph-engine's own options,
-such as `-C <project>`, before `check-add`.
+such as `-C <project>`, before `check-add`. Add checks before you plan: a
+plan keeps the checks configured when it was created, so a plan made before
+any `check-add` cannot run, and you create a new plan once checks exist.
 
 ## The reliable recipe: run the real check while building
 
