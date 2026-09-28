@@ -15,6 +15,7 @@ import type {
   ExecutionPlan,
   ExecutionStep,
   ProjectConfig,
+  ProjectPolicy,
   ProviderConfig,
   RunOutcome,
   RunRecord,
@@ -48,6 +49,7 @@ import {
   estimateRequestCost,
   fitWorkerContext,
   type WorkerInput,
+  type WorkerProposal,
   type WorkerResult,
   proposalSchema,
 } from "./workers/api.js";
@@ -58,11 +60,14 @@ import {
 import {
   applyProposal,
   assertVerificationPaths,
+  captureOriginals,
   createWorkspace,
   recoverBaseCommit,
   prepareProposal,
+  restoreOriginals,
   workspaceFingerprint,
   gitFiles,
+  PATH_ALIAS_ERROR,
 } from "./execution/workspace.js";
 import {
   dockerAvailable,
@@ -915,13 +920,7 @@ export class GraphEngine {
     const snapshot = await this.context.index({ semantic: false });
     if (snapshot.id !== plan.snapshotId)
       throw new Error("Source changed since planning; create a fresh plan");
-    if (
-      plan.publication !== "none" &&
-      (await checkedGit(this.root, ["status", "--porcelain"]))
-    )
-      throw new Error(
-        "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",
-      );
+    await this.assertCleanForPublication(plan.publication);
     const run: RunRecord = {
       id: id(),
       plan,
@@ -933,6 +932,21 @@ export class GraphEngine {
     this.store.reserve(run, this.config.policy.maxWorkers);
     this.launch(run);
     return this.store.run(run.id);
+  }
+  // A run that publishes copies the checkout into its workspace and commits
+  // every change there, so the checkout must be clean when the workspace is
+  // created. The source snapshot cannot stand in for this: it leaves out
+  // binary, large and credential-like files.
+  private async assertCleanForPublication(
+    publication: RunRecord["plan"]["publication"],
+  ): Promise<void> {
+    if (
+      publication !== "none" &&
+      (await checkedGit(this.root, ["status", "--porcelain"]))
+    )
+      throw new Error(
+        "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",
+      );
   }
   private launch(run: RunRecord, resuming = false): void {
     const controller = new AbortController();
@@ -1126,6 +1140,9 @@ export class GraphEngine {
       throw new Error(
         "Source changed before workspace creation; create a fresh plan",
       );
+    // The resumed run creates its workspace from the checkout, as start does.
+    if (!run.workspace)
+      await this.assertCleanForPublication(run.plan.publication);
     const reserved = this.store.reserveResume(
       runId,
       this.config.policy.maxWorkers,
@@ -1320,6 +1337,8 @@ export class GraphEngine {
       let feedback = "";
       let verified = false;
       let verifiedHash: string | undefined;
+      // The snapshot the last verification in this execution checked.
+      let checkedHash: string | undefined;
       let reviewFeedback = "";
       let reviewFeedbackExportable = false;
       // New security findings in a verified result go back to the worker as
@@ -1784,6 +1803,7 @@ export class GraphEngine {
           throw new Error(
             "Verification modified project source; review the retained workspace before retrying",
           );
+        checkedHash = after;
         const infrastructureFailure = checks.find(
           (check) =>
             check.code === 125 ||
@@ -2115,7 +2135,15 @@ export class GraphEngine {
                 event.stepId === step.id),
           )
         ) {
-          if (await verify(step.id)) {
+          // A resumed plan reaches its repair only after verify("dag") found
+          // the unchanged workspace wanting; checking the retained repair
+          // again would repeat the checks and a paid review of that snapshot.
+          const justChecked =
+            step.id === DAG_REPAIR_STEP &&
+            checkedHash !== undefined &&
+            checkedHash ===
+              (await workspaceFingerprint(workspace, this.config.policy));
+          if (!justChecked && (await verify(step.id))) {
             this.store.event(run.id, "step.reconciled", {}, step.id);
             continue;
           }
@@ -2154,7 +2182,7 @@ export class GraphEngine {
         let reusableProposal: WorkerResult["proposal"] | undefined;
         if (cached) {
           const proposal = cached;
-          await applyProposal(workspace, proposal, this.config.policy);
+          await applyWholePatch(workspace, proposal, this.config.policy);
           this.store.event(
             run.id,
             "solution.cache_hit",
@@ -2430,7 +2458,7 @@ export class GraphEngine {
                         onEvent: recordDagEvent,
                       })
                     ).paths
-                  : await applyProposal(
+                  : await applyWholePatch(
                       workspace,
                       result.proposal,
                       this.config.policy,
@@ -2823,6 +2851,36 @@ function testFirstFeedback(
     : undefined;
 }
 
+// Applies a single-step patch as a whole, as a DAG step's is: it is
+// validated first, so a patch that cannot apply goes back to the worker with
+// nothing written, and a write that fails partway (a full disk, say) is
+// undone. A file left behind would be missing from the run's record, so
+// review would skip it and publication would still commit it.
+async function applyWholePatch(
+  workspace: string,
+  proposal: WorkerProposal,
+  policy: ProjectPolicy,
+): Promise<string[]> {
+  await prepareProposal(workspace, proposal, policy);
+  const paths = [...new Set(proposal.changes.map((change) => change.path))];
+  const originals = await captureOriginals(workspace, paths, policy);
+  try {
+    return await applyProposal(workspace, proposal, policy);
+  } catch (error) {
+    try {
+      await restoreOriginals(originals);
+    } catch (restoreError) {
+      throw new DagReconciliationError(
+        `A patch failed while its files were written (${errorMessage(error)}) and could not be rolled back (${errorMessage(restoreError)}); inspect ${paths.join(", ")} in the retained workspace, then resume with reconciliation acknowledgement or create a new plan`,
+      );
+    }
+    throw new Error(
+      `${errorMessage(error)} The patch was rolled back; the workspace is at its state before the patch.`,
+      { cause: error },
+    );
+  }
+}
+
 // What a worker is told when its patch cannot apply, and the reason code
 // recorded for it, or undefined for errors that are not the worker's to fix.
 function patchErrorFeedback(
@@ -2842,6 +2900,11 @@ function patchErrorFeedback(
           ? `${message}: that file already exists. Put your tests in a new file with a different name.`
           : `${message}: that file already exists. Request it first, then edit it with a before that matches its content, or create a file with a different name.`,
       reason: "file-exists",
+    };
+  if (message.startsWith(PATH_ALIAS_ERROR))
+    return {
+      feedback: `${message}. Spell each file one way, and do not use one path as both a file and a directory in a patch.`,
+      reason: "path-alias",
     };
   return undefined;
 }

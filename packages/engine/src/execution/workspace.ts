@@ -4,7 +4,9 @@ import {
   readFile,
   readdir,
   realpath,
+  rmdir,
   stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -161,11 +163,32 @@ export async function recoverBaseCommit(
       : "HEAD^{commit}",
   ]);
 }
+/** Prefix of the error for a proposal that uses one path as a file and a directory. */
+export const PATH_ALIAS_ERROR = "Patch paths conflict";
+/** Whether two proposal paths name one file (up to case and Unicode form) or one is inside the other. */
+export function pathsOverlap(left: string, right: string): boolean {
+  const a = left.normalize("NFC").toLowerCase(),
+    b = right.normalize("NFC").toLowerCase();
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
 export async function prepareProposal(
   workspace: string,
   proposal: WorkerProposal,
   policy: ProjectPolicy,
 ): Promise<Map<string, { absolute: string; content: string }>> {
+  // One path used as a file and as a directory (or two spellings of one
+  // file) cannot be written as a whole: the second write fails after the
+  // first is on disk.
+  const paths = [...new Set(proposal.changes.map((change) => change.path))];
+  for (const [position, file] of paths.entries()) {
+    const previous = paths
+      .slice(0, position)
+      .find((prior) => pathsOverlap(prior, file));
+    if (previous !== undefined)
+      throw new Error(
+        `${PATH_ALIAS_ERROR}: ${previous} and ${file} name the same file, or one is inside the other`,
+      );
+  }
   const staged = new Map<string, { absolute: string; content: string }>();
   // Workspace content before this proposal, for judging only what it adds.
   const baselines = new Map<string, string>();
@@ -231,6 +254,78 @@ export async function applyProposal(
     await writeFile(absolute, content);
   }
   return [...staged.keys()];
+}
+
+/**
+ * What a patch's files held before it was applied, and the directories it
+ * may create, so a failed application can be undone with restoreOriginals.
+ */
+export interface Originals {
+  files: { absolute: string; content: Buffer | null }[];
+  /** Directories the patch may create, deepest first. */
+  directories: string[];
+}
+export async function captureOriginals(
+  workspace: string,
+  paths: string[],
+  policy: ProjectPolicy,
+): Promise<Originals> {
+  const files: Originals["files"] = [],
+    directories = new Set<string>();
+  const root = await realpath(workspace); // safePath resolves from here
+  for (const file of paths) {
+    const absolute = await safePath(workspace, file, policy);
+    let content: Buffer | null = null;
+    try {
+      content = await readFile(absolute);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    files.push({ absolute, content });
+    for (
+      let directory = path.dirname(absolute);
+      directory.startsWith(`${root}${path.sep}`);
+      directory = path.dirname(directory)
+    ) {
+      try {
+        await stat(directory);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        directories.add(directory);
+      }
+    }
+  }
+  return {
+    files,
+    directories: [...directories].sort((a, b) => b.length - a.length),
+  };
+}
+export async function restoreOriginals(originals: Originals): Promise<void> {
+  for (const { absolute, content } of originals.files) {
+    if (content === null) {
+      try {
+        await unlink(absolute);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    } else {
+      await mkdir(path.dirname(absolute), { recursive: true });
+      await writeFile(absolute, content);
+    }
+  }
+  for (const directory of originals.directories) {
+    try {
+      await rmdir(directory);
+    } catch (error) {
+      if (
+        !["ENOENT", "ENOTEMPTY", "EEXIST"].includes(
+          (error as NodeJS.ErrnoException).code ?? "",
+        )
+      )
+        throw error;
+    }
+  }
 }
 export async function workspaceFingerprint(
   workspace: string,
