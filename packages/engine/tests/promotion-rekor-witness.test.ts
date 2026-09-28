@@ -39,6 +39,7 @@ import {
   type RekorFetch,
   type RekorWitnessOptions,
 } from "../src/promotion-rekor-witness.js";
+import { SIGSTORE_REKOR_V1 } from "../src/promotion-anchor-enrollment.js";
 import { inspectPrivateSealedAggregateProvenance } from "../src/sealed-aggregate-provenance.js";
 import { canonicalJson, hashJson } from "../src/sealed-collection-schema.js";
 import { inspectSealedCurrentGovernance } from "../src/sealed-governance-witness.js";
@@ -1117,11 +1118,7 @@ describe("Rekor witness refusals", () => {
 // Live, read-only check against the public log (GRAPH_ENGINE_REKOR_LIVE=1).
 
 /** rekor.sigstore.dev's log key, as pinned in Sigstore's TUF trusted_root.json. */
-const SIGSTORE_REKOR_V1_KEY = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2G2Y+2tabdTV5BcGiBIx0a9fAFwr
-kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
------END PUBLIC KEY-----
-`;
+const SIGSTORE_REKOR_V1_KEY = SIGSTORE_REKOR_V1.logPublicKeyPem;
 
 it.runIf(process.env.GRAPH_ENGINE_REKOR_LIVE === "1")(
   "verifies the live Rekor tree head, a consistency proof and an inclusion proof",

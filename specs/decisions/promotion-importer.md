@@ -135,4 +135,5 @@ read, and the test checks that no later audit ran.
 
 Admitting a grant, signing or installing one, verifying an issuer signature,
 reading a real witness, creating the trust anchor, or selecting any controller
-other than `none`. Enrollment and the witness high-water state remain PR-4.
+other than `none`. Enrollment and the witness high-water state are PR-4
+([anchor enrollment](promotion-anchor-enrollment.md)).

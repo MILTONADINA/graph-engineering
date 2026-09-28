@@ -156,6 +156,18 @@ kBbmLSGtks4L3qX6yYY0zufBnhC8Ur/iy55GhWP/9A/bY2LhC30M9+RYtw==
 -----END PUBLIC KEY-----
 ```
 
+This key is pinned in the engine as `SIGSTORE_REKOR_V1`
+(`packages/engine/src/promotion-anchor-enrollment.ts`), and
+`promotion anchor-prepare` copies it into the D3 anchor. On 2026-09-28 the
+live `GET https://rekor.sigstore.dev/api/v1/log/publicKey` returned exactly
+these PEM bytes, with SHA-256
+`dce5ef715502ec9f3cdfd11f8cc384b31a6141023d3e7595e9908a81cb6241bd`. The
+SHA-256 of their SPKI DER is the log ID above, and the bytes equal the
+trusted root's `rawBytes`. The engine never fetches the key.
+`rekorWitnessOptionsFromAnchor` builds the adapter's inputs from a `1.1.0`
+anchor, with `allowedHosts` set to the anchor's host alone; it does not
+register the adapter.
+
 The adapter makes only these requests:
 
 - `GET /api/v1/log` returns `{rootHash, signedTreeHead, treeID, treeSize,

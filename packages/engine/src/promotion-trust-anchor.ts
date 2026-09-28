@@ -4,6 +4,7 @@
 // into the engine, written by the owner with sudo after checking its pins out
 // of band. The engine never creates, repairs or writes it, and no environment
 // variable, flag, setting or data-dir file can point elsewhere.
+import { createHash, createPublicKey, type KeyObject } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -32,56 +33,128 @@ const registryName = <T extends Readonly<Record<string, unknown>>>(
     .refine((value) => Object.hasOwn(registry, value))
     .transform((value) => value as keyof T & string);
 
-export const promotionTrustAnchorSchema = z
+const keyPins = <K extends string>(actor: K) =>
+  z
+    .array(
+      z
+        .object({
+          [actor]: name,
+          keyId: name,
+          publicKeySha256: digestSchema,
+        } as Record<K | "keyId" | "publicKeySha256", typeof name>)
+        .strict(),
+    )
+    .min(1)
+    .max(20);
+const anchorCommon = {
+  kind: z.literal("graph-engineering-promotion-trust-anchor"),
+  enrolledProjects: z
+    .array(
+      z
+        .object({
+          projectId: name,
+          repositoryIdentitySha256: digestSchema,
+        })
+        .strict(),
+    )
+    .min(1)
+    .max(100),
+  approverKeys: keyPins("operatorId"),
+  issuerKeys: keyPins("issuerId"),
+  witnessId: name,
+  controllers: z
+    .object({
+      witness: registryName(WITNESS_CONTROLLERS),
+      custody: registryName(SIGNER_CUSTODIES),
+      modelIdentity: registryName(MODEL_IDENTITY_ATTESTORS),
+    })
+    .strict(),
+};
+
+const MAX_PEM_CHARACTERS = 1_024;
+/** SHA-256 of a public key's SPKI DER, the fingerprint every pin uses. */
+const spkiSha256 = (key: KeyObject): string =>
+  createHash("sha256")
+    .update(key.export({ type: "spki", format: "der" }))
+    .digest("hex");
+/** The key, when `pem` is exactly the canonical SPKI PEM of one public key. */
+function canonicalPublicKey(pem: string): KeyObject | undefined {
+  try {
+    const key = createPublicKey(pem);
+    return key.export({ type: "spki", format: "pem" }).toString() === pem
+      ? key
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The Rekor v1 witness pins (docs/promotion-rekor-witness.md): the log's
+ * ECDSA P-256 key and ID, its API origin, and the owner's Ed25519 issuer key
+ * that signs every statement. Every cross-field rule is checked here, so an
+ * anchor that parses always yields a config the adapter accepts.
+ */
+const rekorPinsSchema = z
   .object({
-    version: z.literal("1.0.0"),
-    kind: z.literal("graph-engineering-promotion-trust-anchor"),
-    enrolledProjects: z
-      .array(
-        z
-          .object({
-            projectId: name,
-            repositoryIdentitySha256: digestSchema,
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(100),
-    approverKeys: z
-      .array(
-        z
-          .object({
-            operatorId: name,
-            keyId: name,
-            publicKeySha256: digestSchema,
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(20),
-    issuerKeys: z
-      .array(
-        z
-          .object({
-            issuerId: name,
-            keyId: name,
-            publicKeySha256: digestSchema,
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(20),
-    witnessId: name,
-    controllers: z
-      .object({
-        witness: registryName(WITNESS_CONTROLLERS),
-        custody: registryName(SIGNER_CUSTODIES),
-        modelIdentity: registryName(MODEL_IDENTITY_ATTESTORS),
-      })
-      .strict(),
+    kind: z.literal("rekor-v1"),
+    apiVersion: z.literal("v1"),
+    baseUrl: z.string().regex(/^https:\/\/[a-z0-9.-]{1,253}$/),
+    origin: z.string().regex(/^[a-z0-9.-]{1,253}$/),
+    logId: digestSchema,
+    logPublicKeyPem: z.string().max(MAX_PEM_CHARACTERS),
+    issuerKeyId: name,
+    issuerPublicKeyPem: z.string().max(MAX_PEM_CHARACTERS),
   })
   .strict();
+
+const anchorV1_1 = z
+  .object({
+    version: z.literal("1.1.0"),
+    ...anchorCommon,
+    labelerKeys: keyPins("labelerId"),
+    rekor: rekorPinsSchema,
+  })
+  .strict()
+  .superRefine((anchor, context) => {
+    const issue = (message: string) =>
+      context.addIssue({ code: "custom", message, path: ["rekor"] });
+    const { rekor } = anchor;
+    if (new URL(rekor.baseUrl).hostname !== rekor.origin)
+      issue("the Rekor base URL host differs from its origin");
+    const logKey = canonicalPublicKey(rekor.logPublicKeyPem);
+    if (
+      !logKey ||
+      logKey.asymmetricKeyType !== "ec" ||
+      logKey.asymmetricKeyDetails?.namedCurve !== "prime256v1"
+    )
+      issue("the Rekor log key is not a canonical ECDSA P-256 PEM");
+    else if (spkiSha256(logKey) !== rekor.logId)
+      issue("the Rekor log ID is not the SHA-256 of its key");
+    const issuerKey = canonicalPublicKey(rekor.issuerPublicKeyPem);
+    const pins = anchor.issuerKeys.filter(
+      (pin) => pin.keyId === rekor.issuerKeyId,
+    );
+    if (!issuerKey || issuerKey.asymmetricKeyType !== "ed25519")
+      issue("the issuer key is not a canonical Ed25519 PEM");
+    else if (
+      pins.length !== 1 ||
+      pins[0]!.publicKeySha256 !== spkiSha256(issuerKey)
+    )
+      issue("the issuer key is not the one issuer pin it names");
+  });
+
+/**
+ * Anchor versions: 1.0.0 (PR-3, no witness pins) and 1.1.0 (PR-4, adds the
+ * labeler pins and the Rekor witness pins). Both are strict, and either way
+ * the controllers can only be the "none" entries of the closed registries.
+ */
+export const promotionTrustAnchorSchema = z.union([
+  z.object({ version: z.literal("1.0.0"), ...anchorCommon }).strict(),
+  anchorV1_1,
+]);
 export type PromotionTrustAnchor = z.infer<typeof promotionTrustAnchorSchema>;
+export type RekorPromotionTrustAnchor = z.infer<typeof anchorV1_1>;
 
 const refuse = (
   code:
@@ -126,6 +199,28 @@ export async function inspectPromotionTrustAnchorFile(
   filename: string,
   platform: NodeJS.Platform = process.platform,
 ): Promise<PromotionTrustAnchor> {
+  return (await inspectPromotionTrustAnchorInstall(filename, platform)).anchor;
+}
+
+/** What the installed anchor holds and how it is installed. */
+export interface InstalledPromotionTrustAnchor {
+  anchor: PromotionTrustAnchor;
+  /** The exact bytes read, as UTF-8. */
+  text: string;
+  uid: number;
+  /** Permission bits of the opened file, e.g. 0o644. */
+  mode: number;
+}
+
+/**
+ * The same read-only inspection as `inspectPromotionTrustAnchorFile`, also
+ * returning the bytes, owner and mode, so `anchor-verify` can check the
+ * installed form. It refuses exactly what that function refuses.
+ */
+export async function inspectPromotionTrustAnchorInstall(
+  filename: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<InstalledPromotionTrustAnchor> {
   if (platform !== "darwin" && platform !== "linux")
     return refuse(
       "trust-anchor-platform-unsupported",
@@ -174,6 +269,8 @@ export async function inspectPromotionTrustAnchorFile(
     if (path.dirname(directory) === directory) break;
   }
   let text: string;
+  let uid: number;
+  let mode: number;
   const handle = await open(
     filename,
     constants.O_RDONLY | constants.O_NOFOLLOW,
@@ -190,6 +287,8 @@ export async function inspectPromotionTrustAnchorFile(
       opened.size > MAX_ANCHOR_BYTES
     )
       return refuse("trust-anchor-unprotected", "anchor changed while opening");
+    uid = opened.uid;
+    mode = opened.mode & 0o7777;
     text = await handle.readFile("utf8");
   } finally {
     await handle.close();
@@ -205,7 +304,7 @@ export async function inspectPromotionTrustAnchorFile(
   const anchor = promotionTrustAnchorSchema.safeParse(value);
   if (!anchor.success)
     return refuse("trust-anchor-invalid", "anchor differs from its schema");
-  return anchor.data;
+  return { anchor: anchor.data, text, uid, mode };
 }
 
 /** Read the anchor at the compiled path for this platform. Never writes it. */

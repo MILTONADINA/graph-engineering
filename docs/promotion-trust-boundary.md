@@ -71,7 +71,8 @@ statements back from Rekor as a translator. It verifies the signed tree
 head, the consistency with a local high-water mark, and the inclusion of
 each statement, then fills in the challenge and the reply times, which
 carry no security for this witness kind. It is not yet in the controller
-registry.
+registry. Its config (log key, API origin, issuer key and host allowlist)
+comes only from the D3 anchor, through `rekorWitnessOptionsFromAnchor`.
 
 ## Fixed requirements
 
@@ -330,8 +331,18 @@ tests.
    `promotion prepare-grant`, with a read-only reader for the anchor file
    `promotion-trust-anchor.json` at the decision 1 (A) path, which step 1
    needs. The engine never creates that file.
-4. **PR-4:** the trust-anchor loader (per decision 1), enrollment and the
-   witness high-water state, with a backup/restore exclusion test.
+4. **PR-4 (implemented):** the trust-anchor loader (per decision 1),
+   enrollment and the witness high-water state, with a backup/restore
+   exclusion test ([spec](../specs/decisions/promotion-anchor-enrollment.md)).
+   Anchor version `1.1.0` pins the owner's labeler key and the Rekor
+   witness (log key and ID, API origin and the issuer key);
+   `promotion anchor-prepare` writes it from the owner's public keys and
+   prints the `sudo` commands that install it, which the engine never runs;
+   `promotion anchor-verify` checks the installed file read-only; and
+   `promotion enroll` records its witness and signer fingerprints and sets
+   the Rekor high-water mark. The controllers stay `none`, so the importer
+   still stops at step 1. Owner steps:
+   [installing the trust anchor](promotion-keys.md#installing-the-trust-anchor).
 5. **PR-5, only after the external parties exist and the owner and Kevin
    review it:** grant and status verifiers, the single admission point, and
    the controller adapters.

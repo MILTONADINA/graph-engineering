@@ -66,6 +66,13 @@ import { listTemplates, scaffold, validateArtifacts } from "./templates.js";
 import { evaluateDecisions, type EvaluationRow } from "./decisions.js";
 import { PROMOTION_IMPORT_BLOCKED } from "./promotion-authority.js";
 import { preparePromotionGrantRequest } from "./promotion-importer.js";
+import {
+  enrollPromotionTrustAnchor,
+  OWNER_KEY_ROLES,
+  preparePromotionTrustAnchor,
+  verifyInstalledPromotionTrustAnchor,
+} from "./promotion-anchor-enrollment.js";
+import { PromotionAnchorRefusalError } from "./promotion-refusal-codes.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 import { backupProject, restoreProject } from "./operations.js";
 import { readRunReceipt } from "./store.js";
@@ -1143,6 +1150,77 @@ promotion
       process.exitCode = 1;
       return;
     }
+    print(result);
+  });
+const anchorRefused = (refusal: string, detail: string) => {
+  // A refusal is an outcome, not a failure to report as a difficulty.
+  process.stderr.write(`${refusal}\n${detail}\n`);
+  process.exitCode = 1;
+};
+promotion
+  .command("anchor-prepare")
+  .description(
+    "Write a trust anchor from the owner's public keys to a new file and print the sudo commands that install it; never runs them",
+  )
+  .option("--key-dir <dir>", "Directory holding <role>.pub.pem")
+  .option("--out <file>", "New file to write (default: the user data dir)")
+  .action(async (options) => {
+    let prepared;
+    try {
+      prepared = await preparePromotionTrustAnchor({
+        projectRoot: root(),
+        keyDir: options.keyDir ? path.resolve(options.keyDir) : undefined,
+        out: options.out ? path.resolve(options.out) : undefined,
+      });
+    } catch (error) {
+      if (error instanceof PromotionAnchorRefusalError)
+        return anchorRefused(error.code, error.message);
+      throw error;
+    }
+    const lines = [
+      `Wrote ${prepared.file}`,
+      `Anchor SHA-256: ${prepared.anchorSha256}`,
+      ...OWNER_KEY_ROLES.map(
+        (role) =>
+          `${role} key SHA-256: ${prepared.anchor[`${role}Keys`][0]!.publicKeySha256}`,
+      ),
+      `Rekor log ID: ${prepared.anchor.rekor.logId}`,
+      "",
+      "Check the fingerprints above against your keys, then install it yourself:",
+      "",
+      ...prepared.installCommands.map((command) => `  ${command}`),
+      "",
+      `The last command must print ${prepared.anchorSha256}.`,
+      "Then check it: npm run graph:local -- promotion anchor-verify",
+    ];
+    process.stdout.write(`${lines.join("\n")}\n`);
+  });
+promotion
+  .command("anchor-verify")
+  .description(
+    "Check the installed trust anchor read-only: owner, mode, canonical form and key fingerprints",
+  )
+  .option("--key-dir <dir>", "Directory holding <role>.pub.pem")
+  .action(async (options) => {
+    const result = await verifyInstalledPromotionTrustAnchor({
+      keyDir: options.keyDir ? path.resolve(options.keyDir) : undefined,
+    });
+    if (result.outcome === "refused")
+      return anchorRefused(result.refusal, result.detail);
+    process.stdout.write(`OK ${result.path} ${result.anchorSha256}\n`);
+  });
+promotion
+  .command("enroll")
+  .description(
+    "Record the verified anchor's witness and signer fingerprints locally and initialise the Rekor high-water mark (one read-only request to the anchor's Rekor host)",
+  )
+  .option("--key-dir <dir>", "Directory holding <role>.pub.pem")
+  .action(async (options) => {
+    const result = await enrollPromotionTrustAnchor({
+      keyDir: options.keyDir ? path.resolve(options.keyDir) : undefined,
+    });
+    if (result.outcome === "refused")
+      return anchorRefused(result.refusal, result.detail);
     print(result);
   });
 cli
