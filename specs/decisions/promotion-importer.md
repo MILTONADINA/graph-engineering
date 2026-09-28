@@ -18,7 +18,7 @@ eleven importer steps in order and stops at the first refusal. It only
 verifies: it never signs, never writes a grant or any file, never writes the
 private authority map and never sets `promotionEligible`. When every step
 passes it emits unsigned grant requests, one per route and report, for the
-independent issuer. With every controller at `none`, every run stops at
+grant issuer (D5, which the owner holds under the custody decision). With every controller at `none`, every run stops at
 step 1. The owner's decisions of 2026-09-27
 ([promotion custody](promotion-custody.md)) are schema constraints.
 

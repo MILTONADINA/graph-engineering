@@ -192,7 +192,8 @@ and metering limitations are in [installed workers](installed-workers.md).
 All decision categories remain in shadow mode. Real local inference smoke
 tests, synthetic fixtures, and high confidence scores do not establish
 production safety. Promotion still needs representative real outcomes and
-independently reviewed labels under [the evaluation gates](decisions.md).
+signed labels under [the evaluation gates](decisions.md), which the owner
+provides under the [custody decision](../specs/decisions/promotion-custody.md).
 
 ## Recovery and maintenance
 

@@ -10,9 +10,11 @@
 Laya and Jev advise in shadow mode; the deterministic baseline decides. A
 decision category may only ever be promoted to real routing on evidence a
 third party can check: calibration and held-out outcomes kept apart,
-labelled by independent, signed reviewers, and meeting per-category gates.
-Until that evidence and the owner's decision exist, nothing local can grant
-authority.
+labelled by signed reviewers, and meeting per-category gates. The design
+first asked for independent reviewers; on 2026-09-27 the owner chose to hold
+the labeler role ([promotion custody](promotion-custody.md)), and how that
+fits the checks below is open for PR-5. Until that evidence and the owner's
+decision exist, nothing local can grant authority.
 
 ## Acceptance criteria
 
@@ -45,4 +47,4 @@ Synthetic or self-signed evidence is never promotion authority.
 ## Non-goals
 
 Issuing authority, choosing reviewers, or collecting labels; those are the
-owner's and independent reviewers' steps.
+owner's steps.

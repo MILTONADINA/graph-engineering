@@ -1,4 +1,4 @@
-# Claude Code handover — 2026-09-24
+# Claude Code handover — 2026-09-28
 
 This is a continuation brief for the **Graph Engineering repository in this
 workspace only**. It records the owner's requirements, the implemented state,
@@ -363,12 +363,92 @@ Later on 2026-09-27, also on the owner's instruction:
   network namespace the scan starts itself, so no traffic reaches systems
   the team does not control. Findings are advisory.
 
-Still for the owner: promotion evidence for Jev and Laya. The owner reported
-an independent review, but no signed held-out labels or trust registry
-exist yet. An AI in this session cannot be that reviewer, because it
-produced and curated the work. The next step is a labelling packet from
-`evaluation-export`/`evaluation-labels` for an independent person to label
-and sign ([promotion trust boundary](promotion-trust-boundary.md)).
+Still for the owner at that point: promotion evidence for Jev and Laya. No
+signed held-out labels or trust registry existed. An AI in this session
+cannot be the labeller, because it produced and curated the work. The
+update below records how the owner resolved who labels and holds keys.
+
+## Continuation update — 2026-09-27 and 2026-09-28 (promotion custody)
+
+The owner decided the promotion trust-boundary questions on 2026-09-27 and
+then took every promotion role personally: the owner holds the approver
+(D4), grant-issuer (D5) and evidence-labeler (D7) keys, Sigstore's public
+Rekor log is the witness (D6), and Kevin holds no promotion role. The owner
+leads the project; Kevin's account is where the initial commit was pushed
+from. This changes promotion custody only: the fork-only Git rules, and
+never pushing to Kevin's parent repository, are unchanged. The trade-off
+(no second person checks the evidence; a compromised laptop is detectable
+through the public log, not prevented) is in the
+[trust boundary's amendment](promotion-trust-boundary.md#owner-amendment-single-custodian-2026-09-27)
+and the [custody decision](../specs/decisions/promotion-custody.md).
+
+Merged into fork `dev`, in order:
+
+- [#63](https://github.com/MILTONADINA/graph-engineering/pull/63)
+  (`fb6791e`): the owner's promotion decisions (anchor, grant lifetime,
+  review, model attestation, strict policy hash) as a spec.
+- [#64](https://github.com/MILTONADINA/graph-engineering/pull/64)
+  (`6c4dba3`, `374f03f`, `6cec6c1`): PR-2 and PR-3 of the design, the live
+  per-route check with closed refusal codes, and the verify-only importer
+  `graph-engine promotion prepare-grant`, which never signs.
+- [#65](https://github.com/MILTONADINA/graph-engineering/pull/65)
+  (`29deab7`): the single-custodian amendment.
+- [#66](https://github.com/MILTONADINA/graph-engineering/pull/66)
+  (`a10f031`, `c0265f3`) and
+  [#67](https://github.com/MILTONADINA/graph-engineering/pull/67)
+  (`bf6b258`): the owner-run helper for passphrase-encrypted Ed25519 keys and
+  its one-step setup with a single combined backup
+  ([promotion keys](promotion-keys.md)).
+- [#68](https://github.com/MILTONADINA/graph-engineering/pull/68)
+  (`d1d0a87`): importer step 5 reads the witness's governance checkpoint.
+- [#69](https://github.com/MILTONADINA/graph-engineering/pull/69)
+  (`7a0a9e8`): the single-key labeller `npm run label` and the paired-run
+  collector ([labelling](labelling.md)).
+- [#70](https://github.com/MILTONADINA/graph-engineering/pull/70)–[#74](https://github.com/MILTONADINA/graph-engineering/pull/74),
+  landed as one stack through #74 (`dev` tip `23da164`): the read-only Rekor
+  v1 witness adapter, a translator not yet in the controller registry
+  ([Rekor witness](promotion-rekor-witness.md); `b5f3bfe`, `34a202b`,
+  `33f8739`, `341ee99`); the dashboard token required by matched route
+  (`a4d5941`); three fail-open paths closed in the run security gate
+  (`d97744c`); accurate key-custody docs, exact setup cleanup and the
+  generated Vite app build in CI (`49026f7`, `30819a4`, `8674d4d`); and
+  `mcp --client cloud` refusing an engine `dist` not built from the current
+  source (`23da164`).
+
+Merged on 2026-09-28 through
+[#76](https://github.com/MILTONADINA/graph-engineering/pull/76) (`dev` tip
+`da471a9`):
+
+- [#75](https://github.com/MILTONADINA/graph-engineering/pull/75): PR-4, the
+  trust anchor (`ed0c323`, `596bb5e`). `promotion anchor-prepare` writes the anchor from the
+  owner's public keys and prints the `sudo` commands it never runs,
+  `promotion anchor-verify` checks the installed file, and `promotion enroll`
+  records the fingerprints and the Rekor high-water mark.
+- [#76](https://github.com/MILTONADINA/graph-engineering/pull/76): tester
+  repair paths matched by normalised path, and why Semgrep skips are not
+  counted (`da471a9`).
+
+What this does **not** change: promotion is still impossible by
+construction. Every controller (witness, signer custody, model identity) is
+`none`, so the importer stops at step 1; the Rekor adapter is not
+registered; there is no admission point (PR-5); `.graph/project.json` stays
+`shadow`, `[]` and `0`. The engine never creates, holds or uses a key: the
+owner creates the keys with the owner-run helper when they are needed, and
+the engine reads only public keys. Owner labels from `npm run label` are
+unsigned and analysis-only.
+
+Open for PR-5, recorded rather than resolved: the importer's step 8 still
+requires distinct keys **and actors** across the eight evidence-signer
+roles, and held-out labels still refuse a curator's or task producer's
+signature. Both predate the amendment, and the owner's `setup` makes a key
+only for the labeler among those roles. A bundle the owner signs in more
+than one role is refused today; how to reconcile that is the owner's
+decision, not an agent's.
+
+Still for the owner: running key setup and
+installing the anchor when promotion work needs them; choosing unseen tasks
+and labelling calibration and held-out rows with `npm run label`; and the
+step-8 decision above.
 
 ## Where the work stands
 
@@ -503,7 +583,7 @@ instructions. Preserve the distinction between a **product goal**, an
    a universal `need_llm?` gate, automatic architecture selection, universal
    output-token budgeting and arbitrary agent-count control are **aspirations**,
    not completed/validated features. Maintain default shadow mode until the
-   independently governed promotion requirements below are satisfied.
+   promotion requirements below are satisfied.
 5. **Open-source operator choice.** Each user chooses their supported local
    and paid providers, account-specific reviewed prices, usage limits and
    spending caps. Do not hardcode this owner's Jev cap or price in the project.
@@ -587,7 +667,7 @@ or independent-evaluation claim is established.
 | 10  | DAG and fine templates                          | Validated scheduling and 53 audited implemented nodes; three planned alias IDs unavailable. AWS ECS Express Mode work is an **offline descriptor**, not a deployment or AWS spend.                                                                                                                                                                                                                 |
 | 11  | Memory and semantic graph                       | Bounded TS/JS, Python, Go, Java, C#, and Rust declaration evidence exists, with explicit heuristic/unsupported fallbacks. It is not a whole-program runtime call graph.                                                                                                                                                                                                                            |
 | 12  | Native clients and cost controls                | Claude Max managed proposal tested; Codex managed proposals disabled because the installed binary lacks restricted read roots; Cursor SDK proposal adapter mocked but not live-key-tested. Jev metering needs operator price/cap. MCP use is independent of these managed-worker paths.                                                                                                            |
-| 13  | Calibration, held-out evidence, promotion       | Extensive synthetic/retrospective fixtures, sealed bookkeeping, signed inspection and analysis-only projections exist. **Not complete as a real held-out or promotion capability:** independent source/review/key/witness governance, protected provenance, measured paired outcomes/costs, and a trusted grant issuer remain. This is the principal promotion gap.                                |
+| 13  | Calibration, held-out evidence, promotion       | Extensive synthetic/retrospective fixtures, sealed bookkeeping, signed inspection and analysis-only projections exist. **Not complete as a real held-out or promotion capability:** source/review/key/witness governance (now the owner's keys and Rekor), protected provenance, measured paired outcomes/costs, and grant admission (PR-5) remain. This is the principal promotion gap.           |
 | 14  | Tests and operations                            | Cross-language synthetic fixtures, indexing benchmark, migrations, watch, pruning, backup/restore and focused native checks exist. Their receipts are not production accuracy or cost-saving evidence.                                                                                                                                                                                             |
 
 ## Evidence you can safely claim
@@ -621,23 +701,29 @@ or independent-evaluation claim is established.
 Use these as entrypoints, not as a reason to broaden the change before
 inspecting the exact failure path:
 
-| Concern                                                            | Primary code / contract                                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Analysis-only joined readiness, including optional signed approval | [`sealed-evidence-readiness.ts`](../packages/engine/src/sealed-evidence-readiness.ts), [`signed-promotion-approval.ts`](../packages/engine/src/signed-promotion-approval.ts)                                                                                                                                 |
-| Example and currently untrusted witness adapters                   | [`sealed-reference-witness.ts`](../packages/engine/src/sealed-reference-witness.ts), [`sealed-signed-current-witness.ts`](../packages/engine/src/sealed-signed-current-witness.ts), [`sealed-governance-witness.ts`](../packages/engine/src/sealed-governance-witness.ts)                                    |
-| Promotion preflight, opaque binding and current shadow dispatch    | [`promotion-authority.ts`](../packages/engine/src/promotion-authority.ts), [`decision-batch.ts`](../packages/engine/src/decision-batch.ts), [`service.ts`](../packages/engine/src/service.ts)                                                                                                                |
-| Collector/ledger and evaluation contracts                          | [sealed README](../evaluation/sealed/README.md), [paired-cohort evaluation](paired-cohort-evaluation.md), [reference-witness protocol](reference-witness-protocol.md), [signed-current witness adapter](signed-current-witness-adapter.md), [black-box repository boundary](repository-blackbox-boundary.md) |
+| Concern                                                                        | Primary code / contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Analysis-only joined readiness, including optional signed approval             | [`sealed-evidence-readiness.ts`](../packages/engine/src/sealed-evidence-readiness.ts), [`signed-promotion-approval.ts`](../packages/engine/src/signed-promotion-approval.ts)                                                                                                                                                                                                                                                                                                                   |
+| Example and currently untrusted witness adapters                               | [`sealed-reference-witness.ts`](../packages/engine/src/sealed-reference-witness.ts), [`sealed-signed-current-witness.ts`](../packages/engine/src/sealed-signed-current-witness.ts), [`sealed-governance-witness.ts`](../packages/engine/src/sealed-governance-witness.ts)                                                                                                                                                                                                                      |
+| Promotion preflight, opaque binding and current shadow dispatch                | [`promotion-authority.ts`](../packages/engine/src/promotion-authority.ts), [`decision-batch.ts`](../packages/engine/src/decision-batch.ts), [`service.ts`](../packages/engine/src/service.ts)                                                                                                                                                                                                                                                                                                  |
+| Route check, verify-only importer, controllers, trust anchor and Rekor witness | [`promotion-route.ts`](../packages/engine/src/promotion-route.ts), [`promotion-importer.ts`](../packages/engine/src/promotion-importer.ts), [`promotion-controllers.ts`](../packages/engine/src/promotion-controllers.ts), [`promotion-trust-anchor.ts`](../packages/engine/src/promotion-trust-anchor.ts), [`promotion-anchor-enrollment.ts`](../packages/engine/src/promotion-anchor-enrollment.ts) (#75), [`promotion-rekor-witness.ts`](../packages/engine/src/promotion-rekor-witness.ts) |
+| Collector/ledger and evaluation contracts                                      | [sealed README](../evaluation/sealed/README.md), [paired-cohort evaluation](paired-cohort-evaluation.md), [reference-witness protocol](reference-witness-protocol.md), [signed-current witness adapter](signed-current-witness-adapter.md), [black-box repository boundary](repository-blackbox-boundary.md)                                                                                                                                                                                   |
 
 The current `promotion-authority.ts` loader does not resolve a verified grant,
-even if an advisory `promotions.json` exists. A legitimate issuer would need
-to attach a grant to each authenticated report and a fresh, narrowly scoped
-category/provider/project/policy/model identity; runtime dispatch must
-recompute and recheck that identity for every route. A valid purpose-separated
-approval signature only proves that a caller-pinned key signed bytes, not that
-the signer had operator authority. The reference witness similarly needs an
-independently governed service, authenticated ingest, crash-safe transaction
-storage, monotonic non-equivocation, an externally anchored pre-run checkpoint,
-and protected key/pin custody before its history can carry authority.
+even if an advisory `promotions.json` exists. Implemented since (2026-09-27 and
+2026-09-28): runtime dispatch recomputes each promoted route's live identity
+and refuses with a closed code (`promotion-route.ts`); the verify-only importer
+re-reads a bundle and emits at most an unsigned per-report, per-route grant
+request; the trust anchor is read from its root-owned path, with prepare,
+verify and enroll (#75); and the Rekor adapter reads the witness log.
+Not implemented: registering any controller other than `none`, a
+model-attestation source, verifying a signed grant, and the single admission
+point (PR-5). A valid purpose-separated approval signature only proves that a
+caller-pinned key signed bytes, not that the signer had operator authority.
+The reference witness stays non-authorizing and is never selectable: it would
+need a durable, governed service, authenticated ingest, crash-safe transaction
+storage, monotonic non-equivocation and an externally anchored pre-run
+checkpoint. The owner chose the public Rekor log as the witness instead.
 
 The repository v2 oracle runs only an **operator-declared safe execution
 tree**. It does not attest protected execution, authenticate the declared
@@ -654,8 +740,9 @@ own. See the [black-box boundary](repository-blackbox-boundary.md).
 > reopen work they record as merged.
 
 Do not create invented "independent" evidence with Claude's own keys, synthetic
-labels, or renamed historical tasks. There is still code-side work to do while
-the partners choose the external trust arrangement. Keep each change scoped and
+labels, or renamed historical tasks. The owner chose the trust arrangement on
+2026-09-27 (every key role is the owner's, Rekor is the witness); code-side
+work continues under it. Keep each change scoped and
 prove its failure path with focused tests before running long suites.
 
 1. **Cloud export-scope guard — implemented (see the 2026-09-25 continuation).**
@@ -693,16 +780,19 @@ prove its failure path with focused tests before running long suites.
    design and adversarial focused tests; do not enable grants while provenance is
    caller-controlled. The owner previously chose to leave the independently
    controlled witness integration point for later, so make it pluggable and
-   fail closed until a real controller is selected. **Status:** the design is
-   proposed in [promotion trust boundary](promotion-trust-boundary.md), with
-   bypass tripwires and engine-level shadow tests and no runtime change. Its
-   owner decisions (trust anchor, policy identity, grant lifetime, review of
-   trust-boundary files, witness, model-identity evidence) need the owner and
-   Kevin before the next PR builds on them.
+   fail closed until a real controller is selected. **Status (2026-09-28):**
+   the design in [promotion trust boundary](promotion-trust-boundary.md) is
+   partly implemented. PR-1 (tripwires and shadow tests) and PR-2/PR-3 (the
+   per-route check and the verify-only importer, #64) are merged; PR-4 (the
+   trust anchor, #75) is merged; PR-5 (admission) is not started. The
+   owner made its decisions (trust anchor, policy identity, grant lifetime,
+   review of trust-boundary files, witness, model-identity evidence) alone on
+   2026-09-27 and holds every key role, with Rekor as the witness. Every
+   controller is still `none`, so nothing is admitted.
 4. **Connect protected collection provenance.** The current signed source,
    worker-delivery, oracle-execution, row-review, aggregate, witness and
    approval inspectors are useful but mostly caller-pinned analysis. A real
-   collector needs independently governed keys and protected dispatch/oracle
+   collector needs owner-held keys no agent can use, protected dispatch/oracle
    transport, original-byte retention, anti-rollback anchoring before the
    first attempt, frozen configuration and assignment, and no omission of
    failed/unknown attempts. Make the required attestations explicit rather
@@ -711,9 +801,10 @@ prove its failure path with focused tests before running long suites.
    for permitted public source versus private runtime files; do not mount an
    arbitrary secret-bearing repository into a model worker.
 5. **Collect genuinely new, reviewed held-out data only under that protocol.**
-   Historical cases are retrospective intake, not unseen tasks. Independent
-   people/control must choose and label unseen tasks, approve separate signer
-   keys, and own the pre-run witness. The numeric gate is at least 50 labeled
+   Historical cases are retrospective intake, not unseen tasks. The owner, as
+   the single custodian, chooses and labels unseen tasks and holds the signer
+   keys, and the pre-run witness is the public Rekor log; an agent that
+   produced or curated the work cannot label it. The numeric gate is at least 50 labeled
    calibration examples with 95% decision accuracy per route, then at least
    200 accepted held-out decisions across 60 tasks, ten-bin ECE no more than
    0.05, no hard-policy violations or additional task failures, and lower
@@ -834,7 +925,7 @@ these focused tests (paths are relative to the engine workspace):
 
 ```sh
 npm run build:dependencies
-npm test -w @graph-engineering/engine -- tests/sealed-evidence-readiness.test.ts tests/signed-promotion-approval.test.ts tests/sealed-reference-witness.test.ts tests/sealed-signed-current-witness.test.ts tests/sealed-governance-witness.test.ts tests/promotion-authority.test.ts tests/full-cohort-evaluation.test.ts
+npm test -w @graph-engineering/engine -- tests/sealed-evidence-readiness.test.ts tests/signed-promotion-approval.test.ts tests/sealed-reference-witness.test.ts tests/sealed-signed-current-witness.test.ts tests/sealed-governance-witness.test.ts tests/promotion-authority.test.ts tests/promotion-bypass-invariants.test.ts tests/promotion-service-shadow.test.ts tests/promotion-import-preflight.test.ts tests/promotion-route.test.ts tests/promotion-importer.test.ts tests/promotion-importer-steps.test.ts tests/promotion-anchor-enrollment.test.ts tests/promotion-rekor-witness.test.ts tests/full-cohort-evaluation.test.ts
 npm run typecheck -w @graph-engineering/engine
 ```
 
@@ -846,11 +937,11 @@ a Markdown formatting/link check, not the full engine suite.
 
 The remaining work separates into three authorities:
 
-| Who can act                 | What can be done now                                                                                                                                                                                                         | What still needs outside evidence                                                                                          |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Claude on the owner's fork  | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                                                  | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
-| Owner/operator              | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes; agree with Kevin on the project license and independently governed witness/key service. | No per-user cap, repository-wide license or external service is implicitly selected by the current defaults.               |
-| Kevin/independent reviewers | Inspect integrated fork `dev` and later coordinate any upstream sync; independently select/label/review held-out work and control the separated trust roles.                                                                 | Author self-review or synthetic signed fixtures cannot substitute for independent governance.                              |
+| Who can act                | What can be done now                                                                                                                                                                                                                                                                                              | What still needs outside evidence                                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Claude on the owner's fork | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                                                                                                                                       | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
+| Owner/operator             | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes; hold every promotion key role (approver, issuer, labeler), choose and label held-out work, and settle the step-8 question for PR-5; agree with Kevin on the project license. | No per-user cap, repository-wide license or external service is implicitly selected by the current defaults.               |
+| Kevin (parent repository)  | Inspect integrated fork `dev` and later coordinate any upstream sync. Kevin holds no promotion role.                                                                                                                                                                                                              | Author self-review or synthetic signed fixtures cannot substitute for the owner's signed evidence.                         |
 
 At any agent transition, start with a fresh status inspection and the linked
 primary documents, then continue with bounded code-side work under the stated

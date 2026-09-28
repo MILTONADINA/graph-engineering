@@ -10,14 +10,15 @@
 Promotion lets Laya or Jev choose instead of the fixed baseline, so it
 needs trust that nothing on the owner's machine can manufacture
 ([promotion trust boundary](../../docs/promotion-trust-boundary.md)). The
-owner approves; independent parties issue and witness. This spec records the
-owner's decisions of 2026-09-27 and proposes who holds each role. The owner
-decided the roles on 2026-09-27.
+design first proposed that the owner approves while independent parties
+issue and witness; on 2026-09-27 the owner decided instead to hold every key
+role, with a public transparency log as the witness. This spec records the
+owner's decisions of that day and who holds each role.
 
 ## Owner decisions (2026-09-27)
 
 - **Approver (D4):** the owner, and only the owner, signs the promotion
-  approval, with a key made and kept offline or on a hardware token.
+  approval, with a passphrase-encrypted key file (see Roles below).
 - **Local trust anchor:** a root-owned file at a fixed system path, written
   with `sudo` after the owner checks its pins. Chosen by the owner's
   delegation after Jev and Laya both preferred it; this machine's `sudo`
@@ -63,9 +64,19 @@ The owner leads the project alone and holds every role; Kevin holds none.
 
 ## Security considerations
 
-No key is created, held or used by the engine or any agent. The anchor is
-a speed bump; the separation comes from D5, D6 and D7 being outside this
-machine.
+No key is created, held or used by the engine or any agent: the owner
+creates the keys with the owner-run helper when they are needed, and the
+engine reads only public keys. The anchor is a speed bump. With one
+custodian, what keeps an agent from signing is the passphrase the owner
+types at a terminal they started, and what makes a misuse visible is the
+public Rekor log; nothing on this machine is separated from the owner's
+account, so a compromised laptop is detectable, not prevented.
+
+Open for PR-5: the importer's step 8 still requires distinct keys and
+actors across evidence roles, and held-out labels still refuse a curator's
+or task producer's signature ([promotion evidence](promotion-evidence.md)
+AC3). Both predate this decision and would refuse a bundle the owner signs
+in more than one role; reconciling them is an owner decision for PR-5.
 
 ## Non-goals
 
