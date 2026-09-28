@@ -622,6 +622,13 @@ export function redact(text: string): string {
       "$1[REDACTED]",
     );
 }
+/**
+ * The last `length` characters of `text`, redacted before it is cut: cutting
+ * first could split a secret so the part left is too short to recognise.
+ */
+export function redactTail(text: string, length: number): string {
+  return redact(text).slice(-length);
+}
 export function assertEndpoint(
   endpoint: string,
   policy: ProjectPolicy,

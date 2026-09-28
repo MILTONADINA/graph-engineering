@@ -16,7 +16,7 @@ import { chmod, lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { LiveTarget, ProjectConfig } from "@graph-engineering/contracts";
-import { redact } from "../policy.js";
+import { redact, redactTail } from "../policy.js";
 import { command } from "../util.js";
 import {
   baselineFrom,
@@ -545,7 +545,7 @@ export async function runLiveScan(options: {
     // 0 pass, 1 a FAIL-level rule, 2 warnings (0 with -I), 3 a ZAP error.
     if (![0, 1, 2].includes(scanned.code))
       throw new Error(
-        `Live scan: ZAP exited ${scanned.code}: ${redact(scanned.stdout.slice(-300))}`,
+        `Live scan: ZAP exited ${scanned.code}: ${redactTail(scanned.stdout, 300)}`,
       );
     const report = await readReport(path.join(out, "report.json"));
     findings = withFingerprints(

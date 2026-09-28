@@ -20,6 +20,7 @@ import {
 
 const LOCKFILE_NAMES = new Set(LOCKFILES.map((name) => name.toLowerCase()));
 import { isDockerfile } from "./files.js";
+import { redact } from "../policy.js";
 
 export interface SecurityFinding {
   tool: string;
@@ -34,6 +35,21 @@ export interface SecurityFinding {
    * across edits elsewhere in the file.
    */
   fingerprint: string;
+}
+
+/**
+ * A finding as shown to a person: tool output such as the message can quote
+ * the matched secret (secret scanners report exactly that), so every free-text
+ * field is redacted. Identifiers the engine compares stay as recorded.
+ */
+export function displayFinding<T extends SecurityFinding>(finding: T): T {
+  const kept = new Set(["tool", "rule", "path", "line", "fingerprint", "risk"]);
+  return Object.fromEntries(
+    Object.entries(finding).map(([key, value]) => [
+      key,
+      typeof value === "string" && !kept.has(key) ? redact(value) : value,
+    ]),
+  ) as T;
 }
 
 export interface SecurityScan {
