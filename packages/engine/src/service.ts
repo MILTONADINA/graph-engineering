@@ -988,7 +988,9 @@ export class GraphEngine {
    * a planned provider ID redefined as another kind, would otherwise
    * straddle the boundary the plan was checked against. `reviewerId` is the
    * reviewer the run will use: the configured one for a new run, the one a
-   * resumed run recorded.
+   * resumed run recorded. This is the early refusal: a run also checks each
+   * provider when it reaches it (see assertOnPlanSide), since either can
+   * change while the run is in progress.
    */
   private async assertPlanSide(
     plan: ExecutionPlan,
@@ -1001,7 +1003,10 @@ export class GraphEngine {
     );
     if (moved.length)
       throw new Error(
-        `A cloud-backed client created this plan with every model role ${local ? "running locally" : "on non-local providers"}, but ${moved.map((entry) => entry.role).join(", ")} now ${moved.length === 1 ? "runs" : "run"} ${local ? "on a non-local provider" : "locally"}: a local model may read files the export policy keeps from cloud models and write them where a cloud model receives them. Configure the reviewer and providers the plan was created with again, or create a fresh plan.`,
+        movedRolesMessage(
+          local,
+          moved.map((entry) => entry.role),
+        ),
       );
   }
   /**
@@ -1546,10 +1551,19 @@ export class GraphEngine {
         !this.store
           .events(run.id)
           .some((event) => event.type === "review.configured")
-      )
+      ) {
+        // The configuration may have changed since start() or resume()
+        // checked it; a reviewer on the other side of a cloud-backed
+        // client's plan is never recorded as the run's.
+        const reviewer = (await this.providers()).find(
+          (provider) => provider.id === reviewerId,
+        );
+        if (reviewer)
+          assertOnPlanSide(run.plan, reviewer, reviewerRole(reviewer.id));
         this.store.event(run.id, "review.configured", {
           providerId: reviewerId ?? null,
         });
+      }
       // The DAG checkpoint this run last saved, the record of the files its
       // steps and repairs wrote (see checkpointPaths).
       let dagCheckpointPath: string | undefined;
@@ -1665,6 +1679,8 @@ export class GraphEngine {
         let exportable: boolean;
         try {
           reviewer = await this.reviewer(reviewerId);
+          // Before the diff is built: the reviewer is found by ID here.
+          assertOnPlanSide(run.plan, reviewer, reviewerRole(reviewer.id));
           // Only files this run's workers wrote.
           const written = (await runWrittenPaths()).sort();
           exportable = written.every((file) =>
@@ -2162,6 +2178,11 @@ export class GraphEngine {
             );
             if (!provider)
               throw new Error("DAG worker is no longer configured");
+            assertOnPlanSide(
+              run.plan,
+              provider,
+              stepRole(step.id, provider.id),
+            );
             let stepPacket: ContextPacket = await currentContext();
             const supplied = new SuppliedLines();
             const shown = new SuppliedLines();
@@ -2514,6 +2535,16 @@ export class GraphEngine {
             implementerDispute = undefined;
           }
           assertProvider(provider, this.config.policy, step.effort);
+          // Before every attempt's dispatch, after the step's provider was
+          // found by ID, a repair handed to the implementer or tester, or an
+          // escalation: any of them may have been redefined since start().
+          assertOnPlanSide(
+            run.plan,
+            provider,
+            repairedByTester
+              ? `the tester (${provider.id})`
+              : stepRole(step.id, provider.id),
+          );
           save("running");
           this.store.event(
             run.id,
@@ -2792,9 +2823,7 @@ export class GraphEngine {
                   run.plan.steps.some(
                     (planned) => planned.providerId === candidate.id,
                   )) &&
-                (run.plan.exportSide === undefined ||
-                  (candidate.kind === "local") ===
-                    (run.plan.exportSide === "local"))
+                onPlanSide(run.plan, candidate)
               );
             } catch {
               return false;
@@ -3012,20 +3041,51 @@ function modelRoles(
     );
     if (worker)
       roles.push({
-        role:
-          step.id === TESTER_STEP_ID
-            ? `the tester (${worker.id})`
-            : `step ${step.id} (${worker.id})`,
+        role: stepRole(step.id, worker.id),
         local: worker.kind === "local",
       });
   }
   const reviewer = providers.find((provider) => provider.id === reviewerId);
   if (reviewer)
     roles.push({
-      role: `the reviewer (${reviewer.id})`,
+      role: reviewerRole(reviewer.id),
       local: reviewer.kind === "local",
     });
   return roles;
+}
+// How a refusal names a model role and the provider it runs on.
+function stepRole(stepId: string, providerId: string): string {
+  return stepId === TESTER_STEP_ID
+    ? `the tester (${providerId})`
+    : `step ${stepId} (${providerId})`;
+}
+function reviewerRole(providerId: string): string {
+  return `the reviewer (${providerId})`;
+}
+function movedRolesMessage(local: boolean, moved: string[]): string {
+  return `A cloud-backed client created this plan with every model role ${local ? "running locally" : "on non-local providers"}, but ${moved.join(", ")} now ${moved.length === 1 ? "runs" : "run"} ${local ? "on a non-local provider" : "locally"}: a local model may read files the export policy keeps from cloud models and write them where a cloud model receives them. Configure the reviewer and providers the plan was created with again, or create a fresh plan.`;
+}
+// Whether a provider is on a cloud-backed client's plan's side of the
+// export boundary; any provider is for a person's own plan.
+function onPlanSide(plan: ExecutionPlan, provider: ProviderConfig): boolean {
+  return (
+    plan.exportSide === undefined ||
+    (provider.kind === "local") === (plan.exportSide === "local")
+  );
+}
+// Refuses a provider a run is about to send work to when it is on the other
+// side of the export boundary from its cloud-backed client's plan. start()
+// and resume() check every role first, but a run finds its reviewer and
+// each step's provider by ID when it reaches them, so a reviewer changed
+// or a provider ID redefined with provider-add while it runs would
+// otherwise receive what its earlier steps wrote.
+function assertOnPlanSide(
+  plan: ExecutionPlan,
+  provider: ProviderConfig,
+  role: string,
+): void {
+  if (!onPlanSide(plan, provider))
+    throw new Error(movedRolesMessage(plan.exportSide === "local", [role]));
 }
 // Files a proposal changes outside its step's declared write scope.
 function outsideWriteScope(

@@ -3480,4 +3480,125 @@ describe("a cloud client's plan when its run starts", () => {
     expect(engine.store.runs()).toHaveLength(0);
     expect(worker).not.toHaveBeenCalled();
   });
+
+  // start() and resume() refuse a role that moved before them; these move
+  // one while the run is in progress, as provider-add or a reviewer change
+  // from another command can in a long-lived engine.
+  it("stops a cloud client's local run before its reviewer ID, redefined as a cloud provider while it runs, receives the change", async () => {
+    const { data, engine, planned, worker, reviewed } = await allowingCloud(
+      (value) => {
+        value.review = { providerId: "reviewer" };
+        // Every path the local step writes is exportable, so only the
+        // plan's side keeps its change from a cloud reviewer.
+        value.policy.exportPaths = ["first.js"];
+      },
+    );
+    worker.mockImplementationOnce(async () => {
+      // provider-add while the step works, after start() checked.
+      await configureProvider(data, cloudProvider("reviewer"));
+      return result("one");
+    });
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain(
+      "Code review did not complete: A cloud-backed client created this plan with every model role running locally, but the reviewer (reviewer) now runs on a non-local provider",
+    );
+    expect(worker).toHaveBeenCalledTimes(1);
+    // Nothing reached the cloud reviewer.
+    expect(reviewed).toHaveLength(0);
+    expect(
+      engine.store
+        .events(run.id)
+        .some((event) => event.type === "review.started"),
+    ).toBe(false);
+  });
+
+  it("never records a reviewer configured on the other side of a cloud client's plan after its run started", async () => {
+    const { root, config, engine, planned, worker, reviewed } =
+      await allowingCloud((value) => {
+        value.policy.exportPaths = ["first.js"];
+      });
+    const create = workspaceModule.createWorkspace;
+    vi.spyOn(workspaceModule, "createWorkspace").mockImplementationOnce(
+      async (...args) => {
+        await writeJson(path.join(root, PROJECT_FILE), {
+          ...config,
+          review: { providerId: "cloud" },
+        });
+        // Another request to this long-lived engine reads the project
+        // again before the run records its reviewer.
+        await engine.refresh();
+        return create(...args);
+      },
+    );
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain(
+      "but the reviewer (cloud) now runs on a non-local provider",
+    );
+    expect(
+      engine.store
+        .events(run.id)
+        .some((event) => event.type === "review.configured"),
+    ).toBe(false);
+    expect(worker).not.toHaveBeenCalled();
+    expect(reviewed).toHaveLength(0);
+    // The cloud reviewer was never pinned to the run, so once the
+    // configuration is restored a reconciled resume goes ahead.
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    const resumed = await engine.wait((await engine.resume(run.id, true)).id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(reviewed).toHaveLength(0);
+  });
+
+  it("stops a cloud client's local run before a step's provider ID, redefined as a cloud provider while it runs, receives work", async () => {
+    const { data, engine, planned, worker } = await allowingCloud();
+    const create = workspaceModule.createWorkspace;
+    vi.spyOn(workspaceModule, "createWorkspace").mockImplementationOnce(
+      async (...args) => {
+        await configureProvider(data, cloudProvider("local"));
+        return create(...args);
+      },
+    );
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain(
+      "but step implement (local) now runs on a non-local provider",
+    );
+    expect(worker).not.toHaveBeenCalled();
+  });
+
+  it("stops a cloud client's local plan before a later step's provider ID, redefined as a cloud provider while it runs, receives work", async () => {
+    const { data, engine, worker } = await allowingCloud((value) => {
+      value.policy.providers.push("helper");
+    });
+    await configureProvider(data, {
+      id: "helper",
+      kind: "local",
+      model: "helper-fixture",
+    });
+    const planned = await engine.createPlan({
+      objective: "Change constants",
+      acceptance: ["first is 3", "second is 4"],
+      providerId: "local",
+      steps: [step("one"), step("two", ["one"], "helper")],
+      cloudAuthored: true,
+    });
+    expect(planned.exportSide).toBe("local");
+    const dispatched: string[] = [];
+    worker.mockImplementation(async (input: WorkerInput) => {
+      dispatched.push(`${input.provider.id}:${input.provider.kind}`);
+      // provider-add while the first step works.
+      if (input.objective === "one")
+        await configureProvider(data, cloudProvider("helper"));
+      return result(input.objective);
+    });
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain(
+      "but step two (helper) now runs on a non-local provider",
+    );
+    expect(dispatched).toEqual(["local:local"]);
+  });
 });
