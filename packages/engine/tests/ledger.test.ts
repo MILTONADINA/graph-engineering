@@ -188,6 +188,22 @@ describe("durable inference accounting", () => {
     ).toThrow("cost budget");
     expect(first.accountingSummary().unresolvedCallCount).toBe(1);
   });
+  it("says a raised turn budget applies only to new plans and voids resume and review-approve", async () => {
+    const { first } = await fixture();
+    first.reserveCall("budget-plan", "worker-one", "local", 0, null, 1);
+    let message = "";
+    try {
+      first.reserveCall("budget-plan", "worker-two", "local", 0, null, 1);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain("shared worker-turn budget");
+    expect(message).toContain("applies only to plans made after the change");
+    expect(message).toContain(
+      "voids resume and review-approve for runs planned before it",
+    );
+    expect(message).not.toMatch(/raise it for plans/);
+  });
   it("reserves decisions and workers atomically across connections", async () => {
     const { first, second } = await fixture();
     first.reserveCall("plan", "decision", "jev", 0.2, 1);

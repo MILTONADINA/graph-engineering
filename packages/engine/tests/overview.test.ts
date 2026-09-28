@@ -280,4 +280,72 @@ describe("project overview regressions", () => {
     ).cards[0]!;
     expect(card.gates.review).toBe("not-configured");
   });
+
+  it("offers review-approve first for a run that stopped at code review after its checks passed", () => {
+    const resume = (id: string) => `graph-engine resume ${id} --reconciled`;
+    const approve = (id: string) =>
+      `graph-engine review-approve ${id} --note "…"`;
+    const passed = (id: string) =>
+      event(id, "verification.completed", {
+        checks: [{ code: 0 }],
+        snapshotHash: "h",
+      });
+    // The reviewer call never finished (a spent turn budget, say): resuming
+    // asks the reviewer again, so a person's approval comes first.
+    const unfinished = run("j", "failed", {
+      error:
+        "Code review did not complete: Run exhausted its shared worker-turn budget",
+    });
+    // The reviewer asked for changes and the repair budget ran out.
+    const held = run("kk", "failed", {
+      error: "Code review requested changes",
+    });
+    // Checks failed after the review, so no review can stand in for them.
+    const unverified = run("lll", "failed", {
+      error: "Required checks failed",
+    });
+    // No reviewer on this run: there is no review to approve.
+    const unreviewed = run("mmmm", "failed", { error: "Stopped" });
+    const result = overview(
+      [unfinished, held, unverified, unreviewed],
+      [
+        event("j", "run.started"),
+        event("j", "verification.started"),
+        passed("j"),
+        event("j", "review.started", { providerId: "reviewer" }),
+        event("kk", "run.started"),
+        passed("kk"),
+        event("kk", "review.completed", { passed: false }),
+        event("lll", "run.started"),
+        passed("lll"),
+        event("lll", "review.completed", { passed: false }),
+        event("lll", "verification.started"),
+        event("lll", "verification.completed", {
+          checks: [{ code: 1 }],
+          snapshotHash: "h2",
+        }),
+        event("mmmm", "review.configured", { providerId: null }),
+        event("mmmm", "run.started"),
+        passed("mmmm"),
+      ],
+      true,
+    );
+    const byId = Object.fromEntries(
+      result.cards.map((card) => [card.runId, card]),
+    );
+    expect(byId.j!.gates).toMatchObject({
+      checks: "passed",
+      review: "stopped",
+    });
+    expect(byId.j!.commands).toEqual([approve("j"), resume("j")]);
+    expect(byId.j!.next).toMatch(
+      /^Stopped at code review after its required checks passed/,
+    );
+    expect(byId.j!.next).toContain("changing the policy voids both");
+    expect(byId.kk!.gates.review).toBe("changes-requested");
+    expect(byId.kk!.commands).toEqual([approve("kk"), resume("kk")]);
+    expect(byId.lll!.commands).toEqual([resume("lll")]);
+    expect(byId.mmmm!.gates.review).toBe("not-configured");
+    expect(byId.mmmm!.commands).toEqual([resume("mmmm")]);
+  });
 });

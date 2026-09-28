@@ -50,7 +50,7 @@ Larger changes are made of steps, some independent and some depending on others.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns a DAG patch that cannot apply to the worker instead of failing the plan
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: tells a tester whose new test file already exists to use another name
 
-- AC10: Planning from the command line, MCP or the dashboard warns when a plan's steps, reviews and repair attempts are likely to need more model calls than policy.maxTurns allows for the whole run.
+- AC10: Planning from the command line, MCP or the dashboard warns when a plan's steps, reviews and repair attempts are likely to need more model calls than policy.maxTurns allows for the whole run, and says a raised limit needs a fresh plan and voids resume and review-approve for a run already started.
   - Test: packages/engine/tests/execution.test.ts :: warns when a plan may need more model calls than the run-wide turn budget
   - Test: packages/engine/tests/cli.test.ts :: estimates the model calls a plan's roles need
 

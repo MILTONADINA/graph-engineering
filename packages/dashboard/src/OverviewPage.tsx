@@ -42,6 +42,8 @@ const GATE_TONES: Record<string, Tone> = {
   "changes-requested": "red",
   rejected: "red",
   pending: "orange",
+  // A review that started and never finished: a person can approve it.
+  stopped: "orange",
 };
 
 function Gate({ label, value }: { label: string; value: string | null }) {

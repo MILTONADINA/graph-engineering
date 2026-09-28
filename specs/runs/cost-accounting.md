@@ -34,6 +34,8 @@ token count is not known, it stays unknown instead of becoming zero.
   - Test: packages/engine/tests/execution.test.ts :: records a worker dispatch only once its call is reserved, so a run cancelled while waiting for a slot resumes
 - AC6: Releasing a worker slot and marking an interrupted run wait for another connection's write instead of failing, so a settled call is not lost and its slot is not leaked.
   - Test: packages/engine/tests/ledger.test.ts :: waits for another connection's write before releasing a worker slot or recovering a run
+- AC7: A spent worker-turn budget says a higher policy.maxTurns applies only to plans made after the change and voids resume and review-approve for runs planned before it, so it never steers a person away from approving a run stopped at code review.
+  - Test: packages/engine/tests/ledger.test.ts :: says a raised turn budget applies only to new plans and voids resume and review-approve
 
 ## Security considerations
 

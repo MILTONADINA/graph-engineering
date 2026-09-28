@@ -116,6 +116,7 @@ import {
   WORKFLOWS,
 } from "./planning.js";
 import { dagParallelism } from "./scale.js";
+import { passedChecksSnapshot, stoppedAtReview } from "./overview.js";
 import { TESTER_STEP_ID, testerStep } from "./tester.js";
 import { parseSpec, planFromSpec, SPECS_DIR } from "./specs.js";
 import {
@@ -329,7 +330,7 @@ export class GraphEngine {
       maxAttempts: this.config.policy.maxAttempts,
     });
     return needed > this.config.policy.maxTurns
-      ? `This plan may need about ${needed} model calls (its steps, reviews and repair attempts), but policy.maxTurns allows ${this.config.policy.maxTurns} for the whole run. Raise policy.maxTurns if the run stops early.`
+      ? `This plan may need about ${needed} model calls (its steps, reviews and repair attempts), but policy.maxTurns allows ${this.config.policy.maxTurns} for the whole run. To allow more, raise policy.maxTurns and plan again before starting: a policy change refuses this plan, and once a run starts it voids resume and review-approve for that run.`
       : undefined;
   }
   // Configured workers the policy permits and, for installed agents, that
@@ -1058,39 +1059,12 @@ export class GraphEngine {
         "Policy changed since this run was planned; a review approval could not be applied",
       );
     const events = this.store.events(runId);
-    // The run must have stopped at review: its last review either asked for
-    // changes or never finished, and nothing ran after it (a later security
-    // or publication failure is not a review the person can stand in for).
-    const lastReview = events.findLastIndex(
-      (event) =>
-        event.type === "review.started" || event.type === "review.completed",
-    );
-    const stoppedAtReview =
-      lastReview >= 0 &&
-      (events[lastReview]!.type === "review.started" ||
-        events[lastReview]!.data.passed !== true) &&
-      !events
-        .slice(lastReview + 1)
-        .some((event) =>
-          [
-            "security.scan_started",
-            "publication.started",
-            "verification.started",
-          ].includes(event.type),
-        );
-    if (!this.runReviewerId(runId) || !stoppedAtReview)
+    // The run must have stopped at review, on a snapshot whose required
+    // checks passed; the project board offers this command by the same test.
+    if (!this.runReviewerId(runId) || !stoppedAtReview(events))
       throw new Error("This run did not stop at code review");
-    const passed = events
-      .filter((event) => event.type === "verification.completed")
-      .at(-1);
-    const checks = passed?.data.checks;
-    const snapshotHash = passed?.data.snapshotHash;
-    if (
-      !Array.isArray(checks) ||
-      !checks.length ||
-      !checks.every((check) => (check as { code?: unknown }).code === 0) ||
-      typeof snapshotHash !== "string"
-    )
+    const snapshotHash = passedChecksSnapshot(events);
+    if (snapshotHash === undefined)
       throw new Error(
         "The run's last required checks did not pass; a review cannot stand in for them",
       );
