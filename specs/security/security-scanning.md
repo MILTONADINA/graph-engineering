@@ -49,6 +49,9 @@ Teams need security tools chosen for what their repository actually contains, wi
   - Test: packages/engine/tests/security-osv-argv.test.ts :: says the download needs the OSV host allowed and the policy restored exactly
 - AC13: The scan output's `baselineChanged` is true while the baseline differs from the committed version, including a new baseline that was never committed when Git is set to hide untracked files (`status.showUntrackedFiles=no`).
   - Test: packages/engine/tests/security-catalog.test.ts :: reports an uncommitted new baseline as changed when Git is set to hide untracked files
+- AC14: What `security-scan` and `security-live-scan` print is redacted: every free-text field of a new finding (its message, resource and evidence) and every scan error, while the tool, rule, path, line, fingerprint and risk stay as recorded; tool output is redacted before it is shortened, so a secret the cut would split cannot leak.
+  - Test: packages/engine/tests/security-display.test.ts :: redacts a finding's free text but keeps the fields the engine compares
+  - Test: packages/engine/tests/security-display.test.ts :: redacts output before cutting it, so a secret cut in half cannot leak
 
 ## Security considerations
 

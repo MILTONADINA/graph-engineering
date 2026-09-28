@@ -49,11 +49,12 @@ import {
   writeJson,
   errorMessage,
 } from "./util.js";
-import { costBudgetRefusal } from "./policy.js";
+import { costBudgetRefusal, redact } from "./policy.js";
 import { trackedFiles } from "./execution/workspace.js";
 import { selectSecurityTools } from "./security/catalog.js";
 import {
   baselineChanged,
+  displayFinding,
   newFindings,
   readBaseline,
   runSecurityScan,
@@ -475,7 +476,7 @@ cli
     if (options.updateBaseline) {
       if (scan.errors.length)
         throw new Error(
-          `Scan incomplete, baseline not updated: ${scan.errors.join("; ")}`,
+          `Scan incomplete, baseline not updated: ${redact(scan.errors.join("; "))}`,
         );
       await writeBaseline(root(), scan);
     }
@@ -487,9 +488,9 @@ cli
       // An uncommitted baseline change accepts risk without review.
       baselineChanged: await baselineChanged(root()),
       unscanned: scan.unscanned,
-      new: fresh.slice(0, 200),
+      new: fresh.slice(0, 200).map(displayFinding),
       ...(fresh.length > 200 ? { omitted: fresh.length - 200 } : {}),
-      errors: scan.errors,
+      errors: scan.errors.map(redact),
       osvDatabase: database
         ? {
             updatedAt: database.updatedAt,
@@ -569,7 +570,7 @@ cli
       ),
       baselined: scan.findings.length - fresh.length,
       baselineChanged: await baselineChanged(root(), LIVE_BASELINE_FILE),
-      new: fresh.slice(0, 200),
+      new: fresh.slice(0, 200).map(displayFinding),
       ...(fresh.length > 200 ? { omitted: fresh.length - 200 } : {}),
       ...(scan.cleanup.length ? { cleanupFailed: scan.cleanup } : {}),
     });
