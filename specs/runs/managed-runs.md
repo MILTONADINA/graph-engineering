@@ -45,6 +45,8 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/run-exit-code.test.ts :: exits 0 only for a succeeded run, 2 when a person must reconcile it and 1 otherwise
 - AC13: `check-add` stores everything after the image as the check's command exactly as typed, including its own `-C`, `-V`, `--version`, `-h` and `--`; a single leading `--` only separates the command, and the program's own options such as `-C <project>` go before `check-add`.
   - Test: packages/engine/tests/cli.test.ts :: stores a check's command exactly as typed, with its own options and --
+- AC14: A check that replaces a verification input with anything other than a regular file, such as a FIFO, fails verification as a changed source input; the engine never waits on it.
+  - Test: packages/engine/tests/verification-inputs.test.ts :: fails a check that swaps a verification input for a FIFO instead of waiting on it
 
 ## Security considerations
 
