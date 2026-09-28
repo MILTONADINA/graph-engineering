@@ -7,13 +7,14 @@ import {
   readFile,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { checked } from "../src/util.js";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -33,9 +34,11 @@ async function project() {
   const data = await mkdtemp(path.join(tmpdir(), "graph-cli-data-"));
   directories.push(root, data);
   await checked("git", ["init", "-q"], { cwd: root });
-  const argv = (args: string[]) => [
+  // `preload` modules are imported after tsx, so their hooks resolve first.
+  const argv = (args: string[], preload: string[] = []) => [
     "--import",
     "tsx",
+    ...preload.flatMap((file) => ["--import", pathToFileURL(file).href]),
     CLI,
     "-C",
     root,
@@ -76,7 +79,9 @@ async function project() {
   // A running command, for a test that interrupts it.
   const start = (...args: string[]) =>
     spawn(process.execPath, argv(args), options());
-  const graph = Object.assign(run({}), { with: run, start });
+  const startPreloaded = (preload: string[], ...args: string[]) =>
+    spawn(process.execPath, argv(args, preload), options());
+  const graph = Object.assign(run({}), { with: run, start, startPreloaded });
   return { root, data, graph };
 }
 
@@ -498,27 +503,45 @@ describe("command line", () => {
     expect(failed.code).toBe(1);
     expect(failed.stderr).toContain(`steps.json ${warning}`);
     planner.mode = "answer";
-    const inside = await decompose(path.join(root, "steps.json"));
+    const insideOut = path.join(root, "steps.json");
+    const inside = await decompose(insideOut);
     expect(inside.code).toBe(0);
     expect(inside.stderr).toContain(`steps.json ${warning}`);
     expect(inside.stderr).toContain(
       "Before plan --steps, move it outside the project or to a Git-ignored path",
     );
+    // The suggested next command never plans from the bound file itself.
+    const insideNext: string = JSON.parse(inside.stdout).next;
+    expect(insideNext).toContain(
+      "move it outside the project or to a Git-ignored path, then: graph-engine plan",
+    );
+    expect(insideNext).not.toContain(`--steps ${insideOut}`);
+
+    // A path reached through a link into the project is still inside it.
+    const elsewhere = await mkdtemp(path.join(tmpdir(), "graph-cli-steps-"));
+    directories.push(elsewhere);
+    const link = path.join(elsewhere, "project-link");
+    await symlink(root, link, "junction");
+    const linked = await decompose(path.join(link, "linked-steps.json"));
+    expect(linked.code).toBe(0);
+    expect(linked.stderr).toContain(`linked-steps.json ${warning}`);
 
     // An ignored path, or one outside the project, is not bound as source.
     await writeFile(
       path.join(root, ".git", "info", "exclude"),
       "ignored-steps.json\n",
     );
-    const ignored = await decompose(path.join(root, "ignored-steps.json"));
+    const ignoredOut = path.join(root, "ignored-steps.json");
+    const ignored = await decompose(ignoredOut);
     expect(ignored.code).toBe(0);
     expect(ignored.stderr).not.toContain(warning);
-    const elsewhere = await mkdtemp(path.join(tmpdir(), "graph-cli-steps-"));
-    directories.push(elsewhere);
-    const outside = await decompose(path.join(elsewhere, "steps.json"));
+    expect(JSON.parse(ignored.stdout).next).toContain(`--steps ${ignoredOut}`);
+    const outsideOut = path.join(elsewhere, "steps.json");
+    const outside = await decompose(outsideOut);
     expect(outside.code).toBe(0);
     expect(outside.stderr).not.toContain(warning);
-    expect(planner.requests).toBe(4);
+    expect(JSON.parse(outside.stdout).next).toContain(`--steps ${outsideOut}`);
+    expect(planner.requests).toBe(5);
   }, 120_000);
 
   it("warns about a plan made without checks, and says to create a new plan once checks are added", async () => {
@@ -652,18 +675,46 @@ describe("command line", () => {
     servers.push(busy);
     await new Promise<void>((resolve) => busy.listen(0, "127.0.0.1", resolve));
     const { port } = busy.address() as AddressInfo;
-    const cases: [string[], string][] = [
+    // An MCP server that fails to start, after the engine has opened: a
+    // resolve hook gives the CLI a serveMcp that rejects.
+    const stubs = await mkdtemp(path.join(tmpdir(), "graph-cli-stub-"));
+    directories.push(stubs);
+    const mcpFailure = "stub: the MCP transport failed to connect";
+    await writeFile(
+      path.join(stubs, "mcp.mjs"),
+      `export async function serveMcp() { throw new Error(${JSON.stringify(mcpFailure)}); }\n`,
+    );
+    // tsx registers in-thread hooks, and later ones resolve first.
+    const failingMcp = path.join(stubs, "register.mjs");
+    await writeFile(
+      failingMcp,
+      [
+        'import { registerHooks } from "node:module";',
+        "registerHooks({",
+        "  resolve(specifier, context, nextResolve) {",
+        '    if (specifier === "./mcp.js" && context.parentURL?.endsWith("/src/cli.ts"))',
+        '      return { url: new URL("./mcp.mjs", import.meta.url).href, shortCircuit: true };',
+        "    return nextResolve(specifier, context);",
+        "  },",
+        "});",
+        "",
+      ].join("\n"),
+    );
+    const cases: [string[], string, string[]?][] = [
       [["serve", "--port", String(port)], "EADDRINUSE"],
       [["serve", "--port", "99999"], "--port must be a whole number"],
       [["mcp", "--client", "locall"], "--client must be local or cloud"],
+      [["mcp", "--client", "local"], mcpFailure, [failingMcp]],
       [
         ["watch", "--interval", "10"],
         "Watch interval must be between 1000 and 3600000 ms",
       ],
     ];
     const results = await Promise.all(
-      cases.map(async ([args]) => {
-        const child = graph.start(...args);
+      cases.map(async ([args, , preload]) => {
+        const child = preload
+          ? graph.startPreloaded(preload, ...args)
+          : graph.start(...args);
         let stderr = "";
         child.stdout.resume();
         child.stderr.on("data", (chunk) => (stderr += chunk));

@@ -20,7 +20,8 @@ files, so a steps file left in the checkout becomes part of the plan's
 source: moving or deleting it before the run makes `run` refuse because the
 source changed since planning, and a run that publishes (commit or draft PR)
 refuses the unclean checkout. `decompose` warns, before calling the planner,
-when `--out` is inside the project and not ignored by Git.
+when `--out` is inside the project and not ignored by Git (symlinks resolved),
+and its suggested next command then says to move the file first.
 
 ## What happens
 
