@@ -114,23 +114,35 @@ test("promotion-key uses a per-user data directory by default", () => {
 });
 
 test("promotion-key is not reachable from the engine, MCP server or dashboard", () => {
-  // The engine may name the owner's command in a hint and read the public
-  // `<role>.pub.pem` files (promotion anchor-prepare), but no package may
-  // import or spawn this tool, and no package source may name an encrypted
+  // The engine may print one exact hint naming the owner's command, and may
+  // read the public `<role>.pub.pem` files (promotion anchor-prepare). Any
+  // other mention of the tool in a package (an import, a spawn, `npm run
+  // promotion-key ...`) fails, as does any package naming an encrypted
   // `<role>.key.json` file. Checked over tracked and untracked files.
-  const grep = (pattern, pathspec) =>
+  const HINT = "run npm run promotion-key -- setup first";
+  const grep = (pattern, ...pathspec) =>
     spawnSync(
       "git",
-      ["grep", "--untracked", "-l", "-E", "-e", pattern, "--", pathspec],
+      ["grep", "--untracked", "-n", "-E", "-e", pattern, "--", ...pathspec],
       { encoding: "utf8", cwd: root },
     );
-  for (const [pattern, pathspec] of [
-    ["promotion-key\\.mjs", "packages"],
-    ["\\.key\\.json", ":(glob)packages/*/src/**"],
-  ]) {
-    const listed = grep(pattern, pathspec);
-    assert.equal(listed.status, 1, listed.stderr || listed.stdout);
-  }
+  const mentions = grep("promotion-key([^s]|$)", "packages");
+  assert.ok(mentions.status <= 1, mentions.stderr);
+  const unexpected = mentions.stdout
+    .split("\n")
+    .filter(Boolean)
+    .filter((line) => {
+      const text = line.replace(/^[^:]*:\d+:/, "");
+      return text.replace(HINT, "").match(/promotion-key([^s]|$)/);
+    });
+  assert.deepEqual(unexpected, []);
+  // Tests may plant an unreadable key file to prove it is never opened.
+  const privateKeys = grep(
+    "\\.key\\.json",
+    "packages",
+    ":(exclude,glob)packages/*/tests/**",
+  );
+  assert.equal(privateKeys.status, 1, privateKeys.stdout);
 });
 
 test("promotion-key help lists the owner commands and rejects unknown ones", () => {
@@ -138,8 +150,6 @@ test("promotion-key help lists the owner commands and rejects unknown ones", () 
   assert.equal(help.status, 0);
   for (const command of ["create", "public", "sign", "backup", "restore"])
     assert.match(help.stdout, new RegExp(`^\\s+${command} <role>`, "m"));
-  for (const command of ["setup", "restore-all", "verify-backup"])
-    assert.match(help.stdout, new RegExp(`^\\s+${command} `, "m"));
   for (const command of ["setup", "restore-all", "verify-backup"])
     assert.match(help.stdout, new RegExp(`^\\s+${command} `, "m"));
   const unknown = cli(["export", "approver"]);
