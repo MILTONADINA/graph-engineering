@@ -3,6 +3,7 @@ import type {
   ProjectPolicy,
   Usage,
 } from "@graph-engineering/contracts";
+import path from "node:path";
 import picomatch from "picomatch";
 import { z } from "zod";
 import { hash, now } from "../util.js";
@@ -124,10 +125,19 @@ export function writeScope(
   const declared = step.writes?.length
     ? picomatch(step.writes, { dot: true })
     : undefined;
-  const supplied = writeScopes?.[step.id];
+  const supplied = writeScopes?.[step.id]?.map(exactPath);
   if (!declared && !supplied) return undefined;
   return (file) =>
-    (!declared || declared(file)) && (!supplied || supplied.includes(file));
+    (!declared || declared(file)) &&
+    (!supplied || supplied.includes(exactPath(file)));
+}
+// One spelling per relative path for exact-list membership, so `./a.ts`,
+// `a\b.ts` and `a//b.ts` match the file listed as `a.ts` or `a/b.ts`.
+// Brackets and other glob characters stay literal; case is kept.
+function exactPath(file: string): string {
+  return path.posix
+    .normalize(file.normalize("NFC").replaceAll("\\", "/"))
+    .replace(/^(\.\/)+/, "");
 }
 export function validateDag(input: ExecutionStep[]): ValidatedDag {
   const steps = z.array(stepSchema).min(1).max(100).parse(input);

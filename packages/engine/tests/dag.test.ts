@@ -10,6 +10,7 @@ import {
   runDag,
   untilAborted,
   validateDag,
+  writeScope,
   type DagCheckpoint,
 } from "../src/execution/dag.js";
 import { checked } from "../src/util.js";
@@ -198,6 +199,28 @@ describe("dependency DAG execution", () => {
       }),
     ).rejects.toThrow("precondition");
     await expect(readFile(path.join(workspace, "new.txt"))).rejects.toThrow();
+  });
+  it("matches an exact write scope by path, whatever its spelling, and never as a glob", () => {
+    const scope = writeScope(step("t"), {
+      t: ["app/[id]/page.test.tsx", "./src/b.test.ts"],
+    })!;
+    for (const file of [
+      "app/[id]/page.test.tsx",
+      "./app/[id]/page.test.tsx",
+      "app//[id]/page.test.tsx",
+      "app\\[id]\\page.test.tsx",
+      "src/b.test.ts",
+      "./src/./b.test.ts",
+    ])
+      expect(scope(file), file).toBe(true);
+    for (const file of [
+      "app/i/page.test.tsx",
+      "app/d/page.test.tsx",
+      "App/[id]/page.test.tsx",
+      "app/[id]/other.test.tsx",
+      "src/../b.test.ts",
+    ])
+      expect(scope(file), file).toBe(false);
   });
   it("rejects undeclared writes and collisions in later independent waves", async () => {
     const workspace = await fixture();
