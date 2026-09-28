@@ -53,6 +53,8 @@ jobs:
         run: node --test scripts/branch-protection.test.mjs
       - name: Promotion key helper (temporary key directories only)
         run: node --test scripts/promotion-key.test.mjs
+      - name: Labelling and paired-run collection (synthetic fixtures only)
+        run: node --test scripts/labelling.test.mjs
       - run: npm ci --prefix graph-templates/tools/validate-templates
       - run: npm test --prefix graph-templates/tools/validate-templates
       - name: Template manifest and registry consistency
