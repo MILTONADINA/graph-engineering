@@ -1,10 +1,15 @@
 # Promotion trust boundary
 
-**Status: design for review (handover item 3).** This document and the tests
-added with it change no runtime behavior. Promotion stays disabled:
-`decisionMode` defaults to `"shadow"`, `promotedCategories` to `[]`, and
-`evaluate --promote` still rejects. Sections marked **owner decision** need the
-owner and Kevin before any implementation PR builds on them.
+**Status (2026-09-28): partly implemented (handover item 3).** PR-1 to PR-4
+of the [delivery sequence](#delivery-sequence) are merged (PR-4, the trust
+anchor, in #75), and PR-5 (admission) is not started. The owner made the
+decisions below on 2026-09-27, alone, and amended the custody design to a
+[single custodian](#owner-amendment-single-custodian-2026-09-27). Promotion is
+still impossible by construction: every controller is `none`, the importer
+stops at step 1, no admission point exists, `decisionMode` defaults to
+`"shadow"`, `promotedCategories` to `[]`, and `evaluate --promote` still
+rejects. Text below that the amendment replaces is marked as superseded
+rather than removed, so the original reasoning stays on record.
 
 The owner's keys are made and used with the owner-run
 [promotion key helper](promotion-keys.md).
@@ -81,13 +86,15 @@ These come from the handover and are not open for redesign:
 - A grant is issued **per report and per route**, never batch-wide or by
   category wildcard.
 - A legitimate importer re-reads authenticated original artifacts and verifies
-  independent source, split, reviewer, worker and oracle trust, complete cohort
+  independent source, split, reviewer (the owner, under the amendment below),
+  worker and oracle trust, complete cohort
   accounting, measured whole-task paired outcomes and costs, current
   project/policy/model identity, and a still-current external witness.
 - The runtime recomputes category/provider and project/policy/model identity
   and rechecks drift **at every route**.
-- The witness integration point is pluggable and fails closed until an
-  independently controlled controller is selected.
+- The witness integration point is pluggable and fails closed until a
+  controller is selected in the D3 anchor. The owner chose Sigstore's public
+  Rekor log (see the amendment above).
 - No self-issued shortcut. Claude and other agents cannot create independent
   reviews, signer custody, unseen tasks or witness history, and no synthetic or
   self-signed fixture sets `promotionEligible: true`.
@@ -99,24 +106,31 @@ These come from the handover and are not open for redesign:
 
 ## Trust domains
 
-| Domain                                       | Controlled by                              | Trusted for                                                              | Never trusted for                                       |
-| -------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------- |
-| D0 Engine code and build                     | Owner and Kevin, through reviewed PRs      | Schemas, signing-domain strings, the closed controller registry          | Holding a signing key                                   |
-| D1 `.graph/project.json`                     | Anyone who can commit                      | Requesting promotion (`decisionMode`, `promotedCategories`)              | Granting it; its hash is bound into every grant         |
-| D2 Operator data dir                         | The owner's uid, so also agents            | Locating grant envelopes and original evidence                           | Any authority; everything is re-verified at start       |
-| D3 Local trust anchor                        | Owner (see decision 1)                     | Pinning enrolled projects, issuer/approver keys and selected controllers | Being a security boundary on its own                    |
-| D4 Operator approver key                     | Owner, passphrase-encrypted file           | Signing the existing promotion-approval claim                            | Issuing grants                                          |
-| D5 Grant issuer key                          | An independent custodian                   | Signing runtime grants                                                   | Being held by the owner's uid or any agent              |
-| D6 Witness controller                        | Independently operated                     | Checkpoints, grant registration, revocation and status                   | Being "selected" by a data write or env var             |
-| D7 Evidence signers                          | Kevin and independent reviewers            | Curation, source, labels, reviews, worker delivery, oracle execution     | Reusing keys or actors across roles                     |
-| D8 Model runtimes (Laya sidecar, hosted Jev) | Their operators                            | Answering decisions                                                      | Self-reported identity beyond the grant's minimum level |
-| D9 Clocks                                    | Local wall clock, monotonic clock, witness | Expiry, which must hold under all three                                  | Extending a grant after a clock rollback                |
-| D10 Agents, workers and MCP clients          | Untrusted                                  | Nothing                                                                  | Producing anything that becomes authority               |
+| Domain                                       | Controlled by                              | Trusted for                                                              | Never trusted for                                        |
+| -------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------- |
+| D0 Engine code and build                     | Owner, through reviewed PRs on the fork    | Schemas, signing-domain strings, the closed controller registry          | Holding a signing key                                    |
+| D1 `.graph/project.json`                     | Anyone who can commit                      | Requesting promotion (`decisionMode`, `promotedCategories`)              | Granting it; its hash is bound into every grant          |
+| D2 Operator data dir                         | The owner's uid, so also agents            | Locating grant envelopes and original evidence                           | Any authority; everything is re-verified at start        |
+| D3 Local trust anchor                        | Owner (see decision 1)                     | Pinning enrolled projects, issuer/approver keys and selected controllers | Being a security boundary on its own                     |
+| D4 Operator approver key                     | Owner, passphrase-encrypted file           | Signing the existing promotion-approval claim                            | Issuing grants                                           |
+| D5 Grant issuer key                          | Owner, passphrase-encrypted file           | Signing runtime grants                                                   | Being usable by any agent without the owner's passphrase |
+| D6 Witness controller                        | Sigstore Rekor, read-only, pinned in D3    | Checkpoints, grant registration, revocation and status                   | Being "selected" by a data write or env var              |
+| D7 Evidence signers                          | Owner (labeler key); other roles unheld    | Curation, source, labels, reviews, worker delivery, oracle execution     | Reusing keys or actors across roles                      |
+| D8 Model runtimes (Laya sidecar, hosted Jev) | Their operators                            | Answering decisions                                                      | Self-reported identity beyond the grant's minimum level  |
+| D9 Clocks                                    | Local wall clock, monotonic clock, witness | Expiry, which must hold under all three                                  | Extending a grant after a clock rollback                 |
+| D10 Agents, workers and MCP clients          | Untrusted                                  | Nothing                                                                  | Producing anything that becomes authority                |
 
-The real separation comes from D5, D6 and D7: keys and history held by people
-and services outside this machine. D3 only slows down an agent session that
-has the owner's shell; on a single-user Mac the same person holds root and the
-user account.
+_Superseded by the owner amendment:_ the original design said the real
+separation comes from D5, D6 and D7, keys and history held by people and
+services outside this machine. Under the amendment, D4, D5 and the D7 labeler
+key are the owner's passphrase-encrypted files on this machine, so what
+separates them from an agent is the passphrase the owner types at a terminal
+they started, and what makes tampering visible is D6, the public Rekor log.
+The owner's `setup` makes one key per role (approver, issuer, labeler); the
+other D7 evidence roles (curator, selector, auditor, source, reviewer,
+collector and aggregate reviewer) have no key holder yet. D3 only slows down
+an agent session that has the owner's shell; on a single-user Mac the same
+person holds root and the user account.
 
 ## Runtime grant
 
@@ -164,15 +178,23 @@ stops at the first refusal. In order:
    remains.
 7. Require measured cost on both arms, with the candidate strictly lower.
 8. Resolve every signer key through the selected custody controller and
-   require pairwise distinct keys and actors across roles.
+   require pairwise distinct keys and actors across roles. **Open for PR-5:**
+   this check, and the rule that a curator or task producer cannot sign a
+   held-out label ([promotion evidence](../specs/decisions/promotion-evidence.md)
+   AC3), predate the single-custodian amendment. With the owner as the one
+   actor behind every role, a bundle the owner signs in more than one role
+   is refused here today. How the check and the amendment fit together is an
+   owner decision for PR-5; the code is unchanged.
 9. Check the audited candidate policy bytes are exactly the policy that will
    run, with the category listed.
 10. Build the live route identity and require it to match the request.
 11. Bracket the audit with two fresh witness checkpoints and confirm the grant
     is not yet registered.
 
-Issuance happens outside the engine: D4 approves, D5 signs, D6 registers. A
-separate install step only verifies and copies the envelope.
+Issuance happens outside the engine: the owner approves (D4) and signs the
+grant (D5) with the owner-run key helper, and the signed statement is
+recorded in the D6 log, which the graph only reads. A separate install step
+only verifies and copies the envelope.
 
 ## Runtime loader and per-route check
 
@@ -203,7 +225,7 @@ refuses.
 
 ```ts
 interface WitnessController {
-  readonly kind: "none"; // later: an independently operated controller
+  readonly kind: "none"; // later: the Rekor adapter, pinned in the D3 anchor
   readCollectionCheckpoint(request: {
     witnessId: string;
     projectId: string;
@@ -262,9 +284,14 @@ selectable: a same-key restart can sign a shorter history.
 | Duplicate grants for one route                                 | Both refused                                                                        |
 | Calibration and held-out data overlap, or cost is unknown      | Importer refusal before any request is emitted                                      |
 
-## Decisions for the owner and Kevin
+## Owner decisions
 
-1. **Local trust anchor (owner decision).**
+The owner decided items 1–6 on 2026-09-27; each outcome is recorded first
+and in the [custody decision](../specs/decisions/promotion-custody.md). The
+options that follow are the original proposal, kept for the reasoning.
+
+1. **Local trust anchor (owner decision).** _Decided: (A), a root-owned file
+   at the compiled path, written with `sudo` after the owner checks its pins._
    - (A) A root-owned file at a path compiled into the engine
      (`/Library/Application Support/GraphEngineering/` on macOS,
      `/etc/graph-engineering/` on Linux, other platforms refused), written via
@@ -274,7 +301,9 @@ selectable: a same-key restart can sign a shorter history.
    - (B) A pointer file in the data dir. Simpler, but writable by the owner's
      uid and therefore by agents; the design review rejected it as the sole
      anchor.
-   - Either way, the separation that matters is D5, D6 and D7.
+   - Either way, the separation that matters is D5, D6 and D7. (Superseded
+     by the amendment: D5 is now the owner's key, so the passphrase and the
+     public log carry that weight.)
    - **Linux user-namespace caveat (option A).** Where unprivileged user
      namespaces are enabled, a process can map its own uid to 0 in a new user
      and mount namespace and bind-mount a file it owns over the compiled path.
@@ -284,17 +313,22 @@ selectable: a same-key restart can sign a shorter history.
      disable unprivileged user namespaces
      (`kernel.unprivileged_userns_clone=0`, or the AppArmor restriction on
      current Ubuntu) on machines that hold an anchor. macOS has no equivalent.
-2. **Policy identity (owner decision).** Keep the current strict
+2. **Policy identity (owner decision).** _Decided: keep the strict hash._ The options were to keep the current strict
    `util.hash(policy)` binding, which is key-order sensitive and fails safe on
    any edit; switch to canonical JSON hashing; or bind a governed subset of
    policy fields.
-3. **Maximum grant lifetime (owner decision).** Proposed: at most 7 days, and
-   never beyond the approval's expiry (at most 30 days).
-4. **Review of trust-boundary files (owner decision).** The fork currently
-   requires zero approvals. Proposed: require a human approval (CODEOWNERS) for
+3. **Maximum grant lifetime (owner decision).** _Decided as proposed:_ at most
+   7 days, and never beyond the approval's expiry (at most 30 days).
+4. **Review of trust-boundary files (owner decision).** _Decided: no required
+   human approval beyond the fork's normal PR checks; adversarial review of
+   each trust-boundary PR stays the practice._ The fork currently requires zero
+   approvals. The proposal was to require a human approval (CODEOWNERS) for
    `promotion-*.ts`, `decision-batch.ts` and the tripwire tests before the
    final PR.
-5. **Witness controller (owner and Kevin, deferred).** It needs durable
+5. **Witness controller (owner decision).** _Decided: Sigstore's public Rekor
+   log, read through the [Rekor witness adapter](promotion-rekor-witness.md),
+   which is written but not yet in the controller registry._ The original
+   note follows. It needs durable
    crash-safe storage, authenticated ingest, monotonic non-equivocation with an
    externally anchored pre-run checkpoint, grant registration and revocation,
    and protected key custody. It serves two different checkpoint documents,
@@ -309,8 +343,10 @@ selectable: a same-key restart can sign a shorter history.
    The importer never derives one from the other. A witness that answers only
    one of them refuses at the step that reads the other.
 
-6. **Minimum model-identity evidence (owner decision).** Per grant: the
-   runtime's self-report, a provider signature, or runtime attestation.
+6. **Minimum model-identity evidence (owner decision).** _Decided: runtime
+   attestation; no grant can be issued until an attestation source exists for
+   the route._ The options were, per grant: the runtime's self-report, a
+   provider signature, or runtime attestation.
 7. **Default spending cap (question).** `DEFAULT_POLICY.maxCostUsd` is `null`
    (uncapped) for new projects, while this repository's policy uses `0`. A
    non-null default would make installed-agent workers refuse to run. The
@@ -324,14 +360,14 @@ tests.
 
 1. **PR-1 (this):** this document, the bypass tripwires and the engine-level
    shadow tests. No source changes.
-2. **PR-2 (implemented):** live route identity and the per-route check in the
+2. **PR-2 (implemented, #64):** live route identity and the per-route check in the
    decision path; the closed refusal codes; the controller interfaces with
    null implementations. Every grant still refuses with no verified issuer.
-3. **PR-3 (implemented):** the verify-only importer and
+3. **PR-3 (implemented, #64):** the verify-only importer and
    `promotion prepare-grant`, with a read-only reader for the anchor file
    `promotion-trust-anchor.json` at the decision 1 (A) path, which step 1
    needs. The engine never creates that file.
-4. **PR-4 (implemented):** the trust-anchor loader (per decision 1),
+4. **PR-4 (implemented, #75):** the trust-anchor loader (per decision 1),
    enrollment and the witness high-water state, with a backup/restore
    exclusion test ([spec](../specs/decisions/promotion-anchor-enrollment.md)).
    Anchor version `1.1.0` pins the owner's labeler key and the Rekor
@@ -343,17 +379,23 @@ tests.
    the Rekor high-water mark. The controllers stay `none`, so the importer
    still stops at step 1. Owner steps:
    [installing the trust anchor](promotion-keys.md#installing-the-trust-anchor).
-5. **PR-5, only after the external parties exist and the owner and Kevin
-   review it:** grant and status verifiers, the single admission point, and
-   the controller adapters.
+5. **PR-5 (not started):** grant and status verifiers, the single admission
+   point, registering the controller adapters (the Rekor witness among them),
+   and the step-8 question above. It needs the owner's review, a
+   model-attestation source and real evidence first.
 
-## What only other people can provide
+## What promotion still needs from outside the code
 
-- An independent custodian for the grant-issuer key (D5).
-- An independently operated witness (D6).
-- Kevin and independent reviewers who choose genuinely unseen tasks and the
-  split before the first attempt, hold separate keys for each role, and label
-  the calibration and held-out rows (D7).
+_Superseded by the owner amendment:_ this list first asked other people for an
+independent custodian of the grant-issuer key (D5), an independently operated
+witness (D6), and independent reviewers holding separate keys for each
+evidence role (D7). The owner now holds D5 and the D7 labeler key, and Rekor
+is the witness. The owner still has to choose genuinely unseen tasks and the
+split before the first attempt, and label the calibration and held-out rows
+(with `npm run label`, which today produces unsigned, analysis-only labels).
+
+These still need something the code cannot produce on its own:
+
 - A protected dispatch and oracle runtime, so execution claims are more than
   caller-supplied pins.
 - Proof of the loaded model: weight and runtime digests for Laya, or a

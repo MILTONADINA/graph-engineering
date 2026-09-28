@@ -288,7 +288,9 @@ The `decision-evaluation.ts` workflow is deliberately two-phase:
 1. `exportEvaluationDraft(records, { datasetId, taskIds })` exports actual
    choices, candidates, confidence, hashes, and timestamps. Assign originating
    task IDs explicitly. It never generates expected labels or success claims.
-2. Independent reviewers provide expected candidate labels and measured
+2. Reviewers (the owner, under the
+   [custody decision](../specs/decisions/promotion-custody.md)) provide
+   expected candidate labels and measured
    baseline/candidate outcomes, full task costs, and supporting evidence.
    `importEvaluationLabels({ draft, provenance, labels })` joins those labels
    to immutable observations and validates the dataset. Missing confidence,
