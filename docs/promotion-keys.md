@@ -77,6 +77,46 @@ keys were lost) asks for the passphrase once, checks each key opens, and
 puts the three encrypted key files back as they are. It refuses if any role
 already has a key. Compare the printed fingerprints with your pinned values.
 
+## Installing the trust anchor
+
+After `setup`, pin your three public keys and the Rekor log in the
+root-owned trust anchor. From the repository root:
+
+```sh
+npm run graph:local -- promotion anchor-prepare
+```
+
+It reads only your `<role>.pub.pem` files (it refuses with `run npm run
+promotion-key -- setup first` if one is missing), writes
+`~/Library/Application Support/graph-engineering/promotion-trust-anchor.prepared.json`
+(or `--out <file>`; it never overwrites), and prints the anchor's SHA-256,
+your three key fingerprints and the commands to install it. Check the
+fingerprints against what `setup` printed, then run the printed commands
+yourself. On macOS they are:
+
+```sh
+sudo install -d -o root -g wheel -m 0755 '/Library/Application Support/GraphEngineering'
+sudo install -o root -g wheel -m 0644 '<prepared file>' '/Library/Application Support/GraphEngineering/promotion-trust-anchor.json'
+shasum -a 256 '/Library/Application Support/GraphEngineering/promotion-trust-anchor.json'
+```
+
+The last one must print the SHA-256 that `anchor-prepare` printed. Then
+check the installed anchor, read-only, and enroll it:
+
+```sh
+npm run graph:local -- promotion anchor-verify
+npm run graph:local -- promotion enroll
+```
+
+`anchor-verify` prints `OK` or a refusal code. `enroll` records the
+anchor's witness and key fingerprints in
+`~/Library/Application Support/graph-engineering/promotion-enrollment/enrollment.json`
+and makes one read-only request to `rekor.sigstore.dev` to set the log's
+first high-water mark. Running it again changes nothing; after a key
+change it refuses until you remove that file yourself. None of this
+enables promotion: the anchor's controllers stay `none`
+([spec](../specs/decisions/promotion-anchor-enrollment.md)).
+
 ## One role at a time
 
 `create <role>`, `backup <role> <out>` and `restore <role> <in>` still
@@ -101,7 +141,9 @@ graph process on the laptop can copy the files but not sign with them.
 Every command except `public` and `--help` refuses unless stdin and stderr
 are a terminal, and refuses whenever `CI` is set; no passphrase is ever read
 from the environment, a file or an argument. None of this is reachable from
-`graph-engine`, the MCP server, the dashboard or a managed run.
+`graph-engine`, the MCP server, the dashboard or a managed run;
+`graph-engine` reads only the public `<role>.pub.pem` files, to build the
+trust anchor.
 
 ## Limits
 

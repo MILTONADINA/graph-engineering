@@ -114,12 +114,23 @@ test("promotion-key uses a per-user data directory by default", () => {
 });
 
 test("promotion-key is not reachable from the engine, MCP server or dashboard", () => {
-  const listed = spawnSync(
-    "git",
-    ["grep", "-l", "-e", "promotion-key", "--", "packages"],
-    { encoding: "utf8", cwd: root },
-  );
-  assert.equal(listed.status, 1, listed.stderr || listed.stdout);
+  // The engine may name the owner's command in a hint and read the public
+  // `<role>.pub.pem` files (promotion anchor-prepare), but no package may
+  // import or spawn this tool, and no package source may name an encrypted
+  // `<role>.key.json` file. Checked over tracked and untracked files.
+  const grep = (pattern, pathspec) =>
+    spawnSync(
+      "git",
+      ["grep", "--untracked", "-l", "-E", "-e", pattern, "--", pathspec],
+      { encoding: "utf8", cwd: root },
+    );
+  for (const [pattern, pathspec] of [
+    ["promotion-key\\.mjs", "packages"],
+    ["\\.key\\.json", ":(glob)packages/*/src/**"],
+  ]) {
+    const listed = grep(pattern, pathspec);
+    assert.equal(listed.status, 1, listed.stderr || listed.stdout);
+  }
 });
 
 test("promotion-key help lists the owner commands and rejects unknown ones", () => {

@@ -102,3 +102,47 @@ export class PromotionImportRefusalError extends Error {
     this.name = "PromotionImportRefusalError";
   }
 }
+
+/**
+ * Refusals of the owner's trust-anchor tooling (`promotion anchor-prepare`,
+ * `anchor-verify` and `enroll`). Reading the installed anchor also refuses
+ * with the step 1 `trust-anchor-*` codes above. None of these tools admits
+ * anything; they prepare, check and record.
+ */
+export const PROMOTION_ANCHOR_REFUSAL_CODES = [
+  "trust-anchor-platform-unsupported",
+  "trust-anchor-absent",
+  "trust-anchor-unprotected",
+  "trust-anchor-invalid",
+  "owner-public-key-missing",
+  "owner-public-key-invalid",
+  "owner-public-keys-not-distinct",
+  "project-identity-unavailable",
+  "anchor-output-invalid",
+  "anchor-output-exists",
+  "anchor-owner-mismatch",
+  "anchor-mode-mismatch",
+  "anchor-version-unsupported",
+  "anchor-not-canonical",
+  "anchor-rekor-pin-mismatch",
+  "anchor-key-mismatch",
+  "enrollment-invalid",
+  "enrollment-conflict",
+  "witness-state-init-failed",
+] as const;
+export const promotionAnchorRefusalSchema = z.enum(
+  PROMOTION_ANCHOR_REFUSAL_CODES,
+);
+export type PromotionAnchorRefusal =
+  (typeof PROMOTION_ANCHOR_REFUSAL_CODES)[number];
+
+/** A refusal raised by the trust-anchor tooling, always from the closed set. */
+export class PromotionAnchorRefusalError extends Error {
+  constructor(
+    readonly code: PromotionAnchorRefusal,
+    detail?: string,
+  ) {
+    super(detail ? `${code}: ${detail}` : code);
+    this.name = "PromotionAnchorRefusalError";
+  }
+}
