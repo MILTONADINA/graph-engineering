@@ -12,9 +12,35 @@ import { projectOverview } from "./overview.js";
 import { summarizeOutcomes } from "./insights.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 
+// Routes that serve the dashboard's static files carry this marker in their
+// route config. Every other matched route requires the local access token,
+// so a route added later is protected unless it opts in explicitly.
+const PUBLIC_ASSET = "publicAsset";
+
+function isPublicRoute(config: unknown): boolean {
+  return (
+    typeof config === "object" &&
+    config !== null &&
+    (config as Record<string, unknown>)[PUBLIC_ASSET] === true
+  );
+}
+
+// Whether an unmatched request was aimed at the API, read from the decoded,
+// case-folded path so that no spelling of /api/ falls through to index.html.
+function looksLikeApi(url: string): boolean {
+  let pathname = url.split(/[?#]/, 1)[0];
+  try {
+    pathname = decodeURIComponent(pathname);
+  } catch {
+    return true;
+  }
+  return /^\/+api(?:\/|$)/i.test(pathname);
+}
+
 export function createServer(
   engine: GraphEngine,
   token = randomBytes(32).toString("hex"),
+  options: { dashboardRoot?: string } = {},
 ) {
   const app = Fastify({ logger: false, bodyLimit: 1_000_000 });
   app.addHook("onRequest", async (request, reply) => {
@@ -24,7 +50,11 @@ export function createServer(
     const origin = request.headers.origin;
     if (origin && origin !== `http://${host}` && origin !== `https://${host}`)
       return reply.code(403).send({ error: "Cross-origin access denied" });
-    if (request.url.startsWith("/api/")) {
+    // Decide by the route Fastify matched, never by the raw URL: the router
+    // decodes percent-escapes, so a raw-prefix test is bypassable (for
+    // example /%61pi/memories). Unmatched requests reach only the not-found
+    // handler, which serves no project data.
+    if (!request.is404 && !isPublicRoute(request.routeOptions.config)) {
       const supplied =
         request.headers.authorization?.replace(/^Bearer /, "") ?? "";
       if (
@@ -233,19 +263,27 @@ export function createServer(
     const timer = setInterval(flush, 1000);
     reply.raw.on("close", () => clearInterval(timer));
   });
-  const dashboard = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../../dashboard/dist",
-  );
-  if (existsSync(dashboard)) {
-    app.register(fastifyStatic, { root: dashboard });
-    app.setNotFoundHandler((request, reply) =>
-      request.url.startsWith("/api/")
-        ? reply.code(404).send({ error: "Unknown API route" })
-        : reply.sendFile("index.html"),
+  const dashboard =
+    options.dashboardRoot ??
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../dashboard/dist",
     );
+  if (existsSync(dashboard)) {
+    // Scope the marker to the routes @fastify/static registers here.
+    app.register(async (scope) => {
+      scope.addHook("onRoute", (route) => {
+        route.config = { ...(route.config ?? {}), [PUBLIC_ASSET]: true };
+      });
+      await scope.register(fastifyStatic, { root: dashboard });
+      scope.setNotFoundHandler((request, reply) =>
+        looksLikeApi(request.url)
+          ? reply.code(404).send({ error: "Unknown API route" })
+          : reply.sendFile("index.html"),
+      );
+    });
   } else
-    app.get("/", async () => ({
+    app.get("/", { config: { [PUBLIC_ASSET]: true } }, async () => ({
       message:
         "Build the dashboard with npm run build, then restart the server.",
     }));
