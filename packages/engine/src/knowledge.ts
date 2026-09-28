@@ -13,7 +13,7 @@ import path from "node:path";
 import type { MemoryRecord, ProjectPolicy } from "@graph-engineering/contracts";
 import type { ContextEngine } from "./context/index.js";
 import { containsSecret } from "./policy.js";
-import { hash, now } from "./util.js";
+import { hash, lineCount, now } from "./util.js";
 
 /** Committed, reviewable documentation the context index reads offline. */
 export const KNOWLEDGE_PACK_DIR = ".graph/knowledge-packs";
@@ -391,7 +391,7 @@ export async function citeKnowledge(options: {
   );
   if (!pack) throw new Error(`No knowledge pack named ${options.pack}`);
   const text = await readFile(path.join(options.root, pack.path), "utf8");
-  const lines = text.split("\n").length;
+  const lines = lineCount(text);
   if (
     !Number.isInteger(options.startLine) ||
     !Number.isInteger(options.endLine) ||

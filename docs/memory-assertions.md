@@ -24,6 +24,9 @@ of a file in a fresh index snapshot of the working tree, which records the
 file's content hash. A file that does not exist, a file the index leaves out
 (excluded, ignored by Git, outside the working set, binary, over 1 MiB or
 matching a credential pattern) and lines past the end of the file are refused.
+A final newline ends the last line rather than starting another, so a file of
+two lines that ends in a newline can be cited at lines 1-2 only, and an empty
+file has no lines to cite.
 
 Sharing does not release a memory to cloud consumers. A requirement or
 constraint reaches a cloud client or worker only when it cites source evidence

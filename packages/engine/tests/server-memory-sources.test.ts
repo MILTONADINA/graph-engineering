@@ -74,13 +74,26 @@ it("proposes a sourced memory that supersedes an accepted one through the dashbo
     });
     expect(missing.statusCode).toBe(400);
     expect(missing.json().error).toContain("public/missing.ts does not exist");
+    // public/rule.ts is one line ending in a newline: line 2 does not exist.
     const pastEnd = await propose({
       text: "Cite past the end.",
       kind: "constraint",
-      sources: [{ path: "public/rule.ts", startLine: 1, endLine: 9 }],
+      sources: [{ path: "public/rule.ts", startLine: 1, endLine: 2 }],
     });
     expect(pastEnd.statusCode).toBe(400);
-    expect(pastEnd.json().error).toContain("cite lines within 1-2");
+    expect(pastEnd.json().error).toContain(
+      "public/rule.ts has 1 line; cite lines within 1-1",
+    );
+    await writeFile(path.join(root, "public", "empty.ts"), "");
+    const empty = await propose({
+      text: "Cite an empty file.",
+      kind: "constraint",
+      sources: [{ path: "public/empty.ts", startLine: 1, endLine: 1 }],
+    });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json().error).toContain(
+      "public/empty.ts is empty, so it has no lines to cite",
+    );
     const retired = await propose({
       text: "Replace a retired memory.",
       kind: "constraint",

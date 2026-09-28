@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
-import { command, subprocessEnvironment } from "../src/util.js";
+import { command, lineCount, subprocessEnvironment } from "../src/util.js";
 import { decisionProviders } from "../src/decisions.js";
 import { invokeApiWorker } from "../src/workers/api.js";
 
@@ -13,6 +13,19 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+
+describe("citable line count", () => {
+  it("counts the lines a person can cite, with a final newline ending the last line", () => {
+    expect(lineCount("")).toBe(0);
+    expect(lineCount("\n")).toBe(1);
+    expect(lineCount("one")).toBe(1);
+    expect(lineCount("one\n")).toBe(1);
+    expect(lineCount("one\ntwo")).toBe(2);
+    expect(lineCount("one\ntwo\n")).toBe(2);
+    expect(lineCount("one\n\n")).toBe(2);
+    expect(lineCount("one\r\ntwo\r\n")).toBe(2);
+  });
 });
 
 describe("bounded command transport", () => {

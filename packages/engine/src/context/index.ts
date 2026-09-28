@@ -76,7 +76,7 @@ import {
   unauthorizedMandatoryMemory,
   unexportableMandatoryMemory,
 } from "../policy.js";
-import { errorMessage, subprocessEnvironment } from "../util.js";
+import { errorMessage, lineCount, subprocessEnvironment } from "../util.js";
 import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
 import {
   pythonRuntime,
@@ -1503,10 +1503,12 @@ export class ContextEngine {
             : `Source ${file} does not exist in the working tree`,
         );
       }
-      const lines = json<ParsedFile>(row).text.split("\n").length;
+      const lines = lineCount(json<ParsedFile>(row).text);
       if (endLine > lines)
         throw new Error(
-          `Source ${file} has ${lines} lines; cite lines within 1-${lines}`,
+          lines
+            ? `Source ${file} has ${lines} line${lines === 1 ? "" : "s"}; cite lines within 1-${lines}`
+            : `Source ${file} is empty, so it has no lines to cite`,
         );
       sources.push({
         path: file,
@@ -1563,6 +1565,10 @@ export class ContextEngine {
         "SELECT payload FROM files WHERE snapshot_id=? AND path=? AND content_hash=?",
         [source.snapshotId, source.path, source.contentHash],
       );
+      // The index's own ranges count the empty line after a final newline
+      // (a whole-file symbol ends on it), and the engine hands those ranges
+      // on as evidence, so this check keeps the index's count. A person's
+      // citation is checked exactly in resolveSources and knowledge-cite.
       if (
         !file ||
         source.endLine > json<ParsedFile>(file).text.split("\n").length
