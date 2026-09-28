@@ -1747,6 +1747,32 @@ describe("code review gate", () => {
     );
   });
 
+  it("refuses a person's approval when the latest attempt stopped before reaching review again", async () => {
+    const changes: Review = {
+      verdict: "request-changes",
+      summary: "Add more tests",
+      criteria: [],
+      findings: [],
+    };
+    const { engine, result } = await setup({
+      reviews: [changes, changes, changes],
+      attempts: 1,
+    });
+    expect(result.status).toBe("failed");
+    // A resume that stopped before running its checks (in context assembly,
+    // say): the earlier attempt's review is not where this attempt stopped.
+    engine.store.event(result.id, "recovery.acknowledged", {});
+    engine.store.event(result.id, "run.started", { resuming: true });
+    await expect(engine.approveReview(result.id, "Looks fine")).rejects.toThrow(
+      "latest attempt did not stop at code review",
+    );
+    expect(
+      engine.store
+        .events(result.id)
+        .some((event) => event.type === "review.person_approved"),
+    ).toBe(false);
+  });
+
   it("completes only after the reviewer approves, and records the review", async () => {
     const { result, reviewed, events } = await setup({ reviews: [approve] });
     expect(result.error ?? "").toBe("");

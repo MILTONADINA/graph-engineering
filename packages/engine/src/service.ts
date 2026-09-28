@@ -1059,10 +1059,12 @@ export class GraphEngine {
         "Policy changed since this run was planned; a review approval could not be applied",
       );
     const events = this.store.events(runId);
-    // The run must have stopped at review, on a snapshot whose required
-    // checks passed; the project board offers this command by the same test.
+    // The run's latest attempt must have stopped at review, on a snapshot
+    // whose required checks passed; the project board offers this command
+    // by the same test. An earlier attempt's review is not where a resume
+    // that stopped before review again stopped.
     if (!this.runReviewerId(runId) || !stoppedAtReview(events))
-      throw new Error("This run did not stop at code review");
+      throw new Error("This run's latest attempt did not stop at code review");
     const snapshotHash = passedChecksSnapshot(events);
     if (snapshotHash === undefined)
       throw new Error(
