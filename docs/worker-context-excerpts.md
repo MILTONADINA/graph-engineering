@@ -64,8 +64,9 @@ refusal so the implementation changes them visibly.
 
 1. Every excerpt passes the checks a whole file passes today: `safePath`,
    `isAllowedPath(…, true)` for non-local providers, the per-item secret
-   filter in `contextForProvider`, and cloud memory-export rules. A range
-   request never reaches text a whole-file request could not.
+   filter in `contextForProvider` (on the file's path as well as its text,
+   as at the MCP boundary), and cloud memory-export rules. A range request
+   never reaches text a whole-file request could not.
 2. Mandatory text and acceptance criteria are never trimmed.
 3. Excerpts carry exact line numbers and the file's content hash, so staleness
    is detectable and a worker can cite what it saw.

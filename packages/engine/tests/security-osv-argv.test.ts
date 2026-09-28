@@ -100,3 +100,42 @@ describe("OSV-Scanner never resolves dependencies through deps.dev", () => {
     expect(scanner).toContain("--no-resolve");
   });
 });
+
+describe("a lockfile whose ecosystem has no downloaded OSV database", () => {
+  it("says the download needs the OSV host allowed and the policy restored exactly", async () => {
+    const root = await directory();
+    const database = await directory();
+    await writeFile(path.join(root, "package-lock.json"), "{}\n");
+    mocks.command.mockImplementation(async (_executable, argv: string[]) => {
+      if (argv[0] === "image")
+        return { code: 0, stdout: `${IMAGE_ID}\n`, stderr: "" };
+      if (
+        argv[0] === "run" &&
+        argv[argv.indexOf(IMAGE_ID) + 1] === "osv-scanner"
+      )
+        return {
+          code: 127,
+          stdout: "",
+          stderr: "no offline version of the OSV database is available",
+        };
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const scan = await runSecurityScan({
+      root,
+      image: "graph-security:local",
+      profile: {
+        files: ["package-lock.json"],
+        authorizedTargets: [],
+        configuredTools: [],
+      },
+      osvDatabase: database,
+    });
+    const error = scan.errors.find((line) => line.startsWith("osv-scanner:"));
+    expect(error).toContain("run graph-engine security-db-update");
+    expect(error).toContain(`${OSV_DATABASE_HOST} in policy.allowedHosts`);
+    // Recorded whole: a scanner's error is cut at 400 characters.
+    expect(error).toContain(
+      "restore .graph/project.json exactly as it was, since a plan and its runs are bound to its exact policy and a changed one voids them",
+    );
+  });
+});

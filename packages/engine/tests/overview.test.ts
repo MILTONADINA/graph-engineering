@@ -415,4 +415,37 @@ describe("project overview regressions", () => {
     expect(stoppedAtReview(reachedReview)).toBe(true);
     expect(passedChecksSnapshot(reachedReview)).toBe("h");
   });
+
+  it("offers review-approve for a change a cloud reviewer may not receive", () => {
+    const events = [
+      event("pp", "review.configured", { providerId: "reviewer" }),
+      event("pp", "run.started"),
+      event("pp", "verification.started"),
+      event("pp", "verification.completed", {
+        checks: [{ code: 0 }],
+        snapshotHash: "h",
+      }),
+      // Nothing was sent: the review was blocked, not started.
+      event("pp", "review.blocked", {
+        providerId: "reviewer",
+        reason: "the change touches paths a cloud reviewer may not receive",
+      }),
+    ];
+    const card = overview(
+      [
+        run("pp", "failed", {
+          error:
+            "Code review did not complete: the change touches paths a cloud reviewer may not receive",
+        }),
+      ],
+      events,
+      true,
+    ).cards[0]!;
+    expect(card.gates).toMatchObject({ checks: "passed", review: "stopped" });
+    expect(card.commands).toEqual([
+      `graph-engine review-approve pp --note "…"`,
+      `graph-engine resume pp --reconciled`,
+    ]);
+    expect(stoppedAtReview(events)).toBe(true);
+  });
 });

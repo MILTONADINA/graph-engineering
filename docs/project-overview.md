@@ -24,7 +24,8 @@ Each card shows:
 - for a multi-step plan, each step as waiting, working or done;
 - its gates from the latest attempt: required checks, code review, the
   security gate and human acceptance (`not run` when a stopped run never
-  reached one; `stopped` when its code review started but never finished;
+  reached one; `stopped` when its code review started but never finished,
+  or was blocked because a cloud reviewer may not receive the change;
   `not configured` when the project has no reviewer);
 - the error of a stopped run, its cost, and the next step with the exact
   command to run (`graph-engine accept`, `reject`, `review-approve` or
@@ -32,7 +33,8 @@ Each card shows:
 
 A run whose latest attempt stopped at code review after its required
 checks passed (the reviewer asked for changes, or never finished, for
-example because the run's turn budget ran out) lists
+example because the run's turn budget ran out, or a cloud reviewer may not
+receive the change) lists
 `graph-engine review-approve <run-id> --note "…"` first, by the same test
 the command itself applies ([a person's review](code-review.md#a-persons-review)).
 Resuming it asks the reviewer again, so a spent turn budget stops it at

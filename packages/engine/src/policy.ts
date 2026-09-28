@@ -749,10 +749,13 @@ export function contextForProvider(
   assertMandatoryExport(packet, policy, { attributedOnly: false });
   return {
     ...packet,
+    // A file name can hold a credential as well as its text, as the MCP
+    // boundary also checks.
     items: packet.items.filter(
       (item) =>
         item.source &&
         isAllowedPath(item.source.path, policy, true) &&
+        !containsSecret(item.source.path) &&
         !containsSecret(item.text),
     ),
     // Local diagnostics can contain non-exportable filenames, parser excerpts,

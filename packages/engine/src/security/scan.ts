@@ -97,6 +97,13 @@ const EXIT_OK: Record<string, number[]> = {
 
 /** Where the OSV database is fetched from; the project must allow it. */
 export const OSV_DATABASE_HOST = "osv-vulnerabilities.storage.googleapis.com";
+/**
+ * How to download the OSV database without voiding planned work. The
+ * download needs the OSV host allowed, but a plan and its runs are bound to
+ * the exact policy the plan was made under: `run` and `resume --reconciled`
+ * refuse a changed one.
+ */
+export const OSV_DATABASE_ADVICE = `run graph-engine security-db-update, which needs policy.network "allowlisted" with ${OSV_DATABASE_HOST} in policy.allowedHosts; then restore .graph/project.json exactly as it was, since a plan and its runs are bound to its exact policy and a changed one voids them`;
 const OSV_STAMP = "graph-updated.json";
 
 const fingerprint = (parts: string[]) =>
@@ -511,7 +518,7 @@ export async function runSecurityScan(options: {
       if (!(EXIT_OK[tool] ?? [0]).includes(result.code))
         throw new Error(
           /no offline version of the OSV database/.test(result.stderr)
-            ? `${tool} has no downloaded database for an ecosystem this repository uses; run graph-engine security-db-update`
+            ? `${tool} has no downloaded database for an ecosystem this repository uses; ${OSV_DATABASE_ADVICE}`
             : `${tool} exited ${result.code}: ${result.stderr.slice(-300)}`,
         );
       return result;

@@ -91,6 +91,7 @@ import { LOCKFILES, type ProjectProfile } from "./security/catalog.js";
 import {
   BASELINE_FILE,
   newFindings,
+  OSV_DATABASE_ADVICE,
   osvDatabase,
   readCommittedBaseline,
   runSecurityScan,
@@ -955,6 +956,7 @@ export class GraphEngine {
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
     await this.assertSecurityScanner();
+    const missingDatabase = await this.missingDependencyDatabase();
     if (this.config.review) await this.reviewer();
     const snapshot = await this.context.index({ semantic: false });
     if (snapshot.id !== plan.snapshotId)
@@ -969,6 +971,9 @@ export class GraphEngine {
       usage: this.store.usage(plan.id),
     };
     this.store.reserve(run, this.config.policy.maxWorkers);
+    // Recorded before any worker is paid; `graph-engine run` prints it.
+    if (missingDatabase)
+      this.store.event(run.id, "security.database_missing", missingDatabase);
     this.launch(run);
     return this.store.run(run.id);
   }
@@ -1041,6 +1046,34 @@ export class GraphEngine {
       (await readCommittedBaseline(checkout, revision))
     )
       await scannerImageId(SECURITY_SCAN_IMAGE);
+  }
+  /**
+   * A warning when a run may stop at the security gate for want of a
+   * downloaded OSV database: the project commits a baseline, has lockfiles
+   * and has no database, so a run that changes a lockfile fails
+   * unscanned after its checks pass. Only a warning: a run that changes no
+   * lockfile passes the gate without one. The gate itself reports any error
+   * reading the baseline.
+   */
+  private async missingDependencyDatabase(): Promise<
+    { tool: string; lockfiles: string[]; message: string } | undefined
+  > {
+    try {
+      if (!(await readCommittedBaseline(this.root))) return undefined;
+      const names = new Set(LOCKFILES.map((name) => name.toLowerCase()));
+      const lockfiles = (await gitFiles(this.root)).filter((file) =>
+        names.has(path.posix.basename(file).toLowerCase()),
+      );
+      if (!lockfiles.length || (await osvDatabase(this.dataDir)))
+        return undefined;
+      return {
+        tool: "osv-scanner",
+        lockfiles: lockfiles.slice(0, 20),
+        message: `This project gates runs on its committed security baseline, but no OSV vulnerability database has been downloaded for its lockfiles (${lockfiles.slice(0, 5).join(", ")}), so a run that changes one stops at the security gate after its checks pass. To scan them, ${OSV_DATABASE_ADVICE}. A run stopped there resumes with graph-engine resume <run-id> --reconciled once the database is downloaded.`,
+      };
+    } catch {
+      return undefined;
+    }
   }
   /** Whether a run is still executing in this process. */
   isActive(runId: string): boolean {
@@ -1514,10 +1547,20 @@ export class GraphEngine {
           exportable = written.every((file) =>
             isAllowedPath(file, policy, true),
           );
-          if (reviewer.kind !== "local" && !exportable)
-            throw new Error(
-              "the change touches paths a cloud reviewer may not receive",
+          if (reviewer.kind !== "local" && !exportable) {
+            // Nothing is sent, so no review started; the run still stopped
+            // at code review after its checks passed, where a person can
+            // review this snapshot in the reviewer's place.
+            const reason =
+              "the change touches paths a cloud reviewer may not receive";
+            this.store.event(
+              run.id,
+              "review.blocked",
+              { providerId: reviewer.id, reason },
+              stepId,
             );
+            throw new Error(reason);
+          }
           // Diff raw bytes outside the repository: the original from the
           // object store with no conversion, the new file from disk. Neither
           // the change's .gitattributes (-diff, working-tree-encoding, ident,
@@ -1712,13 +1755,14 @@ export class GraphEngine {
           const changed = lockfiles.filter((file) => workerPaths.has(file));
           this.store.event(run.id, "security.tool_not_run", {
             tool: "osv-scanner",
-            reason:
-              "no downloaded OSV database; run graph-engine security-db-update",
+            reason: `no downloaded OSV database; ${OSV_DATABASE_ADVICE}`,
             lockfiles: lockfiles.slice(0, 20),
           });
+          // The download needs a policy change, and a changed policy voids
+          // this run: say how to keep it rather than plan and pay again.
           if (changed.length)
             throw new Error(
-              `This run changed ${changed.slice(0, 5).join(", ")}, but no OSV vulnerability database has been downloaded, so its dependencies were not scanned; run graph-engine security-db-update and resume`,
+              `This run changed ${changed.slice(0, 5).join(", ")}, but no OSV vulnerability database has been downloaded, so its dependencies were not scanned. To keep this run, ${OSV_DATABASE_ADVICE}. Then resume it with graph-engine resume ${run.id} --reconciled; planning it again would pay for its work again`,
             );
         }
         const unreviewed = newFindings(scan, securityBaseline!);

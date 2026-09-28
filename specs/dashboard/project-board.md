@@ -28,9 +28,10 @@ A team lead wants to open one page and see what the graph is doing, what is done
   - Test: packages/dashboard/src/api.test.ts :: sends authentication in headers and JSON bodies only to local API paths
 - AC7: The board refreshes on its own every few seconds while work is running and more slowly when idle.
   - Test: packages/dashboard/src/OverviewPage.test.tsx :: refreshes the board every 2.5 seconds while work runs and every 10 seconds when idle
-- AC8: A run whose latest attempt stopped at code review after that attempt's required checks passed, by the same test `review-approve` applies, lists `graph-engine review-approve` first and says a resume asks the reviewer again; a resume that stopped before reaching review again lists only resume, matching its gates; a review that started and never finished shows as stopped, not as not run.
+- AC8: A run whose latest attempt stopped at code review after that attempt's required checks passed, by the same test `review-approve` applies, lists `graph-engine review-approve` first and says a resume asks the reviewer again; a resume that stopped before reaching review again lists only resume, matching its gates; a review that started and never finished, or was blocked because a cloud reviewer may not receive the change, shows as stopped, not as not run.
   - Test: packages/engine/tests/overview.test.ts :: offers review-approve first for a run that stopped at code review after its checks passed
   - Test: packages/engine/tests/overview.test.ts :: offers review-approve only when the latest attempt itself stopped at code review
+  - Test: packages/engine/tests/overview.test.ts :: offers review-approve for a change a cloud reviewer may not receive
 - AC9: The Runs page shows a finished run's recorded human acceptance: pending until a person decides, then accepted or rejected by a person.
   - Test: packages/dashboard/src/RunsPage.test.tsx :: shows the person's recorded acceptance decision, never pending once they decide
 
