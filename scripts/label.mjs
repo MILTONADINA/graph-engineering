@@ -61,7 +61,9 @@ Keys for each question:
   s                     skip this question for now
   n                     add a short note to your next answer
   b                     back: undo your previous answer
-  t                     answer this task's questions again
+  t                     answer this task's questions again (reads the
+                        recorded runs again, so a run that has since
+                        stopped gives its outcome and cost)
   e                     export what is labelled so far
   q                     save and quit (progress is saved after every answer)
 
@@ -137,12 +139,22 @@ export async function labelSession(options, io) {
   });
   const pairs = loadPairs(paths.pairs, { packet, sha256: packetSha256 });
   requirePairsForPairedPacket(packet, pairs, paths.pairs);
-  const store =
-    options.projectId && options.dataRoot
-      ? readStore(options.dataRoot, options.projectId)
-      : null;
-  const index = indexStore(store);
+  const readIndex = () =>
+    indexStore(
+      options.projectId && options.dataRoot
+        ? readStore(options.dataRoot, options.projectId)
+        : null,
+    );
+  let index = readIndex();
+  // Questions, and the run each belongs to, stay as read at the start:
+  // saved progress is keyed by them. Run statuses and outcome rows are read
+  // again whenever a task's questions are asked, so a run that stopped
+  // since the session started has its outcome and cost derived.
   const items = buildItems(packet, index);
+  const refreshRuns = () => {
+    const fresh = readIndex();
+    index = { ...index, runs: fresh.runs, outcomes: fresh.outcomes };
+  };
   const now = options.now ?? (() => new Date().toISOString());
   const save = () => saveProgress(paths.progress, progress);
   const out = (text = "") => io.write(`${text}\n`);
@@ -192,9 +204,9 @@ export async function labelSession(options, io) {
 
   /** Asks the task's questions; returns false if the owner quit. */
   const setupTask = async (taskId, redo = false) => {
+    if (progress.tasks[taskId]?.asked && !redo) return true;
+    refreshRuns();
     const derived = deriveTask(taskId, tasks.get(taskId), index, pairs);
-    const previous = progress.tasks[taskId];
-    if (previous?.asked && !redo) return true;
     out(RULE);
     out(`Task ${taskId}: ${tasks.get(taskId).length} observations`);
     if (derived.source?.pair)
@@ -212,7 +224,7 @@ export async function labelSession(options, io) {
         );
       else if (derived.source.unfinished?.length)
         out(
-          `  not finished yet: ${derived.source.unfinished.map(short).join(", ")}; its outcome and cost are not known, so outcomes and costs are asked (once it stops, press t on one of this task's questions to derive them)`,
+          `  not finished yet: ${derived.source.unfinished.map(short).join(", ")}; its outcome and cost are not known, so outcomes and costs are asked (once it stops, press t on one of this task's questions: the runs are read again and its outcome and cost derived)`,
         );
     } else out("  no recorded runs found for this task");
     const task = { asked: false, derived: [] };
