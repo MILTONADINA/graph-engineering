@@ -509,7 +509,7 @@ async function boundedBody(
 // ---------------------------------------------------------------------------
 // High-water state (per log, under the user data dir)
 
-/** The default state directory: the promotion-key tool's per-user base. */
+/** The default state directory: the per-user base the owner key tool also uses. */
 export function defaultRekorStateDir(
   platform: NodeJS.Platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
