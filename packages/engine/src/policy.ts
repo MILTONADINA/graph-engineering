@@ -261,11 +261,32 @@ export async function safePath(
   }
   return target;
 }
-// Keep key recognition and value redaction on the same assignment grammar.
-// Quoted object keys, env names and camelCase source identifiers are common
-// ways for a credential to appear in otherwise exportable source files.
+// Template values ($VAR, ${VAR}, $(VAR), {name}, {{name}}, #{name}, <name>,
+// [NAME], %(name)s, %{name}, %NAME%) and masked ones (****, ...) are not
+// credentials, but only when the whole value has that shape: a password that
+// merely begins with $, {, <, *, . or % is judged like any other.
+const templateOrMask = (value: string): boolean =>
+  /^(?:\$(?:\{[^{}]*\}|\([A-Za-z_]\w*\)|[A-Za-z_]\w*)|\$?\{\{[^{}]*\}\}|#?\{[^{}]*\}|<[^<>]*>|\[[^[\]]*\]|%(?:\([^()]*\)s|\{[^{}]*\}|\w+%)|(.)\1*)$/.test(
+    value,
+  );
+// A value made only of placeholder words (password, yourpassword,
+// passwordpassword), optionally followed by digits (password123) or by a
+// separator and anything (SECRET_CANARY, your-password-here), is a fixture or
+// an example. A placeholder word that merely begins a value
+// (Password2024Summer, secretS3cureProdPw, testimony9Kq2Lm) does not exempt it.
+const placeholderPassword =
+  /^(?:pass(?:word)?|pwd|secret|credential|example|placeholder|changeme|your|test|dummy|fake|sample|redacted|fixture|xxx)+(?:[_-]|\d*$)/i;
+// Keep key recognition, detection and value redaction on one assignment
+// grammar. Quoted object keys, env names and camelCase source identifiers are
+// common ways for a credential to appear in otherwise exportable source
+// files. The value is one of: 16 or more token characters (group 5, as
+// before); a quoted value of 12 to 256 characters with no whitespace or quote
+// (group 6); or an unquoted one on the same line that ends at whitespace or
+// the end of the text (group 7). The last two are tried only after a name
+// ending like a credential's, and their lengths are bounded, so long runs of
+// other assignments without whitespace stay linear.
 const assignedCredential =
-  /(?<![A-Za-z0-9_$])(["'`]?)([A-Za-z_][A-Za-z0-9_-]{0,127})\1\s*[:=]\s*(["'`]?)(?!\$\{|process\.env|os\.environ|<|example|placeholder|your[-_]|test[-_]|undefined|null)([A-Za-z0-9+/_-]{16,}={0,2})(?![A-Za-z0-9_$.(?=])/gi;
+  /(?<![A-Za-z0-9_$])(["'`]?)([A-Za-z_][A-Za-z0-9_-]{0,127})\1\s*([:=])\s*(["'`]?)(?!\$\{|process\.env|os\.environ|example|placeholder|your[-_]|test[-_]|undefined|null)(?:([A-Za-z0-9+/_-]{16,}={0,2})(?![A-Za-z0-9_$.(?=])|(?<=(?:password|api[_-]?key|secret|access[_-]?(?:token|key)|token|private[_-]?key)(?:[_-]?(?:key|value))?["'`]?\s*[:=]\s*["'`]?)(?:(?<=["'`])([^\s"'`]{12,256})(?=\4)|(?<=[:=][ \t]*)([^\s"'`]{12,256})(?=\s|$)))/gi;
 const credentialName = (name: string): boolean =>
   /(?:^|[_-])(?:password|api[_-]?key|secret|access[_-]?(?:token|key)|token|private[_-]?key)(?:[_-](?:key|value))?$/i.test(
     name,
@@ -273,10 +294,82 @@ const credentialName = (name: string): boolean =>
   /(?:Password|ApiKey|Secret|AccessToken|AccessKey|Token|PrivateKey)(?:Key|Value)?$/.test(
     name,
   );
+// A quoted key path (auth.refreshToken, errors:invalid_token) or sigil name
+// (?NoLineTerminatorHere, @scope/name) names a setting, not a password.
+const keyPath =
+  /^[?@#:.]?[A-Za-z_$][\w$-]*(?:(?:\.|::?|\/)[A-Za-z_$][\w$-]*)*$/;
+// An unquoted value that reads as code: one that starts with a comparison,
+// arrow, negation or bracket (token=;, token=!0, token=(a), token=[a]), or a
+// word or member chain that ends there or goes on into a call, index, type
+// argument, ternary, statement end, list, assignment, comparison or logical
+// operator.
+const codeValue =
+  /^[=>;,!()[\]{}]|^[\w$]+(?:(?:\??\.|::|->)[A-Za-z_$][\w$]*)*(?:$|[([<{?;,)\]}=]|!=|&&|\|\|)|[;,]$/;
+// A punctuated unquoted value after ":" is YAML-like only on a line of its
+// own: indentation, an optional list dash and dotted key prefix before it, and
+// nothing but an optional comment after it. Both looks are bounded so a long
+// line stays linear.
+function ownLine(text: string, start: number, end: number): boolean {
+  const before = text.slice(Math.max(0, start - 256), start);
+  const lineStart = before.lastIndexOf("\n") + 1;
+  if (lineStart === 0 && start > 256) return false;
+  const after = /[ \t]*(?:\r?\n|$|#)/y;
+  after.lastIndex = end;
+  return (
+    /^[ \t]*(?:-[ \t]+)?(?:[\w-]+\.)*$/.test(before.slice(lineStart)) &&
+    after.test(text)
+  );
+}
+// Whether an assignment match is a credential: its name is a credential's and
+// its value is one. Values with punctuation are judged like URL passwords:
+// templates, masks and placeholder words are not credentials, and neither are
+// interpolations, URLs, key paths and code.
+function credentialAssignment(text: string, match: RegExpExecArray): boolean {
+  if (!credentialName(match[2]!)) return false;
+  if (match[5] !== undefined) return true;
+  const quoted = match[6];
+  const value = (quoted ?? match[7])!;
+  if (
+    !/[^A-Za-z0-9+/_-]/.test(value) ||
+    /\$\{|:\/\//.test(value) ||
+    templateOrMask(value) ||
+    placeholderPassword.test(value)
+  )
+    return false;
+  if (quoted !== undefined) return !keyPath.test(value);
+  return (
+    !codeValue.test(value) &&
+    (match[3] === "=" ||
+      ownLine(text, match.index, match.index + match[0].length))
+  );
+}
+// Detection, findings and redaction all read assignments here. A token value
+// cut short by punctuation ("sixteencharprefix!rest") extends through the rest
+// of its run, so redaction removes all of it. A rejected match resumes inside
+// its value, so a value that runs over a later assignment
+// (user=bob&password=...) does not hide it.
+function* assignedCredentials(
+  text: string,
+): Generator<{ start: number; valueStart: number; end: number }> {
+  const pattern = new RegExp(assignedCredential);
+  const rest = /[^\s"'`]{0,256}/y;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    let end = match.index + match[0].length;
+    const valueStart = end - (match[5] ?? match[6] ?? match[7])!.length;
+    if (!credentialAssignment(text, match)) {
+      pattern.lastIndex = valueStart;
+      continue;
+    }
+    if (match[5] !== undefined) {
+      rest.lastIndex = end;
+      end += rest.exec(text)![0].length;
+      pattern.lastIndex = end;
+    }
+    yield { start: match.index, valueStart, end };
+  }
+}
 function hasAssignedCredential(text: string): boolean {
-  for (const match of text.matchAll(assignedCredential))
-    if (credentialName(match[2]!)) return true;
-  return false;
+  return !assignedCredentials(text).next().done;
 }
 
 // Every PEM private-key label: PKCS#1 (RSA), SEC1 (EC), DSA, OpenSSH, PKCS#8
@@ -317,25 +410,19 @@ const percentDecoded = (value: string): string =>
   value.replace(/%([0-9A-Fa-f]{2})/g, (_match, hex: string) =>
     String.fromCharCode(Number.parseInt(hex, 16)),
   );
-// Template values ($VAR, ${VAR}, {name}, <name>, %(name)s, %NAME%) and
-// masked ones (****, ...) are not credentials. A percent-encoded password
-// (%2F...) is judged by its decoded value, so an encoded first character
-// no longer exempts it. A short password, the user name repeated
-// (postgres:postgres), one repeated character, and a password made only of
-// placeholder words (password, yourpassword, passwordpassword), optionally
-// followed by digits (password123) or by a separator and anything
-// (SECRET_CANARY, your-password-here), are fixtures and examples. A
-// placeholder word that merely begins a password (Password2024Summer,
-// secretS3cureProdPw, testimony9Kq2Lm) does not exempt it.
-const placeholderPassword =
-  /^(?:pass(?:word)?|pwd|secret|credential|example|placeholder|changeme|your|test|dummy|fake|sample|redacted|fixture|xxx)+(?:[_-]|\d*$)/i;
+// A URL password is judged by its percent-decoded value, so an encoded first
+// character (%2F...) does not exempt it; a template or mask is recognized in
+// either form (%DB_PASSWORD% only raw, %24%7BVAR%7D only decoded). A short
+// password, the user name repeated (postgres:postgres), a whole-value
+// template or mask, and a password made only of placeholder words are
+// fixtures and examples.
 const trivialPassword = (user: string, password: string): boolean => {
-  if (/^%(?:(?![0-9A-Fa-f]{2})|\w+%$)/.test(password)) return true;
   const decoded = percentDecoded(password);
   return (
     decoded.length < 8 ||
     decoded.toLowerCase() === percentDecoded(user).toLowerCase() ||
-    /^(?:[${<*.]|(.)\1*$)/.test(decoded) ||
+    templateOrMask(password) ||
+    templateOrMask(decoded) ||
     placeholderPassword.test(decoded)
   );
 };
@@ -417,9 +504,8 @@ export function secretFindings(text: string): Map<string, number> {
       if (/^-----BEGIN/i.test(match[0])) end = footerEnd(end) ?? end;
       add(detector, match.index, end);
     }
-  for (const match of text.matchAll(assignedCredential))
-    if (credentialName(match[2]!))
-      add("assigned", match.index, match.index + match[0].length);
+  for (const { start, end } of assignedCredentials(text))
+    add("assigned", start, end);
   for (const match of liveTokens(text))
     add("live", match.index, match.index + match[0].length);
   for (const match of urlCredentials(text))
@@ -441,19 +527,22 @@ export function introducesSecret(before: string, after: string): boolean {
     if ((existing.get(finding) ?? 0) < count) return true;
   return false;
 }
+// Replaces the value of each assignment that screening detects.
+function redactAssigned(text: string): string {
+  let redacted = "";
+  let from = 0;
+  for (const { valueStart, end } of assignedCredentials(text)) {
+    redacted += `${text.slice(from, valueStart)}[REDACTED]`;
+    from = end;
+  }
+  return redacted + text.slice(from);
+}
 // Redaction removes what containsSecret detects. A private key header with
 // no END marker (a truncated excerpt) is redacted through the end of the
 // text: what follows may be key material, and an OpenPGP armor header can
 // hold any character, so no shorter end is safe.
 export function redact(text: string): string {
-  return text
-    .replace(
-      assignedCredential,
-      (match, _quote, name: string, _valueQuote, value: string) =>
-        credentialName(name)
-          ? `${match.slice(0, -value.length)}[REDACTED]`
-          : match,
-    )
+  return redactAssigned(text)
     .replace(
       new RegExp(
         String.raw`-----BEGIN ${privateKeyLabel}-----(?:[\s\S]*?-----END ${privateKeyLabel}-----|[\s\S]*)`,
@@ -469,10 +558,6 @@ export function redact(text: string): string {
       urlCredential,
       (match, prefix: string, user: string, password: string) =>
         trivialPassword(user, password) ? match : `${prefix}[REDACTED]@`,
-    )
-    .replace(
-      /((?:password|api[_-]?key|secret|access[_-]?token)\s*[:=]\s*)["']?[^\s"']{12,}["']?/gi,
-      "$1[REDACTED]",
     )
     .replace(
       /(\b[A-Z][A-Z0-9_]*_TOKEN\s*[:=]\s*)["']?[A-Za-z0-9+/_-]{16,}={0,2}["']?/g,
