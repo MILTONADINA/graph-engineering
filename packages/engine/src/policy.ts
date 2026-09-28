@@ -74,20 +74,41 @@ export function validGlobEntry(pattern: string): boolean {
  * matches it and no exclusion does. picomatch's own list semantics would
  * treat `!pattern` as "everything outside pattern" and so widen the list.
  * A list with no positive entry, or with an invalid entry, matches nothing.
+ *
+ * Each side errs toward matching less. Patterns and paths are compared in
+ * Unicode NFC, so an exclusion typed as `café` also covers a file stored as
+ * decomposed `café` (common on macOS). Exclusions ignore case, as a
+ * case-insensitive file system does, and a slash-free exclusion such as
+ * `!*.pem` applies at any depth, like `excludedPaths`. Inclusions stay
+ * case-sensitive, and a slash-free inclusion still means the top level only.
  */
 export function globAllowlist(
   patterns: readonly string[],
 ): (relative: string) => boolean {
   if (!patterns.every(validGlobEntry)) return () => false;
-  const options = { dot: true, nonegate: true };
-  const include = patterns.filter((pattern) => !pattern.startsWith("!"));
+  const nfc = (text: string) => text.normalize("NFC");
+  const include = patterns
+    .filter((pattern) => !pattern.startsWith("!"))
+    .map(nfc);
   const exclude = patterns
     .filter((pattern) => pattern.startsWith("!"))
-    .map((pattern) => pattern.slice(1));
+    .map((pattern) => nfc(pattern.slice(1)));
   if (!include.length) return () => false;
-  const included = picomatch(include, options);
-  const excluded = exclude.length ? picomatch(exclude, options) : undefined;
-  return (relative) => included(relative) && !(excluded && excluded(relative));
+  const included = picomatch(include, { dot: true, nonegate: true });
+  const excluded = exclude.map((pattern) =>
+    picomatch(pattern, {
+      dot: true,
+      nonegate: true,
+      nocase: true,
+      basename: !pattern.includes("/"),
+    }),
+  );
+  return (relative) => {
+    const candidate = nfc(relative);
+    return (
+      included(candidate) && !excluded.some((matches) => matches(candidate))
+    );
+  };
 }
 export function isAllowedPath(
   relative: string,
@@ -128,8 +149,11 @@ export function isAllowedPath(
     segments.at(-1)?.toLowerCase() === "ecs-express-create-service.json"
   )
     return false;
-  const prefixes = segments.map((_, index) =>
-    segments.slice(0, index + 1).join("/"),
+  // Exclusions compare in Unicode NFC, so a decomposed file name cannot
+  // slip past an exclusion typed in the usual composed form.
+  const nfcSegments = clean.normalize("NFC").split("/");
+  const prefixes = nfcSegments.map((_, index) =>
+    nfcSegments.slice(0, index + 1).join("/"),
   );
   // Only these exact public artifacts can cross the root .graph boundary. The
   // ledger additionally requires owner policy opt-in; it is never engine state.
@@ -149,7 +173,7 @@ export function isAllowedPath(
     ) ||
     policy.excludedPaths.some((pattern) =>
       prefixes.some((prefix) =>
-        picomatch(pattern, {
+        picomatch(pattern.normalize("NFC"), {
           dot: true,
           nocase: true,
           basename: !pattern.includes("/"),
@@ -167,7 +191,10 @@ export function isAllowedPath(
  * Resolves a policy-checked project path. With forExport, the path must also
  * be exportable, and every existing segment must have exactly that name on
  * disk: on a case-insensitive file system `notes/plan.md` would otherwise
- * open `notes/plan.MD`, a file the export rules never matched.
+ * open `notes/plan.MD`, a file the export rules never matched. The name
+ * comparison is exact in case but not in Unicode form (a file stored
+ * decomposed is still found by its composed name), and the file's own name
+ * on disk must be exportable too.
  */
 export async function safePath(
   root: string,
@@ -188,13 +215,30 @@ export async function safePath(
     try {
       if ((await lstat(current)).isSymbolicLink())
         throw new Error(`Symlink is outside managed file scope: ${relative}`);
-      if (
-        options.forExport &&
-        !(await readdir(path.dirname(current))).includes(part)
-      )
-        throw new Error(
-          `Path differs from the file's name on disk, so it is not exported: ${relative}`,
+      if (options.forExport) {
+        const wanted = part.normalize("NFC");
+        const onDisk = (await readdir(path.dirname(current))).find(
+          (entry) => entry.normalize("NFC") === wanted,
         );
+        if (onDisk === undefined)
+          throw new Error(
+            `Path differs from the file's name on disk, so it is not exported: ${relative}`,
+          );
+        if (
+          current === target &&
+          !isAllowedPath(
+            path
+              .relative(base, path.join(path.dirname(current), onDisk))
+              .split(path.sep)
+              .join("/"),
+            policy,
+            true,
+          )
+        )
+          throw new Error(
+            `The file's name on disk is not exportable: ${relative}`,
+          );
+      }
       const canonical = path
         .relative(base, await realpath(current))
         .split(path.sep)

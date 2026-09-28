@@ -24,10 +24,11 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/requested-sources.test.ts :: stops a request that returns a file to content the worker already saw
 - AC5: A worker can complete a change to a large file end to end through outlines, line ranges and patch feedback.
   - Test: packages/engine/tests/execution.test.ts :: works through outlines, line ranges and patch feedback on a large file
-- AC6: Cloud workers cannot request non-exportable files, including a file whose name on disk differs in letter case from the exportable name requested, receive no range or outline of a file with a potential secret, and get patch details only for exportable paths.
+- AC6: Cloud workers cannot request non-exportable files, including a file whose name on disk differs in letter case from the exportable name requested (a name differing only in Unicode composition is the same file, and its on-disk name must itself be exportable), receive no range or outline of a file with a potential secret, and get patch details only for exportable paths.
   - Test: packages/engine/tests/requested-sources.test.ts :: refuses a non-exportable request for a cloud worker before reading it
   - Test: packages/engine/tests/requested-sources.test.ts :: refuses a cloud request whose file has a differently cased name on disk
   - Test: packages/engine/tests/policy.test.ts :: refuses to export a file whose name on disk differs in case from the exportable request
+  - Test: packages/engine/tests/policy.test.ts :: finds a decomposed file by its composed name, and checks the name on disk is exportable
   - Test: packages/engine/tests/requested-sources.test.ts :: gives a cloud worker no range or outline of a file with a potential secret
   - Test: packages/engine/tests/requested-sources.test.ts :: gives cloud workers patch details only for exportable paths
 - AC7: A request for a directory or a missing file is answered with the files the worker may read under the nearest directory, from Git's file list (never ignored, build, protected, excluded or, for a cloud worker, unexportable files), without revealing the private workspace path.
@@ -42,8 +43,9 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/requested-sources.test.ts :: keeps the first requested file when a tight budget cannot fit them all, and says what was left out
 - AC10: A failing check's feedback includes both its standard output and its error output.
   - Test: packages/engine/tests/execution.test.ts :: gives the worker a failing check's stdout even when stderr has unrelated warnings
-- AC11: An `exportPaths` entry starting with `!` excludes from the other entries and never widens the list: a path is exportable only when some other entry matches it and no exclusion does, a list of exclusions alone exports nothing, and `!` alone or a `!!` entry is refused when the project loads.
+- AC11: An `exportPaths` entry starting with `!` excludes from the other entries and never widens the list: a path is exportable only when some other entry matches it and no exclusion does, a list of exclusions alone exports nothing, and `!` alone or a `!!` entry is refused when the project loads. Exclusions err toward matching: they compare in Unicode NFC, ignore letter case, and a slash-free exclusion applies at any depth; inclusions stay case-sensitive and a slash-free inclusion means the top level only.
   - Test: packages/engine/tests/policy.test.ts :: treats a negated exportPaths entry as an exclusion, never as everything else
+  - Test: packages/engine/tests/policy.test.ts :: errs toward excluding: NFC-equal names, any-depth slash-free and case-blind exclusions
 
 ## Security considerations
 
