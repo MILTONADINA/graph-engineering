@@ -13,7 +13,7 @@ import {
   type RunStatus,
 } from "@graph-engineering/contracts";
 import { GraphEngine } from "./service.js";
-import { runExitCode } from "./run-exit-code.js";
+import { interruptedRunExitCode, runExitCode } from "./run-exit-code.js";
 import { repositoryProfile } from "./scale.js";
 import { summarizeOutcomes } from "./insights.js";
 import {
@@ -133,11 +133,16 @@ async function withEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
 // this process, and exiting would leave a check container or agent running
 // with no time limit. Ctrl-C or SIGTERM closes the engine instead, which
 // cancels the run: it kills those processes, removes the check containers and
-// records the run as cancelled. The handlers stay registered until the engine
-// has closed, so a repeated Ctrl-C cannot end the process mid-cleanup.
-async function withRunEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
+// records the run as cancelled, or as needs_reconciliation once its
+// publication had started. A run still being set up is never launched. The
+// handlers stay registered until the engine has closed, so a repeated Ctrl-C
+// cannot end the process mid-cleanup.
+async function withRunEngine(
+  fn: (engine: GraphEngine) => Promise<{ status: RunStatus }>,
+) {
   const engine = await GraphEngine.open(root());
   let interrupted = false;
+  let run: { status: RunStatus } | undefined;
   const cancel = () => {
     if (interrupted) return;
     interrupted = true;
@@ -152,7 +157,8 @@ async function withRunEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
   try {
     // close() lets the run stop and closes the context before the run store,
     // so fn can still read the run's record and events once wait() returns.
-    print(await fn(engine));
+    run = await fn(engine);
+    print(run);
   } catch (error) {
     if (!interrupted) throw error;
     // A person's own cancel, before the run started or while it was being
@@ -166,7 +172,9 @@ async function withRunEngine(fn: (engine: GraphEngine) => Promise<unknown>) {
       process.off("SIGTERM", cancel);
     }
   }
-  if (interrupted) process.exitCode = 130;
+  // A run the interrupt stopped once its publication had started needs
+  // reconciliation, and keeps the exit code that says so.
+  if (interrupted) process.exitCode = interruptedRunExitCode(run?.status);
 }
 // serve, mcp and watch keep their engine open after the action returns. An
 // open engine's database worker keeps the process alive, so a step that

@@ -966,6 +966,7 @@ export class GraphEngine {
     if (snapshot.id !== plan.snapshotId)
       throw new Error("Source changed since planning; create a fresh plan");
     await this.assertCleanForPublication(plan.publication);
+    this.assertOpen("started");
     const run: RunRecord = {
       id: id(),
       plan,
@@ -1008,6 +1009,17 @@ export class GraphEngine {
       throw new Error(
         `Git skips checking files in this checkout for changes (assume-unchanged or skip-worktree): ${describeHiddenEntries(hidden)}. Clear the marks with git update-index --no-assume-unchanged or --no-skip-worktree (core.ignoreStat=true sets them on checkout) before a run that publishes, so unrelated local work cannot enter its commit`,
       );
+  }
+  // start and resume call this after their last await. A close() that began
+  // during their checks (a person's Ctrl-C, say) found no run to abort, so a
+  // run launched now would execute on an engine whose stores are closing,
+  // and be left running. Nothing between this check and launch() awaits, so
+  // a later close() finds the run and cancels it. launch() carries no check
+  // of its own: the run is reserved by then, and refusing it there would
+  // leave it planned with no owner.
+  private assertOpen(action: "started" | "resumed"): void {
+    if (this.closing)
+      throw new Error(`The engine is closing, so the run was not ${action}`);
   }
   private launch(run: RunRecord, resuming = false): void {
     const controller = new AbortController();
@@ -1206,6 +1218,7 @@ export class GraphEngine {
     // The resumed run creates its workspace from the checkout, as start does.
     if (!run.workspace)
       await this.assertCleanForPublication(run.plan.publication);
+    this.assertOpen("resumed");
     const reserved = this.store.reserveResume(
       runId,
       this.config.policy.maxWorkers,

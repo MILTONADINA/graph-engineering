@@ -82,14 +82,20 @@ async function project() {
   // A running command, for a test that interrupts it.
   const start = (...args: string[]) =>
     spawn(process.execPath, argv(args), options());
+  const startPreloadedWith = (
+    extra: Record<string, string>,
+    preload: string[],
+    ...args: string[]
+  ) => spawn(process.execPath, argv(args, preload), options(extra));
   const startPreloaded = (preload: string[], ...args: string[]) =>
-    spawn(process.execPath, argv(args, preload), options());
+    startPreloadedWith({}, preload, ...args);
   const startWith = (extra: Record<string, string>, ...args: string[]) =>
-    spawn(process.execPath, argv(args), options(extra));
+    startPreloadedWith(extra, [], ...args);
   const graph = Object.assign(run({}), {
     with: run,
     start,
     startPreloaded,
+    startPreloadedWith,
     startWith,
   });
   return { root, data, graph };
@@ -207,10 +213,14 @@ async function settled(child: ChildProcess, limitMs = 30_000) {
 }
 
 // A committed project with a planned run: its local worker, qwen, proposes
-// the fix, and a stand-in for Docker runs the check without ever ending it,
-// like a hung test. The stand-in records the check's process ID and every
-// other docker command it is given.
-async function hungCheckProject() {
+// the fix, and a stand-in for Docker runs the check. A hung check never
+// ends, like a hung test; a passing one exits 0 at once. The stand-in
+// records the check's process ID and every other docker command it is
+// given. A plan made under `publication` commits or opens a PR.
+async function checkProject(
+  check: "hung" | "passing",
+  publication: "none" | "commit" = "none",
+) {
   const { root, data, graph } = await project();
   const server = createServer((request, response) => {
     request.resume();
@@ -249,6 +259,12 @@ async function hungCheckProject() {
     `http://127.0.0.1:${port}/v1`,
   );
   await graph("check-add", "fixture:local", "node", "--test");
+  if (publication !== "none") {
+    const projectFile = path.join(root, ".graph/project.json");
+    const config = JSON.parse(await readFile(projectFile, "utf8"));
+    config.policy.publication = publication;
+    await writeFile(projectFile, `${JSON.stringify(config, null, 2)}\n`);
+  }
   await writeFile(
     path.join(root, "math.cjs"),
     "exports.add = (a, b) => a - b;\n",
@@ -288,7 +304,7 @@ async function hungCheckProject() {
       "  info) echo 27.0.0 ;;",
       `  image) echo sha256:${"a".repeat(64)} ;;`,
       `  run) echo $$ > ${JSON.stringify(`${pidFile}.tmp`)} && mv ${JSON.stringify(`${pidFile}.tmp`)} ${JSON.stringify(pidFile)}`,
-      "       exec sleep 300 ;;",
+      check === "hung" ? "       exec sleep 300 ;;" : "       exit 0 ;;",
       `  *) echo "$*" >> ${JSON.stringify(log)} ;;`,
       "esac",
       "",
@@ -303,7 +319,9 @@ async function hungCheckProject() {
     planId: JSON.parse(plan.stdout).id as string,
     pidFile,
     log,
-    startRun: (planId: string) => graph.startWith(withDocker, "run", planId),
+    // `preload` modules replace parts of the engine for the command.
+    startRun: (planId: string, preload: string[] = []) =>
+      graph.startPreloadedWith(withDocker, preload, "run", planId),
   };
 }
 
@@ -945,7 +963,8 @@ describe("command line", () => {
   it.skipIf(process.platform === "win32")(
     "cancels a run on Ctrl-C, stopping its check container, and exits once it is cleaned up",
     async () => {
-      const { data, planId, pidFile, log, startRun } = await hungCheckProject();
+      const { data, planId, pidFile, log, startRun } =
+        await checkProject("hung");
       const child = startRun(planId);
       let stderr = "";
       child.stderr.on("data", (chunk) => (stderr += chunk));
@@ -1001,6 +1020,84 @@ describe("command line", () => {
           path.basename(entry).startsWith("verification-"),
         ),
       ).toEqual([]);
+    },
+    150_000,
+  );
+
+  // A run Ctrl-C stops once its publication has started may already have
+  // committed, pushed or opened a pull request, so it needs reconciliation,
+  // and the command keeps the exit code that asks a person for it.
+  it.skipIf(process.platform === "win32")(
+    "exits 2, not 130, when Ctrl-C stops a run whose publication had started",
+    async () => {
+      const { planId, startRun } = await checkProject("passing", "commit");
+      // A resolve hook gives the engine a publication that records it has
+      // started, then waits until the run is cancelled, as a slow push does.
+      const stubs = await mkdtemp(path.join(tmpdir(), "graph-cli-stub-"));
+      directories.push(stubs);
+      const publishing = path.join(stubs, "publishing");
+      await writeFile(
+        path.join(stubs, "publish.mjs"),
+        [
+          'import { writeFile } from "node:fs/promises";',
+          "export async function publishRun(_root, _run, _config, _hash, signal) {",
+          `  await writeFile(${JSON.stringify(publishing)}, "started\\n");`,
+          "  await new Promise((_resolve, reject) => {",
+          '    const stop = () => reject(new Error("Run cancelled during publication after its commit was created; reconcile the run branch before resuming"));',
+          "    if (signal.aborted) stop();",
+          '    else signal.addEventListener("abort", stop, { once: true });',
+          "  });",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      const stubPublication = path.join(stubs, "register.mjs");
+      await writeFile(
+        stubPublication,
+        [
+          'import { registerHooks } from "node:module";',
+          "registerHooks({",
+          "  resolve(specifier, context, nextResolve) {",
+          '    if (specifier === "./execution/publish.js" && context.parentURL?.endsWith("/src/service.ts"))',
+          '      return { url: new URL("./publish.mjs", import.meta.url).href, shortCircuit: true };',
+          "    return nextResolve(specifier, context);",
+          "  },",
+          "});",
+          "",
+        ].join("\n"),
+      );
+      const child = startRun(planId, [stubPublication]);
+      let stderr = "";
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const closed = once(child, "close");
+      try {
+        const deadline = Date.now() + 90_000;
+        for (;;) {
+          if (child.exitCode !== null || child.signalCode !== null)
+            throw new Error(`run ended before publishing: ${stderr}`);
+          if (Date.now() > deadline)
+            throw new Error(`the run never reached publication: ${stderr}`);
+          if (
+            await stat(publishing).then(
+              () => true,
+              () => false,
+            )
+          )
+            break;
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        child.kill("SIGINT");
+        const outcome = await settled(child);
+        expect(outcome.exit).toEqual([2, null]);
+        expect(JSON.parse(outcome.stdout)).toMatchObject({
+          status: "needs_reconciliation",
+          error: expect.stringContaining("reconcile the run branch"),
+        });
+        expect(stderr).toContain("Cancelling the run");
+      } finally {
+        child.kill("SIGKILL");
+        await closed;
+      }
     },
     150_000,
   );
