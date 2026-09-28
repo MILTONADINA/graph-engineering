@@ -1460,6 +1460,30 @@ export class ContextEngine {
     );
     return new Set(rows.map((row) => `${row.memory_id}:${row.text_sha256}`));
   }
+  /**
+   * The packet with each mandatory source's export authorization read again
+   * from the authorization table, so consent withdrawn after the packet was
+   * built (memory-export-revoke) refuses the next cloud dispatch. It only
+   * ever withdraws authorization; a source without a memory stays unauthorized.
+   */
+  async withCurrentExportAuthorization(
+    packet: ContextPacket,
+  ): Promise<ContextPacket> {
+    await this.ready;
+    if (!packet.mandatorySources) return packet;
+    const authorizations = await this.exportAuthorizations();
+    return {
+      ...packet,
+      mandatorySources: packet.mandatorySources.map((entry) => ({
+        ...entry,
+        exportAuthorized:
+          entry.exportAuthorized === true &&
+          entry.memoryId !== undefined &&
+          entry.textSha256 !== undefined &&
+          authorizations.has(`${entry.memoryId}:${entry.textSha256}`),
+      })),
+    };
+  }
   /** Shows exactly what memoryExportAuthorize would release, without recording consent. */
   async memoryExportReview(id: string): Promise<{
     id: string;

@@ -450,7 +450,12 @@ export class GraphEngine {
             ),
       );
     assertProvider(implementer, policy, input.effort);
-    const exportOnly = input.exportOnly === true || planner.kind !== "local";
+    // The planner's step text becomes a cloud implementer's objective, so a
+    // cloud implementer limits a local planner to exportable context too.
+    const exportOnly =
+      input.exportOnly === true ||
+      planner.kind !== "local" ||
+      implementer.kind !== "local";
     const snapshot = await this.context.index({ semantic: false });
     const context = await this.context.getContext({
       query: input.objective,
@@ -611,6 +616,15 @@ export class GraphEngine {
     workspace: string,
     ownerId: string,
   ): Promise<WorkerResult> {
+    // A run's packet is built once; consent withdrawn since then must stop
+    // the next cloud turn, so authorization is read again at each dispatch.
+    if (input.provider.kind !== "local")
+      input = {
+        ...input,
+        context: await this.context.withCurrentExportAuthorization(
+          input.context,
+        ),
+      };
     input = fitWorkerContext(input);
     const callId = `worker-${id()}`;
     const started = Date.now();

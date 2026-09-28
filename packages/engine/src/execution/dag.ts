@@ -4,10 +4,14 @@ import type {
   Usage,
 } from "@graph-engineering/contracts";
 import path from "node:path";
-import picomatch from "picomatch";
 import { z } from "zod";
 import { hash, now } from "../util.js";
-import { isAllowedPath, safePath } from "../policy.js";
+import {
+  globAllowlist,
+  isAllowedPath,
+  safePath,
+  validGlobEntry,
+} from "../policy.js";
 import { proposalSchema, type WorkerResult } from "../workers/api.js";
 import {
   applyProposal,
@@ -85,7 +89,19 @@ const stepSchema = z
     effort: z.string().min(1).optional(),
     templateId: z.string().min(1).optional(),
     inputs: z.record(z.unknown()).optional(),
-    writes: z.array(z.string().min(1).max(200)).min(1).max(50).optional(),
+    // `!pattern` entries exclude from the positive entries; a list of only
+    // exclusions would otherwise read as "everything else".
+    writes: z
+      .array(z.string().min(1).max(200))
+      .min(1)
+      .max(50)
+      .refine((writes) => writes.every(validGlobEntry), {
+        message: 'A writes entry must not be "!" alone or start with "!!"',
+      })
+      .refine((writes) => writes.some((entry) => !entry.startsWith("!")), {
+        message: "writes needs at least one pattern that is not an exclusion",
+      })
+      .optional(),
   })
   .strict();
 const completedSchema = z
@@ -115,16 +131,15 @@ const checkpointSchema = z
   .strict();
 
 /**
- * Whether a step may write a file: its declared `writes` globs and any
- * scheduler-supplied paths both apply. Undefined means unrestricted.
+ * Whether a step may write a file: its declared `writes` globs (where a
+ * `!pattern` entry excludes) and any scheduler-supplied paths both apply.
+ * Undefined means unrestricted.
  */
 export function writeScope(
   step: ExecutionStep,
   writeScopes?: Record<string, string[]>,
 ): ((file: string) => boolean) | undefined {
-  const declared = step.writes?.length
-    ? picomatch(step.writes, { dot: true })
-    : undefined;
+  const declared = step.writes?.length ? globAllowlist(step.writes) : undefined;
   const supplied = writeScopes?.[step.id]?.map(exactPath);
   if (!declared && !supplied) return undefined;
   return (file) =>

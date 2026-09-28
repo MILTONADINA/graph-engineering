@@ -839,6 +839,60 @@ describe("workspace knowledge during managed runs", () => {
     expect(run.error).toMatch(/Mandatory memory is not exportable/);
     expect(seen.join("\n")).not.toContain(edited);
   });
+
+  it("refuses the next cloud turn once a memory's export authorization is revoked mid-run", async () => {
+    const { root, data } = await fixture((config) => {
+      config.policy.inference = "allowlisted";
+      config.policy.network = "allowlisted";
+      config.policy.allowedHosts = ["api.openai.com"];
+      config.policy.exportPaths = ["first.js"];
+      config.policy.providers = ["cloud"];
+    });
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+    });
+    let memoryId = "";
+    const seen: string[][] = [];
+    const engine: GraphEngine = await open(root, {
+      worker: async (input) => {
+        seen.push(input.context.mandatory);
+        // The operator withdraws consent while the first step is running.
+        if (seen.length === 1)
+          await engine.context.revokeMemoryExport(memoryId);
+        return result(input.objective);
+      },
+    });
+    await engine.context.index();
+    const memory = await engine.context.createMemory({
+      kind: "constraint",
+      text: reviewed,
+      sources: [(await engine.context.searchSymbols("first.js"))[0]!.source],
+    });
+    memoryId = memory.id;
+    await engine.context.acceptMemory(memory.id);
+    await engine.context.promoteMemory(memory.id);
+    await engine.context.authorizeMemoryExport(
+      memory.id,
+      createHash("sha256").update(reviewed).digest("hex"),
+    );
+    await checked("git", ["add", "."], { cwd: root });
+    await checked("git", ["commit", "-m", "test: share constraint"], {
+      cwd: root,
+    });
+    const planned = await engine.createPlan({
+      objective: "Update first and second exports",
+      acceptance: ["Both constants are updated"],
+      providerId: "cloud",
+      steps: [step("one", [], "cloud"), step("two", ["one"], "cloud")],
+    });
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain(reviewed);
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/not been authorized for export/);
+  });
 });
 
 describe("code review of a multi-step plan", () => {
@@ -1058,6 +1112,39 @@ describe("proposed decomposition", () => {
     await expect(
       leaking.proposeSteps({ ...request, exportOnly: true }),
     ).rejects.toThrow("contain a potential secret");
+  });
+
+  it("gives a local planner only exportable context when a cloud worker implements its steps", async () => {
+    const { root, data } = await fixture((config) => {
+      config.policy.inference = "allowlisted";
+      config.policy.network = "allowlisted";
+      config.policy.allowedHosts = ["api.openai.com"];
+      config.policy.exportPaths = ["first.js"];
+      config.policy.providers = ["local", "cloud"];
+    });
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+    });
+    const seen: string[][] = [];
+    const engine = await open(root, {
+      planner: planner([{ id: "one", objective: "one", dependsOn: [] }], seen),
+    });
+    const request = {
+      objective: "Change export const first and export const second",
+      acceptance: ["Both constants are updated"],
+      plannerId: "local",
+    };
+    await engine.proposeSteps({ ...request, providerId: "local" });
+    expect(seen[0]).toContain("second.js");
+    const proposal = await engine.proposeSteps({
+      ...request,
+      providerId: "cloud",
+    });
+    expect(seen[1]).toContain("first.js");
+    expect(seen[1]).not.toContain("second.js");
+    expect(proposal.steps[0]!.providerId).toBe("cloud");
   });
 
   it("bounds a day's decompositions together by the turn limit", async () => {

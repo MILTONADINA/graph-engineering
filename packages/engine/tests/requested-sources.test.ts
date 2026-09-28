@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -175,6 +175,26 @@ describe("requested source packets", () => {
     await expect(
       request(root, [".env"], new SuppliedLines(), cloud),
     ).rejects.toThrow("Source request is not exportable: .env");
+  });
+
+  it("refuses a cloud request whose file has a differently cased name on disk", async () => {
+    const root = await workspace({ "plan.MD": "PRIVATE_CASE_CANARY\n" });
+    const cloud = input(packet(), {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+    });
+    cloud.policy = { ...cloud.policy, exportPaths: ["*.md"] };
+    const caseInsensitive = await stat(path.join(root, "plan.md"))
+      .then(() => true)
+      .catch(() => false);
+    // On a case-sensitive file system the request finds no file at all.
+    const refused = request(root, ["plan.md"], new SuppliedLines(), cloud);
+    if (caseInsensitive) await expect(refused).rejects.toThrow("name on disk");
+    else await expect(refused).rejects.toThrow("unavailable");
+    // A local worker still reads it by either spelling.
+    const local = await request(root, ["plan.md"]).catch(() => undefined);
+    if (caseInsensitive) expect(local?.items[0]?.text).toContain("CANARY");
   });
 
   it("serves exact line ranges and rejects ranges that do not exist", async () => {

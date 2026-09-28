@@ -399,6 +399,26 @@ describe("step write scopes and timeouts", () => {
     expect(validateDag([tester]).steps[0]!.writes).toEqual(["**/*.test.js"]);
   });
 
+  it("treats a negated writes entry as an exclusion that never widens the step's scope", () => {
+    const scoped = writeScope({
+      ...step("tests"),
+      writes: ["tests/**", "!tests/fixtures/**"],
+    })!;
+    expect(scoped("tests/app.test.js")).toBe(true);
+    expect(scoped("tests/fixtures/data.json")).toBe(false);
+    expect(scoped("src/app.js")).toBe(false);
+    // A plan whose writes are only exclusions, or unclear, is refused.
+    for (const writes of [["!src/**"], ["tests/**", "!"], ["!!src/**"]])
+      expect(
+        () => validateDag([{ ...step("tests"), writes }]),
+        writes.join(","),
+      ).toThrow();
+    // Even without validation, exclusions alone permit no write.
+    expect(
+      writeScope({ ...step("tests"), writes: ["!src/**"] })!("tests/a.js"),
+    ).toBe(false);
+  });
+
   it("gives each step its own timeout rather than one for the whole plan", async () => {
     const workspace = await fixture();
     const policy = { ...DEFAULT_POLICY, timeoutSeconds: 1 };

@@ -19,8 +19,9 @@ Breaking a large objective into steps is itself work that a planner model can he
 - AC4: Proposals with cycles, reserved IDs or unknown dependencies, malformed planner output, and installed-agent planners are rejected.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rejects cycles, reserved IDs, unknown dependencies and agent planners
   - Test: packages/engine/tests/plan-worker.test.ts :: refuses secrets for cloud planners and installed agents, and rejects malformed plans
-- AC5: A cloud planner receives only exportable context, and a proposal containing a potential secret is refused.
+- AC5: A cloud planner, or a local planner whose steps a cloud worker will implement, receives only exportable context, and a proposal containing a potential secret is refused.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: gives an export-only planner exportable context and refuses secrets in its answer
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: gives a local planner only exportable context when a cloud worker implements its steps
 - AC6: All decompositions in a project on one day share the turn limit, and a paid planner is refused before the call when it would exceed the cost limit.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: bounds a day's decompositions together by the turn limit
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: bounds a paid planner by the project's cost limit before calling it
@@ -29,7 +30,7 @@ Breaking a large objective into steps is itself work that a planner model can he
 
 ## Security considerations
 
-Planner output is untrusted model text: steps are validated as a dependency graph twice (when proposed and again when the plan is created) and the reserved repair ID is refused. Cloud planners get only `exportPaths` excerpts without potential secrets and are refused when mandatory memory is not authorized for export. Planner calls are bounded by the owner's daily turn and cost ceilings before dispatch. The steps file is written with owner-only permissions and never overwrites an existing file. Over MCP, the person's approval is expressed through the client's own permission prompt for `plan_create`, which is weaker than a local review of the steps file.
+Planner output is untrusted model text: steps are validated as a dependency graph twice (when proposed and again when the plan is created) and the reserved repair ID is refused. Cloud planners, and local planners whose steps go to a cloud worker, get only `exportPaths` excerpts without potential secrets and are refused when mandatory memory is not authorized for export. Planner calls are bounded by the owner's daily turn and cost ceilings before dispatch. The steps file is written with owner-only permissions and never overwrites an existing file. Over MCP, the person's approval is expressed through the client's own permission prompt for `plan_create`, which is weaker than a local review of the steps file.
 
 ## Non-goals
 

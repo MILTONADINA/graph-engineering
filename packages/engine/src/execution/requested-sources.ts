@@ -193,7 +193,9 @@ export async function requestedSourcePacket(options: {
     const relative = request.path;
     if (provider.kind !== "local" && !isAllowedPath(relative, policy, true))
       throw new Error(`Source request is not exportable: ${relative}`);
-    const absolute = await safePath(options.workspace, relative, policy);
+    const absolute = await safePath(options.workspace, relative, policy, {
+      forExport: provider.kind !== "local",
+    });
     let content: string | undefined;
     let unreadable: string | undefined;
     try {
