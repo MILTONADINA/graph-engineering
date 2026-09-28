@@ -49,7 +49,13 @@ import {
   writeJson,
   errorMessage,
 } from "./util.js";
-import { costBudgetRefusal, redact } from "./policy.js";
+import {
+  containsSecret,
+  costBudgetRefusal,
+  isAllowedPath,
+  redact,
+} from "./policy.js";
+import { parseSourceLocation } from "./context/index.js";
 import { trackedFiles } from "./execution/workspace.js";
 import { selectSecurityTools } from "./security/catalog.js";
 import {
@@ -1208,22 +1214,68 @@ cli
   );
 cli
   .command("memory-add <text>")
-  .option("--kind <kind>", "Memory category", "observation")
+  .description(
+    "Propose a private project memory; a person accepts it with memory-accept. An accepted requirement or constraint reaches a cloud client or worker only when it cites source evidence inside exportPaths (--source) and is shared and authorized for export (memory-share, memory-export-authorize)",
+  )
+  .option(
+    "--kind <kind>",
+    "Memory category: observation, decision, requirement, constraint or solution",
+    "observation",
+  )
+  .option(
+    "--source <path#Lstart-Lend>",
+    "Cite lines of a repository file as evidence, for example src/api.ts#L10-L24; resolved against the current index snapshot. Repeat for more sources",
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[],
+  )
+  .option(
+    "--supersedes <id>",
+    "The accepted memory this proposal replaces; accepting the proposal retires it",
+  )
   .action((text, options) =>
-    withEngine((engine) =>
-      engine.context.createMemory({
+    withEngine(async (engine) => {
+      const kind = z
+        .enum([
+          "observation",
+          "decision",
+          "requirement",
+          "constraint",
+          "solution",
+        ])
+        .parse(options.kind);
+      const sources = (options.source as string[]).map(parseSourceLocation);
+      const memory = await engine.context.proposeMemory({
         text,
-        kind: z
-          .enum([
-            "observation",
-            "decision",
-            "requirement",
-            "constraint",
-            "solution",
-          ])
-          .parse(options.kind),
-      }),
-    ),
+        kind,
+        sources,
+        ...(options.supersedes !== undefined
+          ? { supersedes: options.supersedes as string }
+          : {}),
+      });
+      // Mandatory memory blocks cloud consumers until it can be exported.
+      const policy = engine.config.policy;
+      if (
+        (kind === "constraint" || kind === "requirement") &&
+        policy.inference !== "local" &&
+        policy.network !== "deny"
+      ) {
+        const outside = memory.sources
+          .map((source) => source.path)
+          .filter(
+            (file) =>
+              !isAllowedPath(file, policy, true) || containsSecret(file),
+          );
+        if (!memory.sources.length)
+          console.error(
+            `warning: this ${kind} cites no --source, so once accepted it cannot be authorized for cloud export, and cloud clients and workers are refused until it is superseded by a sourced memory`,
+          );
+        else if (outside.length)
+          console.error(
+            `warning: ${outside.filter((file) => !containsSecret(file)).join(", ") || "a source"} is outside exportPaths, so once accepted this ${kind} cannot be authorized for cloud export, and cloud clients and workers are refused; local workers still receive it`,
+          );
+      }
+      return memory;
+    }),
   );
 cli
   .command("memories")
@@ -1255,11 +1307,14 @@ cli
   );
 cli
   .command("memory-share <id>")
+  .description(
+    "Write an accepted memory to .graph/knowledge/<id>.json for review and commit; sharing does not authorize cloud export",
+  )
   .action((id) => withEngine((engine) => engine.context.promoteMemory(id)));
 cli
   .command("memory-export-authorize <id>")
   .description(
-    "Authorize cloud export of one accepted, shared memory's exact text; without --sha256, print the text and its SHA-256 for review",
+    "Authorize cloud export of one accepted, shared memory's exact text; without --sha256, print the text and its SHA-256 for review. The memory must cite source evidence inside exportPaths; replace one that does not with memory-add --source <path#Lstart-Lend> --supersedes <id>",
   )
   .option(
     "--sha256 <hex>",

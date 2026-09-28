@@ -64,6 +64,23 @@ graph-engine memories                   # list the proposals and their IDs
 graph-engine memory-accept <memory-id>  # for each one the team should follow
 ```
 
+These constraints cite no source, which local workers do not need. A
+cloud-backed client or worker receives a requirement or constraint only when
+it cites source evidence inside `exportPaths` and an operator has shared it
+and authorized its exact text; until then cloud `context_get` and cloud worker
+turns are refused, and the refusal names the memory. To make a standard
+exportable, write it down in a file the export policy allows, propose a
+sourced successor, which retires the unsourced one when accepted, and
+authorize it ([the full flow](memory-assertions.md)):
+
+```sh
+graph-engine memory-add --kind constraint --source docs/standards.md#L3-L4 --supersedes <memory-id> "Tests cover the failure paths, not only the happy path."
+graph-engine memory-accept <new-id>
+graph-engine memory-share <new-id>
+graph-engine memory-export-authorize <new-id>                  # review the exact text
+graph-engine memory-export-authorize <new-id> --sha256 <hash>  # record consent
+```
+
 Standards guide the workers; the gates enforce what can be checked. Make
 the checkable ones checks: register your linter, type checker and test
 suite with `check-add`, keep the security baseline reviewed, and require a

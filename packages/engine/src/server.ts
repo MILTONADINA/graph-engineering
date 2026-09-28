@@ -118,8 +118,10 @@ export function createServer(
     return engine.context.neighbors(q.symbolId, q.snapshotId, q.depth);
   });
   app.get("/api/memories", () => engine.context.listMemories());
+  // Sources are cited as file lines and resolved against a fresh snapshot, so
+  // a caller cannot supply its own content hash or snapshot.
   app.post("/api/memories", (request) =>
-    engine.context.createMemory(
+    engine.context.proposeMemory(
       z
         .object({
           text: z.string().min(1).max(16000),
@@ -130,6 +132,19 @@ export function createServer(
             "constraint",
             "solution",
           ]),
+          sources: z
+            .array(
+              z
+                .object({
+                  path: z.string().min(1).max(4096),
+                  startLine: z.number().int().positive(),
+                  endLine: z.number().int().positive(),
+                })
+                .strict(),
+            )
+            .max(32)
+            .optional(),
+          supersedes: z.string().min(1).max(80).optional(),
         })
         .strict()
         .parse(request.body),

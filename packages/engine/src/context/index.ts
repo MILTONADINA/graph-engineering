@@ -73,6 +73,8 @@ import {
   inWorkingSet,
   isAllowedPath,
   reachesWorkingSet,
+  unauthorizedMandatoryMemory,
+  unexportableMandatoryMemory,
 } from "../policy.js";
 import { errorMessage, subprocessEnvironment } from "../util.js";
 import { resolveSnapshotBindings, SEMANTIC_VERSION } from "./semantic.js";
@@ -190,6 +192,26 @@ export function excludedFromIndex(
       })(prefix),
     ),
   );
+}
+/** Lines of one repository file, cited as a memory's source evidence. */
+export interface SourceLocation {
+  path: string;
+  startLine: number;
+  endLine: number;
+}
+/** Parses a source cited as <path>#L<start>-L<end>, or <path>#L<line>. */
+export function parseSourceLocation(reference: string): SourceLocation {
+  const match = /^(.+)#L([1-9]\d{0,8})(?:-L([1-9]\d{0,8}))?$/.exec(reference);
+  if (!match)
+    throw new Error(
+      `Cite a source as <path>#L<start>-L<end> or <path>#L<line>, not ${JSON.stringify(reference)}`,
+    );
+  const startLine = Number(match[2]);
+  return {
+    path: match[1]!,
+    startLine,
+    endLine: match[3] === undefined ? startLine : Number(match[3]),
+  };
 }
 type Payload = { payload: string };
 type Chunk = { id: string; text: string; source: SourceReference };
@@ -1036,21 +1058,19 @@ export class ContextEngine {
     const mandatoryMemories = memories.filter((memory) =>
       ["constraint", "requirement"].includes(memory.kind),
     );
-    if (
-      exportOnly &&
-      mandatoryMemories.some(
-        (memory) =>
-          memory.visibility !== "shared" ||
-          memory.sources.length === 0 ||
-          containsSecret(memory.text) ||
-          memory.sources.some(
-            (source) =>
-              !isAllowedPath(source.path, exportPolicy, true) ||
-              containsSecret(source.path),
-          ),
-      )
-    )
-      throw new Error("Mandatory memory is not exportable to this client");
+    if (exportOnly) {
+      const unexportable = unexportableMandatoryMemory(
+        mandatoryMemories.map((memory) => ({
+          memoryId: memory.id,
+          kind: memory.kind,
+          text: memory.text,
+          visibility: memory.visibility,
+          sources: memory.sources,
+        })),
+        exportPolicy,
+      );
+      if (unexportable) throw new Error(unexportable);
+    }
     const authorizations = await this.exportAuthorizations();
     const mandatorySources = mandatoryMemories.map((memory) => {
       const textSha256 = hash(memory.text);
@@ -1065,10 +1085,11 @@ export class ContextEngine {
     });
     // Every contributing record must be authorized, including duplicates of
     // the same text, and nothing is dropped to make the export succeed.
-    if (exportOnly && mandatorySources.some((entry) => !entry.exportAuthorized))
-      throw new Error(
-        "Mandatory memory has not been authorized for export to this client",
-      );
+    const unauthorized = mandatorySources.filter(
+      (entry) => !entry.exportAuthorized,
+    );
+    if (exportOnly && unauthorized.length)
+      throw new Error(unauthorizedMandatoryMemory(unauthorized));
     const mandatory = [
       ...new Set([
         ...(input.mandatory ?? []),
@@ -1410,6 +1431,93 @@ export class ContextEngine {
     if (record.assertions !== undefined)
       record.assertions = parseReviewedAssertions(record.assertions);
   }
+  /**
+   * A person's proposal from the command line or dashboard. Each source is
+   * cited as file lines and resolved against a fresh snapshot of the working
+   * tree; a successor names the accepted memory its acceptance retires.
+   */
+  async proposeMemory(input: {
+    text: string;
+    kind: MemoryKind;
+    sources?: SourceLocation[];
+    supersedes?: string;
+  }): Promise<MemoryRecord> {
+    await this.ready;
+    if (input.supersedes !== undefined) {
+      const previous = await this.memory(input.supersedes);
+      if (previous.status !== "accepted")
+        throw new Error(
+          `Only an accepted memory can be superseded; ${previous.id} is ${previous.status}`,
+        );
+    }
+    return this.createMemory({
+      text: input.text,
+      kind: input.kind,
+      sources: await this.resolveSources(input.sources ?? []),
+      ...(input.supersedes !== undefined
+        ? { supersedes: input.supersedes }
+        : {}),
+    });
+  }
+  /**
+   * Source evidence for cited file lines, taken from one fresh snapshot of
+   * the working tree with the content hash that snapshot recorded, so the
+   * evidence matches the index exactly. A file the index leaves out, or
+   * lines past its end, are refused.
+   */
+  async resolveSources(
+    locations: SourceLocation[],
+  ): Promise<SourceReference[]> {
+    await this.ready;
+    if (!locations.length) return [];
+    for (const { path: file, startLine, endLine } of locations) {
+      if (!safePath(file))
+        throw new Error(
+          `Source ${JSON.stringify(file)} is not a repository-relative path with forward slashes`,
+        );
+      if (
+        !Number.isInteger(startLine) ||
+        !Number.isInteger(endLine) ||
+        startLine < 1 ||
+        endLine < startLine
+      )
+        throw new Error(
+          `Source ${file} needs a line range L<start>-L<end> with 1 <= start <= end`,
+        );
+    }
+    const snapshot = await this.index({ semantic: false });
+    const sources: SourceReference[] = [];
+    for (const { path: file, startLine, endLine } of locations) {
+      const row = await this.db.get<Payload & { content_hash: string }>(
+        "SELECT content_hash,payload FROM files WHERE snapshot_id=? AND path=?",
+        [snapshot.id, file],
+      );
+      if (!row) {
+        const exists = await lstat(join(this.root, file)).then(
+          () => true,
+          () => false,
+        );
+        throw new Error(
+          exists
+            ? `Source ${file} is not indexed, so it cannot be cited: it is excluded by policy or Git, outside the working set, not a regular text file, larger than 1 MiB, or matches a credential pattern`
+            : `Source ${file} does not exist in the working tree`,
+        );
+      }
+      const lines = json<ParsedFile>(row).text.split("\n").length;
+      if (endLine > lines)
+        throw new Error(
+          `Source ${file} has ${lines} lines; cite lines within 1-${lines}`,
+        );
+      sources.push({
+        path: file,
+        startLine,
+        endLine,
+        contentHash: row.content_hash,
+        snapshotId: snapshot.id,
+      });
+    }
+    return sources;
+  }
   async createMemory(input: {
     text: string;
     kind: MemoryKind;
@@ -1536,18 +1644,35 @@ export class ContextEngine {
       throw new Error("Only accepted memories can be authorized for export");
     if (record.visibility !== "shared")
       throw new Error("Share the memory before authorizing its export");
-    if (
-      record.sources.length === 0 ||
-      containsSecret(record.text) ||
-      record.sources.some(
-        (source) =>
-          !isAllowedPath(source.path, this.policy, true) ||
-          containsSecret(source.path),
-      )
-    )
+    const replace = `propose a sourced replacement with graph-engine memory-add --kind ${record.kind} --source <path>#L<start>-L<end> --supersedes ${record.id} "<text>", then accept, share and authorize that one`;
+    if (containsSecret(record.text))
       throw new Error(
-        "Memory needs source evidence inside the export policy before it can be exported",
+        `Memory text matches a credential pattern, so it cannot be exported; ${replace}`,
       );
+    if (record.sources.length === 0)
+      throw new Error(
+        `Memory needs source evidence inside the export policy before it can be exported, and ${record.id} has none; ${replace}`,
+      );
+    const outside = record.sources.filter(
+      (source) =>
+        !isAllowedPath(source.path, this.policy, true) ||
+        containsSecret(source.path),
+    );
+    if (outside.length) {
+      // A path that looks like a credential is counted, never printed.
+      const named = outside
+        .map((source) => source.path)
+        .filter((path) => !containsSecret(path));
+      const hidden = outside.length - named.length;
+      throw new Error(
+        `Memory needs source evidence inside the export policy before it can be exported; outside exportPaths: ${[
+          ...named,
+          ...(hidden
+            ? [`${hidden} path(s) that match a credential pattern`]
+            : []),
+        ].join(", ")}. To cite evidence inside exportPaths, ${replace}`,
+      );
+    }
     await this.verifyMemorySources(record.sources);
     if (textSha256 !== hash(record.text))
       throw new Error("The SHA-256 does not match this memory's exact text");

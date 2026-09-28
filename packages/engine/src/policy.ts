@@ -701,6 +701,90 @@ export function costBudgetRefusal(
     return `This provider cannot support the configured cost budget until its prices are recorded. A local worker costs nothing, so record zero prices with graph-engine provider-add ${provider.id} local ${provider.model} --input-cost 0 --output-cost 0, repeating its other options such as --endpoint, since provider-add replaces the stored worker`;
   return "This provider cannot support the configured cost budget; configure pricing or use a metered API worker";
 }
+/** One mandatory memory as the cloud-export gate sees it. */
+export interface MandatoryExportEntry {
+  memoryId?: string;
+  kind?: string;
+  text: string;
+  visibility: "private" | "shared";
+  sources: { path: string }[];
+}
+// A refusal names at most this many memories, then counts the rest.
+const NAMED_MEMORY_LIMIT = 10;
+function namedMemories(clauses: string[]): string {
+  const more = clauses.length - NAMED_MEMORY_LIMIT;
+  return (
+    clauses.slice(0, NAMED_MEMORY_LIMIT).join("; ") +
+    (more > 0 ? `; and ${more} more` : "")
+  );
+}
+const memoryName = (entry: MandatoryExportEntry): string =>
+  entry.memoryId ? `memory ${entry.memoryId}` : "a memory without an ID";
+/**
+ * Why a mandatory memory cannot leave for a cloud consumer as it stands, or
+ * null when only an operator's authorization of its exact text is missing.
+ */
+function mandatoryExportBlocker(
+  entry: MandatoryExportEntry,
+  policy: ProjectPolicy,
+): "credential" | "unsourced" | "outside" | "private" | null {
+  if (containsSecret(entry.text)) return "credential";
+  if (entry.sources.length === 0) return "unsourced";
+  if (
+    entry.sources.some(
+      (source) =>
+        !isAllowedPath(source.path, policy, true) ||
+        containsSecret(source.path),
+    )
+  )
+    return "outside";
+  return entry.visibility === "shared" ? null : "private";
+}
+/**
+ * The refusal for mandatory memory that cannot be exported as it stands, or
+ * null. It names each memory and the operator command that unblocks it. It
+ * reaches the refused cloud client, so it never carries a memory's text, the
+ * text's hash or a source path.
+ */
+export function unexportableMandatoryMemory(
+  entries: MandatoryExportEntry[],
+  policy: ProjectPolicy,
+): string | null {
+  const reasons = {
+    credential: "has text that matches a credential pattern",
+    unsourced: "has no source evidence",
+    outside: "cites source evidence outside exportPaths",
+  };
+  const clauses: string[] = [];
+  for (const entry of entries) {
+    const blocker = mandatoryExportBlocker(entry, policy);
+    if (!blocker) continue;
+    const id = entry.memoryId ?? "<id>";
+    clauses.push(
+      blocker === "private"
+        ? `${memoryName(entry)} is private: graph-engine memory-share ${id}, then authorize its export`
+        : `${memoryName(entry)} ${reasons[blocker]}: an operator proposes a sourced replacement with graph-engine memory-add --kind ${entry.kind ?? "<constraint|requirement>"} --source <path>#L<start>-L<end> --supersedes ${id} "<text>", then accepts, shares and authorizes it`,
+    );
+  }
+  return clauses.length
+    ? `Mandatory memory is not exportable to this client. ${namedMemories(clauses)}. Local workers and clients receive it without export.`
+    : null;
+}
+/**
+ * The refusal for shared, sourced mandatory memory an operator has not
+ * authorized for export in its exact current text, naming each memory and
+ * the command that reviews and authorizes it.
+ */
+export function unauthorizedMandatoryMemory(
+  entries: MandatoryExportEntry[],
+): string {
+  return `Mandatory memory has not been authorized for export to this client. An operator reviews each memory's exact text and SHA-256 with the command named here, then records consent by running it again with --sha256 <hex>: ${namedMemories(
+    entries.map(
+      (entry) =>
+        `${memoryName(entry)}: graph-engine memory-export-authorize ${entry.memoryId ?? "<id>"}`,
+    ),
+  )}.`;
+}
 /**
  * Gate for memory-derived mandatory context leaving for a cloud consumer.
  * Missing provenance, private or out-of-policy memory, and any text an
@@ -718,32 +802,16 @@ export function assertMandatoryExport(
     throw new Error(
       "Mandatory context has no memory provenance; cloud export is refused",
     );
-  if (
-    entries.some(
-      (entry) =>
-        entry.visibility !== "shared" ||
-        entry.sources.length === 0 ||
-        entry.sources.some(
-          (source) =>
-            !isAllowedPath(source.path, policy, true) ||
-            containsSecret(source.path),
-        ),
-    )
-  )
-    throw new Error(
-      "Mandatory memory is not exportable to this client; use a local worker or share eligible knowledge",
-    );
-  if (
-    entries.some(
-      (entry) =>
-        entry.exportAuthorized !== true ||
-        entry.textSha256 !==
-          createHash("sha256").update(entry.text).digest("hex"),
-    )
-  )
-    throw new Error(
-      "Mandatory memory has not been authorized for export to this client",
-    );
+  const unexportable = unexportableMandatoryMemory(entries, policy);
+  if (unexportable) throw new Error(unexportable);
+  const unauthorized = entries.filter(
+    (entry) =>
+      entry.exportAuthorized !== true ||
+      entry.textSha256 !==
+        createHash("sha256").update(entry.text).digest("hex"),
+  );
+  if (unauthorized.length)
+    throw new Error(unauthorizedMandatoryMemory(unauthorized));
   const attributed = new Set(entries.map((entry) => entry.text));
   if (
     options.attributedOnly &&

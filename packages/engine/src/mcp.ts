@@ -224,7 +224,7 @@ export function createMcpServer(
             "solution",
           ])
           .describe(
-            "An accepted requirement or constraint is added to the mandatory section of every context packet. Proposals from this tool carry no source references, so an accepted requirement or constraint also makes context_get fail for cloud-backed clients, which receive mandatory memory only when it is shared, sourced and authorized for export by an operator.",
+            "An accepted requirement or constraint is added to the mandatory section of every context packet. Proposals from this tool carry no source references, so an accepted requirement or constraint also makes context_get fail for cloud-backed clients, which receive mandatory memory only when it is shared, sourced and authorized for export by an operator. An operator proposes a sourced replacement that retires it with graph-engine memory-add --source <path>#L<start>-L<end> --supersedes <id>.",
           ),
       },
     },
