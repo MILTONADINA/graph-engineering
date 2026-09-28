@@ -112,6 +112,13 @@ describe("project boundaries", () => {
       "AI" + "zaSyD4cX9k3lQ7mN2pR8vT1wY6zB5hJ0gFsEu",
       "postgres://app:" + "Zq8vR2mLx9Tk" + "@db.internal:5432/app",
       "redis://:" + "Zq8vR2mLx9Tk" + "@cache.internal:6379",
+      // A placeholder word that only begins the password, a percent-encoded
+      // first character and an unencoded "@" do not hide it.
+      "postgres://admin:" + "Password2024Summer" + "@db.prod.internal/app",
+      "mysql://root:" + "secretS3cureProdPw" + "@db/app",
+      "amqp://svc:" + "testimony9Kq2Lm" + "@mq/",
+      "postgres://app:" + "%2Fk9Zq8vR2mLx9Tk" + "@db/app",
+      "postgres://admin:" + "P@ssw0rd-2024-prod" + "@host/app",
     ];
     for (const secret of secrets) {
       expect(containsSecret(secret), secret).toBe(true);
@@ -124,6 +131,12 @@ describe("project boundaries", () => {
     expect(
       redact("postgres://app:" + "Zq8vR2mLx9Tk" + "@db.internal:5432/app"),
     ).toBe("postgres://app:[REDACTED]@db.internal:5432/app");
+    expect(redact("postgres://app:" + "%2Fk9Zq8vR2mLx9Tk" + "@db/app")).toBe(
+      "postgres://app:[REDACTED]@db/app",
+    );
+    expect(
+      redact("postgres://admin:" + "P@ssw0rd-2024-prod" + "@host/app"),
+    ).toBe("postgres://admin:[REDACTED]@host/app");
     const notSecrets = [
       "-----BEGIN " + "PUBLIC KEY-----",
       "-----BEGIN " + "CERTIFICATE-----",
@@ -141,11 +154,60 @@ describe("project boundaries", () => {
       "`${protocol}://${user}:${password}@${host}`",
       "ssh://git@github.com/owner/repo.git",
       "https://example.com/a:b@c",
+      "postgresql://app:yourpassword@db/app",
+      "postgresql://app:your-password-here@db/app",
+      "postgresql://app:password123@db/app",
+      "postgresql://app:passwordpassword@db/app",
+      "postgresql://app:%DB_PASSWORD%@db/app",
+      "postgresql://app:%(password)s@db/app",
+      "postgresql://app:%24%7BDB_PASSWORD%7D@db/app",
+      "postgresql://app:%2A%2A%2A%2A%2A%2A%2A%2A@db/app",
+      "postgresql://postgres:%70ostgres@db/app",
     ];
     for (const text of notSecrets) {
       expect(containsSecret(text), text).toBe(false);
       expect(secretFindings(text).size, text).toBe(0);
       expect(redact(text), text).toBe(text);
+    }
+  });
+  it("redacts every credential screening detects, including a key with no END marker and keys in any letter case", () => {
+    const body = "MIIBuwIBAAKBgQDlC0Zq8vR2mLx9TkPr0dUc7Hs";
+    const keys = [
+      // A truncated excerpt: the header and body, with no END marker.
+      `${"-----BEGIN "}DSA PRIVATE KEY-----\n${body}\n`,
+      // An END marker that does not close a private key.
+      `log: ${"-----BEGIN "}PRIVATE KEY-----\n${body}\n${"-----END "}CERTIFICATE-----\n${body}`,
+      // A JSON-escaped OpenPGP block whose armor header holds any character.
+      `{"key": "${"-----BEGIN "}PGP PRIVATE KEY BLOCK-----\\nComment: <a@b> "x"\\n\\n${body}`,
+    ];
+    for (const text of keys) {
+      expect(containsSecret(text), text).toBe(true);
+      const redacted = redact(text);
+      expect(redacted, text).toContain("[REDACTED PRIVATE KEY]");
+      expect(redacted, text).not.toContain(body);
+      expect(containsSecret(redacted), redacted).toBe(false);
+    }
+    expect(
+      redact(`before\n${"-----BEGIN "}PRIVATE KEY-----\n${body}\nafter`),
+    ).toBe("before\n[REDACTED PRIVATE KEY]");
+    // A complete block still ends at its END marker.
+    expect(
+      redact(
+        `${"-----BEGIN "}EC PRIVATE KEY-----\n${body}\n${"-----END "}EC PRIVATE KEY-----\nafter`,
+      ),
+    ).toBe("[REDACTED PRIVATE KEY]\nafter");
+    const tokens = [
+      "SK-" + "ABCDEFGHIJKLMNOPQRSTUVWX",
+      "Sk-" + "abcdefghijklmnopqrstuvwx",
+      "akia" + "abcdefghijklmnop",
+      "Asia" + "ABCDEFGHIJKLMNOP",
+      "GHP_" + "abcdefghijklmnopqrstuvwxyz",
+      "GITHUB_PAT_" + "abcdefghijklmnopqrstuvwxyz01234",
+    ];
+    for (const token of tokens) {
+      const text = `value ${token} end`;
+      expect(containsSecret(text), text).toBe(true);
+      expect(redact(text), text).toBe("value [REDACTED] end");
     }
   });
   it("counts only secret matches a change adds to existing text", () => {
@@ -241,6 +303,10 @@ describe("project boundaries", () => {
       expect(introducesSecret(schemes, `${schemes}x`)).toBe(false);
       const urls = "s://u:passwordpassword@h ".repeat(size / 25);
       expect(introducesSecret(urls, `${urls}x`)).toBe(false);
+      const ats = `s://u:${"@".repeat(250)} `.repeat(size / 257);
+      expect(introducesSecret(ats, `${ats}x`)).toBe(false);
+      // Redacting many key headers with no END marker stays linear too.
+      expect(redact(headers)).toBe("[REDACTED PRIVATE KEY]");
     },
   );
   it("requires explicit opt-in for only the public root template ledger", async () => {
