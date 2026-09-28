@@ -26,8 +26,9 @@ runs it, and plans can be created straight from a ready spec.
   - Test: packages/engine/tests/specs.test.ts :: reports missing tests, missing sections, bad placement and duplicate IDs
 - AC4: A ready spec may have criteria without tests yet, but not zero criteria.
   - Test: packages/engine/tests/specs.test.ts :: lets a ready spec have untested criteria but not an empty one
-- AC5: A link counts only when the named file defines a runnable test with exactly that name; commented-out tests and symlinked files do not count.
+- AC5: A link counts only when the named file defines a runnable test with exactly that name; commented-out tests and symlinked files do not count, and comment markers inside strings or regex literals (such as the glob `"**/*.md"`) do not hide the tests after them.
   - Test: packages/engine/tests/specs.test.ts :: counts only a runnable test with exactly the linked name
+  - Test: packages/engine/tests/specs.test.ts :: finds tests after a glob string or a regex that look like comments
   - Test: packages/engine/tests/specs.test.ts :: does not follow a symlinked test file
 - AC6: In a repository with CI workflows, a criterion proven only by tests that need an environment switch no CI step sets for that file fails the check.
   - Test: packages/engine/tests/specs.test.ts :: reads the switch a linked test needs

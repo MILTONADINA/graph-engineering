@@ -239,6 +239,22 @@ describe("test link verification", () => {
     ).toBe(false);
   });
 
+  it("finds tests after a glob string or a regex that look like comments", () => {
+    const text = [
+      `const policy = { exportPaths: ["**/*.md"] };`,
+      `const url = /https?:\\/\\//;`,
+      "const template = `src/*.ts`;",
+      `it("lists invoices", () => {});`,
+      `/* it("commented out", () => {}); */`,
+      `// it("line comment", () => {});`,
+      `it("after the comments", () => {}); // trailing note`,
+    ].join("\n");
+    expect(definesTest(text, "lists invoices")).toBe(true);
+    expect(definesTest(text, "after the comments")).toBe(true);
+    expect(definesTest(text, "commented out")).toBe(false);
+    expect(definesTest(text, "line comment")).toBe(false);
+  });
+
   it("does not follow a symlinked test file", async () => {
     const root = await repo({
       "specs/billing/invoice-list.md": spec({
