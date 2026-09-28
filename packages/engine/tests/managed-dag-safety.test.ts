@@ -2608,7 +2608,7 @@ describe("approval of publishing plans", () => {
   });
 });
 
-describe("publication when Git is set to hide untracked files", () => {
+describe("publication and untracked files", () => {
   it("refuses to start a publishing run while the checkout has an untracked file Git status hides", async () => {
     const { root } = await fixture((value) => {
       value.policy.publication = "commit";
@@ -2679,6 +2679,110 @@ describe("publication when Git is set to hide untracked files", () => {
         cwd: run.workspace,
       }),
     ).toBe("third.js");
+  });
+
+  it("refuses a publishing run over a large untracked directory with the clean-checkout message", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    // An installed dependency directory nobody has ignored yet. The source
+    // snapshot leaves it out, but listed file by file its names take over
+    // 2 MB, since status quotes each non-ASCII byte as \ooo.
+    const local = path.join(root, "node_modules");
+    await mkdir(local);
+    const names = Array.from(
+      { length: 3000 },
+      (_, i) => `${i}-${"字".repeat(60)}.js`,
+    );
+    for (let i = 0; i < names.length; i += 100)
+      await Promise.all(
+        names
+          .slice(i, i + 100)
+          .map((name) => writeFile(path.join(local, name), "")),
+      );
+    await expect(
+      engine.start(planned.id, { approvedByPerson: true }),
+    ).rejects.toThrow(
+      "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",
+    );
+    expect(engine.store.runs()).toHaveLength(0);
+  });
+});
+
+describe("publication when Git skips checking files for changes", () => {
+  it("refuses to start a publishing run while the checkout has a changed file marked skip-worktree", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    // A binary file the source snapshot leaves out, so editing it keeps the
+    // plan's snapshot; the workspace would copy the edit and publication
+    // commit it.
+    const asset = path.join(root, "asset.bin");
+    await writeFile(asset, Buffer.from([0, 1, 2, 0]));
+    await checked("git", ["add", "asset.bin"], { cwd: root });
+    await checked("git", ["commit", "-m", "test: add asset"], { cwd: root });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    // The usual way to keep a local edit to a tracked file out of status.
+    await checked("git", ["update-index", "--skip-worktree", "asset.bin"], {
+      cwd: root,
+    });
+    await writeFile(asset, Buffer.from([0, 9, 9, 0]));
+    expect(await checked("git", ["status", "--porcelain"], { cwd: root })).toBe(
+      "",
+    );
+    await expect(
+      engine.start(planned.id, { approvedByPerson: true }),
+    ).rejects.toThrow(
+      "Git skips checking files in this checkout for changes (assume-unchanged or skip-worktree): asset.bin. Clear the marks",
+    );
+    expect(engine.store.runs()).toHaveLength(0);
+    await checked("git", ["update-index", "--no-skip-worktree", "asset.bin"], {
+      cwd: root,
+    });
+    await checked("git", ["checkout", "--", "asset.bin"], { cwd: root });
+    const run = await engine.wait(
+      (await engine.start(planned.id, { approvedByPerson: true })).id,
+    );
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(
+      await checked("git", ["show", "--name-only", "--format=", run.commit!], {
+        cwd: run.workspace,
+      }),
+    ).toBe("first.js");
+  });
+
+  it("commits a run's edit to a tracked file when Git is set to skip stat checks", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    // The run's worktree shares this repository's configuration.
+    await checked("git", ["config", "core.ignoreStat", "true"], { cwd: root });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait(
+      (await engine.start(planned.id, { approvedByPerson: true })).id,
+    );
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(run.commit).toMatch(/^[a-f0-9]{40}$/);
+    expect(
+      await checked("git", ["show", "--name-only", "--format=", run.commit!], {
+        cwd: run.workspace,
+      }),
+    ).toBe("first.js");
   });
 });
 

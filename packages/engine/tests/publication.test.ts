@@ -223,6 +223,116 @@ describe("safe recoverable publication", () => {
       }),
     ).toBe("lib/sum.cjs");
   });
+  it("commits edits to tracked files when Git is set to skip stat checks", async () => {
+    for (const added of [false, true]) {
+      const { base, root, config, run } = await fixture();
+      // Checked out under core.ignoreStat=true, every file would be marked
+      // assume-unchanged and status would never see an edit to it.
+      await util.checked("git", ["config", "core.ignoreStat", "true"], {
+        cwd: root,
+      });
+      Object.assign(
+        run,
+        await createWorkspace(root, base, run.id, config.policy),
+      );
+      await writeFile(
+        path.join(run.workspace!, "math.cjs"),
+        "exports.add = (a,b) => a + b;\n",
+      );
+      if (added) {
+        await mkdir(path.join(run.workspace!, "lib"));
+        await writeFile(
+          path.join(run.workspace!, "lib", "sum.cjs"),
+          "exports.sum = (a,b) => a + b;\n",
+        );
+      }
+      const { commit } = await publishRun(
+        root,
+        run,
+        config,
+        await workspaceFingerprint(run.workspace!, config.policy),
+      );
+      expect(commit).toMatch(/^[a-f0-9]{40}$/);
+      expect(
+        await util.checked(
+          "git",
+          ["show", "--name-only", "--format=", commit!],
+          { cwd: run.workspace },
+        ),
+      ).toBe(added ? "lib/sum.cjs\nmath.cjs" : "math.cjs");
+    }
+  });
+  it("refuses to publish a workspace where Git skips checking a file for changes", async () => {
+    const { base, root, config, run } = await fixture();
+    Object.assign(
+      run,
+      await createWorkspace(root, base, run.id, config.policy),
+    );
+    const edited = "exports.add = (a,b) => a + b;\n";
+    await writeFile(path.join(run.workspace!, "math.cjs"), edited);
+    for (const flag of ["assume-unchanged", "skip-worktree"]) {
+      await util.checked("git", ["update-index", `--${flag}`, "math.cjs"], {
+        cwd: run.workspace,
+      });
+      await expect(
+        publishRun(
+          root,
+          run,
+          config,
+          await workspaceFingerprint(run.workspace!, config.policy),
+        ),
+      ).rejects.toThrow(
+        "Git skips checking files in the run workspace for changes (assume-unchanged or skip-worktree): math.cjs. Publication cannot see changes to them",
+      );
+      await util.checked("git", ["update-index", `--no-${flag}`, "math.cjs"], {
+        cwd: run.workspace,
+      });
+    }
+    const { commit } = await publishRun(
+      root,
+      run,
+      config,
+      await workspaceFingerprint(run.workspace!, config.policy),
+    );
+    expect(
+      await util.checked("git", ["show", `${commit!}:math.cjs`], {
+        cwd: run.workspace,
+      }),
+    ).toBe(edited.trim());
+  });
+  it("publishes past a skip-worktree file a sparse checkout leaves off disk", async () => {
+    const { base, root, config, run } = await fixture();
+    await writeFile(path.join(root, "guide.md"), "# Guide\n");
+    await util.checked("git", ["add", "guide.md"], { cwd: root });
+    await util.checked(
+      "git",
+      ["-c", "core.hooksPath=/dev/null", "commit", "-m", "guide"],
+      { cwd: root },
+    );
+    Object.assign(
+      run,
+      await createWorkspace(root, base, run.id, config.policy),
+    );
+    await util.checked("git", ["update-index", "--skip-worktree", "guide.md"], {
+      cwd: run.workspace,
+    });
+    await rm(path.join(run.workspace!, "guide.md"));
+    await writeFile(
+      path.join(run.workspace!, "math.cjs"),
+      "exports.add = (a,b) => a + b;\n",
+    );
+    const { commit } = await publishRun(
+      root,
+      run,
+      config,
+      await workspaceFingerprint(run.workspace!, config.policy),
+    );
+    expect(
+      await util.checked("git", ["show", "--name-only", "--format=", commit!], {
+        cwd: run.workspace,
+      }),
+    ).toBe("math.cjs");
+  });
   it("reconciles a clean run-owned commit without creating a duplicate", async () => {
     const { base, root, config, run } = await fixture();
     Object.assign(

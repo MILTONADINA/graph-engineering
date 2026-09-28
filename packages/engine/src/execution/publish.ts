@@ -7,7 +7,12 @@ import {
   wholeRepository,
 } from "../policy.js";
 import { checked, command } from "../util.js";
-import { checkedGit, managedGit } from "./git.js";
+import {
+  checkedGit,
+  describeHiddenEntries,
+  hiddenIndexEntries,
+  managedGit,
+} from "./git.js";
 import { workspaceFingerprint } from "./workspace.js";
 import { isAwsDescriptorPath } from "../template-runtime-aws.js";
 
@@ -126,6 +131,13 @@ export async function publishRun(
       );
   }
   await assertVerified();
+  // Status cannot see a change to a file Git skips checking, so the commit
+  // would leave out verified bytes, or the run would publish nothing.
+  const hidden = await hiddenIndexEntries(run.workspace);
+  if (hidden.length)
+    throw new Error(
+      `Git skips checking files in the run workspace for changes (assume-unchanged or skip-worktree): ${describeHiddenEntries(hidden)}. Publication cannot see changes to them; clear the marks with git update-index --no-assume-unchanged or --no-skip-worktree and review the workspace before resuming`,
+    );
   // Untracked files are listed whatever status.showUntrackedFiles says, so
   // a change made only of new files is not mistaken for no change.
   const changes = await managedGit(run.workspace, [
