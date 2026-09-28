@@ -1558,8 +1558,13 @@ export class GraphEngine {
         // Dependency scanning reads a downloaded database. Without one, a
         // run that changed a lockfile is not passed unscanned, and a skipped
         // dependency scan is always recorded.
+        // Case-insensitive on both sides: Cargo.lock, Gemfile.lock and
+        // Pipfile.lock are capitalized on disk.
+        const lockfileNames = new Set(
+          LOCKFILES.map((name) => name.toLowerCase()),
+        );
         const lockfiles = (await gitFiles(workspace)).filter((file) =>
-          LOCKFILES.includes(path.posix.basename(file)),
+          lockfileNames.has(path.posix.basename(file).toLowerCase()),
         );
         if (!database && lockfiles.length) {
           const changed = lockfiles.filter((file) => workerPaths.has(file));
@@ -1671,6 +1676,9 @@ export class GraphEngine {
       const returned = (stepId: string, reason: string) =>
         this.store.event(run.id, "proposal.returned", { reason }, stepId);
       let repairedByTester = false;
+      // The exact files a tester repair may change. Membership, never
+      // globs: a path such as app/[id]/page.test.tsx is not a pattern.
+      let testerRepairFiles: string[] | undefined;
       let implementerRepair: ExecutionStep | undefined;
       let testerRepairPlan: ExecutionStep | undefined;
       // Why the implementer believes a tester's test is wrong, when it
@@ -2122,6 +2130,7 @@ export class GraphEngine {
             implementerRepair
           ) {
             repairedByTester = false;
+            testerRepairFiles = undefined;
             delete step.writes;
             Object.assign(step, implementerRepair);
             const implementer = (await this.providers()).find(
@@ -2149,10 +2158,11 @@ export class GraphEngine {
             );
             if (own.length && tester) {
               repairedByTester = true;
+              // Only the files the tester wrote, never other tests.
+              testerRepairFiles = own;
+              delete step.writes;
               Object.assign(step, {
                 providerId: tester.id,
-                // Only the files the tester wrote, never other tests.
-                writes: own,
                 objective: [
                   `Act as the team's tester. The implementer believes a test you wrote (${own.join(", ")}) is wrong${
                     tester.kind === "local"
@@ -2302,10 +2312,14 @@ export class GraphEngine {
               this.config.policy,
             );
             // A step limited to some files never applies an edit outside them.
-            const outside = outsideWriteScope(step, result.proposal);
+            const exact =
+              repairedByTester && testerRepairFiles
+                ? { [step.id]: testerRepairFiles }
+                : undefined;
+            const outside = outsideWriteScope(step, result.proposal, exact);
             if (outside.length) {
               returned(step.id, "outside-write-scope");
-              patchFeedback = writeScopeFeedback(step, outside);
+              patchFeedback = writeScopeFeedback(step, outside, exact);
               continue;
             }
             // A repair must fix the implementation, never weaken the tests
@@ -2624,8 +2638,9 @@ export class GraphEngine {
 function outsideWriteScope(
   step: ExecutionStep,
   proposal: { changes: { path: string }[] },
+  exact?: Record<string, string[]>,
 ): string[] {
-  const scope = writeScope(step);
+  const scope = writeScope(step, exact);
   return scope
     ? [
         ...new Set(
@@ -2636,8 +2651,13 @@ function outsideWriteScope(
       ]
     : [];
 }
-function writeScopeFeedback(step: ExecutionStep, outside: string[]): string {
-  return `This step may only write files matching ${step.writes!.join(", ")}. Your proposal also changed ${outside.join(", ")}; propose only changes within that scope.`;
+function writeScopeFeedback(
+  step: ExecutionStep,
+  outside: string[],
+  exact?: Record<string, string[]>,
+): string {
+  const allowed = exact?.[step.id];
+  return `This step may only write ${allowed ? `the files ${allowed.join(", ")}` : `files matching ${step.writes!.join(", ")}`}. Your proposal also changed ${outside.join(", ")}; propose only changes within that scope.`;
 }
 // Stack traces can fill the output; keep the first two frames of each so
 // the error messages around them survive the size limit.

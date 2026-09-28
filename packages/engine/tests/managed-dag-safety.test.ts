@@ -1497,6 +1497,97 @@ describe("tester role", () => {
     expect(types).toContain("dag.repair_handoff");
   });
 
+  it("limits a tester repair to the exact files it wrote, never treating them as globs", async () => {
+    const root = await testerFixture(3);
+    const own = "app/[id]/page.test.tsx";
+    const calls: { provider: string; objective: string; feedback?: string }[] =
+      [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        calls.push({
+          provider: input.provider.id,
+          objective: input.objective,
+          feedback: input.feedback,
+        });
+        if (input.objective.startsWith("Act as the team's tester, before"))
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "Tests",
+              requests: [],
+              changes: [
+                { path: own, before: null, after: "expect 13 items\n" },
+              ],
+            },
+          };
+        if (input.objective.startsWith("Repair"))
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "The test expects 13 items but the page shows 12",
+              requests: [],
+              changes: [],
+            },
+          };
+        if (
+          input.objective.startsWith(
+            "Act as the team's tester. The implementer",
+          )
+        )
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "Fix my expectation",
+              requests: [],
+              // As a glob, app/[id]/page.test.tsx also matches
+              // app/i/page.test.tsx; first try that file, then its own.
+              changes:
+                calls.filter((call) => call.provider === "tester").length === 2
+                  ? [
+                      {
+                        path: "app/i/page.test.tsx",
+                        before: null,
+                        after: "expect nothing\n",
+                      },
+                    ]
+                  : [{ path: own, before: "13 items", after: "12 items" }],
+            },
+          };
+        return result("one");
+      }),
+      verify: async (workspace, checks, _policy, snapshotHash) => {
+        const test = await readFile(path.join(workspace, own), "utf8").catch(
+          () => "",
+        );
+        const failing = test.includes("13 items");
+        return checks.map((check) => ({
+          ...check,
+          code: failing ? 1 : 0,
+          stdout: failing ? `FAIL ${own}: expected 12 items` : "",
+          stderr: "",
+          snapshotHash,
+        }));
+      },
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    const testerRepairs = calls.filter((call) =>
+      call.objective.startsWith("Act as the team's tester. The implementer"),
+    );
+    expect(testerRepairs).toHaveLength(2);
+    expect(testerRepairs[1]!.feedback).toContain(
+      `This step may only write the files ${own}. Your proposal also changed app/i/page.test.tsx`,
+    );
+    await expect(
+      readFile(path.join(run.workspace!, "app/i/page.test.tsx"), "utf8"),
+    ).rejects.toThrow();
+    expect(await readFile(path.join(run.workspace!, own), "utf8")).toBe(
+      "expect 12 items\n",
+    );
+  });
+
   it("names an unresolved dispute for a person when attempts run out", async () => {
     const root = await testerFixture(2);
     const engine = await open(root, {

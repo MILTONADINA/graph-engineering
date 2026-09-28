@@ -14,6 +14,7 @@ import {
   parseHadolint,
   parseOsv,
   parseSemgrep,
+  parseSemgrepUnscanned,
   suppressionFindings,
   updateOsvDatabase,
   OSV_DATABASE_HOST,
@@ -348,6 +349,46 @@ describe("security findings", () => {
         }),
       ),
     ).toThrow("could not parse 1 file(s)");
+  });
+
+  it("reports files a non-fatal Semgrep error or skip left unscanned", () => {
+    const report = JSON.stringify({
+      results: [],
+      errors: [
+        {
+          code: 3,
+          level: "warn",
+          type: "Timeout",
+          rule_id: "javascript.eval-detected",
+          message:
+            "Timeout when running javascript.eval-detected on /scan/src/slow.js",
+          path: "/scan/src/slow.js",
+        },
+        {
+          code: 3,
+          level: "warn",
+          type: ["PartialParsing", [{ path: "/scan/src/odd.ts" }]],
+          message: "Syntax error at line /scan/src/odd.ts:3",
+          path: "/scan/src/odd.ts",
+        },
+        { level: "warn", type: "Rule warning", message: "no path named" },
+      ],
+      paths: {
+        scanned: ["/scan/src/app.js"],
+        skipped: [{ path: "/scan/src/huge.js", reason: "exceeded_size_limit" }],
+      },
+    });
+    // A warn-level error is not fatal, so the findings still parse...
+    expect(parseSemgrep(report)).toEqual([]);
+    // ...but each file it names reaches the unscanned list.
+    expect(parseSemgrepUnscanned(report)).toEqual([
+      { path: "src/slow.js", reason: "semgrep warn: Timeout" },
+      { path: "src/odd.ts", reason: "semgrep warn: PartialParsing" },
+      { path: "src/huge.js", reason: "semgrep skipped: exceeded_size_limit" },
+    ]);
+    expect(
+      parseSemgrepUnscanned(JSON.stringify({ results: [], errors: [] })),
+    ).toEqual([]);
   });
 
   it("reports inline scanner suppressions so adding one needs review", () => {

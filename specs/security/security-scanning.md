@@ -25,9 +25,10 @@ Teams need security tools chosen for what their repository actually contains, wi
 - AC5: A managed run fails when its verified result adds a finding missing from the baseline or the scan is incomplete, and passes when all findings are in the baseline.
   - Test: packages/engine/tests/execution.test.ts :: fails a run whose verified result adds a finding missing from the reviewed baseline
   - Test: packages/engine/tests/execution.test.ts :: accepts a result whose findings are all in the baseline, and refuses an incomplete scan
-- AC6: The run gate uses the baseline committed at the run's base commit, and fails on changed files no scanner could read or a malformed baseline.
+- AC6: The run gate uses the baseline committed at the run's base commit, and fails on changed files no scanner could read (including files a non-fatal Semgrep error or skip names) or a malformed baseline.
   - Test: packages/engine/tests/execution.test.ts :: keeps the gate of the run's own base commit when the checkout changes
   - Test: packages/engine/tests/execution.test.ts :: refuses changed files the scanner could not read and malformed baselines
+  - Test: packages/engine/tests/security-catalog.test.ts :: reports files a non-fatal Semgrep error or skip left unscanned
 - AC7: A project with no committed baseline is not scanned during runs.
   - Test: packages/engine/tests/execution.test.ts :: does not scan a project that keeps no reviewed baseline
 - AC8: The standalone scan and baseline update cover committed files only, so an untracked scratch file never enters a reviewed baseline.
@@ -40,8 +41,8 @@ Teams need security tools chosen for what their repository actually contains, wi
   - Test: packages/engine/tests/security-catalog.test.ts :: downloads the database only when the policy allows the OSV host
 - AC11: Dependency advisories gate a run only for lockfiles the run changed; others are recorded as advisory.
   - Test: packages/engine/tests/execution.test.ts :: gates dependency advisories only on lockfiles the run changed
-- AC12: Without a downloaded OSV database, a skipped dependency scan is recorded, and a run that changed a lockfile fails instead of passing unscanned.
-  - Test: packages/engine/tests/execution.test.ts :: does not pass a run that changed a lockfile when no dependency database was downloaded
+- AC12: Without a downloaded OSV database, a skipped dependency scan is recorded, and a run that changed a lockfile fails instead of passing unscanned; lockfile names match regardless of letter case (Cargo.lock, Gemfile.lock, Pipfile.lock).
+  - Test: packages/engine/tests/execution.test.ts :: does not pass a run that changed a lockfile when no dependency database was downloaded (%s)
 
 ## Security considerations
 

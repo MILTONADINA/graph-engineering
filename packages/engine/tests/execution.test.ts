@@ -1180,41 +1180,51 @@ describe("security gate", () => {
     );
   });
 
-  it("does not pass a run that changed a lockfile when no dependency database was downloaded", async () => {
-    const clean = async () => ({
-      tools: ["semgrep"],
-      findings: [],
-      errors: [],
-      unscanned: [],
-    });
-    const lockfileWorker = async () => ({
-      ...(await fixingWorker()),
-      proposal: {
-        summary: "Fix addition and pin a dependency",
-        requests: [],
-        changes: [
-          { path: "math.cjs", before: "a - b", after: "a + b" },
-          {
-            path: "package-lock.json",
-            before: null,
-            after: '{ "lockfileVersion": 3, "packages": {} }\n',
-          },
-        ],
-      },
-    });
-    const changed = await run(["accepted"], clean, 1, lockfileWorker);
-    expect(changed.result.status).toBe("failed");
-    expect(changed.result.error).toContain(
-      "This run changed package-lock.json, but no OSV vulnerability database has been downloaded",
-    );
-    expect(
-      changed.events.find((event) => event.type === "security.tool_not_run")
-        ?.data,
-    ).toMatchObject({ tool: "osv-scanner", lockfiles: ["package-lock.json"] });
-    expect(
-      changed.engine.store.outcomes(changed.result.id).at(-1)?.security,
-    ).not.toBe("passed");
-  });
+  // The catalog lists lockfile names in lower case; Cargo.lock, Gemfile.lock
+  // and Pipfile.lock are capitalized on disk.
+  it.each([
+    ["package-lock.json", '{ "lockfileVersion": 3, "packages": {} }\n'],
+    ["Cargo.lock", "version = 3\n"],
+    ["Gemfile.lock", "GEM\n  specs:\n"],
+    ["Pipfile.lock", '{ "default": {} }\n'],
+  ])(
+    "does not pass a run that changed a lockfile when no dependency database was downloaded (%s)",
+    async (lockfile, contents) => {
+      const clean = async () => ({
+        tools: ["semgrep"],
+        findings: [],
+        errors: [],
+        unscanned: [],
+      });
+      const lockfileWorker = async () => ({
+        ...(await fixingWorker()),
+        proposal: {
+          summary: "Fix addition and pin a dependency",
+          requests: [],
+          changes: [
+            { path: "math.cjs", before: "a - b", after: "a + b" },
+            {
+              path: lockfile,
+              before: null,
+              after: contents,
+            },
+          ],
+        },
+      });
+      const changed = await run(["accepted"], clean, 1, lockfileWorker);
+      expect(changed.result.status).toBe("failed");
+      expect(changed.result.error).toContain(
+        `This run changed ${lockfile}, but no OSV vulnerability database has been downloaded`,
+      );
+      expect(
+        changed.events.find((event) => event.type === "security.tool_not_run")
+          ?.data,
+      ).toMatchObject({ tool: "osv-scanner", lockfiles: [lockfile] });
+      expect(
+        changed.engine.store.outcomes(changed.result.id).at(-1)?.security,
+      ).not.toBe("passed");
+    },
+  );
 
   it("records the security gate in each run's outcome", async () => {
     const failing = await run(["accepted"], async () => ({
