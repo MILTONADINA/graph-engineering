@@ -77,8 +77,21 @@ exists:
   has nothing derived: they may be a baseline and a candidate, and nothing
   says which is which. The labeller lists the runs and asks every outcome
   and cost.
+- Nor is anything derived while one of the task's runs has not stopped
+  (planned, running or verifying): its outcome is not known and its cost is
+  still growing, so every outcome and cost is asked. Once it stops, press `t`
+  on one of the task's questions to derive them. A resumed run is judged by
+  its live status, not by the outcome its earlier attempt recorded; a run
+  that needs reconciliation counts as stopped and failed.
 - `labelEvidence`: the packet's SHA-256 and the hash of your answer entry.
   `outcomeEvidence`: the hash of the run outcomes and answers used.
+
+The packet is checked with the engine's draft schema before labelling
+starts. A packet with a value the label importer would refuse, such as a
+provider-reported model name holding a control character, is refused with
+the field's location (not its value), so an export can never fail on it
+after the work is done; `evaluation-export` and `collect-paired` refuse to
+write such a packet.
 
 Progress lives in `labels-<stamp>.json` beside the packet (mode 0600,
 replaced atomically). It is tied to the packet's bytes and your actor ID and

@@ -4,10 +4,14 @@ import {
   evaluationDatasetSchema,
   evaluationProvenanceSchema,
   evaluateDecisions,
+  labelSchema,
   type EvaluationDataset,
 } from "./decisions.js";
 
-const label = z.string().min(1).max(256);
+// The rule the imported evaluation rows use, so a draft or label that would
+// fail the import (a provider-reported model name with a control character,
+// say) is refused when it is exported or collected, not after labelling.
+const label = labelSchema;
 const observationSchema = z
   .object({
     recordId: label,

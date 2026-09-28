@@ -314,10 +314,18 @@ export class GraphEngine {
     const provider = (await this.availableWorkers()).find(
       (candidate) => candidate.id === tester.providerId,
     );
-    if (!provider)
+    if (!provider) {
+      // A configured, permitted tester can still be unusable (the cost cap,
+      // or an installed client that is missing): name the actual reason.
+      const reason = (await this.workerReasons()).find(
+        (entry) => entry.id === tester.providerId,
+      )?.reason;
       throw new Error(
-        `Tester ${tester.providerId} is not a configured provider the policy permits`,
+        reason
+          ? `Tester ${tester.providerId} is unavailable: ${reason}`
+          : `Tester ${tester.providerId} is not a configured provider the policy permits`,
       );
+    }
     // Test first: the tester's step runs before every other step.
     return validateDag([
       testerStep({

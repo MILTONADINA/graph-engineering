@@ -26,8 +26,10 @@ import {
   checkLabeler,
   collectPairs,
   companionPaths,
+  deriveTask,
   engineModule,
   gateProgress,
+  indexStore,
   loadPacket,
   loadProgress,
   readStore,
@@ -113,7 +115,10 @@ const decisionEvent = (id, runId, decisionIds) => ({
 });
 
 /** A project store built with the engine's own table definitions. */
-function makeStore(root, { decisions = [], runs = [], events = [] }) {
+function makeStore(
+  root,
+  { decisions = [], runs = [], events = [], outcomes = [] },
+) {
   const directory = path.join(root, "projects", PROJECT);
   mkdirSync(directory, { recursive: true });
   const db = new Database(path.join(directory, "runs.sqlite"));
@@ -144,6 +149,10 @@ function makeStore(root, { decisions = [], runs = [], events = [] }) {
     db.prepare(
       "INSERT INTO run_events(id,run_id,project_id,json) VALUES(?,?,?,?)",
     ).run(item.id, item.runId, PROJECT, JSON.stringify(item));
+  for (const item of outcomes)
+    db.prepare(
+      "INSERT INTO run_outcomes(run_id,project_id,json) VALUES(?,?,?)",
+    ).run(item.runId, PROJECT, JSON.stringify(item));
   db.close();
 }
 
@@ -454,12 +463,14 @@ test("labelling export validates against the engine's evaluation label schema", 
     () => buildExport(packet, saved, { repositoryId: "repository-synthetic" }),
     { code: EXIT.refused },
   );
-  // A schema violation is refused by the engine, not by a copy of it.
+  // A schema violation is refused by the engine, not by a copy of it, and
+  // reported as a refusal naming where, not as a crash.
   await assert.rejects(
     validateExport({
       ...exported,
       labels: exported.labels.map((item) => ({ ...item, expected: "other" })),
     }),
+    { code: EXIT.refused, message: /label importer refused the export/ },
   );
 });
 
@@ -680,6 +691,182 @@ test("labelling asks outcomes when a task's runs span plans and no pairs file na
   assert.equal(task.candidateSuccess, false);
   assert.equal(task.baselineCost, 0.5);
   assert.equal(task.candidateCost, 0.25);
+});
+
+test("collect-paired and the labeller refuse a packet whose model name the label importer would refuse", async () => {
+  // A decision provider reported a model name holding a terminal escape.
+  const model = "jev-1\u001b]0;x\u0007";
+  const directory = freshDir();
+  const decisions = [
+    record("rec-m1", "laya", "q1", "fast", 0.9, { modelVersion: model }),
+    record("rec-m2", "laya", "q1", "careful", 0.8),
+  ];
+  const objective = "Synthetic objective M";
+  makeStore(directory, {
+    decisions,
+    runs: [
+      run("run-mbase-001", objective),
+      run("run-mcand-001", objective, {
+        createdAt: "2026-01-01T00:05:00.000Z",
+      }),
+    ],
+    events: [
+      decisionEvent("event-m1", "run-mbase-001", ["rec-m1"]),
+      decisionEvent("event-m2", "run-mcand-001", ["rec-m2"]),
+    ],
+  });
+  const refused = (error) =>
+    error instanceof LabelError &&
+    error.code === EXIT.refused &&
+    /observations\.0\.model/.test(error.message) &&
+    !error.message.includes("\u001b");
+
+  // The collector refuses it and writes nothing.
+  const out = path.join(directory, "labelling");
+  await assert.rejects(
+    collect({
+      projectId: PROJECT,
+      dataRoot: directory,
+      pairs: ["run-mbase:run-mcand"],
+      stamp: "control",
+      out,
+    }),
+    refused,
+  );
+  assert.equal(existsSync(out), false);
+
+  // A packet written before the check is refused before any labelling, so
+  // an export can never fail on it after the work is done.
+  const packetPath = path.join(directory, "packet-control.json");
+  writeFileSync(
+    packetPath,
+    JSON.stringify({
+      version: "1.0.0",
+      datasetId: "synthetic-control",
+      observations: decisions.map((item) => observation(item, "task-m")),
+    }),
+  );
+  const io = script(["c", "l"]);
+  await assert.rejects(
+    labelSession(session({ directory, packetPath }), io),
+    refused,
+  );
+  assert.equal(io.output, "");
+  await assert.rejects(
+    labelSession(session({ directory, packetPath, exportOnly: true }), io),
+    refused,
+  );
+  const paths = companionPaths(packetPath);
+  assert.equal(existsSync(paths.progress), false);
+  assert.equal(existsSync(paths.export), false);
+});
+
+test("labelling derives no outcome or cost from a run that has not stopped, nor from a resumed run's earlier outcome", async () => {
+  // Every choice keeps the baseline, so a stopped run would give both arms'
+  // outcomes and costs. Case "running": a first attempt still running, with
+  // no outcome row and a cost that is still growing. Case "resumed": a
+  // failed run resumed with --reconciled and running again, whose latest
+  // outcome row is still the earlier attempt's failure.
+  const cases = [
+    { id: "run-live-0002", cost: 0.12, outcomes: [] },
+    {
+      id: "run-resu-0001",
+      cost: 0.3,
+      outcomes: [
+        {
+          runId: "run-resu-0001",
+          status: "failed",
+          automatedChecksPassed: false,
+          humanAcceptance: null,
+        },
+      ],
+    },
+  ];
+  for (const item of cases) {
+    const directory = freshDir();
+    const decisions = [record(`rec-${item.id}`, "laya", "q1", "fast", 0.9)];
+    const running = run(item.id, `Synthetic objective ${item.id}`, {
+      status: "running",
+      completion: undefined,
+      usage: { ...run("x", "").usage, costUsd: item.cost },
+    });
+    makeStore(directory, {
+      decisions,
+      runs: [running],
+      events: [decisionEvent(`event-${item.id}`, item.id, [decisions[0].id])],
+      outcomes: item.outcomes,
+    });
+    const packetPath = path.join(directory, "packet-unfinished.json");
+    const observations = decisions.map((entry) => observation(entry, "task-u"));
+    writeFileSync(
+      packetPath,
+      JSON.stringify({
+        version: "1.0.0",
+        datasetId: "synthetic-unfinished",
+        observations,
+      }),
+    );
+    const index = indexStore(readStore(directory, PROJECT));
+    const derived = deriveTask("task-u", observations, index, null);
+    assert.deepEqual(derived.values, {});
+    assert.deepEqual(derived.source.unfinished, [item.id]);
+    assert.equal(derived.source.runs[0].status, "running");
+    assert.equal(derived.source.runs[0].success, null);
+    assert.equal(derived.source.runs[0].costUsd, null);
+
+    // Both successes and both costs are asked; nothing is taken as measured.
+    const io = script(["c", "l", "u", "u", "n", "1"], ["", ""]);
+    await labelSession(session({ directory, packetPath }), io);
+    assert.match(io.output, /not finished yet: run-/);
+    assert.match(io.output, /Did the baseline run succeed/);
+    assert.match(io.output, /Would the candidate/);
+    assert.match(io.output, /Baseline cost in USD/);
+    assert.match(io.output, /Candidate cost in USD/);
+    assert.doesNotMatch(io.output, /from recorded runs/);
+    // The live status is shown, not the earlier attempt's outcome.
+    assert.match(io.output, /Run run-[a-z]{4} · running · acceptance -/);
+    assert.doesNotMatch(io.output, /failed/);
+    const task = JSON.parse(
+      readFileSync(companionPaths(packetPath).progress, "utf8"),
+    ).tasks["task-u"];
+    assert.deepEqual(task.derived, []);
+    for (const field of [
+      "baselineSuccess",
+      "candidateSuccess",
+      "baselineCost",
+      "candidateCost",
+    ])
+      assert.equal(task[field], null, field);
+
+    // Once the run stops, its outcome and cost are derived again; a run
+    // that needs reconciliation counts as stopped and failed, as before.
+    const stopped = { ...running, status: "needs_reconciliation" };
+    index.runs.set(item.id, stopped);
+    index.outcomes.set(item.id, {
+      runId: item.id,
+      status: "needs_reconciliation",
+      automatedChecksPassed: null,
+      humanAcceptance: null,
+    });
+    assert.deepEqual(deriveTask("task-u", observations, index, null).values, {
+      baselineSuccess: false,
+      baselineCost: item.cost,
+      candidateSuccess: false,
+      candidateCost: item.cost,
+    });
+    // An outcome row that matches the run's status is still used: here it
+    // alone records the person's acceptance.
+    index.runs.set(item.id, { ...running, status: "succeeded" });
+    index.outcomes.set(item.id, {
+      runId: item.id,
+      status: "succeeded",
+      automatedChecksPassed: true,
+      humanAcceptance: "accepted",
+    });
+    const accepted = deriveTask("task-u", observations, index, null);
+    assert.equal(accepted.values.baselineSuccess, true);
+    assert.equal(accepted.source.runs[0].humanAcceptance, "accepted");
+  }
 });
 
 /**
