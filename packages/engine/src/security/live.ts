@@ -213,7 +213,7 @@ async function imageId(
     });
     if (pull.code !== 0)
       throw new Error(
-        `Live scan could not pull ${image}: ${pull.stderr.slice(-300)}`,
+        `Live scan could not pull ${image}: ${redactTail(pull.stderr, 300)}`,
       );
     result = await inspect();
   }
@@ -463,7 +463,7 @@ export async function runLiveScan(options: {
     );
     if (started.code !== 0)
       throw new Error(
-        `Live scan could not start the target: ${started.stderr.slice(-300)}`,
+        `Live scan could not start the target: ${redactTail(started.stderr, 300)}`,
       );
     const attempts = Math.max(
       1,

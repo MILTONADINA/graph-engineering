@@ -78,5 +78,6 @@ potential secret is refused, and the call works only while publication is
 the configured tester and the configured reviewer all run on local
 providers or all on non-local ones: a local step could otherwise copy a
 file the export policy keeps private to an exported path, where a cloud
-worker or reviewer would receive it. A plan a person creates with
-`graph-engine plan` may mix them.
+worker or reviewer would receive it. The plan records that side, and a
+step that fails repeatedly escalates only to another provider on it. A plan
+a person creates with `graph-engine plan` may mix them.

@@ -70,11 +70,13 @@ non-zero when there are new findings or a scanner's report could not be read.
   unexpected exit codes make the scan incomplete, never clean. The error
   quotes the end of the tool's stderr, redacted before it is cut, so a
   secret the cut would split cannot leak; `security-db-update` quotes a
-  failed download the same way.
+  failed download the same way, and a Semgrep error message is redacted
+  before it is cut too.
 - Files no scanner can read (binary content, larger than 50 MB, or not a
   regular file) are listed under `unscanned`, as are files a non-fatal
-  Semgrep error (such as a timeout or parse failure) names. Files Semgrep
-  skips because no selected rule covers their language are not counted.
+  Semgrep error (such as a timeout or parse failure) names, with Semgrep's
+  reason redacted. Files Semgrep skips because no selected rule covers
+  their language are not counted.
 - A finding's fingerprint combines the tool, rule, file, the resource the
   tool names, and the text of the flagged line with two lines either side,
   so it survives edits elsewhere and two resources flagged at similar lines
@@ -223,7 +225,9 @@ Docker Desktop its gateway address answered from the Docker host (the host
 refused connections to closed ports and listened on others), so a target
 could have reached host services; the loopback-only namespace has no such
 address. ZAP's JSON report is read without following a symlink, only as a
-regular file of at most 20 MB, and errors never quote it.
+regular file of at most 20 MB, and errors never quote it. When Docker
+cannot pull or start the target, the error quotes the end of its stderr,
+redacted before it is cut.
 
 ZAP's report is read into findings with tool `zap`: one finding per alert
 (rule `<pluginid> <name>`) and URL path, with the host and query dropped and
