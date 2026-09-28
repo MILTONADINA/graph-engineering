@@ -33,6 +33,17 @@ export const GATES = Object.freeze({
   heldOutTasks: 60,
 });
 
+/**
+ * The confidence thresholds `evaluateDecisions` tries, lowest first. A row
+ * below the lowest one never counts toward a gate.
+ */
+export const CONFIDENCE_THRESHOLDS = Object.freeze([
+  0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99,
+]);
+
+/** Dataset IDs of packets `collect-paired` writes; its pairs file must sit beside them. */
+export const PAIRED_DATASET_PREFIX = "paired-";
+
 export const EXIT = Object.freeze({
   failure: 1,
   usage: 2,
@@ -199,6 +210,9 @@ const OBSERVATION_FIELDS = [
   "observedAt",
   "stateHash",
 ];
+
+/** The exact bytes `collect-paired` writes for a packet, so its hash can be bound. */
+export const packetText = (packet) => `${JSON.stringify(packet, null, 2)}\n`;
 
 /** Reads an `evaluation-export` draft; its structure is checked, not trusted. */
 export function loadPacket(file) {
@@ -462,8 +476,10 @@ const sumCosts = (summaries) =>
  * Derives a task's outcomes. A collected pair gives both arms directly.
  * Without one, the task's recorded runs are the baseline arm, and the
  * candidate arm equals it only when no provider choice differed from the
- * baseline (every selection was the baseline or no answer). Anything not
- * derivable stays null and is asked.
+ * baseline (every selection was the baseline or no answer). When those runs
+ * belong to more than one plan, nothing says which run is which arm (they
+ * may be a baseline and a candidate whose pairs file is missing), so nothing
+ * is derived. Anything not derivable stays null and is asked.
  */
 export function deriveTask(taskId, observations, index, pairs) {
   const pair = pairs?.tasks?.[taskId];
@@ -500,6 +516,13 @@ export function deriveTask(taskId, observations, index, pairs) {
   runs.forEach((run, position) =>
     perPlan.set(run.plan?.id ?? run.id, summaries[position]),
   );
+  const estimated = summaries.some((item) => item.estimated);
+  if (perPlan.size > 1)
+    return {
+      source: { runs: summaries, plans: perPlan.size },
+      values: {},
+      estimated,
+    };
   const baselineSuccess = summaries.at(-1).success;
   const baselineCost = sumCosts([...perPlan.values()]);
   const identical = observations.every((item) => {
@@ -518,7 +541,7 @@ export function deriveTask(taskId, observations, index, pairs) {
         ? { candidateSuccess: baselineSuccess, candidateCost: baselineCost }
         : {}),
     },
-    estimated: summaries.some((item) => item.estimated),
+    estimated,
   };
 }
 
@@ -551,12 +574,34 @@ export function taskComplete(task) {
 const routeOf = (observation) =>
   `${observation.category} / ${observation.provider} / ${observation.model}`;
 
-/** Labelled-so-far counts, measured the way the engine's gates count. */
+/**
+ * The lowest threshold at which calibration rows meet the gate, fitted the
+ * way `evaluateDecisions` fits it, or undefined when none does.
+ */
+function fitThreshold(rows) {
+  return CONFIDENCE_THRESHOLDS.find((threshold) => {
+    const counted = rows.filter((row) => row.confidence >= threshold);
+    return (
+      counted.length >= GATES.calibrationPerRoute &&
+      counted.filter((row) => row.correct).length / counted.length >=
+        GATES.calibrationAccuracy
+    );
+  });
+}
+
+/**
+ * Progress per route (category, provider, model), counted the way the
+ * engine's gates count. A row counts only when the export would keep it and
+ * the engine could score it: answered, with a provider choice and a
+ * confidence of at least the lowest threshold, in a complete task. Each
+ * route is counted at its fitted threshold, or at the lowest threshold until
+ * one fits; the gate is met only when one fits. The engine counts a route's
+ * held-out rows only at a fitted threshold, so until then they are the rows
+ * that would count at the lowest one.
+ */
 export function gateProgress(packet, progress) {
-  const routes = new Map(),
-    heldTasks = new Set();
-  let heldOut = 0,
-    answered = 0,
+  const routes = new Map();
+  let answered = 0,
     skipped = 0;
   for (const observation of packet.observations) {
     const answer = progress.answers[observation.recordId];
@@ -564,34 +609,48 @@ export function gateProgress(packet, progress) {
     else if (answer) answered++;
     const route = routeOf(observation);
     if (!routes.has(route))
-      routes.set(route, { route, scorable: 0, labelled: 0, correct: 0 });
+      routes.set(route, { route, scorable: 0, calibration: [], heldOut: [] });
     const entry = routes.get(route);
+    // Rows below the lowest threshold are exported but never counted.
     const scorable =
-      observation.selected !== null && observation.confidence !== null;
+      observation.selected !== null &&
+      observation.confidence !== null &&
+      observation.confidence >= CONFIDENCE_THRESHOLDS[0];
     if (scorable) entry.scorable++;
-    const split = progress.tasks[observation.taskId]?.split;
-    if (!scorable || !answer || answer.skipped) continue;
-    if (split === "calibration") {
-      entry.labelled++;
-      if (answer.expected === observation.selected) entry.correct++;
-    } else if (split === "held-out") {
-      heldOut++;
-      heldTasks.add(observation.taskId);
-    }
+    const task = progress.tasks[observation.taskId];
+    if (!scorable || !answer || answer.skipped || !taskComplete(task)) continue;
+    (task.split === "calibration" ? entry.calibration : entry.heldOut).push({
+      taskId: observation.taskId,
+      confidence: observation.confidence,
+      correct: answer.expected === observation.selected,
+    });
   }
   return {
     total: packet.observations.length,
     answered,
     skipped,
-    routes: [...routes.values()].map((entry) => ({
-      ...entry,
-      accuracy: entry.labelled ? entry.correct / entry.labelled : null,
-      met:
-        entry.labelled >= GATES.calibrationPerRoute &&
-        entry.correct / entry.labelled >= GATES.calibrationAccuracy,
-    })),
-    heldOut,
-    heldOutTasks: heldTasks.size,
+    routes: [...routes.values()].map(
+      ({ route, scorable, calibration, heldOut }) => {
+        const fitted = fitThreshold(calibration);
+        const threshold = fitted ?? CONFIDENCE_THRESHOLDS[0];
+        const counted = calibration.filter(
+          (row) => row.confidence >= threshold,
+        );
+        const correct = counted.filter((row) => row.correct).length;
+        const held = heldOut.filter((row) => row.confidence >= threshold);
+        return {
+          route,
+          scorable,
+          threshold,
+          labelled: counted.length,
+          correct,
+          accuracy: counted.length ? correct / counted.length : null,
+          met: fitted !== undefined,
+          heldOut: held.length,
+          heldOutTasks: new Set(held.map((row) => row.taskId)).size,
+        };
+      },
+    ),
   };
 }
 
@@ -791,10 +850,17 @@ export function listTasks(store) {
 /**
  * Builds a packet, mapping and paired-runs sidecar from explicit
  * baseline:candidate run pairs. Both runs of a pair must be terminal and
- * have the same task key. Only the fields the packet format already holds
- * are copied, plus each arm's run ID, status, acceptance and cost.
+ * have the same task key, and the dataset ID starts with `paired-`. Only
+ * the fields the packet format already holds are copied, plus each arm's
+ * run ID, status, acceptance and cost, and the packet's SHA-256.
  */
 export function collectPairs(store, pairs, { datasetId }) {
+  // The prefix lets the labeller tell a paired packet that lost its pairs file.
+  if (!String(datasetId).startsWith(PAIRED_DATASET_PREFIX))
+    throw new LabelError(
+      `A paired dataset ID must start with ${PAIRED_DATASET_PREFIX}`,
+      EXIT.usage,
+    );
   if (!store) throw new LabelError("This project has no recorded runs");
   if (!pairs.length)
     throw new LabelError(
@@ -857,23 +923,52 @@ export function collectPairs(store, pairs, { datasetId }) {
   }
   if (!observations.length)
     throw new LabelError("The paired runs recorded no decisions");
+  const packet = { version: "1.0.0", datasetId, observations };
   return {
-    packet: { version: "1.0.0", datasetId, observations },
+    packet,
     mapping,
+    // Bound to the exact packet bytes, so the labeller refuses it beside
+    // any other packet.
     pairs: {
       format: PAIRS_FORMAT,
       version: FORMAT_VERSION,
       datasetId,
+      packetSha256: sha256(packetText(packet)),
       tasks,
     },
   };
 }
 
-/** Reads a paired-runs sidecar if one sits beside the packet. */
-export function loadPairs(file) {
+/**
+ * Reads the paired-runs sidecar beside a packet, or returns null when there
+ * is none. A sidecar collected for other packet bytes or another dataset is
+ * refused rather than used for outcomes.
+ */
+export function loadPairs(file, { packet, sha256: packetSha256 }) {
   if (!existsSync(file)) return null;
   const pairs = JSON.parse(readFileSync(file, "utf8"));
   if (pairs?.format !== PAIRS_FORMAT || pairs.version !== FORMAT_VERSION)
     throw new LabelError(`${file} is not a paired-runs file`);
+  if (
+    pairs.datasetId !== packet.datasetId ||
+    pairs.packetSha256 !== packetSha256
+  )
+    throw new LabelError(
+      `${path.basename(file)} was collected for another packet (dataset ${pairs.datasetId}, packet sha256 ${pairs.packetSha256 ?? "not recorded"}); refusing to take outcomes from it. Run npm run collect-paired again with a new --stamp.`,
+      EXIT.refused,
+    );
   return pairs;
+}
+
+/**
+ * Refuses a packet `collect-paired` wrote whose pairs file is missing: its
+ * tasks hold both arms' runs, and without the file nothing says which is
+ * the baseline and which the candidate.
+ */
+export function requirePairsForPairedPacket(packet, pairs, pairsFile) {
+  if (!pairs && packet.datasetId.startsWith(PAIRED_DATASET_PREFIX))
+    throw new LabelError(
+      `Dataset ${packet.datasetId} was collected from paired runs, but ${path.basename(pairsFile)} is not beside the packet; refusing to label it without each arm's outcome. Keep the packet with its pairs file.`,
+      EXIT.refused,
+    );
 }

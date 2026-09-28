@@ -65,13 +65,18 @@ exists:
 - `baselineSuccess`: the task's last run succeeded and a person accepted it
   (true), or it failed, was cancelled or was rejected (false). A result still
   awaiting acceptance is asked.
-- `baselineCost`: the recorded cost of the task's runs, each plan counted
-  once. Unknown costs are asked, never set to zero.
+- `baselineCost`: the recorded cost of the task's plan, from its latest run
+  (a plan's usage accumulates across its runs). Unknown costs are asked,
+  never set to zero.
 - `candidateSuccess` and `candidateCost`: from a collected pair (below), or
   equal to the baseline when no provider choice in the task differed from the
   baseline. Otherwise they are asked; `u` keeps the task out of the export
   until you answer them with `t`. Outcomes you type in are judgments, not measurements, and the export's
   provenance says which fields were typed for how many tasks.
+- Without a collected pair, a task whose runs belong to more than one plan
+  has nothing derived: they may be a baseline and a candidate, and nothing
+  says which is which. The labeller lists the runs and asks every outcome
+  and cost.
 - `labelEvidence`: the packet's SHA-256 and the hash of your answer entry.
   `outcomeEvidence`: the hash of the run outcomes and answers used.
 
@@ -86,8 +91,17 @@ and belong to a complete task; the count left out, and why, is shown.
 
 The header shows, per route (category, provider, model), labelled
 calibration decisions against the 50 needed at 95% agreement, and held-out
-decisions and tasks against 200 and 60. A route whose provider gave no
-confident answers shows as having nothing scorable.
+decisions and tasks against 200 and 60. It counts the way the engine's
+gates do, so only rows the engine can use count: answered, with a provider
+choice and a confidence of at least 0.5 (the engine's lowest threshold), in
+a task whose split, risk, outcomes and costs are all known. Each route is
+counted at the confidence threshold the engine would fit (the lowest of
+0.5, 0.6, 0.7, 0.8, 0.9, 0.95 and 0.99 at which its calibration rows reach
+50 at 95%), or at 0.5 until one fits, and the threshold is shown. A route is
+ticked only when a threshold fits. Its held-out rows count at the same
+threshold; the engine counts none until calibration fits. A route whose
+provider gave no answer at a confidence of 0.5 or more shows as having
+nothing scorable.
 
 ## Collect paired runs
 
@@ -107,3 +121,9 @@ ID) and `pairs-<stamp>.json` (each arm's run ID, status, acceptance and
 cost), mode 0600, and never overwrites. Task IDs are hashes of the
 objective, not its text. It reads the run store read-only and uses no
 network.
+
+The dataset ID starts with `paired-` (`--dataset` must too), and the pairs
+file records the packet's dataset ID and SHA-256. Keep the packet and its
+pairs file together: the labeller refuses a pairs file collected for another
+packet, and refuses a `paired-` packet whose pairs file is missing, because
+its tasks hold both arms' runs.

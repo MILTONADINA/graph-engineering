@@ -8,6 +8,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CONFIDENCE_THRESHOLDS,
   EXIT,
   GATES,
   LabelError,
@@ -29,6 +30,7 @@ import {
   newestPacket,
   readStore,
   requireInteractiveOwner,
+  requirePairsForPairedPacket,
   saveProgress,
   taskComplete,
   validateExport,
@@ -105,17 +107,15 @@ const percent = (value) =>
 
 function progressLines(progressReport) {
   const lines = [
-    `Gates: calibration ≥${GATES.calibrationPerRoute} per route at ≥${GATES.calibrationAccuracy * 100}% · held-out ${GATES.heldOutDecisions} decisions across ${GATES.heldOutTasks} tasks`,
+    `Gates per route: calibration ≥${GATES.calibrationPerRoute} at ≥${GATES.calibrationAccuracy * 100}% · held-out ${GATES.heldOutDecisions} decisions across ${GATES.heldOutTasks} tasks`,
+    `  counting answered rows of complete tasks at the route's fitted confidence threshold (≥${CONFIDENCE_THRESHOLDS[0]} until one fits)`,
   ];
   for (const route of progressReport.routes)
     lines.push(
       route.scorable
-        ? `  ${route.met ? "✓" : " "} ${route.route}: calibration ${route.labelled}/${GATES.calibrationPerRoute}, accuracy ${percent(route.accuracy)} (${route.scorable} scorable)`
-        : `    ${route.route}: 0 scorable (no provider answer with confidence)`,
+        ? `  ${route.met ? "✓" : " "} ${route.route}: calibration ${route.labelled}/${GATES.calibrationPerRoute} at ≥${route.threshold}, accuracy ${percent(route.accuracy)} · held-out ${route.heldOut}/${GATES.heldOutDecisions} decisions, ${route.heldOutTasks}/${GATES.heldOutTasks} tasks (${route.scorable} scorable)`
+        : `    ${route.route}: 0 scorable (no provider answer at confidence ≥${CONFIDENCE_THRESHOLDS[0]})`,
     );
-  lines.push(
-    `  held-out: ${progressReport.heldOut}/${GATES.heldOutDecisions} decisions, ${progressReport.heldOutTasks}/${GATES.heldOutTasks} tasks`,
-  );
   return lines;
 }
 
@@ -132,7 +132,8 @@ export async function labelSession(options, io) {
     packetSha256,
     labeler: options.labeler,
   });
-  const pairs = loadPairs(paths.pairs);
+  const pairs = loadPairs(paths.pairs, { packet, sha256: packetSha256 });
+  requirePairsForPairedPacket(packet, pairs, paths.pairs);
   const store =
     options.projectId && options.dataRoot
       ? readStore(options.dataRoot, options.projectId)
@@ -197,12 +198,16 @@ export async function labelSession(options, io) {
       out(
         `  paired runs: baseline ${short(derived.source.pair.baseline.runId)} (${derived.source.pair.baseline.status}), candidate ${short(derived.source.pair.candidate.runId)} (${derived.source.pair.candidate.status})`,
       );
-    else if (derived.source?.runs)
+    else if (derived.source?.runs) {
       for (const run of derived.source.runs)
         out(
           `  run ${short(run.runId)}: ${run.status}, acceptance ${run.humanAcceptance ?? "-"}, checks ${run.automatedChecksPassed ?? "-"}, cost ${run.costUsd ?? "unknown"}`,
         );
-    else out("  no recorded runs found for this task");
+      if (derived.source.plans > 1)
+        out(
+          `  these runs belong to ${derived.source.plans} plans and no pairs file says which is the baseline: outcomes and costs are asked`,
+        );
+    } else out("  no recorded runs found for this task");
     const task = { asked: false, derived: [] };
     const split = await askKey("Split: c calibration · h held-out › ", [
       "c",
