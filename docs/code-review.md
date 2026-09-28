@@ -11,8 +11,9 @@ graph-engine reviewer --clear        # stop requiring it
 ```
 
 The reviewer is a configured API or local provider (installed agents cannot
-review yet), preferably a different model from the one implementing the
-change. It is recorded as `review.providerId` in `.graph/project.json`.
+review yet, and `graph-engine reviewer` warns as soon as it is given one),
+preferably a different model from the one implementing the change. It is
+recorded as `review.providerId` in `.graph/project.json`.
 
 ## A tester beside the reviewer
 

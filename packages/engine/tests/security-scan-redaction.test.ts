@@ -126,16 +126,15 @@ describe("Semgrep's error messages", () => {
   });
 
   it("are redacted before a non-fatal one is cut into an unscanned file's reason", () => {
+    // After the reason's "semgrep warn: " prefix, the value starts at
+    // character 190, so the cut at 200 characters would leave only its first
+    // ten, too few for redaction to recognise. Redacted first, the reason is
+    // exactly 200 characters and keeps the whole redaction marker.
+    const message = `${"x".repeat(166)} ${assignment}`;
     const unscanned = parseSemgrepUnscanned(
       JSON.stringify({
         results: [],
-        errors: [
-          {
-            level: "warn",
-            path: "/scan/src/config.js",
-            message: `Syntax error near ${assignment}`,
-          },
-        ],
+        errors: [{ level: "warn", path: "/scan/src/config.js", message }],
       }),
     );
     expect(unscanned).toHaveLength(1);

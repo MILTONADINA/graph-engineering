@@ -37,6 +37,8 @@ A team does not call work done because its author says so or because tests pass;
   - Test: packages/engine/tests/execution.test.ts :: refuses a person's approval for a run the reviewer approved that failed afterwards
   - Test: packages/engine/tests/execution.test.ts :: refuses a person's approval when the latest attempt stopped before reaching review again
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
+- AC8: `graph-engine reviewer <id>` warns as soon as the reviewer is set when that provider is an installed agent (codex, claude or cursor), since installed agents cannot review yet and every run would refuse it at start; an API or local reviewer gets no such warning.
+  - Test: packages/engine/tests/cli.test.ts :: warns when the reviewer is set to an installed agent, which cannot review, instead of only when a run starts
 
 ## Security considerations
 

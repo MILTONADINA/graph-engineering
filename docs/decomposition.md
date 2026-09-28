@@ -40,9 +40,9 @@ and its suggested next command then says to move the file first.
   refused) and writes them to a new file; it never overwrites one. The file
   is created before the planner is called, so an `--out` that already exists
   or whose directory is missing is refused without spending a planner call,
-  and it is removed again if the call fails. Ctrl-C (or SIGTERM) during the
-  call cancels it and removes the file too, so the same `--out` can be
-  retried.
+  and it is removed again if the call fails. Ctrl-C (or SIGTERM, or SIGHUP
+  when the terminal closes) during the call cancels it and removes the file
+  too, so the same `--out` can be retried.
 - **Nothing runs.** The steps file is the proposal. A person reviews and may
   edit it, then creates the plan with `plan --steps`, which validates the
   steps again and binds the plan to the current policy and source.

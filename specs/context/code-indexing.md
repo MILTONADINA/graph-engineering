@@ -47,6 +47,8 @@ Workers and connected AI clients need accurate, bounded context about a reposito
   - Test: packages/engine/tests/policy.test.ts :: compares secret findings in long single-line and footer-less files quickly
 - AC10: `watch` refuses an interval outside 1000 to 3600000 ms before it opens the engine, so the process exits with the error instead of staying up without watching.
   - Test: packages/engine/tests/cli.test.ts :: exits when serve, mcp or watch fails, instead of keeping the process alive
+- AC11: Ctrl-C, SIGTERM or SIGHUP (sent when the terminal closes) stops `watch` by closing its watcher and then its engine before the process exits; further signals are ignored until that finishes.
+  - Test: packages/engine/tests/cli.test.ts :: stops watch on SIGHUP, as when its terminal closes, closing its engine before it exits
 
 ## Security considerations
 

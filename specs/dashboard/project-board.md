@@ -37,6 +37,8 @@ A team lead wants to open one page and see what the graph is doing, what is done
 - AC10: `serve` refuses a `--port` that is not a whole number from 0 to 65535 before it opens the engine, and when listening fails (for example, the port is in use) it closes the engine, so the process exits with the error instead of staying up without a dashboard. An engine that fails to open (its run database was left by a newer engine or is not a database) leaves nothing running either.
   - Test: packages/engine/tests/cli.test.ts :: exits when serve, mcp or watch fails, instead of keeping the process alive
   - Test: packages/engine/tests/cli.test.ts :: exits with the error when the engine cannot open its run database, instead of keeping the process alive
+- AC11: Ctrl-C, SIGTERM or SIGHUP (sent when the terminal closes) stops `serve` by closing the dashboard server and then the engine, which cancels the runs the dashboard started as managed-runs AC19 describes: their checks and agents are stopped, their check containers removed and each run recorded as `cancelled`, before the process exits. Further signals are ignored until that cleanup finishes, so a repeated Ctrl-C cannot end the process with those runs still executing.
+  - Test: packages/engine/tests/cli.test.ts :: keeps cancelling the runs the dashboard started when Ctrl-C is pressed again while serve stops, then exits
 
 ## Security considerations
 

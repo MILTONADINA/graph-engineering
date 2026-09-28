@@ -111,7 +111,8 @@ review decided for the stricter choices.
   labels `graph-engineering.live-scan=1` and
   `graph-engineering.live-scan.id=<scan id>`; cleanup removes whatever
   carries the scan's ID and checks nothing is left. There is no network to
-  label or remove. Repeated Ctrl-C or SIGTERM is ignored until cleanup
+  label or remove. Ctrl-C, SIGTERM and SIGHUP (sent when the terminal
+  closes) all cancel the scan, and repeated signals are ignored until cleanup
   finishes.
 - ZAP's report is read with `O_NOFOLLOW`, only as a regular file of at most
   20 MB; errors never quote it.

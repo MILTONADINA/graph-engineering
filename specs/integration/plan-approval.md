@@ -16,9 +16,10 @@ person having agreed to the plan. A person must approve such a plan first.
 - AC1: A plan that publishes cannot be started until a person approves it, whether from MCP or the dashboard API, and the refusal names the approval command.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses to start a plan that publishes until a person approves it
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
-- AC2: `graph-engine plan-approve <id>` shows the whole plan (steps, objectives, verification, publication) and approves it only with `--yes`, bound to the plan's exact content; starting with `graph-engine run` is the person's approval and is recorded.
+- AC2: `graph-engine plan-approve <id>` shows the whole plan (its objective and acceptance criteria; each step's objective, dependencies, provider, effort, template and template inputs, and write limits; verification; publication; routing; the spec it implements; and, when set, its export side) and approves it only with `--yes`, bound to the plan's exact content, so nothing the approval covers is hidden from the person; starting with `graph-engine run` is the person's approval and is recorded.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses to start a plan that publishes until a person approves it
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
+  - Test: packages/engine/tests/cli.test.ts :: shows everything plan-approve's approval covers, including a template step's inputs and each step's effort
 
 ## Security considerations
 
