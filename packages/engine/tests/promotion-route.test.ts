@@ -419,6 +419,12 @@ describe("controllers and refusal codes", () => {
       }),
     ).rejects.toThrow("witness-not-selected");
     await expect(
+      controllers.witness.readGovernanceCheckpoint({
+        ...request,
+        collectionId: "collection",
+      }),
+    ).rejects.toThrow("witness-not-selected");
+    await expect(
       controllers.witness.readGrantStatus({ ...request, grantId: "grant" }),
     ).rejects.toThrow("witness-not-selected");
     const roles: EvidenceSignerRole[] = [

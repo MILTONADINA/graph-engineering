@@ -190,6 +190,12 @@ interface WitnessController {
     collectionId: string;
     challenge: string;
   }): Promise<SignedCollectionCheckpoint>; // "none": rejects witness-not-selected
+  readGovernanceCheckpoint(request: {
+    witnessId: string;
+    projectId: string;
+    collectionId: string;
+    challenge: string;
+  }): Promise<unknown>; // "none": rejects witness-not-selected
   readGrantStatus(request: {
     witnessId: string;
     projectId: string;
@@ -271,7 +277,18 @@ selectable: a same-key restart can sign a shorter history.
 5. **Witness controller (owner and Kevin, deferred).** It needs durable
    crash-safe storage, authenticated ingest, monotonic non-equivocation with an
    externally anchored pre-run checkpoint, grant registration and revocation,
-   and protected key custody.
+   and protected key custody. It serves two different checkpoint documents,
+   and an adapter must supply both:
+   - `readCollectionCheckpoint` is compared at importer steps 4 and 11. It
+     carries `checkpointSha256` and the frozen trust and registry digests.
+   - `readGovernanceCheckpoint` is parsed by the sealed readiness audit at
+     step 5. It is the `sealed-governance-current-checkpoint` v1/v2 document
+     in `sealed-governance-witness.ts`, carrying the registration, head,
+     current trust and, for v2, population and first-attempt revisions.
+
+   The importer never derives one from the other. A witness that answers only
+   one of them refuses at the step that reads the other.
+
 6. **Minimum model-identity evidence (owner decision).** Per grant: the
    runtime's self-report, a provider signature, or runtime attestation.
 7. **Default spending cap (question).** `DEFAULT_POLICY.maxCostUsd` is `null`

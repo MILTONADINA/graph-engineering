@@ -75,6 +75,8 @@ step 1. The owner's decisions of 2026-09-27
   - Test: packages/engine/tests/promotion-importer-steps.test.ts :: refuses at the final schema parse when the lease exceeds 7 days
 - AC15: A route admitted before dispatch but refused after the response keeps its baseline and records the after-response refusal.
   - Test: packages/engine/tests/promotion-route.test.ts :: keeps the baseline when a route admitted before dispatch is refused after the response
+- AC16: The sealed readiness audit at step 5 reads the witness's governance checkpoint (`readGovernanceCheckpoint`), never the collection checkpoint of steps 4 and 11, and the `none` witness refuses it.
+  - Test: packages/engine/tests/promotion-importer-steps.test.ts :: hands the readiness audit (step 5) the governance checkpoint, never the collection checkpoint
 
 ## Importer steps
 
@@ -82,7 +84,7 @@ step 1. The owner's decisions of 2026-09-27
 2. Check enrollment, recomputing the repository identity from its root commits (`project-not-enrolled`, `repository-identity-mismatch`).
 3. Read the bundle read-only and require every readiness input with its registry (`bundle-invalid`, `readiness-input-missing`).
 4. Read a checkpoint with a fresh challenge, check the reply answers that request and is fresh, and compare trust and registry digests with the witness's pre-run freeze (`witness-not-selected`, `witness-reply-invalid`, `witness-freeze-mismatch`).
-5. Run the sealed readiness audit through readers the importer builds over the bundle (`readiness-audit-failed`).
+5. Run the sealed readiness audit through readers the importer builds over the bundle. Its current-witness reader is the witness's `readGovernanceCheckpoint`, which returns the `sealed-governance-current-checkpoint` document. It is never the collection checkpoint of steps 4 and 11, so a witness must supply both (`readiness-audit-failed`).
 6. Recompute the calibration threshold, check calibration and held-out are disjoint, then recompute each route's preflight and report against the one cohort and verify its approval (`threshold-refit-mismatch`, `calibration-held-out-overlap`, `preflight-recompute-failed`, `cohort-blockers-remain`, `approval-invalid`).
 7. Require measured whole-cohort cost, candidate strictly lower (`cost-not-measured`, `cost-not-lower`).
 8. Collect every key the bundle's trust files use, by role, require those keys and actors to be distinct across roles, then resolve each through the selected custody and require the same key (`signer-role-unknown`, `signer-keys-not-distinct`, `signer-key-unresolved`, `signer-key-mismatch`).

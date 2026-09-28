@@ -49,6 +49,7 @@ import {
   projectDataDir,
 } from "../src/project.js";
 import { hashJson } from "../src/sealed-collection-schema.js";
+import * as readinessAudit from "../src/sealed-evidence-readiness.js";
 import * as identityReader from "../src/sealed-identity-file-reader.js";
 import * as signedApproval from "../src/signed-promotion-approval.js";
 import { checked, hash, writeJson } from "../src/util.js";
@@ -344,6 +345,12 @@ async function harness() {
         calls.push("checkpoint");
         return checkpoint(query);
       },
+      readGovernanceCheckpoint: async (
+        query: Parameters<typeof checkpoint>[0],
+      ) => {
+        calls.push("governance");
+        return { kind: "sealed-governance-current-checkpoint", ...query };
+      },
       readGrantStatus: async (query: {
         witnessId: string;
         projectId: string;
@@ -492,6 +499,56 @@ describe("importer past step 1 (test-only anchor and controllers)", () => {
         /promotion|grant|trust|witness/.test(name),
       ),
     ).toEqual([]);
+  }, 60000);
+
+  it("hands the readiness audit (step 5) the governance checkpoint, never the collection checkpoint", async () => {
+    const h = await harness();
+    const readiness = {
+      evaluationArtifactSha256: h.preflight.evaluationArtifactSha256,
+      accountingMetricsSatisfied: true,
+      promotionEligible: false,
+    };
+    let readCurrent:
+      | ((query: {
+          witnessId: string;
+          projectId: string;
+          collectionId: string;
+          challenge: string;
+        }) => Promise<unknown>)
+      | undefined;
+    vi.spyOn(identityReader, "withPrivateSealedIdentityFileReader")
+      .mockReset()
+      .mockImplementation((async (
+        _manifest: unknown,
+        _sha: unknown,
+        _bindings: unknown,
+        callback: (readChunk: unknown) => unknown,
+      ) => callback(async () => new Uint8Array())) as never);
+    vi.spyOn(
+      readinessAudit,
+      "inspectSealedEvidenceReadiness",
+    ).mockImplementation((async (input: {
+      witness: { readCurrent: typeof readCurrent };
+    }) => {
+      readCurrent = input.witness.readCurrent;
+      return readiness;
+    }) as never);
+    const result = await h.run();
+    if (result.outcome !== "unsigned-requests")
+      throw new Error(`refused: ${JSON.stringify(result)}`);
+    expect(readCurrent).toBeTypeOf("function");
+    const before = h.calls.length;
+    const query = {
+      witnessId: "w",
+      projectId: "p",
+      collectionId: "c",
+      challenge: "d".repeat(64),
+    };
+    expect(await readCurrent!(query)).toEqual({
+      kind: "sealed-governance-current-checkpoint",
+      ...query,
+    });
+    expect(h.calls.slice(before)).toEqual(["governance"]);
   }, 60000);
 
   it("refuses replayed, redirected or stale witness replies at steps 4 and 11", async () => {
