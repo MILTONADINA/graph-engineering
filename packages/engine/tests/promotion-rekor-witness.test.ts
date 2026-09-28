@@ -1139,6 +1139,28 @@ describe("Rekor witness refusals", () => {
     expect(stored().treeSize).toBe(String(log.size));
   });
 
+  it("refuses to write a head when the high-water mark was removed during the read", async () => {
+    const log = logged();
+    const stateDir = path.join(tempDir(), "rekor-witness");
+    const file = path.join(stateDir, `${log.logId}.json`);
+    await witness(log, { stateDir }).verifyTreeHead();
+    log.filler(3);
+    // Another process removes the mark while the consistency proof is read.
+    const adapter = witness(log, {
+      stateDir,
+      fetch: racing(log, async () => rmSync(file)),
+    });
+    expect(await refusal(adapter.verifyTreeHead())).toBe("rekor-rollback");
+    // The head proven against the removed mark is not written.
+    expect(() => statSync(file)).toThrow();
+    // A retry reads no mark, so it takes the head on first use.
+    const head = await adapter.verifyTreeHead();
+    expect(head.treeSize).toBe(BigInt(log.size));
+    expect(JSON.parse(readFileSync(file, "utf8")).treeSize).toBe(
+      String(log.size),
+    );
+  });
+
   it("refuses a host that is not allowlisted before any request", async () => {
     const log = logged();
     expect(

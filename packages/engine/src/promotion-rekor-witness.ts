@@ -685,8 +685,12 @@ class HighWaterStore {
   /**
    * Replace the state atomically under the lock; never lowers the mark.
    * `proven` is the mark that `next` was proven consistent with (undefined on
-   * first use). The write refuses when the stored mark is no longer `proven`,
-   * so a mark is only ever replaced by a head proven consistent with it.
+   * first use). A stored head of `next`'s size with another root refuses as a
+   * fork (`rekor-consistency-invalid`). A stored head of `next`'s size and
+   * root means another reader already stored this head, and nothing is
+   * written. Otherwise the write refuses (`rekor-rollback`) when the stored
+   * mark is no longer `proven` (moved, created or removed), so a mark is only
+   * ever replaced by a head proven consistent with it.
    */
   write(next: HighWater, proven: HighWater | undefined): Promise<void> {
     return this.locked(() => this.writeLocked(next, proven));
