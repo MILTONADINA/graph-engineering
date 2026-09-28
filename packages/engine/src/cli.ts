@@ -878,6 +878,19 @@ cli
       // be created costs no call, and remove it if no proposal reaches it.
       const out = path.resolve(options.out);
       const file = await open(out, "wx", 0o600);
+      // Ctrl-C or SIGTERM during the call (a local planner can take
+      // minutes) aborts it, so the claimed file is removed below instead of
+      // being left empty to refuse the next attempt.
+      const controller = new AbortController();
+      const cancel = () => {
+        if (controller.signal.aborted) return;
+        process.stderr.write(
+          `Cancelling the decomposition; removing ${options.out}...\n`,
+        );
+        controller.abort();
+      };
+      process.on("SIGINT", cancel);
+      process.on("SIGTERM", cancel);
       let proposal: Awaited<ReturnType<GraphEngine["proposeSteps"]>>;
       try {
         proposal = await engine.proposeSteps({
@@ -886,12 +899,19 @@ cli
           plannerId: options.planner,
           providerId: options.provider,
           effort: options.effort,
+          signal: controller.signal,
         });
         await file.writeFile(`${JSON.stringify(proposal.steps, null, 2)}\n`);
       } catch (error) {
         await file.close();
         await rm(out, { force: true });
-        throw error;
+        if (!controller.signal.aborted) throw error;
+        // A person's own cancel: nothing was proposed and nothing is left.
+        process.exitCode = 130;
+        return { cancelled: true };
+      } finally {
+        process.off("SIGINT", cancel);
+        process.off("SIGTERM", cancel);
       }
       await file.close();
       return {

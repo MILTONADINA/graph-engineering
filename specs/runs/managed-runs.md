@@ -58,10 +58,11 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/verification-inputs.test.ts :: fails a check that swaps a verification input for a FIFO instead of waiting on it
 - AC15: A run that publishes starts, and resumes before its workspace was created, only from a clean checkout, so local files the source snapshot leaves out (binary, large or credential-like) cannot be copied into the workspace and committed.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses to resume a publishing run that has no workspace yet while the checkout has local changes
-- AC16: A plan keeps the verification commands configured when it was created. Creating a plan without any warns that it cannot run (on stderr for `plan`, and as `warnings` in the result of MCP `plan_create`), and starting one is refused with an error that says to configure checks and create a new plan, or, when the project has checks now, that the plan predates them and a new plan is needed.
+- AC16: A plan keeps the verification commands configured when it was created. Creating a plan without any warns that it cannot run (on stderr for `plan`, as `warnings` in the result of MCP `plan_create`, and once in the dashboard's plan view), and starting one is refused with an error that says to configure checks and create a new plan, or, when the project has checks now, that the plan predates them and a new plan is needed.
   - Test: packages/engine/tests/execution.test.ts :: warns about a plan made without checks and, once checks exist, says to create a new plan
   - Test: packages/engine/tests/cli.test.ts :: warns about a plan made without checks, and says to create a new plan once checks are added
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
+  - Test: packages/dashboard/src/RunsPage.test.tsx :: explains a plan without checks once: in its warning when the server sent one, else in the verification panel
 
 ## Security considerations
 

@@ -91,6 +91,35 @@ export function CompletionNotice({
   );
 }
 
+/**
+ * A new plan's verification commands. When it has none, the plan's warning
+ * note already says why it cannot run and what to do, so this does not
+ * repeat it.
+ */
+export function PlanVerification({
+  plan,
+}: {
+  plan: Pick<ExecutionPlan, "verification"> & { warnings?: string[] };
+}) {
+  return (
+    <div className="plan-verification">
+      <strong>Required verification</strong>
+      {plan.verification.length ? (
+        plan.verification.map((verification, index) => (
+          <code key={index}>{verification.argv.join(" ")}</code>
+        ))
+      ) : plan.warnings?.length ? (
+        <p>None.</p>
+      ) : (
+        <p>
+          This plan has no verification commands, so it cannot run. Add a check
+          with graph-engine check-add, then create a new plan.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function RunsPage({
   api,
   project,
@@ -376,20 +405,7 @@ export function RunsPage({
                     </li>
                   ))}
                 </ol>
-                <div className="plan-verification">
-                  <strong>Required verification</strong>
-                  {plan.verification.length ? (
-                    plan.verification.map((verification, index) => (
-                      <code key={index}>{verification.argv.join(" ")}</code>
-                    ))
-                  ) : (
-                    <p>
-                      This plan has no verification commands, so it cannot run.
-                      Add a check with graph-engine check-add, then create a new
-                      plan.
-                    </p>
-                  )}
-                </div>
+                <PlanVerification plan={plan} />
                 <dl className="property-list compact">
                   <div>
                     <dt>Snapshot</dt>

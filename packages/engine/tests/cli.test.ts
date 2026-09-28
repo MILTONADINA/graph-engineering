@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import {
   chmod,
   mkdtemp,
@@ -8,7 +9,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,7 +18,12 @@ import { checked } from "../src/util.js";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const directories: string[] = [];
+const servers: Server[] = [];
 afterEach(async () => {
+  for (const server of servers.splice(0)) {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
   for (const directory of directories.splice(0))
     await rm(directory, { recursive: true, force: true });
 });
@@ -27,7 +33,26 @@ async function project() {
   const data = await mkdtemp(path.join(tmpdir(), "graph-cli-data-"));
   directories.push(root, data);
   await checked("git", ["init", "-q"], { cwd: root });
+  const argv = (args: string[]) => [
+    "--import",
+    "tsx",
+    CLI,
+    "-C",
+    root,
+    ...args,
+  ];
   // No terminal, no CI switch: a person could never be prompted here.
+  const options = (extra: Record<string, string> = {}) => ({
+    cwd: fileURLToPath(new URL("../", import.meta.url)),
+    env: {
+      ...process.env,
+      GRAPH_ENGINE_DATA_DIR: data,
+      CI: "",
+      GRAPH_ENGINE_NO_FEEDBACK: "",
+      ...extra,
+    },
+    windowsHide: true,
+  });
   const run =
     (extra: Record<string, string>) =>
     (...args: string[]) =>
@@ -35,20 +60,8 @@ async function project() {
         (resolve) => {
           execFile(
             process.execPath,
-            ["--import", "tsx", CLI, "-C", root, ...args],
-            {
-              cwd: fileURLToPath(new URL("../", import.meta.url)),
-              env: {
-                ...process.env,
-                GRAPH_ENGINE_DATA_DIR: data,
-                CI: "",
-                GRAPH_ENGINE_NO_FEEDBACK: "",
-                ...extra,
-              },
-              timeout: 60_000,
-              maxBuffer: 1_000_000,
-              windowsHide: true,
-            },
+            argv(args),
+            { ...options(extra), timeout: 60_000, maxBuffer: 1_000_000 },
             (error, stdout, stderr) =>
               resolve({
                 code: error
@@ -60,8 +73,99 @@ async function project() {
           );
         },
       );
-  const graph = Object.assign(run({}), { with: run });
+  // A running command, for a test that interrupts it.
+  const start = (...args: string[]) =>
+    spawn(process.execPath, argv(args), options());
+  const graph = Object.assign(run({}), { with: run, start });
   return { root, data, graph };
+}
+
+// A committed project whose local planner, qwen, counts its calls and
+// proposes one step, answers HTTP 500, or never answers, as `mode` says.
+async function decomposeProject() {
+  const { root, graph } = await project();
+  const planner = {
+    requests: 0,
+    mode: "answer" as "answer" | "fail" | "hold",
+  };
+  const server = createServer((request, response) => {
+    planner.requests++;
+    request.resume();
+    request.on("end", () => {
+      if (planner.mode === "hold") return;
+      if (planner.mode === "fail") return void response.writeHead(500).end();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  rationale: "One step is enough.",
+                  steps: [
+                    {
+                      id: "fix",
+                      objective: "Fix addition in math.cjs",
+                      dependsOn: [],
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      );
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  await graph("init");
+  await graph(
+    "provider-add",
+    "qwen",
+    "local",
+    "fixture",
+    "--endpoint",
+    `http://127.0.0.1:${port}/v1`,
+  );
+  await writeFile(
+    path.join(root, "math.cjs"),
+    "exports.add = (a, b) => a - b;\n",
+  );
+  await checked("git", ["add", "."], { cwd: root });
+  await checked(
+    "git",
+    [
+      "-c",
+      "user.name=Graph Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "-qm",
+      "test: fixture",
+    ],
+    { cwd: root },
+  );
+  const decompose = (out: string) => [
+    "decompose",
+    "Fix addition",
+    "--accept",
+    "2 + 3 is 5",
+    "--planner",
+    "qwen",
+    "--out",
+    out,
+  ];
+  return {
+    root,
+    graph,
+    planner,
+    server,
+    decompose: (out: string) => graph(...decompose(out)),
+    startDecompose: (out: string) => graph.start(...decompose(out)),
+  };
 }
 
 describe("command line", () => {
@@ -296,124 +400,94 @@ describe("command line", () => {
   );
 
   it("claims the decompose output file before calling the planner, and removes it when no proposal arrives", async () => {
-    const { root, graph } = await project();
-    // A local planner that counts its calls.
-    let requests = 0;
-    let fail = false;
-    const planner = createServer((request, response) => {
-      requests++;
-      request.resume();
-      request.on("end", () => {
-        if (fail) return void response.writeHead(500).end();
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(
-          JSON.stringify({
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    rationale: "One step is enough.",
-                    steps: [
-                      {
-                        id: "fix",
-                        objective: "Fix addition in math.cjs",
-                        dependsOn: [],
-                      },
-                    ],
-                  }),
-                },
-              },
-            ],
-            usage: { prompt_tokens: 10, completion_tokens: 5 },
-          }),
-        );
-      });
-    });
-    await new Promise<void>((resolve) =>
-      planner.listen(0, "127.0.0.1", resolve),
-    );
-    try {
-      const { port } = planner.address() as AddressInfo;
-      await graph("init");
-      await graph(
-        "provider-add",
-        "qwen",
-        "local",
-        "fixture",
-        "--endpoint",
-        `http://127.0.0.1:${port}/v1`,
-      );
-      await writeFile(
-        path.join(root, "math.cjs"),
-        "exports.add = (a, b) => a - b;\n",
-      );
-      await checked("git", ["add", "."], { cwd: root });
-      await checked(
-        "git",
-        [
-          "-c",
-          "user.name=Graph Test",
-          "-c",
-          "user.email=test@example.invalid",
-          "commit",
-          "-qm",
-          "test: fixture",
-        ],
-        { cwd: root },
-      );
-      const decompose = (out: string) =>
-        graph(
-          "decompose",
-          "Fix addition",
-          "--accept",
-          "2 + 3 is 5",
-          "--planner",
-          "qwen",
-          "--out",
-          out,
-        );
+    const { root, planner, decompose } = await decomposeProject();
 
-      // An existing file is never overwritten, and neither it nor a
-      // directory that does not exist costs a planner call.
-      const existing = path.join(root, "steps.json");
-      await writeFile(existing, "keep\n");
-      const refused = await decompose(existing);
-      expect(refused.code).toBe(1);
-      expect(refused.stderr).toContain("EEXIST");
-      expect(await readFile(existing, "utf8")).toBe("keep\n");
-      const missing = await decompose(path.join(root, "missing", "steps.json"));
-      expect(missing.code).toBe(1);
-      expect(missing.stderr).toContain("ENOENT");
-      expect(requests).toBe(0);
+    // An existing file is never overwritten, and neither it nor a
+    // directory that does not exist costs a planner call.
+    const existing = path.join(root, "steps.json");
+    await writeFile(existing, "keep\n");
+    const refused = await decompose(existing);
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("EEXIST");
+    expect(await readFile(existing, "utf8")).toBe("keep\n");
+    const missing = await decompose(path.join(root, "missing", "steps.json"));
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain("ENOENT");
+    expect(planner.requests).toBe(0);
 
-      // A failed planner call leaves no empty steps file behind.
-      fail = true;
-      const failedOut = path.join(root, "failed.json");
-      const failed = await decompose(failedOut);
-      expect(failed.code).toBe(1);
-      expect(failed.stderr).toContain("returned HTTP 500");
-      expect(requests).toBe(1);
-      await expect(stat(failedOut)).rejects.toMatchObject({ code: "ENOENT" });
+    // A failed planner call leaves no empty steps file behind.
+    planner.mode = "fail";
+    const failedOut = path.join(root, "failed.json");
+    const failed = await decompose(failedOut);
+    expect(failed.code).toBe(1);
+    expect(failed.stderr).toContain("returned HTTP 500");
+    expect(planner.requests).toBe(1);
+    await expect(stat(failedOut)).rejects.toMatchObject({ code: "ENOENT" });
 
-      fail = false;
-      const out = path.join(root, "proposed.json");
-      const proposed = await decompose(out);
-      expect(proposed.code).toBe(0);
-      expect(requests).toBe(2);
-      expect(JSON.parse(await readFile(out, "utf8"))).toEqual([
-        expect.objectContaining({
-          id: "fix",
-          kind: "worker",
-          providerId: "qwen",
-        }),
-      ]);
-      if (process.platform !== "win32")
-        expect((await stat(out)).mode & 0o777).toBe(0o600);
-    } finally {
-      planner.closeAllConnections();
-      await new Promise<void>((resolve) => planner.close(() => resolve()));
-    }
+    planner.mode = "answer";
+    const out = path.join(root, "proposed.json");
+    const proposed = await decompose(out);
+    expect(proposed.code).toBe(0);
+    expect(planner.requests).toBe(2);
+    expect(JSON.parse(await readFile(out, "utf8"))).toEqual([
+      expect.objectContaining({
+        id: "fix",
+        kind: "worker",
+        providerId: "qwen",
+      }),
+    ]);
+    if (process.platform !== "win32")
+      expect((await stat(out)).mode & 0o777).toBe(0o600);
   }, 120_000);
+
+  // Windows has no catchable SIGINT for a child process to receive.
+  it.skipIf(process.platform === "win32")(
+    "cancels decompose on Ctrl-C during the planner call and removes the claimed file, so the same --out can be retried",
+    async () => {
+      const { root, planner, server, decompose, startDecompose } =
+        await decomposeProject();
+      planner.mode = "hold";
+      const out = path.join(root, "steps.json");
+      const arrived = once(server, "request");
+      const child = startDecompose(out);
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (chunk) => (stdout += chunk));
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const closed = once(child, "close");
+      let exit: unknown[];
+      try {
+        await Promise.race([
+          arrived,
+          closed.then(() => {
+            throw new Error(
+              `decompose ended before the planner call: ${stderr}`,
+            );
+          }),
+        ]);
+        // Claimed and still empty while the planner thinks.
+        expect((await stat(out)).size).toBe(0);
+        child.kill("SIGINT");
+        exit = await closed;
+      } finally {
+        child.kill("SIGKILL");
+      }
+      // Nothing is left behind to refuse a retry with the same --out.
+      await expect(stat(out)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(exit).toEqual([130, null]);
+      expect(stderr).toContain("Cancelling the decomposition");
+      expect(JSON.parse(stdout)).toEqual({ cancelled: true });
+
+      planner.mode = "answer";
+      const retried = await decompose(out);
+      expect(retried.code).toBe(0);
+      expect(planner.requests).toBe(2);
+      expect(JSON.parse(await readFile(out, "utf8"))).toEqual([
+        expect.objectContaining({ id: "fix", providerId: "qwen" }),
+      ]);
+    },
+    120_000,
+  );
 
   it("warns about a plan made without checks, and says to create a new plan once checks are added", async () => {
     const { graph } = await project();
