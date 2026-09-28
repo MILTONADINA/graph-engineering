@@ -489,6 +489,38 @@ describe("command line", () => {
     120_000,
   );
 
+  it("warns before the planner call when the decompose output is inside the project and not ignored by Git", async () => {
+    const { root, planner, decompose } = await decomposeProject();
+    const warning = "is inside the project and not ignored by Git";
+    // Shown before the planner is called, so even a failed call carries it.
+    planner.mode = "fail";
+    const failed = await decompose(path.join(root, "steps.json"));
+    expect(failed.code).toBe(1);
+    expect(failed.stderr).toContain(`steps.json ${warning}`);
+    planner.mode = "answer";
+    const inside = await decompose(path.join(root, "steps.json"));
+    expect(inside.code).toBe(0);
+    expect(inside.stderr).toContain(`steps.json ${warning}`);
+    expect(inside.stderr).toContain(
+      "Before plan --steps, move it outside the project or to a Git-ignored path",
+    );
+
+    // An ignored path, or one outside the project, is not bound as source.
+    await writeFile(
+      path.join(root, ".git", "info", "exclude"),
+      "ignored-steps.json\n",
+    );
+    const ignored = await decompose(path.join(root, "ignored-steps.json"));
+    expect(ignored.code).toBe(0);
+    expect(ignored.stderr).not.toContain(warning);
+    const elsewhere = await mkdtemp(path.join(tmpdir(), "graph-cli-steps-"));
+    directories.push(elsewhere);
+    const outside = await decompose(path.join(elsewhere, "steps.json"));
+    expect(outside.code).toBe(0);
+    expect(outside.stderr).not.toContain(warning);
+    expect(planner.requests).toBe(4);
+  }, 120_000);
+
   it("warns about a plan made without checks, and says to create a new plan once checks are added", async () => {
     const { graph } = await project();
     await graph("init");
@@ -608,6 +640,150 @@ describe("command line", () => {
       runWith: "graph-engine security-live-scan <target-id>",
     });
     expect(zap.reason).toContain("juice-shop");
+  }, 120_000);
+
+  // An open engine keeps its database worker, and so the process, alive:
+  // a long-running command that fails must still exit.
+  it("exits when serve, mcp or watch fails, instead of keeping the process alive", async () => {
+    const { graph } = await project();
+    await graph("init");
+    // A port another server holds fails only after the engine has opened.
+    const busy = createServer();
+    servers.push(busy);
+    await new Promise<void>((resolve) => busy.listen(0, "127.0.0.1", resolve));
+    const { port } = busy.address() as AddressInfo;
+    const cases: [string[], string][] = [
+      [["serve", "--port", String(port)], "EADDRINUSE"],
+      [["serve", "--port", "99999"], "--port must be a whole number"],
+      [["mcp", "--client", "locall"], "--client must be local or cloud"],
+      [
+        ["watch", "--interval", "10"],
+        "Watch interval must be between 1000 and 3600000 ms",
+      ],
+    ];
+    const results = await Promise.all(
+      cases.map(async ([args]) => {
+        const child = graph.start(...args);
+        let stderr = "";
+        child.stdout.resume();
+        child.stderr.on("data", (chunk) => (stderr += chunk));
+        const closed = once(child, "close");
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const exit = await Promise.race([
+            closed,
+            new Promise<string>((resolve) => {
+              timer = setTimeout(() => resolve("still running"), 30_000);
+            }),
+          ]);
+          return { exit, stderr };
+        } finally {
+          clearTimeout(timer);
+          child.kill("SIGKILL");
+        }
+      }),
+    );
+    for (const [index, [args, message]] of cases.entries()) {
+      expect({ args, ...results[index] }).toMatchObject({
+        args,
+        exit: [1, null],
+        stderr: expect.stringContaining(message),
+      });
+    }
+  }, 120_000);
+
+  it("narrows the configured tester's test-file globs with tester --writes, and refuses --writes when no tester is set", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    const refused = await graph("tester", "--writes", "tests/unit/**");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      "No tester is set; give its provider ID: graph-engine tester <providerId> --writes",
+    );
+    await graph(
+      "provider-add",
+      "qwen",
+      "local",
+      "fixture",
+      "--endpoint",
+      "http://127.0.0.1:1/v1",
+    );
+    expect((await graph("tester", "qwen")).code).toBe(0);
+    const narrowed = await graph("tester", "--writes", "tests/unit/**");
+    expect(narrowed.code).toBe(0);
+    const tester = { providerId: "qwen", writes: ["tests/unit/**"] };
+    expect(JSON.parse(narrowed.stdout)).toEqual({ tester });
+    expect(
+      JSON.parse(await readFile(path.join(root, ".graph/project.json"), "utf8"))
+        .tester,
+    ).toEqual(tester);
+  }, 120_000);
+
+  it("names the zero-price fix for an unpriced local worker under a cost cap, when it is set up and at planning", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    // The checked-in project policy caps spending at 0.
+    const file = path.join(root, ".graph/project.json");
+    const config = JSON.parse(await readFile(file, "utf8"));
+    config.policy.maxCostUsd = 0;
+    await writeFile(file, JSON.stringify(config));
+    const endpoint = ["--endpoint", "http://127.0.0.1:1/v1"];
+    const fix =
+      "graph-engine provider-add qwen local fixture --input-cost 0 --output-cost 0";
+    const added = await graph(
+      "provider-add",
+      "qwen",
+      "local",
+      "fixture",
+      ...endpoint,
+    );
+    expect(added.code).toBe(0);
+    expect(added.stderr).toContain(fix);
+    expect((await graph("provider-enable", "qwen")).stderr).toContain(fix);
+    expect((await graph("reviewer", "qwen")).stderr).toContain(fix);
+    expect((await graph("tester", "qwen")).stderr).toContain(fix);
+    const planArgs = [
+      "plan",
+      "Fix addition",
+      "--accept",
+      "The addition test passes",
+      "--provider",
+      "qwen",
+    ];
+    const refused = await graph(...planArgs);
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      "This provider cannot support the configured cost budget",
+    );
+    expect(refused.stderr).toContain(fix);
+    expect(refused.stderr).not.toContain("metered API worker");
+
+    // Following the advice makes the worker usable under the cap.
+    const priced = await graph(
+      "provider-add",
+      "qwen",
+      "local",
+      "fixture",
+      ...endpoint,
+      "--input-cost",
+      "0",
+      "--output-cost",
+      "0",
+    );
+    expect(priced.code).toBe(0);
+    expect(priced.stderr).not.toContain("--input-cost");
+    expect((await graph(...planArgs)).code).toBe(0);
+  }, 120_000);
+
+  it("names memory-accept as how a person accepts a cited knowledge finding", async () => {
+    const { graph } = await project();
+    const help = await graph("knowledge-cite", "--help");
+    expect(help.code).toBe(0);
+    const text = help.stdout.replace(/\s+/g, " ");
+    expect(text).toContain(
+      "a person accepts it with graph-engine memory-accept <id>",
+    );
+    expect(text).not.toContain("memory review");
   }, 120_000);
 });
 

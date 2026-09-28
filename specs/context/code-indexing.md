@@ -45,6 +45,8 @@ Workers and connected AI clients need accurate, bounded context about a reposito
   - Test: packages/engine/tests/policy.test.ts :: exempts only whole-value template and masked URL passwords, not passwords that begin with a template character
   - Test: packages/engine/tests/policy.test.ts :: redacts every credential screening detects, including a key with no END marker and keys in any letter case
   - Test: packages/engine/tests/policy.test.ts :: compares secret findings in long single-line and footer-less files quickly
+- AC10: `watch` refuses an interval outside 1000 to 3600000 ms before it opens the engine, so the process exits with the error instead of staying up without watching.
+  - Test: packages/engine/tests/cli.test.ts :: exits when serve, mcp or watch fails, instead of keeping the process alive
 
 ## Security considerations
 

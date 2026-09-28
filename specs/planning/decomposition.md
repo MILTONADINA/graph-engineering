@@ -30,6 +30,8 @@ Breaking a large objective into steps is itself work that a planner model can he
 - AC8: `decompose` creates its `--out` file, owner-only and never over an existing file, before it calls the planner, so an output that exists or cannot be created is refused without a planner call; the file is removed when the planner call fails, and when Ctrl-C or SIGTERM interrupts the call, which cancels it and exits with status 130, so the same `--out` can be retried.
   - Test: packages/engine/tests/cli.test.ts :: claims the decompose output file before calling the planner, and removes it when no proposal arrives
   - Test: packages/engine/tests/cli.test.ts :: cancels decompose on Ctrl-C during the planner call and removes the claimed file, so the same --out can be retried
+- AC9: When `--out` is inside the project and not ignored by Git, `decompose` warns before the planner call that a plan made while the file is there binds it as source and that a run that publishes refuses the unclean checkout, and says to move it outside the project or to a Git-ignored path before `plan --steps`; an ignored path or one outside the project gets no warning.
+  - Test: packages/engine/tests/cli.test.ts :: warns before the planner call when the decompose output is inside the project and not ignored by Git
 
 ## Security considerations
 
