@@ -33,6 +33,13 @@ An operator wants a worker model to implement a planned change without touching 
 - AC8: A single-provider run keeps retrying with feedback until its attempts are used, then asks a person.
   - Test: packages/engine/tests/outcomes.test.ts :: retries a single-provider run until its attempts are used
   - Test: packages/engine/tests/decision-controls.test.ts :: retries a repeated failure within the attempt budget when no stronger worker exists
+- AC9: A run records the commit its workspace was created from and reviews and gates its change against that commit, including after its own publication commit; a run recorded before this recovers it from the workspace.
+  - Test: packages/engine/tests/publication.test.ts :: records the commit a workspace starts from, which publication does not move
+  - Test: packages/engine/tests/execution.test.ts :: reviews the run's whole change against its base commit after a publication commit
+- AC10: A run cancelled after publication started stops as needs_reconciliation, with an error saying how far publication got.
+  - Test: packages/engine/tests/execution.test.ts :: needs reconciliation, not a plain cancel, when cancelled after the branch was pushed
+- AC11: A cached solution is reused only for the same step write scope, and never applied when it changes a file outside that scope.
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: never reuses a cached solution outside a step's write scope
 
 ## Security considerations
 

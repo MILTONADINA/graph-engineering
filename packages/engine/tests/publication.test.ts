@@ -17,6 +17,7 @@ import {
 } from "@graph-engineering/contracts";
 import {
   createWorkspace,
+  recoverBaseCommit,
   workspaceFingerprint,
 } from "../src/execution/workspace.js";
 import { publishRun } from "../src/execution/publish.js";
@@ -166,6 +167,33 @@ describe("safe recoverable publication", () => {
     expect(
       await readFile(path.join(first.workspace, "math.cjs"), "utf8"),
     ).toContain("a - b");
+  });
+  it("records the commit a workspace starts from, which publication does not move", async () => {
+    const { base, root, config, run } = await fixture();
+    const head = await util.checked("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+    });
+    Object.assign(
+      run,
+      await createWorkspace(root, base, run.id, config.policy),
+    );
+    expect(run.baseCommit).toBe(head);
+    // A run recorded before the base commit was kept recovers it, before
+    // and after its own publication commit.
+    expect(await recoverBaseCommit(run.workspace!, run.id)).toBe(head);
+    await writeFile(
+      path.join(run.workspace!, "math.cjs"),
+      "exports.add = (a,b) => a + b;\n",
+    );
+    const { commit } = await publishRun(
+      root,
+      run,
+      config,
+      await workspaceFingerprint(run.workspace!, config.policy),
+    );
+    expect(commit).not.toBe(head);
+    expect(await recoverBaseCommit(run.workspace!, run.id)).toBe(head);
+    expect(await recoverBaseCommit(run.workspace!, "another-run")).toBe(commit);
   });
   it("reconciles a clean run-owned commit without creating a duplicate", async () => {
     const { base, root, config, run } = await fixture();

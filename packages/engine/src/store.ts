@@ -588,6 +588,22 @@ export class RunStore {
       })
       .immediate();
   }
+  /**
+   * Saves a run as succeeded with its event and terminal outcome in one
+   * transaction, keeping any decision a person already recorded on it.
+   */
+  completeRun(run: RunRecord): void {
+    this.db
+      .transaction(() => {
+        const stored = this.run(run.id).completion?.humanAcceptance;
+        if (run.completion && stored && stored !== "pending")
+          run.completion.humanAcceptance = stored;
+        this.saveRun(run);
+        this.event(run.id, "run.succeeded", { usage: run.usage });
+        this.recordOutcome(this.outcomeFor(run, "terminal"));
+      })
+      .immediate();
+  }
   recordOutcome(outcome: RunOutcome): void {
     this.db
       .prepare("INSERT INTO run_outcomes(run_id,project_id,json) VALUES(?,?,?)")

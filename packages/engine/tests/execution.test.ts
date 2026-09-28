@@ -15,12 +15,14 @@ import {
 import { GraphEngine } from "../src/service.js";
 import { applyProposal } from "../src/execution/workspace.js";
 import { checked, writeJson } from "../src/util.js";
+import * as util from "../src/util.js";
 import { RunStore } from "../src/store.js";
 
 const roots: string[] = [];
 const engines: GraphEngine[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   for (const engine of engines.splice(0)) await engine.close();
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
@@ -1380,6 +1382,7 @@ describe("code review gate", () => {
     attempts?: number;
     extraChanges?: { path: string; before: null; after: string }[];
     prepare?: (root: string) => Promise<void>;
+    configure?: (config: ProjectConfig, root: string) => Promise<void>;
     securityScan?: Parameters<typeof GraphEngine.open>[1] extends infer D
       ? D extends { securityScan?: infer S }
         ? S
@@ -1396,6 +1399,7 @@ describe("code review gate", () => {
       config.policy.allowedHosts = ["api.openai.com"];
     }
     config.review = { providerId: "reviewer" };
+    await options.configure?.(config, root);
     await writeJson(path.join(root, PROJECT_FILE), config);
     await checked("git", ["commit", "-am", "test: reviewer"], { cwd: root });
     await configureProvider(data, {
@@ -1451,7 +1455,9 @@ describe("code review gate", () => {
       objective: "Fix addition",
       acceptance: ["2 + 3 is 5"],
     });
-    const result = await engine.wait((await engine.start(plan.id)).id);
+    const result = await engine.wait(
+      (await engine.start(plan.id, { approvedByPerson: true })).id,
+    );
     return {
       root,
       config,
@@ -1697,6 +1703,95 @@ describe("code review gate", () => {
     const resumed = await engine.wait(result.id);
     expect(reviewed).toHaveLength(2);
     expect(resumed.status).toBe("succeeded");
+  });
+
+  // A draft-PR run against a fake GitHub remote. `push` decides each push's
+  // exit code; the PR lookup always finds an open PR.
+  const publishing = (push: () => number) => {
+    const actualCommand = util.command;
+    vi.spyOn(util, "command").mockImplementation(
+      async (executable, argv, options) => {
+        if (executable === "git" && argv.includes("push"))
+          return push()
+            ? { code: 1, stdout: "", stderr: "network unreachable" }
+            : { code: 0, stdout: "", stderr: "" };
+        if (executable === "gh")
+          return {
+            code: 0,
+            stdout: "https://github.com/test-owner/test-repo/pull/1\n",
+            stderr: "",
+          };
+        return actualCommand(executable, argv, options);
+      },
+    );
+    return async (config: ProjectConfig, root: string) => {
+      config.policy.publication = "draft-pr";
+      config.policy.network = "allowlisted";
+      config.policy.allowedHosts = ["github.com"];
+      config.github = {
+        repository: "test-owner/test-repo",
+        baseBranch: "dev",
+        remote: "origin",
+      };
+      await checked(
+        "git",
+        [
+          "remote",
+          "add",
+          "origin",
+          "https://github.com/test-owner/test-repo.git",
+        ],
+        { cwd: root },
+      );
+    };
+  };
+
+  it("reviews the run's whole change against its base commit after a publication commit", async () => {
+    let pushes = 0;
+    const { engine, result, reviewed } = await setup({
+      reviews: [approve, approve],
+      // A path that needs security review, so the escalation is checked too.
+      extraChanges: [
+        { path: "auth.cjs", before: null, after: "exports.allow = 1;\n" },
+      ],
+      // The first push fails after the run's commit was created.
+      configure: publishing(() => (++pushes === 1 ? 1 : 0)),
+    });
+    expect(result.status).toBe("needs_reconciliation");
+    expect(result.commit).toBeUndefined();
+    const before = engine.store.events(result.id).length;
+    await engine.resume(result.id, true);
+    const resumed = await engine.wait(result.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.pullRequest).toBe(
+      "https://github.com/test-owner/test-repo/pull/1",
+    );
+    // The resumed review sees the change although the workspace HEAD is now
+    // the run's own commit.
+    expect(reviewed).toHaveLength(2);
+    expect(reviewed[1]).toContain("+exports.add = (a, b) => a + b;");
+    expect(reviewed[1]).toContain("+exports.allow = 1;");
+    expect(
+      engine.store
+        .events(result.id)
+        .slice(before)
+        .find((event) => event.type === "acceptance.pending_review")?.data,
+    ).toMatchObject({ reviewScope: "security" });
+  });
+
+  it("needs reconciliation, not a plain cancel, when cancelled after the branch was pushed", async () => {
+    const { result } = await setup({
+      reviews: [approve],
+      configure: publishing(() => {
+        const engine = engines.at(-1)!;
+        engine.cancel(engine.store.runs()[0]!.id);
+        return 0;
+      }),
+    });
+    expect(result.status).toBe("needs_reconciliation");
+    expect(result.error).not.toContain("before publication");
+    expect(result.error).toContain("pushed");
   });
 
   it("refuses a cloud reviewer for non-exportable changes and reports a failed review", async () => {

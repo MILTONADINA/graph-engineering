@@ -48,7 +48,7 @@ export async function createWorkspace(
   dataDir: string,
   runId: string,
   policy: ProjectPolicy,
-): Promise<{ workspace: string; branch: string }> {
+): Promise<{ workspace: string; branch: string; baseCommit: string }> {
   const workspace = path.join(dataDir, "workspaces", runId);
   const branch = `graph/${runId}`;
   await mkdir(path.dirname(workspace), { recursive: true });
@@ -106,6 +106,13 @@ export async function createWorkspace(
       ]);
     else throw new Error("Cannot inspect execution branch");
   }
+  // Nothing has committed in the workspace yet: its location, and so any
+  // publication, is persisted only after this returns.
+  const baseCommit = await checkedGit(workspace, [
+    "rev-parse",
+    "--verify",
+    "HEAD^{commit}",
+  ]);
   // Capture permitted dirty/untracked files without stashing or modifying the
   // user's worktree. The copy covers the whole repository, whatever the
   // working set, so checks see the operator's full state.
@@ -134,7 +141,25 @@ export async function createWorkspace(
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
-  return { workspace, branch };
+  return { workspace, branch, baseCommit };
+}
+/**
+ * The base commit of a workspace created before runs recorded one: HEAD,
+ * or its parent when HEAD is the run's own publication commit (publication
+ * commits once, with a `Graph-Run-Id` trailer).
+ */
+export async function recoverBaseCommit(
+  workspace: string,
+  runId: string,
+): Promise<string> {
+  const message = await checkedGit(workspace, ["log", "-1", "--format=%B"]);
+  return checkedGit(workspace, [
+    "rev-parse",
+    "--verify",
+    message.split("\n").includes(`Graph-Run-Id: ${runId}`)
+      ? "HEAD^^{commit}"
+      : "HEAD^{commit}",
+  ]);
 }
 export async function prepareProposal(
   workspace: string,

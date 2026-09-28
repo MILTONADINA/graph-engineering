@@ -50,7 +50,9 @@ a person decides.
 
 - `accept` and `reject` apply only to a succeeded run, once. The decision is
   recorded as an `acceptance.recorded` event bound to the verified snapshot
-  and commit, and as an outcome.
+  and commit, and as an outcome. A run is saved as succeeded, with its
+  terminal outcome, in one transaction after its last decision call, so a
+  decision recorded from another process is never reverted to `pending`.
 - A rejection needs a note. The note also becomes a **proposed** project
   memory, private until a person accepts it, so a lesson can reach later
   work only by a second human decision.

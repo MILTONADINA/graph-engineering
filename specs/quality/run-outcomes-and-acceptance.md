@@ -19,8 +19,9 @@ A team learns by looking back at what it decided and how that turned out. Operat
 - AC4: An outcome links the memories present in the context the run's workers received, and records the security gate.
   - Test: packages/engine/tests/outcomes.test.ts :: links the memories present in the run's context
   - Test: packages/engine/tests/execution.test.ts :: records the security gate in each run's outcome
-- AC5: A person can accept or reject a result once, and only a succeeded result.
+- AC5: A person can accept or reject a result once, and only a succeeded result; a decision recorded from another process while the run finishes is never reverted to pending.
   - Test: packages/engine/tests/outcomes.test.ts :: records a person's acceptance once, only for a succeeded result
+  - Test: packages/engine/tests/outcomes.test.ts :: never reverts a person's decision recorded while the run finishes
 - AC6: A rejection's note becomes a proposed, private memory that needs a second human decision to take effect.
   - Test: packages/engine/tests/outcomes.test.ts :: turns a rejection's note into a proposed memory
 

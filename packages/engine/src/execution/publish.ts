@@ -22,8 +22,18 @@ export async function publishRun(
     throw new Error("Run has no execution workspace");
   if (config.policy.publication === "none") return {};
   assertPublication(config.policy, run.branch);
+  // How far publication got, so a cancellation says what may already be
+  // committed or on the remote.
+  let stage: "before" | "committed" | "pushed" = "before";
   const cancelled = () => {
-    if (signal?.aborted) throw new Error("Run cancelled before publication");
+    if (!signal?.aborted) return;
+    throw new Error(
+      stage === "before"
+        ? "Run cancelled before publication"
+        : stage === "committed"
+          ? "Run cancelled during publication after its commit was created; reconcile the run branch before resuming"
+          : "Run cancelled during publication after its branch was pushed; reconcile the remote branch and any pull request before resuming",
+    );
   };
   const assertVerified = async () => {
     cancelled();
@@ -198,6 +208,7 @@ export async function publishRun(
       `Graph-Run-Id: ${run.id}`,
     ]);
     commit = await checkedGit(run.workspace, ["rev-parse", "HEAD"]);
+    stage = "committed";
   } else {
     // A prior attempt may have committed/pushed before the process or PR call failed.
     const message = await checkedGit(run.workspace, [
@@ -205,9 +216,10 @@ export async function publishRun(
       "-1",
       "--format=%B",
     ]);
-    if (message.split("\n").includes(`Graph-Run-Id: ${run.id}`))
+    if (message.split("\n").includes(`Graph-Run-Id: ${run.id}`)) {
       commit = await checkedGit(run.workspace, ["rev-parse", "HEAD"]);
-    else if (run.commit)
+      stage = "committed";
+    } else if (run.commit)
       throw new Error(
         "The recorded run commit is no longer at the workspace HEAD",
       );
@@ -225,6 +237,7 @@ export async function publishRun(
     config.github!.remote,
     `HEAD:refs/heads/${run.branch}`,
   ]);
+  stage = "pushed";
   cancelled();
   // Qualify the host so inherited GH_HOST cannot reroute task text.
   const qualifiedRepository = `github.com/${repository}`;

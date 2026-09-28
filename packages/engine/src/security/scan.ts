@@ -796,34 +796,38 @@ function assertBaseline(
 }
 
 /**
- * The baseline committed at HEAD of `root`, or undefined when none is
- * committed there. For a managed run, pass the run's workspace: its HEAD is
- * the commit the run started from, which the run cannot change. Any git error
- * other than an absent file is fatal, so the gate never fails open.
+ * The baseline committed at `revision` (HEAD by default) of `root`, or
+ * undefined when none is committed there. For a managed run, pass the run's
+ * workspace and its recorded base commit: the workspace HEAD moves once
+ * publication commits, the base commit never does. Any git error other than
+ * an absent file is fatal, so the gate never fails open.
  */
 export async function readCommittedBaseline(
   root: string,
+  revision = "HEAD",
 ): Promise<SecurityBaseline | undefined> {
   const exists = await command(
     "git",
-    ["cat-file", "-e", `HEAD:${BASELINE_FILE}`],
+    ["cat-file", "-e", `${revision}:${BASELINE_FILE}`],
     { cwd: root, timeoutMs: 10000 },
   );
   if (exists.code !== 0) {
-    const head = await command("git", ["rev-parse", "--verify", "HEAD"], {
-      cwd: root,
-      timeoutMs: 10000,
-    });
+    const head = await command(
+      "git",
+      ["rev-parse", "--verify", `${revision}^{commit}`],
+      { cwd: root, timeoutMs: 10000 },
+    );
     if (head.code !== 0)
-      throw new Error(`Cannot read ${BASELINE_FILE}: no Git HEAD`);
+      throw new Error(`Cannot read ${BASELINE_FILE}: no Git ${revision}`);
     return undefined;
   }
-  const result = await command("git", ["show", `HEAD:${BASELINE_FILE}`], {
-    cwd: root,
-    timeoutMs: 10000,
-  });
+  const result = await command(
+    "git",
+    ["show", `${revision}:${BASELINE_FILE}`],
+    { cwd: root, timeoutMs: 10000 },
+  );
   if (result.code !== 0)
-    throw new Error(`Cannot read ${BASELINE_FILE} at HEAD`);
+    throw new Error(`Cannot read ${BASELINE_FILE} at ${revision}`);
   return assertBaseline(JSON.parse(result.stdout));
 }
 

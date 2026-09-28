@@ -18,10 +18,11 @@ A team does not call work done because its author says so or because tests pass;
   - Test: packages/engine/tests/execution.test.ts :: sends requested changes back to the worker and completes after approval
 - AC3: An approval that leaves any acceptance criterion unconfirmed is not accepted.
   - Test: packages/engine/tests/execution.test.ts :: does not accept an approval with a criterion it could not confirm
-- AC4: The reviewer sees every file the worker wrote (every step's change in a multi-step plan) and nothing else, as raw bytes regardless of Git attributes.
+- AC4: The reviewer sees every file the worker wrote (every step's change in a multi-step plan) and nothing else, as raw bytes regardless of Git attributes, compared with the run's base commit even after its own publication commit.
   - Test: packages/engine/tests/execution.test.ts :: shows the reviewer every file the worker wrote and nothing else
   - Test: packages/engine/tests/execution.test.ts :: shows raw bytes whatever encoding the change's attributes declare
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: shows the reviewer every step's change
+  - Test: packages/engine/tests/execution.test.ts :: reviews the run's whole change against its base commit after a publication commit
 - AC5: The reviewer a run started with is kept across a resume, even if the project's setting changes.
   - Test: packages/engine/tests/execution.test.ts :: keeps the reviewer a run started with across a resume
 - AC6: A cloud reviewer is not sent non-exportable or secret-bearing changes, an oversized change is not truncated, and in those cases the review fails.
