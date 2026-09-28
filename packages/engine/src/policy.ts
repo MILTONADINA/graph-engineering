@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, readdir, realpath } from "node:fs/promises";
 import picomatch from "picomatch";
 import type {
   ContextPacket,
@@ -60,6 +60,34 @@ export function wholeRepository(policy: ProjectPolicy): ProjectPolicy {
   if (!policy.workingSet) return policy;
   const { workingSet: _workingSet, ...rest } = policy;
   return rest;
+}
+/**
+ * Whether a glob list entry is a usable exclusion or inclusion: `!` alone,
+ * `!!` double negation and empty entries have no clear meaning.
+ */
+export function validGlobEntry(pattern: string): boolean {
+  return pattern.length > 0 && pattern !== "!" && !pattern.startsWith("!!");
+}
+/**
+ * Compiles an allowlist of globs such as `exportPaths` or a step's `writes`.
+ * A `!pattern` entry is an exclusion: a path matches when some positive entry
+ * matches it and no exclusion does. picomatch's own list semantics would
+ * treat `!pattern` as "everything outside pattern" and so widen the list.
+ * A list with no positive entry, or with an invalid entry, matches nothing.
+ */
+export function globAllowlist(
+  patterns: readonly string[],
+): (relative: string) => boolean {
+  if (!patterns.every(validGlobEntry)) return () => false;
+  const options = { dot: true, nonegate: true };
+  const include = patterns.filter((pattern) => !pattern.startsWith("!"));
+  const exclude = patterns
+    .filter((pattern) => pattern.startsWith("!"))
+    .map((pattern) => pattern.slice(1));
+  if (!include.length) return () => false;
+  const included = picomatch(include, options);
+  const excluded = exclude.length ? picomatch(exclude, options) : undefined;
+  return (relative) => included(relative) && !(excluded && excluded(relative));
 }
 export function isAllowedPath(
   relative: string,
@@ -132,16 +160,22 @@ export function isAllowedPath(
     return false;
   return (
     !forExport ||
-    (policy.exportPaths.length > 0 &&
-      picomatch(policy.exportPaths, { dot: true })(clean))
+    (policy.exportPaths.length > 0 && globAllowlist(policy.exportPaths)(clean))
   );
 }
+/**
+ * Resolves a policy-checked project path. With forExport, the path must also
+ * be exportable, and every existing segment must have exactly that name on
+ * disk: on a case-insensitive file system `notes/plan.md` would otherwise
+ * open `notes/plan.MD`, a file the export rules never matched.
+ */
 export async function safePath(
   root: string,
   relative: string,
   policy: ProjectPolicy,
+  options: { forExport?: boolean } = {},
 ): Promise<string> {
-  if (!isAllowedPath(relative, policy))
+  if (!isAllowedPath(relative, policy, options.forExport === true))
     throw new Error(`Path is outside allowed project scope: ${relative}`);
   const base = await realpath(root);
   const target = path.resolve(base, relative);
@@ -154,6 +188,13 @@ export async function safePath(
     try {
       if ((await lstat(current)).isSymbolicLink())
         throw new Error(`Symlink is outside managed file scope: ${relative}`);
+      if (
+        options.forExport &&
+        !(await readdir(path.dirname(current))).includes(part)
+      )
+        throw new Error(
+          `Path differs from the file's name on disk, so it is not exported: ${relative}`,
+        );
       const canonical = path
         .relative(base, await realpath(current))
         .split(path.sep)

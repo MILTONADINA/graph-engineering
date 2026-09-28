@@ -31,8 +31,9 @@ Larger changes are made of steps, some independent and some depending on others.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rejects unaffordable parallel calls before dispatch and preserves the budget on resume
 - AC7: A policy change while steps are generating in parallel stops the plan without applying either sibling's patch.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rejects a policy change during parallel generation, retaining usage but applying neither patch
-- AC8: A step may declare the files it may write; an edit outside them is returned to the worker as feedback and never applied, in single-step and multi-step plans, and each step has its own time limit.
+- AC8: A step may declare the files it may write (globs, where a `!` entry excludes from the others and never widens them); an edit outside them is returned to the worker as feedback and never applied, in single-step and multi-step plans, and each step has its own time limit.
   - Test: packages/engine/tests/dag.test.ts :: refuses a step's write outside its declared globs and accepts one inside
+  - Test: packages/engine/tests/dag.test.ts :: treats a negated writes entry as an exclusion that never widens the step's scope
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns an out-of-scope edit to the worker as feedback
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: never applies a single-step edit outside the step's scope
   - Test: packages/engine/tests/dag.test.ts :: gives each step its own timeout rather than one for the whole plan

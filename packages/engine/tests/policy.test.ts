@@ -1,8 +1,17 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, mkdir, realpath, symlink, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  assertProjectConfig,
   DEFAULT_POLICY,
   type ContextPacket,
 } from "@graph-engineering/contracts";
@@ -316,6 +325,76 @@ describe("project boundaries", () => {
       expect(isAllowedPath(file, DEFAULT_POLICY), file).toBe(false);
     }
     expect(isAllowedPath("src/com10.ts", DEFAULT_POLICY)).toBe(true);
+  });
+  it("treats a negated exportPaths entry as an exclusion, never as everything else", () => {
+    const policy = { ...cloud, exportPaths: ["src/**", "!src/internal/**"] };
+    expect(isAllowedPath("src/a.ts", policy, true)).toBe(true);
+    expect(isAllowedPath("src/internal/a.ts", policy, true)).toBe(false);
+    expect(isAllowedPath("secrets/x.md", policy, true)).toBe(false);
+    // Exclusions alone export nothing, rather than everything outside them.
+    const onlyExclusion = { ...cloud, exportPaths: ["!src/internal/**"] };
+    expect(isAllowedPath("src/a.ts", onlyExclusion, true)).toBe(false);
+    expect(isAllowedPath("secrets/x.md", onlyExclusion, true)).toBe(false);
+    // Entries with no clear meaning export nothing and fail policy loading.
+    for (const entry of ["!", "!!src/**"]) {
+      const odd = { ...cloud, exportPaths: ["src/**", entry] };
+      expect(isAllowedPath("src/a.ts", odd, true), entry).toBe(false);
+      expect(
+        () =>
+          assertProjectConfig({
+            version: "1.0.0",
+            projectId: "negation-test",
+            name: "negation",
+            policy: odd,
+            verification: [],
+          }),
+        entry,
+      ).toThrow("Invalid project configuration");
+    }
+    expect(() =>
+      assertProjectConfig({
+        version: "1.0.0",
+        projectId: "negation-test",
+        name: "negation",
+        policy,
+        verification: [],
+      }),
+    ).not.toThrow();
+  });
+  it("refuses to export a file whose name on disk differs in case from the exportable request", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "graph-policy-"));
+    directories.push(root);
+    await mkdir(path.join(root, "notes"));
+    await writeFile(path.join(root, "notes", "plan.MD"), "PRIVATE_CANARY\n");
+    const policy = { ...cloud, exportPaths: ["notes/*.md"] };
+    expect(isAllowedPath("notes/plan.md", policy, true)).toBe(true);
+    expect(isAllowedPath("notes/plan.MD", policy, true)).toBe(false);
+    await expect(
+      safePath(root, "notes/plan.MD", policy, { forExport: true }),
+    ).rejects.toThrow("scope");
+    const caseInsensitive = await stat(path.join(root, "notes", "plan.md"))
+      .then(() => true)
+      .catch(() => false);
+    if (caseInsensitive)
+      await expect(
+        safePath(root, "notes/plan.md", policy, { forExport: true }),
+      ).rejects.toThrow("name on disk");
+    // A differently cased directory is refused the same way, even when the
+    // export rules match both spellings.
+    await writeFile(path.join(root, "notes", "real.md"), "public\n");
+    const both = { ...cloud, exportPaths: ["notes/*.md", "NOTES/*.md"] };
+    if (caseInsensitive)
+      await expect(
+        safePath(root, "NOTES/real.md", both, { forExport: true }),
+      ).rejects.toThrow("name on disk");
+    // The exact name still resolves, and local reads are unchanged.
+    await expect(
+      safePath(root, "notes/real.md", policy, { forExport: true }),
+    ).resolves.toBe(path.join(await realpath(root), "notes", "real.md"));
+    if (caseInsensitive)
+      await expect(safePath(root, "notes/plan.md", policy)).resolves.toBe(
+        path.join(await realpath(root), "notes", "plan.md"),
+      );
   });
   it("rejects unsupported effort and unavailable financial accounting", () => {
     expect(() => assertProvider(provider, cloud, "max")).toThrow(

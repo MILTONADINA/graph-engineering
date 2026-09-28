@@ -40,6 +40,8 @@ graph-engine plan "Add invoices with a list endpoint" \
 - **Cloud planners get only exportable context.** Like cloud workers, they
   receive only excerpts from `exportPaths` without potential secrets, and
   the request is refused when mandatory memory is not authorized for export.
+  A local planner gets the same exportable context when a cloud worker will
+  implement the steps, because the step text it writes reaches that worker.
 - **The planner is a paid or local model call.** All decompositions in a
   project on one UTC day share one cost owner, so `maxCostUsd` and
   `maxTurns` bound that day's planner calls together, and each takes a

@@ -22,10 +22,11 @@ A team wants durable project knowledge (requirements, constraints, observations)
 - AC5: Supersession is explicit and chronological: a later successor is allowed without silently changing either record, and an acceptance with backwards chronology is refused leaving both records unchanged.
   - Test: packages/engine/tests/memory-assertions.test.ts :: allows an explicit later successor without silently changing either record
   - Test: packages/engine/tests/memory-assertions-integration.test.ts :: rejects explicit acceptance with backwards chronology and leaves both required records unchanged
-- AC6: Cloud context and cloud worker packets refuse mandatory memory unless its exact current text has been authorized for export; private mandatory memory can never be authorized.
+- AC6: Cloud context and cloud worker packets refuse mandatory memory unless its exact current text has been authorized for export; private mandatory memory can never be authorized. A revoked authorization refuses the next cloud worker turn of a run already in progress.
   - Test: packages/engine/tests/mcp.test.ts :: cloud context_get refuses shared mandatory memory unless its exact text is currently authorized
   - Test: packages/engine/tests/mcp.test.ts :: cloud context_get refuses private mandatory memory and it cannot be authorized
   - Test: packages/engine/tests/policy-export.test.ts :: refuses cloud worker packets with unauthorized, altered or unattributed mandatory memory
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses the next cloud turn once a memory's export authorization is revoked mid-run
 - AC7: Snapshot retention preserves the source evidence of every memory, and a memory write whose evidence is pruned concurrently is refused.
   - Test: packages/engine/tests/context-maintenance.test.ts :: previews retention and preserves current, external pins, and all memory provenance
   - Test: packages/engine/tests/context-maintenance.test.ts :: rejects memory writes whose evidence is concurrently pruned before pinning

@@ -70,7 +70,7 @@ async function readSelectedFile(
   policy: ProjectPolicy,
 ): Promise<string> {
   assertPublicPath(relative, policy);
-  const filename = await safePath(root, relative, policy);
+  const filename = await safePath(root, relative, policy, { forExport: true });
   const before = await lstat(filename);
   if (
     !before.isFile() ||

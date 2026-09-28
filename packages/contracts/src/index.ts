@@ -30,7 +30,18 @@ export interface ProjectPolicy {
   providers: string[];
   network: "deny" | "allowlisted";
   allowedHosts: string[];
+  /**
+   * Globs of the files cloud consumers may receive. A `!pattern` entry is an
+   * exclusion: a path is exportable when some other entry matches it and no
+   * exclusion does. Matching is case-sensitive, and a file is exported only
+   * when its name on disk matches too.
+   */
   exportPaths: string[];
+  /**
+   * Globs of paths never indexed, read or written. Each entry is matched on
+   * its own, case-insensitively, so a `!pattern` entry excludes everything
+   * outside that pattern; nothing here ever re-includes a path.
+   */
   excludedPaths: string[];
   /** Explicit opt-in for the public root template ledger; never private engine state. */
   allowPublicTemplateLedger?: boolean;
@@ -260,7 +271,9 @@ export interface ExecutionStep {
   inputs?: Record<string, unknown>;
   /**
    * Glob patterns (like exportPaths) limiting the files this step may write,
-   * for example a tester limited to test files. Absent means any allowed path.
+   * for example a tester limited to test files. A `!pattern` entry excludes
+   * from the others, and at least one entry must not be an exclusion. Absent
+   * means any allowed path.
    */
   writes?: string[];
 }
@@ -369,6 +382,8 @@ export interface DecisionRecord {
 
 const nonempty = { type: "string", minLength: 1 };
 const strings = { type: "array", items: nonempty, uniqueItems: true };
+// An allowlist glob: `!pattern` excludes; `!` alone and `!!` are refused.
+const globEntry = { type: "string", minLength: 1, pattern: "^(?!!$)(?!!!)" };
 export const policySchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   type: "object",
@@ -380,7 +395,7 @@ export const policySchema = {
     providers: strings,
     network: { enum: ["deny", "allowlisted"] },
     allowedHosts: strings,
-    exportPaths: strings,
+    exportPaths: { type: "array", items: globEntry, uniqueItems: true },
     excludedPaths: strings,
     allowPublicTemplateLedger: { type: "boolean" },
     workingSet: {
@@ -463,7 +478,9 @@ export const projectSchema = {
           type: "array",
           minItems: 1,
           maxItems: 50,
-          items: { type: "string", minLength: 1, maxLength: 200 },
+          items: { ...globEntry, maxLength: 200 },
+          // At least one entry that is not an exclusion.
+          contains: { type: "string", pattern: "^[^!]" },
         },
       },
     },
