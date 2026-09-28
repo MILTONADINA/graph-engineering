@@ -1135,7 +1135,7 @@ it("reports a run whose owning process died as stopped instead of polling foreve
       events: { type: string }[];
     };
   // Stands in for `graph-engine run`, which records itself as the run's
-  // owner and has no signal handler, so Ctrl-C leaves the run "running".
+  // owner; a crash, or a kill it cannot handle, leaves the run "running".
   const moduleUrl = new URL("../src/store.ts", import.meta.url).href;
   const script = `
     import { RunStore } from ${JSON.stringify(moduleUrl)};
@@ -1168,7 +1168,7 @@ it("reports a run whose owning process died as stopped instead of polling foreve
     expect(during).toMatchObject({ status: "running", complete: false });
 
     const exited = once(child, "exit");
-    child.kill("SIGINT");
+    child.kill("SIGKILL");
     await exited;
     const after = await events("orphaned-run");
     expect(after.status).toBe("needs_reconciliation");

@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import {
   chmod,
+  mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -15,6 +17,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import Database from "better-sqlite3";
 import { checked } from "../src/util.js";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -81,7 +84,14 @@ async function project() {
     spawn(process.execPath, argv(args), options());
   const startPreloaded = (preload: string[], ...args: string[]) =>
     spawn(process.execPath, argv(args, preload), options());
-  const graph = Object.assign(run({}), { with: run, start, startPreloaded });
+  const startWith = (extra: Record<string, string>, ...args: string[]) =>
+    spawn(process.execPath, argv(args), options(extra));
+  const graph = Object.assign(run({}), {
+    with: run,
+    start,
+    startPreloaded,
+    startWith,
+  });
   return { root, data, graph };
 }
 
@@ -170,6 +180,130 @@ async function decomposeProject() {
     server,
     decompose: (out: string) => graph(...decompose(out)),
     startDecompose: (out: string) => graph.start(...decompose(out)),
+  };
+}
+
+// How a started command ended, or "still running" when it had not exited
+// within the limit. The command is killed either way.
+async function settled(child: ChildProcess, limitMs = 30_000) {
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk) => (stdout += chunk));
+  child.stderr?.on("data", (chunk) => (stderr += chunk));
+  const closed = once(child, "close");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const exit = await Promise.race([
+      closed,
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve("still running"), limitMs);
+      }),
+    ]);
+    return { exit, stdout, stderr };
+  } finally {
+    clearTimeout(timer);
+    child.kill("SIGKILL");
+  }
+}
+
+// A committed project with a planned run: its local worker, qwen, proposes
+// the fix, and a stand-in for Docker runs the check without ever ending it,
+// like a hung test. The stand-in records the check's process ID and every
+// other docker command it is given.
+async function hungCheckProject() {
+  const { root, data, graph } = await project();
+  const server = createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: "Add instead of subtracting.",
+                  changes: [
+                    { path: "math.cjs", before: "a - b", after: "a + b" },
+                  ],
+                  requests: [],
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      );
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  await graph("init");
+  await graph(
+    "provider-add",
+    "qwen",
+    "local",
+    "fixture",
+    "--endpoint",
+    `http://127.0.0.1:${port}/v1`,
+  );
+  await graph("check-add", "fixture:local", "node", "--test");
+  await writeFile(
+    path.join(root, "math.cjs"),
+    "exports.add = (a, b) => a - b;\n",
+  );
+  await checked("git", ["add", "."], { cwd: root });
+  await checked(
+    "git",
+    [
+      "-c",
+      "user.name=Graph Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "-qm",
+      "test: fixture",
+    ],
+    { cwd: root },
+  );
+  const plan = await graph(
+    "plan",
+    "Fix addition",
+    "--accept",
+    "2 + 3 is 5",
+    "--provider",
+    "qwen",
+  );
+  expect(plan.code).toBe(0);
+  const bin = await mkdtemp(path.join(tmpdir(), "graph-cli-bin-"));
+  directories.push(bin);
+  const pidFile = path.join(bin, "check.pid");
+  const log = path.join(bin, "docker.log");
+  await writeFile(
+    path.join(bin, "docker"),
+    [
+      "#!/bin/sh",
+      'case "$1" in',
+      "  info) echo 27.0.0 ;;",
+      `  image) echo sha256:${"a".repeat(64)} ;;`,
+      `  run) echo $$ > ${JSON.stringify(`${pidFile}.tmp`)} && mv ${JSON.stringify(`${pidFile}.tmp`)} ${JSON.stringify(pidFile)}`,
+      "       exec sleep 300 ;;",
+      `  *) echo "$*" >> ${JSON.stringify(log)} ;;`,
+      "esac",
+      "",
+    ].join("\n"),
+  );
+  await chmod(path.join(bin, "docker"), 0o755);
+  const withDocker = {
+    PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+  };
+  return {
+    data,
+    planId: JSON.parse(plan.stdout).id as string,
+    pidFile,
+    log,
+    startRun: (planId: string) => graph.startWith(withDocker, "run", planId),
   };
 }
 
@@ -742,6 +876,134 @@ describe("command line", () => {
       });
     }
   }, 120_000);
+
+  // A run database this engine refuses to open must end the command, not
+  // leave it running on the context engine's database worker.
+  it("exits with the error when the engine cannot open its run database, instead of keeping the process alive", async () => {
+    const newer = await project();
+    await newer.graph("init");
+    const runDatabase = async (root: string, data: string) => {
+      const { projectId } = JSON.parse(
+        await readFile(path.join(root, ".graph/project.json"), "utf8"),
+      );
+      const directory = path.join(data, "projects", projectId);
+      await mkdir(directory, { recursive: true });
+      return path.join(directory, "runs.sqlite");
+    };
+    // Left by a newer engine: this one refuses a downgrade.
+    const db = new Database(await runDatabase(newer.root, newer.data));
+    db.pragma("user_version = 5");
+    db.close();
+    const corrupt = await project();
+    await corrupt.graph("init");
+    await writeFile(
+      await runDatabase(corrupt.root, corrupt.data),
+      "not a database\n".repeat(512),
+    );
+    const cases: [Awaited<ReturnType<typeof project>>, string[], string][] = [
+      [newer, ["runs"], "Run database is newer than this engine"],
+      [
+        newer,
+        ["mcp", "--client", "local"],
+        "Run database is newer than this engine",
+      ],
+      [
+        newer,
+        ["serve", "--port", "0"],
+        "Run database is newer than this engine",
+      ],
+      [corrupt, ["runs"], "file is not a database"],
+    ];
+    const results = await Promise.all(
+      cases.map(([{ graph }, args]) => settled(graph.start(...args))),
+    );
+    for (const [index, [, args, message]] of cases.entries())
+      expect({ args, ...results[index] }).toMatchObject({
+        args,
+        exit: [1, null],
+        stderr: expect.stringContaining(message),
+      });
+  }, 120_000);
+
+  it("opens a new project's data directory from several commands at once", async () => {
+    const { graph } = await project();
+    await graph("init");
+    // No command has opened the engine yet, so each one races to create
+    // and switch the new run and context databases to WAL.
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => settled(graph.start("runs"))),
+    );
+    for (const result of results)
+      expect({ ...result, stdout: result.stdout.trim() }).toMatchObject({
+        exit: [0, null],
+        stdout: "[]",
+      });
+  }, 120_000);
+
+  // Windows has no catchable SIGINT for a child process to receive, and the
+  // fake docker is a shell script.
+  it.skipIf(process.platform === "win32")(
+    "cancels a run on Ctrl-C, stopping its check container, and exits once it is cleaned up",
+    async () => {
+      const { data, planId, pidFile, log, startRun } = await hungCheckProject();
+      const child = startRun(planId);
+      let stderr = "";
+      child.stderr.on("data", (chunk) => (stderr += chunk));
+      const closed = once(child, "close");
+      const alive = (pid: number) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      let pid: number | undefined;
+      try {
+        // Wait until the check has started; it never ends by itself.
+        const deadline = Date.now() + 90_000;
+        while (pid === undefined) {
+          if (child.exitCode !== null || child.signalCode !== null)
+            throw new Error(`run ended before its check started: ${stderr}`);
+          if (Date.now() > deadline)
+            throw new Error(`the check never started: ${stderr}`);
+          pid = await readFile(pidFile, "utf8").then(
+            (text) => Number(text.trim()),
+            () => undefined,
+          );
+          if (pid === undefined)
+            await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        child.kill("SIGINT");
+        const outcome = await settled(child);
+        // The check's process group is killed before the command exits,
+        // and the run is recorded as cancelled.
+        expect({ exit: outcome.exit, checkRunning: alive(pid) }).toEqual({
+          exit: [130, null],
+          checkRunning: false,
+        });
+        expect(JSON.parse(outcome.stdout)).toMatchObject({
+          status: "cancelled",
+        });
+        expect(stderr).toContain("Cancelling the run");
+      } finally {
+        child.kill("SIGKILL");
+        await closed;
+        if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+      }
+      // Its container is killed and removed, and its verification view is
+      // removed.
+      const commands = await readFile(log, "utf8");
+      expect(commands).toMatch(/^kill graph-check-/m);
+      expect(commands).toMatch(/^rm -f graph-check-/m);
+      expect(
+        (await readdir(data, { recursive: true })).filter((entry) =>
+          path.basename(entry).startsWith("verification-"),
+        ),
+      ).toEqual([]);
+    },
+    150_000,
+  );
 
   it("narrows the configured tester's test-file globs with tester --writes, and refuses --writes when no tester is set", async () => {
     const { root, graph } = await project();

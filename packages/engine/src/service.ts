@@ -202,13 +202,17 @@ export class GraphEngine {
     private deps: EngineDependencies,
   ) {
     this.dataDir = projectDataDir(config.projectId);
+    // The run store opens first because it can refuse to open (a database
+    // left by a newer engine, or a file that is not a database). The context
+    // engine starts a database worker that keeps the process alive until it
+    // is closed, and a failed constructor leaves nothing to close it.
+    this.store = new RunStore(this.dataDir, config.projectId);
     this.context = new ContextEngine({
       projectId: config.projectId,
       root,
       dataDir: this.dataDir,
       policy: config.policy,
     });
-    this.store = new RunStore(this.dataDir, config.projectId);
   }
   static async open(
     root: string,
@@ -2848,6 +2852,8 @@ export class GraphEngine {
       this.store.stopRun(run);
     }
   }
+  // The run store closes last: a command that Ctrl-C closes while it waits
+  // on a run reads that run's record and events once the run has stopped.
   close(): Promise<void> {
     return (this.closing ??= (async () => {
       for (const { controller } of this.active.values()) controller.abort();
