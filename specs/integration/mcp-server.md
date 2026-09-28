@@ -24,10 +24,18 @@ Developers use AI clients such as Claude Code, Codex and Cursor, which should be
   - Test: packages/engine/tests/mcp.test.ts :: run_status is withheld from cloud clients unless explicitly allowed
 - AC6: Planning, decomposition, starting, following, listing and cancelling runs are available only when the server was started with `--allow-run`.
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
+- AC7: The built engine records a hash of its source in `dist/build-source.json`; when `src/` sits beside `dist/`, a cloud MCP server refuses to start on a mismatch or a missing record, other commands warn on stderr, and an installed engine without `src/`, or one run from `src/` directly, is not checked.
+  - Test: packages/engine/tests/build-source.test.ts :: passes a dist built from the current source
+  - Test: packages/engine/tests/build-source.test.ts :: refuses cloud MCP and warns other commands when src changed after the build
+  - Test: packages/engine/tests/build-source.test.ts :: treats an added or renamed source file as stale
+  - Test: packages/engine/tests/build-source.test.ts :: refuses cloud MCP when src exists but the build manifest is missing or unreadable
+  - Test: packages/engine/tests/build-source.test.ts :: skips the check silently when src is absent, as in an installed package
+  - Test: packages/engine/tests/build-source.test.ts :: skips the check when the engine runs from src itself
+  - Test: packages/engine/tests/build-source.test.ts :: hashes POSIX relative paths in code-unit order, independent of directory listing order
 
 ## Security considerations
 
-A connected client is a trust boundary: for a cloud-backed client everything returned may leave the machine, so every response is filtered by `exportPaths`, credential screening and mandatory-memory export authorization, and the server fails closed on an offline policy. Run control and run status are off by default because they let a model spend budget or observe run content; the operator opts in per server with `--allow-run` and `--allow-run-status`. The server never offers acceptance or rejection of runs, so a client cannot approve its own work, and a memory proposed over MCP stays private until a person accepts it outside the server. The server runs the built engine in `packages/engine/dist`, so it must be rebuilt after source changes for these guards to apply.
+A connected client is a trust boundary: for a cloud-backed client everything returned may leave the machine, so every response is filtered by `exportPaths`, credential screening and mandatory-memory export authorization, and the server fails closed on an offline policy. Run control and run status are off by default because they let a model spend budget or observe run content; the operator opts in per server with `--allow-run` and `--allow-run-status`. The server never offers acceptance or rejection of runs, so a client cannot approve its own work, and a memory proposed over MCP stays private until a person accepts it outside the server. The server runs the built engine in `packages/engine/dist`, so it must be rebuilt after source changes for these guards to apply; a cloud server refuses to start when that build does not match the source beside it. The check detects a stale build, not a tampered one: anyone who can edit `dist/` can also rewrite its recorded hash.
 
 ## Non-goals
 
