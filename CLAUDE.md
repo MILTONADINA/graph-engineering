@@ -12,7 +12,9 @@ dispatch refuse mandatory memory an operator has not authorized for export by
 exact-text hash, and cloud `run_status` is off unless the server runs with
 `--allow-run-status`. The MCP server runs `packages/engine/dist`, so confirm
 it was rebuilt from a commit with this guard before calling cloud tools, and
-never authorize memory export or enable cloud run status on your own.
+never authorize memory export or enable cloud run status on your own. A dist
+built with the freshness check refuses `mcp --client cloud` when it does not
+match `src/` (`dist/build-source.json`); other commands only warn.
 
 Work only in this repository and the owner's fork. Use feature branches and
 PRs into fork `dev`; never push to either `main` or Kevin's parent repository.

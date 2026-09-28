@@ -73,12 +73,28 @@ import {
   exportEvaluationDraft,
   importEvaluationLabels,
 } from "./decision-evaluation.js";
+import {
+  checkDistFreshness,
+  distFreshnessAction,
+  distFreshnessMessage,
+} from "./build-source.js";
 
 const cli = new Command()
   .name("graph-engine")
   .description("Local context, engineering memory, and controlled coding runs")
   .version("0.1.0")
   .option("-C, --project <path>", "Project root", process.cwd());
+// Before any command runs, compare this dist with the source beside it. A cloud
+// MCP server refuses a stale build, which may lack newer export guards; other
+// commands warn. Output goes to stderr: stdout carries JSON and the MCP stream.
+cli.hook("preAction", (_program, action) => {
+  const freshness = checkDistFreshness();
+  const cloudMcp = action.name() === "mcp" && action.opts().client === "cloud";
+  const decision = distFreshnessAction(freshness, cloudMcp);
+  if (decision === "refuse") throw new Error(distFreshnessMessage(freshness));
+  if (decision === "warn")
+    process.stderr.write(`warning: ${distFreshnessMessage(freshness)}\n`);
+});
 const root = () => path.resolve(cli.opts().project);
 const print = (value: unknown): void => {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
