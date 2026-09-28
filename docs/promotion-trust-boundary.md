@@ -6,6 +6,9 @@ added with it change no runtime behavior. Promotion stays disabled:
 `evaluate --promote` still rejects. Sections marked **owner decision** need the
 owner and Kevin before any implementation PR builds on them.
 
+The owner's keys are made and used with the owner-run
+[promotion key helper](promotion-keys.md).
+
 ## Where promotion stands
 
 Promotion is dead by construction, and is now also dead by test.

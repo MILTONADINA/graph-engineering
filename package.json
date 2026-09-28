@@ -24,7 +24,8 @@
     "setup:git": "node scripts/setup-git.mjs",
     "format": "prettier --write packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs specs",
     "format:check": "prettier --check packages scripts evaluation .github .graph/project.json package.json tsconfig.base.json eslint.config.mjs README.md CONTRIBUTING.md docs specs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "promotion-key": "node scripts/promotion-key.mjs"
   },
   "devDependencies": {
     "@connectrpc/connect-node": "1.7.0",

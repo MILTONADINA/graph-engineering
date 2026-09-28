@@ -41,6 +41,7 @@ Start with [working as an AI agile team](agile-team.md), then the
 | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | [Decisions](decisions.md)                                                                                           | Shadow-mode Laya/Jev decisions and cost accounting |
 | [Promotion trust boundary](promotion-trust-boundary.md)                                                             | What evidence promotion would need                 |
+| [Your promotion keys](promotion-keys.md)                                                                            | Creating, backing up and restoring owner keys      |
 | [Calibration corpus](calibration-corpus.md)                                                                         | Real-task intake for evaluation                    |
 | [Paired cohort evaluation](paired-cohort-evaluation.md)                                                             | Baseline and candidate accounting                  |
 | [Repository black-box boundary](repository-blackbox-boundary.md) and [v2 design](repository-execution-v2-design.md) | Sealed repository execution                        |
