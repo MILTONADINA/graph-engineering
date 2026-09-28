@@ -40,20 +40,27 @@ positions were recorded:
 - AC2: Owner governance statements become v1 and v2 `sealed-governance-current-checkpoint` documents that `inspectSealedCurrentGovernance` accepts. Their revisions are the statements' leaf indices plus 1, and a head published before its registration is refused.
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: translates owner governance statements into v1 and v2 checkpoints the governance parser accepts
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a head published before its registration
+- AC9: The adapter enforces `registration < population` in addition to the schema's order checks.
+  - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses population published before registration
 - AC3: Grant status is `unregistered` without a registration, `active` when registered, and `revoked` once revoked, and it passes `checkWitnessGrantStatusReply`.
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: maps grant statements to unregistered, active and revoked replies
-- AC4: The adapter verifies RFC 6962 inclusion and consistency proofs, and refuses all of the following: a tree head that the pinned log key did not sign, a bad consistency proof or a forked log, and a bad inclusion proof.
+- AC4: The adapter verifies RFC 6962 inclusion and consistency proofs, including for entries whose proof head is older or newer than the verified head. It refuses all of the following: a tree head that the pinned log key did not sign, a bad consistency proof or a forked log, and a bad inclusion proof.
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: verifies RFC 6962 inclusion and consistency proofs and rejects altered ones
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a signed tree head that does not verify with the pinned log key
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a bad consistency proof and a forked log
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a bad inclusion proof
-- AC5: The high-water mark sits under the per-user data dir, with mode 0700 for the directory and 0600 for the file. It refuses a smaller tree, advances only after a verified consistency proof, and refuses a state file that is a symlink or that others can read.
+  - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: proves entries whose checkpoint is older or newer than the verified head
+- AC5: The high-water mark sits under the per-user data dir, with mode 0700 for the directory and 0600 for the file. It refuses a smaller tree, advances only after a verified consistency proof, and refuses a state file that is a symlink or that others can read. Writes hold an `O_EXCL` lock, so concurrent readers never lower the mark, and a stale lock is removed.
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a tree smaller than the high-water mark, and advances only after consistency
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a high-water file that is a symlink or readable by others
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: keeps its state under the per-user data directory
-- AC6: Only statements signed by the issuer key count. A bad signature under the issuer key is refused, and so are a missing statement, an ambiguous statement and a payload that does not match its logged hash.
+  - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: removes a stale high-water lock and releases its own
+- AC6: Only statements signed by the issuer key count. Third-party entries, including a flood under the subject, never refuse on their own. A re-logged copy of an owner payload counts once, at its lowest index. A bad signature under the issuer key is refused, and so are a missing statement, two different owner payloads for one subject and a payload that does not match its logged hash. When the fetch budget runs out before an answer, the read refuses with `rekor-search-budget-exhausted`.
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: ignores statements signed by another key and refuses a bad issuer signature
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a missing statement, a duplicate freeze and a payload that does not match
+  - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: finds the owner statement under a flood of third-party entries
+  - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: counts a re-logged owner payload once, at its lowest index, and refuses two different payloads
+  - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses with a distinct code when the fetch budget runs out before an answer
 - AC7: The adapter makes no request to a host outside the explicit allowlist, or over any scheme but https. It refuses a request that names another witness, and it bounds response size.
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a host that is not allowlisted before any request
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a request for another witness or with a malformed challenge

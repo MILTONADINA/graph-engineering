@@ -61,11 +61,27 @@ payloadSha256})` of the one verified freeze entry. It is **not** derived
   with a registration and no revocation, and `revoked` once any owner
   revocation is logged. A revocation logged without a registration is still
   `revoked`, so that grant can never become active.
-- Entries signed by any other key are **ignored**, because anyone can log
-  an entry under a subject. An entry that names the issuer key but whose
-  signature fails verification is a **refusal**. So is more than one owner
-  freeze or governance section for one subject, or more than 32 entries for
-  one subject.
+- Rekor is permissionless: anyone can log entries under a subject.
+  Entries signed by any other key are **ignored** before any proof is
+  requested, and they only spend the fetch budget. They never cause a
+  refusal on their own.
+- Anyone can also log the owner's public signature and payload again, as
+  another entry kind or envelope. Owner statements are therefore
+  **deduplicated by payload hash**, keeping the lowest log index, so
+  revisions and `checkpointSha256` stay stable. Only two **different**
+  owner-signed payloads for one freeze or governance subject are ambiguous
+  (`rekor-statement-ambiguous`).
+- An entry that names the issuer key but whose signature fails
+  verification is a **refusal**. Rekor checks signatures on upload, so no
+  third party can produce one.
+- **Fetch budget.** The search hits for a subject are fetched in UUID
+  order, up to `fetchBudgetPerSubject` (256). If there are more hits than
+  that, a freeze or governance subject is still answered when an owner
+  statement was found within the budget. A grant subject is refused,
+  because an unread hit could be its registration or revocation. So is a
+  freeze or governance subject whose budget holds no owner statement. Both
+  cases, and a hit list larger than `maxSearchBytes` (4 MiB), refuse with
+  the distinct code `rekor-search-budget-exhausted`.
 
 ## What the owner publishes, and in what order
 
@@ -93,15 +109,18 @@ only when they hash to the logged `payloadHash`.
 | `grant-registration`, `grant-revocation` | `projectId`, `grantId`                                                   | `<kind>/<project>/<grantId>`                 |
 
 Every predicate also carries `version: "1.0.0"`. Publish in this order.
-The governance schema (`registration < head <= checkpointRevision`, and for
-v2 `registration < firstAttempt`, `population < firstAttempt <= head`)
-enforces the order, and the adapter refuses a violation first, with
+The governance schema enforces most of this order:
+`registration < head <= checkpointRevision`, and for v2
+`registration < firstAttempt` and `population < firstAttempt <= head`. The
+adapter also requires `registration < population`, which the schema does
+not check. It refuses any violation first, with
 `rekor-statement-order-invalid`:
 
 1. `freeze`, before the first attempt, with the trust and registry digests
    that step 4 compares.
 2. `registration`, once the collection's first event exists.
-3. For a population-bound (v2) cohort, `population`, then `first-attempt`
+3. For a population-bound (v2) cohort, `population` after the
+   registration, then `first-attempt`
    once the first attempt is reserved. Publish both or neither: one without
    the other is refused.
 4. `head`, once the collection is closed.
@@ -192,8 +211,8 @@ each upload's proof bundle, and would need an adapter for tile proofs.
   change, made later, and `.graph/project.json` is unchanged here.
 - An injected `fetch`, and `readPayload`.
 - `timeoutMs` (10 s per request), `maxResponseBytes` (256 KiB per response,
-  enforced while streaming) and `maxEntriesPerSubject` (32). Redirects are
-  refused.
+  enforced while streaming), `fetchBudgetPerSubject` (256) and
+  `maxSearchBytes` (4 MiB for one search response). Redirects are refused.
 
 The high-water mark is `<stateDir>/<logId>.json`. By default `stateDir` is
 under the per-user data directory that the promotion-key tool uses:
@@ -205,8 +224,13 @@ matches `scripts/promotion-key.mjs`:
   the user.
 - Symlinks are refused.
 - Reads use `lstat`, then `O_NOFOLLOW`, then a device and inode check.
-- A write creates a new `O_EXCL | O_NOFOLLOW` file, fsyncs it and renames
-  it into place, and never lowers a newer value.
+- A write holds an `O_EXCL` lock file, `<logId>.json.lock`, around its
+  read-modify-write, so concurrent processes cannot lower the mark. A
+  writer that finds a newer mark refuses rather than lowering it. A live
+  lock is waited for for up to 5 s. A lock older than 30 s was left by a
+  crashed process and is removed.
+- Under the lock, the write creates a new `O_EXCL | O_NOFOLLOW` file,
+  fsyncs it and renames it into place.
 
 The state lives outside the project data dir, so project backup and restore
 never carry it.
@@ -223,8 +247,16 @@ anyone else, but not prevented.
 
 - A log shard rotation changes the tree ID, and reads refuse until an
   operator re-pins. Statements in an inactive shard are not read.
-- Reads are sequential: one search per subject, plus one entry fetch and
-  one consistency proof per entry.
+- Reads are sequential: one search per subject and one entry fetch per
+  hit. There is also one consistency proof for each distinct proof head
+  behind an owner entry.
+- Hits are fetched in UUID order, not log order, because the log order is
+  unknown until an entry is fetched. If a flood pushes the owner's
+  original entry past the budget while a re-logged copy stays within it,
+  the reads see a different index. The checkpoint then changes between
+  reads, and step 11 refuses: this fails closed.
+- A stale lock is detected by age. Two processes that both judge the same
+  lock stale can race, and that race is accepted.
 - The live log cannot prove freshness to a challenge. See the design record
   in [the decision spec](../specs/decisions/promotion-rekor-witness.md).
 
@@ -246,6 +278,11 @@ reads. It also covers every refusal:
 - a foreign key;
 - a bad issuer signature;
 - a missing or ambiguous statement;
+- a flood of third-party entries, a re-logged owner payload, and an
+  exhausted fetch budget;
+- entry proof heads older and newer than the verified head;
+- population published before registration;
+- a stale high-water lock and concurrent writers;
 - a payload mismatch;
 - a host that is not allowlisted;
 - the response size limit.
