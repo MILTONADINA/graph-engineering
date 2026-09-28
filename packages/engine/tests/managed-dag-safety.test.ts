@@ -3200,3 +3200,102 @@ describe("single-step patch application", () => {
     expect(reviewed[0]).toContain("+export const second = 4;");
   });
 });
+
+describe("recovery escalation across the export boundary", () => {
+  // A single-step plan whose checks always fail: attempt 1 retries, and a
+  // repeated failure on attempt 2 escalates when another worker is allowed.
+  async function escalation(planned: {
+    providerId: "local" | "cloud";
+    cloudAuthored?: boolean;
+  }) {
+    const { root, data } = await fixture((config) => {
+      config.policy.providers = ["local", "cloud"];
+      config.policy.inference = "allowlisted";
+      config.policy.network = "allowlisted";
+      config.policy.allowedHosts = ["api.openai.com"];
+      config.policy.maxAttempts = 3;
+    });
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+      apiKeyEnv: "GRAPH_TEST_API_KEY",
+      inputCostPerMillion: 0,
+      outputCostPerMillion: 0,
+    });
+    vi.stubEnv("GRAPH_TEST_API_KEY", "fixture-only-not-a-real-key");
+    const workers: string[] = [];
+    // Each attempt bumps the constant it finds, so every patch applies.
+    const worker = vi.fn(async (input: WorkerInput, workspace: string) => {
+      workers.push(`${input.provider.id}:${input.provider.kind}`);
+      const text = await readFile(path.join(workspace, "first.js"), "utf8");
+      const value = Number(/= (\d+)/.exec(text)![1]);
+      return {
+        ...result("one"),
+        proposal: {
+          summary: "Bump first",
+          requests: [],
+          changes: [
+            { path: "first.js", before: `= ${value}`, after: `= ${value + 1}` },
+          ],
+        },
+      };
+    });
+    const failing: NonNullable<EngineDependencies["verify"]> = async (
+      _workspace,
+      checks,
+      _policy,
+      snapshotHash,
+    ) =>
+      checks.map((check) => ({
+        ...check,
+        code: 1,
+        stdout: "",
+        stderr: "expected first to be 10",
+        snapshotHash,
+      }));
+    const engine = await open(root, { worker, verify: failing });
+    const plan = await engine.createPlan({
+      objective: "Change first",
+      acceptance: ["first is 10"],
+      providerId: planned.providerId,
+      ...(planned.cloudAuthored ? { cloudAuthored: true } : {}),
+    });
+    const run = await engine.wait((await engine.start(plan.id)).id);
+    expect(run.status).toBe("failed");
+    const attempts = engine.store
+      .events(run.id)
+      .filter((event) => event.type === "attempt.started")
+      .map((event) => event.data.providerId);
+    return { plan: engine.store.plan(plan.id), attempts, workers };
+  }
+
+  it("keeps a cloud client's plan on its side of the export boundary when a step escalates", async () => {
+    // A person's own plan escalates to the other kind of provider.
+    const own = await escalation({ providerId: "local" });
+    expect(own.plan.exportSide).toBeUndefined();
+    expect(own.attempts).toEqual(["local", "local", "cloud"]);
+    // A local plan a cloud client wrote never escalates to a cloud model,
+    // which would receive what its local steps wrote under exported paths.
+    const local = await escalation({
+      providerId: "local",
+      cloudAuthored: true,
+    });
+    expect(local.plan.exportSide).toBe("local");
+    expect(local.attempts).toEqual(["local", "local", "local"]);
+    expect(local.workers.every((worker) => worker.endsWith(":local"))).toBe(
+      true,
+    );
+    // A cloud plan never escalates to a local model, which could read
+    // private files and write them where the cloud worker receives them.
+    const cloud = await escalation({
+      providerId: "cloud",
+      cloudAuthored: true,
+    });
+    expect(cloud.plan.exportSide).toBe("non-local");
+    expect(cloud.attempts).toEqual(["cloud", "cloud", "cloud"]);
+    expect(cloud.workers.some((worker) => worker.endsWith(":local"))).toBe(
+      false,
+    );
+  });
+});

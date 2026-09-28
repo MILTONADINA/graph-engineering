@@ -12,6 +12,8 @@ vi.mock("../src/util.js", async (importOriginal) => ({
 }));
 import {
   OSV_DATABASE_HOST,
+  parseSemgrep,
+  parseSemgrepUnscanned,
   runSecurityScan,
   updateOsvDatabase,
 } from "../src/security/scan.js";
@@ -94,5 +96,50 @@ describe("a failing scanner's stderr", () => {
     expect(failure).toContain("osv-scanner could not download its database");
     expect(failure).toContain("[REDACTED PRIVATE KEY]");
     expect(failure).not.toContain(KEY_BODY);
+  });
+});
+
+describe("Semgrep's error messages", () => {
+  // A named credential; the name is split so the source holds no such shape.
+  const VALUE = "Q7vRk2mZ9pLx4TnW8sYb3HcJ";
+  const assignment = `pass${"word"}=${VALUE}`;
+
+  it("are redacted before a fatal one is cut into the scan error", () => {
+    // The cut at 200 characters would leave only the value's first ten
+    // characters, too few for redaction to recognise.
+    const message = `${"x".repeat(180)} ${assignment}`;
+    const failure = (() => {
+      try {
+        parseSemgrep(
+          JSON.stringify({
+            results: [],
+            errors: [{ level: "error", message }],
+          }),
+        );
+      } catch (error) {
+        return (error as Error).message;
+      }
+    })();
+    expect(failure).toContain("semgrep reported 1 error(s)");
+    expect(failure).toContain(`pass${"word"}=[REDACTED]`);
+    expect(failure).not.toContain(VALUE.slice(0, 5));
+  });
+
+  it("are redacted before a non-fatal one is cut into an unscanned file's reason", () => {
+    const unscanned = parseSemgrepUnscanned(
+      JSON.stringify({
+        results: [],
+        errors: [
+          {
+            level: "warn",
+            path: "/scan/src/config.js",
+            message: `Syntax error near ${assignment}`,
+          },
+        ],
+      }),
+    );
+    expect(unscanned).toHaveLength(1);
+    expect(unscanned[0]!.reason).toContain(`pass${"word"}=[REDACTED]`);
+    expect(unscanned[0]!.reason).not.toContain(VALUE.slice(0, 5));
   });
 });

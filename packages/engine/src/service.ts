@@ -937,7 +937,11 @@ export class GraphEngine {
       } else if (!templateRuntimeCapability(step.templateId!).executable)
         throw new Error(`Template ${step.templateId} is not executable`);
     }
-    if (input.cloudAuthored) await this.assertOneSideOfExport(plan, available);
+    if (input.cloudAuthored) {
+      // Stored with the plan, so recovery keeps an escalating step there.
+      const side = await this.assertOneSideOfExport(plan, available);
+      if (side) plan.exportSide = side;
+    }
     this.store.savePlan(plan);
     return plan;
   }
@@ -948,11 +952,12 @@ export class GraphEngine {
    * a cloud reviewer receives them. Path filters cannot tell such a copy
    * from the project's own source, so a plan a cloud-backed client wrote
    * keeps every role on one side; a person's own plan may mix them.
+   * Returns that side, or nothing when the plan runs no model.
    */
   private async assertOneSideOfExport(
     plan: ExecutionPlan,
     workers: ProviderConfig[],
-  ): Promise<void> {
+  ): Promise<ExecutionPlan["exportSide"]> {
     const roles: { role: string; local: boolean }[] = [];
     for (const step of plan.steps)
       if (step.kind === "worker") {
@@ -983,6 +988,7 @@ export class GraphEngine {
       throw new Error(
         `A cloud-backed client can create a plan only when its worker steps, the configured tester and the configured reviewer all run locally or all run on non-local providers: a local model may read files the export policy keeps from cloud models and write them where a cloud model receives them. This plan runs ${local.map((entry) => entry.role).join(", ")} locally and ${remote.map((entry) => entry.role).join(", ")} on non-local providers. Choose providers on one side, or have a person create the plan with graph-engine plan.`,
       );
+    return local.length ? "local" : remote.length ? "non-local" : undefined;
   }
   /**
    * Starts a run. A plan that publishes (commit or draft PR) needs a person's
@@ -2729,13 +2735,20 @@ export class GraphEngine {
           const alternatives = (await this.providers()).filter((candidate) => {
             try {
               assertProvider(candidate, this.config.policy, step.effort);
-              // A repair escalates only to providers the plan already uses.
+              // A repair escalates only to providers the plan already uses,
+              // and a cloud-backed client's plan only to its own side of the
+              // export boundary: a local model could otherwise read private
+              // files for a cloud plan, or a cloud model receive what a
+              // local plan's step copied under an exported path.
               return (
                 candidate.id !== provider!.id &&
                 (step.id !== DAG_REPAIR_STEP ||
                   run.plan.steps.some(
                     (planned) => planned.providerId === candidate.id,
-                  ))
+                  )) &&
+                (run.plan.exportSide === undefined ||
+                  (candidate.kind === "local") ===
+                    (run.plan.exportSide === "local"))
               );
             } catch {
               return false;

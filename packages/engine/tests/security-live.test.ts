@@ -313,6 +313,10 @@ function fakeDocker(
     missing?: string[];
     failRemove?: boolean;
     report?: (file: string) => Promise<void>;
+    /** `docker pull` fails with this stderr. */
+    pullStderr?: string;
+    /** Starting the target fails with this stderr. */
+    targetStderr?: string;
   } = {},
 ) {
   const calls: string[][] = [];
@@ -334,6 +338,8 @@ function fakeDocker(
         : ok(
             `sha256:${argv.at(-1)!.endsWith(DIGEST) ? "b" : "c"}${"0".repeat(63)}\n`,
           );
+    if (argv[0] === "pull" && options.pullStderr !== undefined)
+      return { code: 1, stdout: "", stderr: options.pullStderr };
     if (argv[0] === "ps") {
       const id = argv.at(-1)!.split("=").at(-1)!;
       return ok(
@@ -362,7 +368,10 @@ function fakeDocker(
         options.abortDuring.controller.abort();
         throw new Error("Command terminated (timeout or cancellation)");
       }
-      if (step === "target") return ok(`${name}\n`);
+      if (step === "target")
+        return options.targetStderr === undefined
+          ? ok(`${name}\n`)
+          : { code: 125, stdout: "", stderr: options.targetStderr };
       containers.delete(name);
       if (step === "probe")
         return { code: options.probeExit ?? 0, stdout: "", stderr: "" };
@@ -586,6 +595,37 @@ describe("live scan orchestration", () => {
       await expect(readReport(secret)).resolves.toContain(sentinel);
     } finally {
       await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("redacts Docker's stderr before cutting it when the target cannot be pulled or started", async () => {
+    // Built by concatenation so the source itself holds no credential shape.
+    const body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC";
+    const key =
+      "-----BEGIN " +
+      "PRIVATE KEY-----\n" +
+      body.repeat(20) +
+      "\n-----END " +
+      "PRIVATE KEY-----";
+    // The key's BEGIN line lies outside the last 300 characters, so cutting
+    // first would leave a key body nothing recognises.
+    const stderr = `starting\n${key}\ndone`;
+    const failures = [
+      fakeDocker({ missing: [target.image], pullStderr: stderr }),
+      fakeDocker({ targetStderr: stderr }),
+    ].map((docker) =>
+      runLiveScan({ target, run: docker.run }).then(
+        () => "",
+        (error: Error) => error.message,
+      ),
+    );
+    const [pull, start] = await Promise.all(failures);
+    expect(pull).toContain(`Live scan could not pull ${target.image}`);
+    expect(start).toContain("Live scan could not start the target");
+    for (const message of [pull, start]) {
+      expect(message).toContain("[REDACTED PRIVATE KEY]");
+      expect(message).not.toContain(body);
+      expect(message!.endsWith("done")).toBe(true);
     }
   });
 

@@ -200,9 +200,11 @@ export function parseSemgrep(
   const fatal = (report.errors ?? []).filter(
     (error) => error.level === "error",
   );
+  // Redacted before it is cut, so the cut cannot leave part of a secret
+  // too short to recognise.
   if (fatal.length)
     throw new Error(
-      `semgrep reported ${fatal.length} error(s): ${String(fatal[0]!.message ?? fatal[0]!.type).slice(0, 200)}`,
+      `semgrep reported ${fatal.length} error(s): ${redact(String(fatal[0]!.message ?? fatal[0]!.type)).slice(0, 200)}`,
     );
   // Only security rules gate; the registry also carries style and
   // portability rules that say nothing about risk.
@@ -242,7 +244,9 @@ export function parseSemgrepUnscanned(text: string): SecurityScan["unscanned"] {
   const note = (file: unknown, reason: string) => {
     if (typeof file !== "string" || !file) return;
     const path = relative(file);
-    if (!unscanned.has(path)) unscanned.set(path, reason.slice(0, 200));
+    // The reason is printed and stored with the run, so it is redacted,
+    // before it is cut.
+    if (!unscanned.has(path)) unscanned.set(path, redact(reason).slice(0, 200));
   };
   for (const error of report.errors ?? [])
     note(

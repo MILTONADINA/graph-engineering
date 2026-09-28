@@ -1101,32 +1101,34 @@ it("refuses a cloud client's plan whose workers, tester and reviewer are not all
     // A cloud reviewer receives the diff a local worker wrote.
     await configure({ review: { providerId: "remote" } });
     expect(await refused(single("qwen"))).toContain("the reviewer (remote)");
-    // All on one side is accepted.
-    const accepted = async (args: Record<string, unknown>) => {
-      const response = await cloud.callTool({
-        name: "plan_create",
-        arguments: args,
-      });
+    // All on one side is accepted, and the plan records that side, so a
+    // step that escalates stays on it.
+    const planOf = (response: Awaited<ReturnType<Client["callTool"]>>) => {
       expect(response.isError).not.toBe(true);
+      const [content] = response.content as { text: string }[];
+      return engine.store.plan(
+        (JSON.parse(content!.text) as { id: string }).id,
+      );
     };
+    const accepted = async (args: Record<string, unknown>) =>
+      planOf(await cloud.callTool({ name: "plan_create", arguments: args }));
     await configure({
       tester: { providerId: "remote" },
       review: { providerId: "remote" },
     });
-    await accepted(single("remote"));
+    expect((await accepted(single("remote"))).exportSide).toBe("non-local");
     await configure({
       tester: { providerId: "qwen" },
       review: { providerId: "qwen" },
     });
-    await accepted(single("qwen"));
+    expect((await accepted(single("qwen"))).exportSide).toBe("local");
     // An operator's own plan may mix them, as the tester role allows.
     await configure({});
     const local = await connect("local");
-    const mixed = await local.callTool({
-      name: "plan_create",
-      arguments: laundering,
-    });
-    expect(mixed.isError).not.toBe(true);
+    const mixed = planOf(
+      await local.callTool({ name: "plan_create", arguments: laundering }),
+    );
+    expect(mixed.exportSide).toBeUndefined();
   } finally {
     for (const { client, server } of connections) {
       await client.close();

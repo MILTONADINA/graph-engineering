@@ -299,6 +299,12 @@ export interface ExecutionPlan {
   };
   /** The feature spec this plan implements, as read when planning. */
   spec?: { id: string; path: string; sha256: string };
+  /**
+   * Set on a plan a cloud-backed MCP client wrote: its model roles all run
+   * on local providers or all on non-local ones, and a step that escalates
+   * after repeated failures moves only to a provider on the same side.
+   */
+  exportSide?: "local" | "non-local";
 }
 export interface Usage {
   inputTokens: number | null;
