@@ -263,8 +263,8 @@ export async function safePath(
 }
 // Template values ($VAR, ${VAR}, $(VAR), {name}, {{name}}, #{name}, <name>,
 // [NAME], %(name)s, %{name}, %NAME%) and masked ones (****, ...) are not
-// credentials, but only when the whole value has that shape: a password that
-// merely begins with $, {, <, *, . or % is judged like any other.
+// credentials, but only when the whole value has that shape: a value that
+// merely begins with $, {, <, *, . or % is not exempted here.
 const templateOrMask = (value: string): boolean =>
   /^(?:\$(?:\{[^{}]*\}|\([A-Za-z_]\w*\)|[A-Za-z_]\w*)|\$?\{\{[^{}]*\}\}|#?\{[^{}]*\}|<[^<>]*>|\[[^[\]]*\]|%(?:\([^()]*\)s|\{[^{}]*\}|\w+%)|(.)\1*)$/.test(
     value,
@@ -276,17 +276,28 @@ const templateOrMask = (value: string): boolean =>
 // (Password2024Summer, secretS3cureProdPw, testimony9Kq2Lm) does not exempt it.
 const placeholderPassword =
   /^(?:pass(?:word)?|pwd|secret|credential|example|placeholder|changeme|your|test|dummy|fake|sample|redacted|fixture|xxx)+(?:[_-]|\d*$)/i;
+// Whole-value templates, masks, placeholder words, interpolations and URLs
+// are not credential values.
+const inertValue = (value: string): boolean =>
+  /\$\{|:\/\//.test(value) ||
+  templateOrMask(value) ||
+  placeholderPassword.test(value);
 // Keep key recognition, detection and value redaction on one assignment
 // grammar. Quoted object keys, env names and camelCase source identifiers are
 // common ways for a credential to appear in otherwise exportable source
 // files. The value is one of: 16 or more token characters (group 5, as
-// before); a quoted value of 12 to 256 characters with no whitespace or quote
-// (group 6); or an unquoted one on the same line that ends at whitespace or
-// the end of the text (group 7). The last two are tried only after a name
+// before, not starting with a placeholder word); a quoted value of 12 to 256
+// characters with no whitespace or quote (group 6); or an unquoted one on the
+// same line that ends at whitespace, a quote, an escaped newline, tab or
+// quote (as in "KEY=value\n" inside a string) or the end of the text, less
+// one trailing ";" or "," (group 7). The last two are tried only after a name
 // ending like a credential's, and their lengths are bounded, so long runs of
-// other assignments without whitespace stay linear.
+// other assignments without whitespace stay linear. The whitespace after
+// [:=] is taken whole ((?=\S)): no value starts with whitespace, and giving
+// it back one character at a time would rescan the run in both lookbehinds
+// on every step, which is quadratic in the run's length.
 const assignedCredential =
-  /(?<![A-Za-z0-9_$])(["'`]?)([A-Za-z_][A-Za-z0-9_-]{0,127})\1\s*([:=])\s*(["'`]?)(?!\$\{|process\.env|os\.environ|example|placeholder|your[-_]|test[-_]|undefined|null)(?:([A-Za-z0-9+/_-]{16,}={0,2})(?![A-Za-z0-9_$.(?=])|(?<=(?:password|api[_-]?key|secret|access[_-]?(?:token|key)|token|private[_-]?key)(?:[_-]?(?:key|value))?["'`]?\s*[:=]\s*["'`]?)(?:(?<=["'`])([^\s"'`]{12,256})(?=\4)|(?<=[:=][ \t]*)([^\s"'`]{12,256})(?=\s|$)))/gi;
+  /(?<![A-Za-z0-9_$])(["'`]?)([A-Za-z_][A-Za-z0-9_-]{0,127})\1\s*([:=])\s*(?=\S)(["'`]?)(?:(?!\$\{|process\.env|os\.environ|example|placeholder|your[-_]|test[-_]|undefined|null)([A-Za-z0-9+/_-]{16,}={0,2})(?![A-Za-z0-9_$.(?=])|(?<=(?:password|api[_-]?key|secret|access[_-]?(?:token|key)|token|private[_-]?key)(?:[_-]?(?:key|value))?["'`]?\s*[:=]\s*["'`]?)(?:(?<=["'`])([^\s"'`]{12,256})(?=\4)|(?<=[:=][ \t]*)((?:[^\s"'`\\]|\\[^\snrt"'`]){11,255}[^\s"'`;,\\])(?=[;,]?(?:[\s"'`]|\\[nrt"'`]|$))))/gi;
 const credentialName = (name: string): boolean =>
   /(?:^|[_-])(?:password|api[_-]?key|secret|access[_-]?(?:token|key)|token|private[_-]?key)(?:[_-](?:key|value))?$/i.test(
     name,
@@ -294,17 +305,33 @@ const credentialName = (name: string): boolean =>
   /(?:Password|ApiKey|Secret|AccessToken|AccessKey|Token|PrivateKey)(?:Key|Value)?$/.test(
     name,
   );
-// A quoted key path (auth.refreshToken, errors:invalid_token) or sigil name
-// (?NoLineTerminatorHere, @scope/name) names a setting, not a password.
-const keyPath =
-  /^[?@#:.]?[A-Za-z_$][\w$-]*(?:(?:\.|::?|\/)[A-Za-z_$][\w$-]*)*$/;
-// An unquoted value that reads as code: one that starts with a comparison,
-// arrow, negation or bracket (token=;, token=!0, token=(a), token=[a]), or a
-// word or member chain that ends there or goes on into a call, index, type
-// argument, ternary, statement end, list, assignment, comparison or logical
-// operator.
-const codeValue =
-  /^[=>;,!()[\]{}]|^[\w$]+(?:(?:\??\.|::|->)[A-Za-z_$][\w$]*)*(?:$|[([<{?;,)\]}=]|!=|&&|\|\|)|[;,]$/;
+// A word that goes from digits back to letters twice (Lm2Vx9Kp4R), as a
+// generated password does and an identifier, key or number rarely does. Hex
+// (a UUID, hash or 0x1f2e3d literal) has no letter past F, so it is not one.
+const generatedWord = (value: string): boolean =>
+  (value.match(/[A-Za-z0-9]+/g) ?? []).some(
+    (word) => /[G-Zg-z]/.test(word) && /\d[A-Za-z]+\d+[A-Za-z]/.test(word),
+  );
+// A quoted key path (auth.refreshToken, errors:invalid_token, keys/app.pem)
+// or sigil name (?NoLineTerminatorHere, @scope/name, $auth.token) names a
+// setting, not a password. A "$" inside a word (Welcome$2024x) is not part of
+// a key path.
+const keyPath = /^[?@#:.$]?[A-Za-z_][\w-]*(?:(?:\.|::?|\/)[A-Za-z_][\w-]*)*$/;
+// An unquoted value that reads as code: a regular expression literal; one
+// that starts with a comparison, arrow, negation or bracket (token=;,
+// token=!0, token=(a), token=[a]); a word or member chain that ends there or
+// goes on into a call, index, type argument, ternary, statement end, list,
+// assignment, concatenation, comparison or logical operator; or a member
+// chain with a non-null assertion (process.env.SECRET!). Apart from a regular
+// expression, a value holding what code does not, a "#" other than a private
+// member's, an "@" or a generated word, is not code.
+const codeValue = (value: string): boolean =>
+  /^\/(?![*/]).*\/[dgimsuyv]*$/.test(value) ||
+  (!/(?<!\.)#|@/.test(value) &&
+    !generatedWord(value) &&
+    /^[=>;,!()[\]{}]|^[\w$]+(?:(?:\??\.|::|->)#?[A-Za-z_$][\w$]*)*(?:$|[([<{?;,)\]}=+]|!=|&&|\|\|)|^[\w$]+(?:(?:\??\.|::|->)#?[A-Za-z_$][\w$]*)+!(?![\w$])/.test(
+      value,
+    ));
 // A punctuated unquoted value after ":" is YAML-like only on a line of its
 // own: indentation, an optional list dash and dotted key prefix before it, and
 // nothing but an optional comment after it. Both looks are bounded so a long
@@ -323,22 +350,17 @@ function ownLine(text: string, start: number, end: number): boolean {
 // Whether an assignment match is a credential: its name is a credential's and
 // its value is one. Values with punctuation are judged like URL passwords:
 // templates, masks and placeholder words are not credentials, and neither are
-// interpolations, URLs, key paths and code.
+// interpolations, URLs, quoted key paths without a generated word, and
+// unquoted code.
 function credentialAssignment(text: string, match: RegExpExecArray): boolean {
   if (!credentialName(match[2]!)) return false;
   if (match[5] !== undefined) return true;
   const quoted = match[6];
   const value = (quoted ?? match[7])!;
-  if (
-    !/[^A-Za-z0-9+/_-]/.test(value) ||
-    /\$\{|:\/\//.test(value) ||
-    templateOrMask(value) ||
-    placeholderPassword.test(value)
-  )
-    return false;
-  if (quoted !== undefined) return !keyPath.test(value);
+  if (!/[^A-Za-z0-9+/_-]/.test(value) || inertValue(value)) return false;
+  if (quoted !== undefined) return !keyPath.test(value) || generatedWord(value);
   return (
-    !codeValue.test(value) &&
+    !codeValue(value) &&
     (match[3] === "=" ||
       ownLine(text, match.index, match.index + match[0].length))
   );
@@ -537,12 +559,44 @@ function redactAssigned(text: string): string {
   }
   return redacted + text.slice(from);
 }
-// Redaction removes what containsSecret detects. A private key header with
-// no END marker (a truncated excerpt) is redacted through the end of the
-// text: what follows may be key material, and an OpenPGP armor header can
-// hold any character, so no shorter end is safe.
+// Redaction is wider than detection for values named as a password, API
+// key, secret or access token. Stored events, check output, run errors and
+// review text are logs and messages, not source, and hold shapes screening
+// leaves alone (PGPASSWORD=..., "connecting with password: ... to db", a
+// value of 12 to 15 letters and digits, a value that looks like code), so
+// any such value of 12 or more characters on the same line, up to an escaped
+// newline, tab or quote, is redacted unless it is a whole-value template,
+// mask, placeholder, interpolation or URL. Hiding a non-secret there costs
+// little.
+const namedValue =
+  /((?:password|api[_-]?key|secret|access[_-]?token)[ \t]*[:=][ \t]*["'`]?)((?:[^\s"'`\\]|\\[^\snrt"'`]){12,})/gi;
+// Redaction removes what containsSecret detects, and more (above). A private
+// key header with no END marker (a truncated excerpt) is redacted through the
+// end of the text: what follows may be key material, and an OpenPGP armor
+// header can hold any character, so no shorter end is safe.
 export function redact(text: string): string {
   return redactAssigned(text)
+    .replace(
+      namedValue,
+      (
+        match: string,
+        prefix: string,
+        value: string,
+        offset: number,
+        whole: string,
+      ) => {
+        // A name inside a shell expansion (${DB_PASSWORD:-fallback}) is
+        // judged by its default value.
+        const judged = /\$\{[\w-]*$/.test(
+          whole.slice(Math.max(0, offset - 128), offset),
+        )
+          ? /^[-=?+]?([^}]*)/.exec(value)![1]!
+          : value;
+        return judged.length < 12 || inertValue(judged)
+          ? match
+          : `${prefix}[REDACTED]`;
+      },
+    )
     .replace(
       new RegExp(
         String.raw`-----BEGIN ${privateKeyLabel}-----(?:[\s\S]*?-----END ${privateKeyLabel}-----|[\s\S]*)`,

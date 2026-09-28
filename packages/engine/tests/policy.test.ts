@@ -258,11 +258,132 @@ describe("project boundaries", () => {
       '  apiKey: "https://api.example.com/v1/keys",',
       "[![codecov](https://codecov.io/gh/o/r/badge.svg?token=AB12CD34EF)](https://codecov.io/gh/o/r)",
     ];
+    // Redaction is wider than screening for a named value, so these code
+    // lines lose their value there (see the log redaction test below).
+    const widerRedaction = new Map([
+      ["password=hashPassword(input.password);", "password=[REDACTED]"],
+      ["  apiKey: config.services.apiKey,", "  apiKey: [REDACTED]"],
+      ["  accessToken: session?.accessToken,", "  accessToken: [REDACTED]"],
+      ["  secret: options.secret||fallbackSecret", "  secret: [REDACTED]"],
+    ]);
     for (const text of notSecrets) {
       expect(containsSecret(text), text).toBe(false);
       expect(secretFindings(text).size, text).toBe(0);
-      expect(redact(text), text).toBe(text);
+      expect(redact(text), text).toBe(widerRedaction.get(text) ?? text);
     }
+  });
+  it("detects credential values that end at a closing quote or statement end, hold a dollar sign, begin with a placeholder word or only resemble code", () => {
+    // Built by concatenation so this file holds no literal credential.
+    const symbols = "Xk9!mQ2#" + "vL7$pR4@zT";
+    const secrets: [string, string][] = [
+      // A quoted DSN, connection strings and a compose list item, where an
+      // unquoted value ends at a closing quote or before a final ";".
+      [`psycopg2.connect("host=db user=app password=${symbols}")`, symbols],
+      [`conn = "Server=db;User=sa;Password=${symbols}"`, symbols],
+      [`Server=db;Database=app;User Id=sa;Password=${symbols};`, symbols],
+      [`DB_PASSWORD=${"Xk9!mQ2#" + "vL7pR4zT"};`, "Xk9!mQ2#vL7pR4zT"],
+      [`  - "DB_PASSWORD=${symbols}"`, symbols],
+      // .env content in a string ends at an escaped newline.
+      [`const env = "DB_PASSWORD=${symbols}\\nDB_NAME=app";`, symbols],
+      // A "$" inside a quoted value is not part of a key path.
+      [`    'PASSWORD': '${"Welcome$" + "2024x"}',`, "Welcome$2024x"],
+      [`DB_PASSWORD="${"Xk9mQ2$" + "vL7pR4zT"}"`, "Xk9mQ2$vL7pR4zT"],
+      [`const dbPassword = "${"P$ssw0rd-" + "2024:prod"}";`, "P$ssw0rd-2024"],
+      // A dotted value with a generated word is not a key path.
+      [`DB_PASSWORD="${".Hq8zLm2" + "Vx9Kp4Rt"}"`, "Hq8zLm2Vx9Kp4Rt"],
+      // An unquoted value that only resembles code: a "#" or a generated
+      // word is not code.
+      [`DB_PASSWORD=${"Xk9?mQ2#" + "vL7pR4zT"}`, "Xk9?mQ2#vL7pR4zT"],
+      [`DB_PASSWORD=${"Hq8z=Lm2" + "Vx9Kp4R!"}`, "Hq8z=Lm2Vx9Kp4R!"],
+      [`DB_PASSWORD=${"Xk9mQ2(" + "vL7pR4zT!"}`, "Xk9mQ2(vL7pR4zT!"],
+      [`DB_PASSWORD=${"{Hq8z!Lm2" + "Vx9Kp4Rt"}`, "Hq8z!Lm2Vx9Kp4Rt"],
+      // A placeholder word that only begins a punctuated value.
+      [`DB_PASSWORD="${"Example!" + "Pass99xy"}"`, "Example!Pass99xy"],
+      [`DB_PASSWORD="${"Nullify!" + "2024#Prod"}"`, "Nullify!2024#Prod"],
+    ];
+    for (const [text, value] of secrets) {
+      expect(containsSecret(text), text).toBe(true);
+      expect(introducesSecret("", text), text).toBe(true);
+      expect(secretFindings(text).size, text).toBeGreaterThan(0);
+      const redacted = redact(text);
+      expect(redacted, text).toContain("[REDACTED]");
+      expect(redacted, text).not.toContain(value);
+      expect(containsSecret(redacted), redacted).toBe(false);
+    }
+    // Only the value is redacted: the closing quote and ";" stay.
+    expect(
+      redact(`psycopg2.connect("host=db user=app password=${symbols}")`),
+    ).toBe('psycopg2.connect("host=db user=app password=[REDACTED]")');
+    expect(redact(`User Id=sa;Password=${symbols};`)).toBe(
+      "User Id=sa;Password=[REDACTED];",
+    );
+    const notSecrets = [
+      // Regular expressions, non-null assertions, concatenation and
+      // arithmetic are code.
+      "const PREV_TOKEN = /^[)\\]}>]$/u;",
+      "const SECRET = /^[a-f0-9]{64}$/;",
+      "const secret = process.env.SESSION_SECRET!;",
+      'this.apiKey=this.config.baseUrl+"/keys"',
+      "this.token=this.pos+this.len;",
+      // An escaped newline right after "=" is an empty value.
+      '"DB_PASSWORD=\\nDB_NAME=application_database",',
+      // Key paths with digits, hex or a "$" sigil are not generated words.
+      'const REFRESH_TOKEN_KEY = "i18n:oauth2.refreshToken";',
+      'const TOKEN_KEY = "$auth.refreshToken";',
+      "'Lock-Token': 'urn:uuid:a515cfa4-5da4-22e1-f5b5-00a0451e6bf7'",
+    ];
+    for (const text of notSecrets) {
+      expect(containsSecret(text), text).toBe(false);
+      expect(secretFindings(text).size, text).toBe(0);
+    }
+  });
+  it("redacts named password, API key, secret and access token values in logs more widely than screening detects", () => {
+    // Built by concatenation so this file holds no literal credential.
+    const symbols = "Xk9!mQ2#" + "vL7$pR4@zT";
+    for (const [text, redacted] of [
+      // A mid-line "password: value" in a log, an env name without a
+      // separator, and a value of 12 to 15 letters and digits.
+      [
+        `INFO connecting with password: ${symbols} to db`,
+        "INFO connecting with password: [REDACTED] to db",
+      ],
+      [`PGPASSWORD=${symbols}`, "PGPASSWORD=[REDACTED]"],
+      [`DB_PASSWORD="${"Summer" + "2024Pass"}"`, 'DB_PASSWORD="[REDACTED]"'],
+      [
+        `api_key: ${"Hq8zLm2" + "Vx9Kp4"} (retrying)`,
+        "api_key: [REDACTED] (retrying)",
+      ],
+      // A value that screening reads as code is still redacted.
+      ["password=hashPassword(input.password);", "password=[REDACTED]"],
+      // Templates, masks, placeholders, interpolations and URLs stay.
+      ['password: "${DB_PASSWORD}"', 'password: "${DB_PASSWORD}"'],
+      ["DB_PASSWORD=<placeholder-value>", "DB_PASSWORD=<placeholder-value>"],
+      ['password = "************"', 'password = "************"'],
+      ['password: "your-password-here"', 'password: "your-password-here"'],
+      [
+        '  apiKey: "https://api.example.com/v1/keys",',
+        '  apiKey: "https://api.example.com/v1/keys",',
+      ],
+      // The value must be on the same line.
+      [
+        "DB_PASSWORD=\nDB_NAME=application_database",
+        "DB_PASSWORD=\nDB_NAME=application_database",
+      ],
+      // A shell expansion is judged by its default value.
+      [
+        "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}",
+        "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}",
+      ],
+      [
+        "postgresql://app:${DB_PASSWORD:-fallback}@db/app",
+        "postgresql://app:${DB_PASSWORD:-fallback}@db/app",
+      ],
+      [
+        `DATABASE_URL=\${DB_PASSWORD:-${symbols}}`,
+        "DATABASE_URL=${DB_PASSWORD:[REDACTED]",
+      ],
+    ])
+      expect(redact(text!), text).toBe(redacted);
   });
   it("exempts only whole-value template and masked URL passwords, not passwords that begin with a template character", () => {
     // Built by concatenation so this file holds no literal credential.
@@ -449,6 +570,22 @@ describe("project boundaries", () => {
       ]) {
         expect(introducesSecret(run, run), run.slice(0, 40)).toBe(false);
         expect(redact(run).length, run.slice(0, 40)).toBeGreaterThan(0);
+      }
+      // So do long runs of whitespace after a credential name, including
+      // one reached from many hyphen-separated name starts.
+      for (const run of [
+        `password=${" ".repeat(size)}x`,
+        `password:${"\n".repeat(size)}x`,
+        `api_key =${"\t".repeat(size)}x`,
+        `${"a-".repeat(60)}password:${" ".repeat(size)}x`,
+      ]) {
+        expect(
+          introducesSecret(run, run),
+          JSON.stringify(run.slice(0, 12)),
+        ).toBe(false);
+        expect(redact(run) === run, JSON.stringify(run.slice(0, 12))).toBe(
+          true,
+        );
       }
       const urls = "s://u:passwordpassword@h ".repeat(size / 25);
       expect(introducesSecret(urls, `${urls}x`)).toBe(false);
