@@ -686,6 +686,13 @@ export class GraphEngine {
     const config = await loadProject(this.root);
     if (config.projectId !== this.config.projectId)
       throw new Error("Project identity changed; restart the engine");
+    // A running DAG holds this object, so it keeps its identity, but its
+    // contents become the file's exactly: a key removed from the file is
+    // removed here, and keys keep the file's order, which the policy hash
+    // depends on.
+    const policy: Partial<ProjectPolicy> = this.config.policy;
+    for (const key of Object.keys(policy) as (keyof ProjectPolicy)[])
+      delete policy[key];
     Object.assign(this.config.policy, config.policy);
     this.config = { ...config, policy: this.config.policy };
     this.context.updatePolicy(config.policy);
@@ -1138,6 +1145,9 @@ export class GraphEngine {
       run.updatedAt = now();
       this.store.saveRun(run);
     };
+    // Whether this attempt has started publishing and not finished. An
+    // earlier attempt's unfinished publication was acknowledged on resume.
+    let publishing = false;
     try {
       const priorEvents = this.store.events(run.id);
       delete run.error;
@@ -1423,6 +1433,7 @@ export class GraphEngine {
             stepId,
           );
         },
+        writtenPaths: runWrittenPaths,
       });
       const reviewChange = async (
         stepId: string,
@@ -2652,7 +2663,9 @@ export class GraphEngine {
         scope.review = scope.review.includes("security")
           ? "security-and-architecture"
           : "architecture";
-      run.completion = {
+      // Acceptance belongs to a succeeded run, so the record carries it only
+      // once publication has succeeded.
+      const acceptance: NonNullable<RunRecord["completion"]> = {
         automatedChecksPassed: verified,
         humanAcceptance: "pending",
         reviewScope: scope.review,
@@ -2698,6 +2711,7 @@ export class GraphEngine {
         mode: run.plan.publication,
         snapshotHash: verifiedHash,
       });
+      publishing = true;
       Object.assign(
         run,
         await publishRun(this.root, run, this.config, verifiedHash, signal),
@@ -2706,6 +2720,8 @@ export class GraphEngine {
         commit: run.commit ?? null,
         pullRequest: run.pullRequest ?? null,
       });
+      publishing = false;
+      run.completion = acceptance;
       // Memory capture awaits a decision provider, so it finishes before the
       // run is saved as succeeded: a person's decision can be recorded only
       // on a succeeded run, and no later save of this record may revert it.
@@ -2732,10 +2748,8 @@ export class GraphEngine {
     } catch (error) {
       run.usage = this.store.usage(run.plan.id);
       run.error = redact(errorMessage(error));
-      const events = this.store.events(run.id);
-      const publishing =
-        events.findLastIndex((e) => e.type === "publication.started") >
-        events.findLastIndex((e) => e.type === "publication.completed");
+      // Only a succeeded run awaits a person's acceptance.
+      delete run.completion;
       // Publication may have committed, pushed or opened a PR before a
       // cancellation took effect, so that state outranks a plain cancel.
       run.status =
@@ -2883,6 +2897,9 @@ interface PatchRecorder {
   applying(paths: string[]): RunEvent;
   // After a rollback that restored the pre-patch workspace.
   rolledBack(applying: RunEvent, paths: string[], error: string): void;
+  // Every file the run has written so far, this patch's included once it
+  // is recorded as applying.
+  writtenPaths(): Promise<string[]>;
 }
 
 // Applies a single-step patch as a whole, as a DAG step's is: it is
@@ -2892,7 +2909,11 @@ interface PatchRecorder {
 // review would skip it and publication would still commit it: the patch is
 // recorded as applying before its first write, and only a rollback that
 // brings the workspace back to its pre-patch fingerprint records it as
-// rolled back. One that cannot needs reconciliation.
+// rolled back. One that cannot needs reconciliation. As for a DAG step or a
+// repair, a patch that leaves any file the run wrote outside the
+// verification inventory (a new Git-ignored file, or a .gitignore that hides
+// an earlier file) is rolled back too, so a resume regenerates it instead of
+// failing on the same file again.
 async function applyWholePatch(
   workspace: string,
   proposal: WorkerProposal,
@@ -2906,7 +2927,13 @@ async function applyWholePatch(
   const before = await workspaceFingerprint(workspace, policy);
   const applying = record.applying(paths);
   try {
-    return await applyProposal(workspace, proposal, policy);
+    const changed = await applyProposal(workspace, proposal, policy);
+    await assertVerificationPaths(
+      workspace,
+      [...(await record.writtenPaths()), ...paths],
+      policy,
+    );
+    return changed;
   } catch (error) {
     try {
       await restoreOriginals(originals);

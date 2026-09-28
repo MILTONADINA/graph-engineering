@@ -18,9 +18,9 @@ security/architecture review floors, or the run's append-only audit log.
 The stop controller defaults to `completionScope: "full-acceptance"`, requiring
 acceptance, tests, reviews, and valid policy. Managed execution explicitly uses
 `"automated-run"` to stop its worker loop after required tests pass under valid
-policy. That is not human acceptance: run records and the dashboard retain
-`humanAcceptance: "pending"` and the required review scope. Neither scope grants
-permission to publish or merge.
+policy. That is not human acceptance: a succeeded run's record and the
+dashboard retain `humanAcceptance: "pending"` and the required review scope.
+Neither scope grants permission to publish or merge.
 
 `decideBatch` sends up to 12 independent questions in one HTTP request per
 provider. `routePlan` batches workflow, effort, and context budget; it does not

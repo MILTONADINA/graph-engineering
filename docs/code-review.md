@@ -79,7 +79,10 @@ the engine stops while the patch is being written, or cannot roll back a
 write that failed partway, a resumed run still shows the reviewer every file
 the patch left in the workspace. Only a rollback that restores the
 workspace's pre-patch fingerprint records `patch.rolled_back` and takes the
-patch's files off the list; a rollback that cannot needs reconciliation.
+patch's files off the list; a rollback that cannot needs reconciliation. A
+patch that leaves any of the run's files outside the verification inventory
+(a new Git-ignored file, say) is rolled back the same way before it is
+recorded as applied.
 Every review is recorded as `review.completed` with the verdict, criteria
 and findings (evidence and messages redacted).
 
