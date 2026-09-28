@@ -461,6 +461,38 @@ describe("decision accounting reservations", () => {
     expect(result.usage[0]?.estimatedCostUsd).toBeCloseTo(0.00000504);
     expect(result.usage[0]?.chargedUsd).toBeCloseTo(0.00000504);
   });
+  it.each([0, 1])(
+    "abstains without calling Jev when a zero price is configured under a cap of %s",
+    async (cap) => {
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      const input = options();
+      input.providers = [
+        { ...hosted(), pricing: { ...hosted().pricing, usdPerUnit: 0 } },
+      ];
+      input.policy.maxCostUsd = cap;
+      input.budget = { reserve: vi.fn(), settle: vi.fn() };
+      const result = await decideBatch(input);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(input.budget.reserve).not.toHaveBeenCalled();
+      expect(result.selections).toEqual({ workflow: "safe", effort: "high" });
+      expect(result.records[0]?.evidence.failure).toContain(
+        "positive reviewed price",
+      );
+    },
+  );
+  it("admits no Jev call under a zero cap even with a positive price", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const input = options();
+    input.providers = [hosted()];
+    input.policy.maxCostUsd = 0;
+    input.budget = { reserve: vi.fn(), settle: vi.fn() };
+    const result = await decideBatch(input);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(input.budget.reserve).not.toHaveBeenCalled();
+    expect(result.records[0]?.evidence.failure).toContain("cost ceiling");
+  });
   it("abstains before token-priced dispatch when the complete request exceeds its reserve", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);

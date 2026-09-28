@@ -314,6 +314,13 @@ export async function decideBatch(
           throw new Error(
             "Unknown Jev pricing or missing reservation ledger; cost-capped projects abstain",
           );
+        // Jev is metered: a zero price is not proof of zero cost, so a
+        // capped project needs a positive reviewed price. A zero cap therefore
+        // admits no Jev call at all.
+        if (!(estimate > 0))
+          throw new Error(
+            "Jev pricing must be a positive reviewed price; cost-capped projects abstain",
+          );
         if (estimate > policy.maxCostUsd)
           throw new Error(
             "Decision request exceeds the configured cost ceiling",

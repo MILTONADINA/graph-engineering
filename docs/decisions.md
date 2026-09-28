@@ -153,7 +153,9 @@ file. For RTF, the wrapper converts it in memory with macOS `textutil`, validate
 that the result is one printable token, and passes it to the engine as
 `GRAPH_JEV_API_KEY` only when explicitly launched with
 `npm run graph:local -- --with-jev ...`. Ordinary `graph:local` commands and the
-Laya sidecar do not receive this key. The engine's
+Laya sidecar do not receive this key: without `--with-jev` the wrapper removes
+`GRAPH_JEV_API_KEY`, `TYPESAFE_API_KEY` and any Jev `apiKeyEnv` named in the
+private `decisions.json` from their environment. The engine's
 decision provider entry uses `apiKeyEnv: "GRAPH_JEV_API_KEY"`; credentials must
 never be placed in `decisions.json`, Git, or a cloud context packet.
 
@@ -220,7 +222,9 @@ persistent `DecisionBudget` implementation. Its `reserve` callback must
 atomically reserve the complete batch price against the enclosing task/project
 ceiling **before** the request is sent. Its `settle` callback persists one
 debit per `callId`. Unknown pricing, a missing ledger, or exhausted budget
-abstains without calling Jev. An ambiguous dispatched failure retains the
+abstains without calling Jev. A zero configured price is not treated as proof
+of zero cost: under a numeric cap Jev needs a positive reviewed price, so
+`maxCostUsd: 0` admits no Jev call. An ambiguous dispatched failure retains the
 conservative reservation; it is not refunded on an assumption that the service
 did not bill. Accounting persistence failure or a reported charge above the
 reservation prevents using the answer or escalating further.

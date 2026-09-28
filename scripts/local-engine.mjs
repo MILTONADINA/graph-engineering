@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { jevKeyEnvNames, stripEnv } from "./local-engine-env.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const local = path.join(root, ".graph/local");
@@ -83,7 +84,7 @@ if (withJev) {
   if (jevKey) env.GRAPH_JEV_API_KEY = jevKey;
   if (!env.GRAPH_JEV_API_KEY)
     throw new Error("Jev key source or GRAPH_JEV_API_KEY is required");
-} else delete env.GRAPH_JEV_API_KEY;
+} else stripEnv(env, await jevKeyEnvNames(root, env));
 try {
   const info = await lstat(tokenPath);
   if (
