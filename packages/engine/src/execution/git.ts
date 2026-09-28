@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
+import { lstat } from "node:fs/promises";
 import { devNull } from "node:os";
+import path from "node:path";
 import { command, type CommandResult, subprocessEnvironment } from "../util.js";
 
 /** Git is metadata plumbing, never a way to execute repository hooks or filters. */
@@ -35,6 +37,10 @@ export async function managedGit(
       `core.hooksPath=${devNull}`,
       "-c",
       "core.fsmonitor=false",
+      // With core.ignoreStat=true, Git marks every file it checks out or
+      // stages assume-unchanged, so status never sees a later edit to it.
+      "-c",
+      "core.ignoreStat=false",
       "-c",
       "submodule.recurse=false",
       "-c",
@@ -56,6 +62,48 @@ export async function checkedGit(cwd: string, argv: string[]): Promise<string> {
       `git failed (${result.code}): ${result.stderr.trim().slice(0, 1000)}`,
     );
   return result.stdout.trim();
+}
+
+/**
+ * Index entries whose changes Git does not look for: those marked
+ * assume-unchanged, and those marked skip-worktree with something on disk at
+ * their path. Status, `ls-files -m` and diff report neither, so a change to
+ * one can pass as no change. A skip-worktree entry with nothing on disk is a
+ * file a sparse checkout leaves out, not a hidden change.
+ */
+export async function hiddenIndexEntries(cwd: string): Promise<string[]> {
+  const listed = await managedGit(cwd, ["ls-files", "-v", "-z"]);
+  if (listed.code !== 0) throw new Error("Cannot inspect Git index flags");
+  const hidden: string[] = [],
+    skipped: string[] = [];
+  for (const entry of listed.stdout.split("\0").filter(Boolean)) {
+    // `-v` lowercases the tag of an assume-unchanged entry; S is skip-worktree.
+    const tag = entry[0],
+      file = entry.slice(2);
+    if (tag !== tag.toUpperCase()) hidden.push(file);
+    else if (tag === "S") skipped.push(file);
+  }
+  const present = async (file: string) => {
+    try {
+      await lstat(path.join(cwd, file));
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") return false;
+      throw error;
+    }
+  };
+  // A sparse checkout can leave out most of the repository; check in batches.
+  for (let i = 0; i < skipped.length; i += 256) {
+    const batch = skipped.slice(i, i + 256);
+    const found = await Promise.all(batch.map(present));
+    hidden.push(...batch.filter((_, index) => found[index]));
+  }
+  return hidden;
+}
+/** Names the first few hidden entries for an error message. */
+export function describeHiddenEntries(files: string[]): string {
+  return `${files.slice(0, 3).join(", ")}${files.length > 3 ? ` and ${files.length - 3} more` : ""}`;
 }
 
 /**

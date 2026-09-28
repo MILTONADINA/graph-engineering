@@ -108,7 +108,12 @@ import {
   unexportableRequestFeedback,
   unseenPatchLocation,
 } from "./execution/requested-sources.js";
-import { checkedGit, gitBlob } from "./execution/git.js";
+import {
+  checkedGit,
+  describeHiddenEntries,
+  gitBlob,
+  hiddenIndexEntries,
+} from "./execution/git.js";
 import {
   likelyWorkerTurns,
   requiresSecurityReview,
@@ -971,20 +976,28 @@ export class GraphEngine {
   // every change there, so the checkout must be clean when the workspace is
   // created. The source snapshot cannot stand in for this: it leaves out
   // binary, large and credential-like files. Untracked files count whatever
-  // status.showUntrackedFiles says, since the workspace copies them.
+  // status.showUntrackedFiles says, since the workspace copies them;
+  // `normal` answers that as well as `all` while listing an untracked
+  // directory as one line. Files Git skips checking for changes are refused,
+  // since status cannot vouch for them and the workspace copies them too.
   private async assertCleanForPublication(
     publication: RunRecord["plan"]["publication"],
   ): Promise<void> {
+    if (publication === "none") return;
     if (
-      publication !== "none" &&
-      (await checkedGit(this.root, [
+      await checkedGit(this.root, [
         "status",
         "--porcelain",
-        "--untracked-files=all",
-      ]))
+        "--untracked-files=normal",
+      ])
     )
       throw new Error(
         "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",
+      );
+    const hidden = await hiddenIndexEntries(this.root);
+    if (hidden.length)
+      throw new Error(
+        `Git skips checking files in this checkout for changes (assume-unchanged or skip-worktree): ${describeHiddenEntries(hidden)}. Clear the marks with git update-index --no-assume-unchanged or --no-skip-worktree (core.ignoreStat=true sets them on checkout) before a run that publishes, so unrelated local work cannot enter its commit`,
       );
   }
   private launch(run: RunRecord, resuming = false): void {
