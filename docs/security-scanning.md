@@ -92,8 +92,9 @@ graph-engine security-scan --update-baseline
 It refuses to update the baseline from an incomplete scan. A baseline is an
 acceptance of risk, so it is written only when a person asks for it; no
 command creates one automatically. The scan output's `baselineChanged` is
-true while the baseline differs from the committed version, so accepting
-risk without a reviewed commit is visible.
+true while the baseline differs from the committed version, including a new
+baseline that was never committed when Git is set to hide untracked files,
+so accepting risk without a reviewed commit is visible.
 
 With the image built, `GRAPH_ENGINE_SECURITY_IMAGE=1 npm test -w
 @graph-engineering/engine -- tests/security-catalog.test.ts` scans planted

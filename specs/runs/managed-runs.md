@@ -56,13 +56,19 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/cli.test.ts :: stores a check's command exactly as typed, with its own options and --
 - AC14: A check that replaces a verification input with anything other than a regular file, such as a FIFO, fails verification as a changed source input; the engine never waits on it.
   - Test: packages/engine/tests/verification-inputs.test.ts :: fails a check that swaps a verification input for a FIFO instead of waiting on it
-- AC15: A run that publishes starts, and resumes before its workspace was created, only from a clean checkout, so local files the source snapshot leaves out (binary, large or credential-like) cannot be copied into the workspace and committed.
+- AC15: A run that publishes starts, and resumes before its workspace was created, only from a clean checkout, so local files the source snapshot leaves out (binary, large or credential-like) cannot be copied into the workspace and committed. An untracked file makes the checkout unclean even when Git is set to hide untracked files (`status.showUntrackedFiles=no`).
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses to resume a publishing run that has no workspace yet while the checkout has local changes
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses to start a publishing run while the checkout has an untracked file Git status hides
 - AC16: A plan keeps the verification commands configured when it was created. Creating a plan without any warns that it cannot run (on stderr for `plan`, as `warnings` in the result of MCP `plan_create`, and once in the dashboard's plan view), and starting one is refused with an error that says to configure checks and create a new plan, or, when the project has checks now, that the plan predates them and a new plan is needed.
   - Test: packages/engine/tests/execution.test.ts :: warns about a plan made without checks and, once checks exist, says to create a new plan
   - Test: packages/engine/tests/cli.test.ts :: warns about a plan made without checks, and says to create a new plan once checks are added
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
   - Test: packages/dashboard/src/RunsPage.test.tsx :: explains a plan without checks once: in its warning when the server sent one, else in the verification panel
+- AC17: A run that publishes commits a change made only of new files even when Git is set to hide untracked files (`status.showUntrackedFiles=no`); it never succeeds with nothing committed.
+  - Test: packages/engine/tests/publication.test.ts :: commits a change made only of new files when Git is set to hide untracked files
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: commits a run whose change is only new files
+- AC18: Stored run events keep the fields the engine reads back as they were recorded: the files a patch or step wrote, snapshot hashes, and event, provider, decision, memory and call IDs. A file whose name looks like a key (`packages/sk-button-component-library/index.js`) is therefore verified and resumed, while free text such as errors, summaries and check output is still redacted.
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: verifies and resumes a file whose name looks like a key, and still redacts free text
 
 ## Security considerations
 

@@ -126,9 +126,12 @@ export async function publishRun(
       );
   }
   await assertVerified();
+  // Untracked files are listed whatever status.showUntrackedFiles says, so
+  // a change made only of new files is not mistaken for no change.
   const changes = await managedGit(run.workspace, [
     "status",
     "--porcelain=v1",
+    "--untracked-files=all",
     "-z",
   ]);
   if (changes.code !== 0)

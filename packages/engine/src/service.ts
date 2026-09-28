@@ -970,13 +970,18 @@ export class GraphEngine {
   // A run that publishes copies the checkout into its workspace and commits
   // every change there, so the checkout must be clean when the workspace is
   // created. The source snapshot cannot stand in for this: it leaves out
-  // binary, large and credential-like files.
+  // binary, large and credential-like files. Untracked files count whatever
+  // status.showUntrackedFiles says, since the workspace copies them.
   private async assertCleanForPublication(
     publication: RunRecord["plan"]["publication"],
   ): Promise<void> {
     if (
       publication !== "none" &&
-      (await checkedGit(this.root, ["status", "--porcelain"]))
+      (await checkedGit(this.root, [
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+      ]))
     )
       throw new Error(
         "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",

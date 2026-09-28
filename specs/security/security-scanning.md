@@ -45,6 +45,8 @@ Teams need security tools chosen for what their repository actually contains, wi
   - Test: packages/engine/tests/execution.test.ts :: gates dependency advisories only on lockfiles the run changed
 - AC12: Without a downloaded OSV database, a skipped dependency scan is recorded, and a run that changed a lockfile fails instead of passing unscanned; lockfile names match regardless of letter case (Cargo.lock, Gemfile.lock, Pipfile.lock).
   - Test: packages/engine/tests/execution.test.ts :: does not pass a run that changed a lockfile when no dependency database was downloaded (%s)
+- AC13: The scan output's `baselineChanged` is true while the baseline differs from the committed version, including a new baseline that was never committed when Git is set to hide untracked files (`status.showUntrackedFiles=no`).
+  - Test: packages/engine/tests/security-catalog.test.ts :: reports an uncommitted new baseline as changed when Git is set to hide untracked files
 
 ## Security considerations
 

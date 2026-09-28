@@ -195,6 +195,34 @@ describe("safe recoverable publication", () => {
     expect(await recoverBaseCommit(run.workspace!, run.id)).toBe(head);
     expect(await recoverBaseCommit(run.workspace!, "another-run")).toBe(commit);
   });
+  it("commits a change made only of new files when Git is set to hide untracked files", async () => {
+    const { base, root, config, run } = await fixture();
+    // The run's worktree shares this repository's configuration.
+    await util.checked("git", ["config", "status.showUntrackedFiles", "no"], {
+      cwd: root,
+    });
+    Object.assign(
+      run,
+      await createWorkspace(root, base, run.id, config.policy),
+    );
+    await mkdir(path.join(run.workspace!, "lib"));
+    await writeFile(
+      path.join(run.workspace!, "lib", "sum.cjs"),
+      "exports.sum = (a,b) => a + b;\n",
+    );
+    const { commit } = await publishRun(
+      root,
+      run,
+      config,
+      await workspaceFingerprint(run.workspace!, config.policy),
+    );
+    expect(commit).toMatch(/^[a-f0-9]{40}$/);
+    expect(
+      await util.checked("git", ["show", "--name-only", "--format=", commit!], {
+        cwd: run.workspace,
+      }),
+    ).toBe("lib/sum.cjs");
+  });
   it("reconciles a clean run-owned commit without creating a duplicate", async () => {
     const { base, root, config, run } = await fixture();
     Object.assign(

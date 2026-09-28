@@ -471,6 +471,31 @@ describe("security findings", () => {
     ]);
     expect(newFindings(after, undefined)).toHaveLength(2);
   });
+
+  it("reports an uncommitted new baseline as changed when Git is set to hide untracked files", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const { checked } = await import("../src/util.js");
+    const { baselineChanged, writeBaseline } =
+      await import("../src/security/scan.js");
+    const root = await mkdtemp(path.join(os.tmpdir(), "graph-baseline-"));
+    try {
+      await checked("git", ["init", "-b", "dev"], { cwd: root });
+      await checked("git", ["config", "status.showUntrackedFiles", "no"], {
+        cwd: root,
+      });
+      expect(await baselineChanged(root)).toBe(false);
+      await writeBaseline(root, { findings: [] });
+      // Git status on its own shows nothing for the new baseline here.
+      expect(
+        await checked("git", ["status", "--porcelain"], { cwd: root }),
+      ).toBe("");
+      expect(await baselineChanged(root)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // Needs the scanner image: docker build -t graph-security:local sidecars/security
