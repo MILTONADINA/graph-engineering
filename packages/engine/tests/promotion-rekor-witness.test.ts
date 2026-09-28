@@ -1092,7 +1092,13 @@ describe("Rekor witness refusals", () => {
 
   it("keeps its state under the per-user data directory", () => {
     expect(defaultRekorStateDir("darwin", {}, "/Users/o")).toBe(
-      "/Users/o/Library/Application Support/graph-engineering/rekor-witness",
+      path.join(
+        "/Users/o",
+        "Library",
+        "Application Support",
+        "graph-engineering",
+        "rekor-witness",
+      ),
     );
     expect(
       defaultRekorStateDir("linux", { XDG_DATA_HOME: "/x" }, "/home/o"),
