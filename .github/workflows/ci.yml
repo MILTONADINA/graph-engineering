@@ -49,6 +49,9 @@ jobs:
       - run: npm run check
       - name: Feature specs link real tests
         run: node packages/engine/dist/cli.js spec-check
+      - name: Built engine refuses a stale dist for cloud MCP
+        # After npm run check, which builds the engine only after its tests.
+        run: node --test scripts/dist-freshness.test.mjs
       - name: Fork branch-protection policy
         run: node --test scripts/branch-protection.test.mjs
       - name: Promotion key helper (temporary key directories only)
