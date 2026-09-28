@@ -442,10 +442,15 @@ describe("project overview regressions", () => {
       true,
     ).cards[0]!;
     expect(card.gates).toMatchObject({ checks: "passed", review: "stopped" });
+    // A resume never reaches this run's pinned reviewer, so a person's
+    // review, which resumes the run itself, is the only step offered.
     expect(card.commands).toEqual([
       `graph-engine review-approve pp --note "…"`,
-      `graph-engine resume pp --reconciled`,
     ]);
+    expect(card.next).toContain(
+      "A resume alone is blocked at review the same way",
+    );
+    expect(card.next).not.toContain("asks the reviewer again");
     expect(stoppedAtReview(events)).toBe(true);
   });
 });

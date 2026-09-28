@@ -533,23 +533,47 @@ export const REPEATED_REQUEST_FEEDBACK =
   "Your last request added nothing new: you already have those sources, or they do not fit the context budget. Propose your change now from the context you have, or request a different file or a smaller line range such as path#L1-L80. Another request that adds nothing stops the run.";
 
 /**
- * A cloud worker asked for paths the project does not export to it. Nothing
- * was read. Like a repeated request, it is answered once with feedback and
- * stops the step the second time.
+ * The refused paths as a worker or run error may show them: a path whose
+ * name looks like a credential is counted, never repeated, since a cloud
+ * worker's instructions holding a potential secret are refused at dispatch
+ * and so could not carry the feedback.
+ */
+function refusedPathList(paths: readonly string[]): string {
+  const named = paths.filter((relative) => !containsSecret(relative));
+  const hidden = paths.length - named.length;
+  const list = [
+    ...named,
+    ...(hidden
+      ? [
+          `${hidden} path${hidden === 1 ? "" : "s"} whose name looks like a credential`,
+        ]
+      : []),
+  ].join(", ");
+  // Paths that each hold no potential secret could still form one together.
+  return containsSecret(list)
+    ? `${paths.length} path${paths.length === 1 ? "" : "s"}`
+    : list;
+}
+
+/**
+ * A cloud worker asked for paths the project does not export to it, or whose
+ * names look like credentials. Nothing was read. Like a repeated request, it
+ * is answered once with feedback and stops the step the second time.
  */
 export class UnexportableRequestError extends Error {
   readonly paths: readonly string[];
   constructor(paths: readonly string[]) {
-    super(`Source request is not exportable: ${paths.join(", ")}`);
+    super(`Source request is not exportable: ${refusedPathList(paths)}`);
     this.paths = paths;
   }
 }
 
 /**
  * What a worker is told the first time it requests paths it may not receive.
- * It names only the paths the worker itself sent, and says nothing about
- * whether they exist.
+ * It names only paths the worker itself sent, counting rather than naming one
+ * whose name looks like a credential, and says nothing about whether they
+ * exist.
  */
 export function unexportableRequestFeedback(paths: readonly string[]): string {
-  return `You requested ${paths.join(", ")}, which this project does not share with your provider, so nothing was read. Propose your change now from the context you have, or request a different file. Another request that adds nothing stops the run.`;
+  return `You requested ${refusedPathList(paths)}, which this project does not share with your provider, so nothing was read. Propose your change now from the context you have, or request a different file. Another request that adds nothing stops the run.`;
 }
