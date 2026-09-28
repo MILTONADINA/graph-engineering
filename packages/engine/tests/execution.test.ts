@@ -926,6 +926,85 @@ describe("managed execution", () => {
     expect((await engine.wait(run.id)).status).toBe("succeeded");
     expect(workers).toBe(2);
   });
+  it("answers a cloud worker's request for a non-exportable file with feedback, then applies its change", async () => {
+    const { root, config, data } = await fixture();
+    config.policy = {
+      ...config.policy,
+      inference: "allowlisted",
+      network: "allowlisted",
+      allowedHosts: ["api.openai.com"],
+      providers: ["cloud"],
+      exportPaths: ["math.cjs"],
+    };
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await configureProvider(data, {
+      id: "cloud",
+      kind: "openai",
+      model: "fixture",
+    });
+    const inputs: { feedback?: string; context: string }[] = [];
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async (input) => {
+        inputs.push({
+          feedback: input.feedback,
+          context: JSON.stringify(input.context),
+        });
+        return {
+          model: "fixture",
+          proposal:
+            inputs.length === 1
+              ? {
+                  summary: "Need the test",
+                  requests: ["math.cjs", "math.test.cjs"],
+                  changes: [],
+                }
+              : {
+                  summary: "Fix addition",
+                  requests: [],
+                  changes: [
+                    { path: "math.cjs", before: "a - b", after: "a + b" },
+                  ],
+                },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cachedTokens: 0,
+            costUsd: 0,
+            estimated: false,
+          },
+        };
+      },
+      verify: async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "",
+          stderr: "",
+          snapshotHash,
+        })),
+    });
+    engines.push(engine);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["passes"],
+    });
+    const run = await engine.wait((await engine.start(plan.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(inputs).toHaveLength(2);
+    // Refused whole, before anything is read, and named only as requested.
+    expect(inputs[1]!.feedback).toContain(
+      "You requested math.test.cjs, which this project does not share with your provider, so nothing was read.",
+    );
+    expect(inputs[1]!.context).not.toContain("assert.equal(add(2, 3), 5)");
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "proposal.returned")
+        .map((event) => event.data.reason),
+    ).toEqual(["not-exportable"]);
+  });
   it("allows repeated close notifications", async () => {
     const { root } = await fixture();
     const engine = await GraphEngine.open(root);

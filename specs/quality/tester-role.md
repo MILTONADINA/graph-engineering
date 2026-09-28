@@ -18,9 +18,10 @@ and scanned before the run can succeed.
 
 - AC1: With a tester configured, a plan gains a first `tester` step with no dependencies that every root step depends on, uses the tester provider, is limited to test-file globs, and lists the plan's acceptance criteria.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: puts a tester step first that may write only new tests
-- AC2: The tester runs before the implementation and its tests land in the run's result; implementing steps are told which files it wrote.
+- AC2: The tester runs before the implementation and its tests land in the run's result; implementing steps are told which files it wrote. A cloud implementer is told only of the files it may request under `exportPaths` (the sentence is left out when there are none), and a request for another is answered with feedback instead of failing the run.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: puts a tester step first that may write only new tests
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: keeps test-first roles apart: the tester only creates tests, implementers may not change them
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: tells a cloud implementer only of the tester's files it may request, and answers a request for another with feedback
 - AC3: A tester edit outside its test-file scope is returned as feedback and never applied.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns an out-of-scope edit to the worker as feedback
   - Test: packages/engine/tests/dag.test.ts :: refuses a step's write outside its declared globs and accepts one inside

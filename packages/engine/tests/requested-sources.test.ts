@@ -11,6 +11,8 @@ import {
   recordShown,
   requestedSourcePacket,
   SuppliedLines,
+  UnexportableRequestError,
+  unexportableRequestFeedback,
   unseenPatchLocation,
 } from "../src/execution/requested-sources.js";
 import { workerRequestBytes, type WorkerInput } from "../src/workers/api.js";
@@ -175,6 +177,27 @@ describe("requested source packets", () => {
     await expect(
       request(root, [".env"], new SuppliedLines(), cloud),
     ).rejects.toThrow("Source request is not exportable: .env");
+    // A request that also names an exportable file is refused whole, before
+    // any file is read: reading open.ts would fail on its missing lines.
+    await writeFile(path.join(root, "open.ts"), "export const open = 1;\n");
+    cloud.policy = { ...cloud.policy, exportPaths: ["open.ts"] };
+    const refused = await request(
+      root,
+      ["open.ts#L50-L60", ".env#L1-L2", "private/key.ts"],
+      new SuppliedLines(),
+      cloud,
+    ).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(UnexportableRequestError);
+    expect((refused as UnexportableRequestError).paths).toEqual([
+      ".env",
+      "private/key.ts",
+    ]);
+    // The worker is told only the paths it sent, never whether they exist.
+    const feedback = unexportableRequestFeedback(
+      (refused as UnexportableRequestError).paths,
+    );
+    expect(feedback).toContain("You requested .env, private/key.ts");
+    expect(feedback).not.toMatch(/exist|missing|found/i);
   });
 
   it("refuses a cloud request whose file has a differently cased name on disk", async () => {

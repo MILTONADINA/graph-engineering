@@ -418,7 +418,7 @@ describe("managed DAG safety boundaries", () => {
     expect(run.commit).toBeUndefined();
   });
 
-  it("exports only allowed source and rejects private source requests before a second cloud call", async () => {
+  it("exports only allowed source, answers a private source request with feedback once and stops a repeat", async () => {
     const { root, data } = await fixture((config) => {
       config.policy.inference = "allowlisted";
       config.policy.network = "allowlisted";
@@ -470,11 +470,23 @@ describe("managed DAG safety boundaries", () => {
     });
     const run = await engine.wait((await engine.start(planned.id)).id);
     expect(run.status).toBe("failed");
-    expect(run.error).toMatch(/not exportable/);
-    expect(sent).toHaveLength(1);
+    expect(run.error).toMatch(/not exportable: second\.js/);
+    // The refusal is feedback once, naming only the path the worker sent;
+    // the second request for it stops the step without a third call.
+    expect(sent).toHaveLength(2);
     expect(sent[0]).toContain("first.js");
     expect(sent[0]).not.toContain("second.js");
-    expect(sent[0]).not.toContain("PRIVATE_CONTENT_CANARY");
+    expect(sent[1]).toContain(
+      "You requested second.js, which this project does not share with your provider",
+    );
+    for (const body of sent)
+      expect(body).not.toContain("PRIVATE_CONTENT_CANARY");
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "proposal.returned")
+        .map((event) => [event.stepId, event.data.reason]),
+    ).toEqual([["one", "not-exportable"]]);
     await assertUnchanged(run.workspace!);
   });
 
@@ -1470,6 +1482,91 @@ describe("tester role", () => {
       ["tester", "test-first"],
       ["one", "test-first"],
     ]);
+  });
+
+  it("tells a cloud implementer only of the tester's files it may request, and answers a request for another with feedback", async () => {
+    const cloudImplementer = async (written: string[]) => {
+      const { root, config } = await fixture((value) => {
+        value.policy.inference = "allowlisted";
+        value.policy.network = "allowlisted";
+        value.policy.allowedHosts = ["api.openai.com"];
+        value.policy.exportPaths = ["first.js", "shared.test.js"];
+        value.policy.providers = ["cloud", "tester"];
+        value.tester = { providerId: "tester" };
+      });
+      const data = projectDataDir(config.projectId);
+      await configureProvider(data, {
+        id: "cloud",
+        kind: "openai",
+        model: "fixture",
+      });
+      await configureProvider(data, {
+        id: "tester",
+        kind: "local",
+        model: "tester-fixture",
+      });
+      const implementer: WorkerInput[] = [];
+      const engine = await open(root, {
+        worker: vi.fn(async (input: WorkerInput) => {
+          if (input.provider.id === "tester")
+            return {
+              ...result("one"),
+              proposal: {
+                summary: "Tests",
+                requests: [],
+                changes: written.map((file) => ({
+                  path: file,
+                  before: null,
+                  after: `expect 3 // ${file === "private.test.js" ? "TESTER_PRIVATE_CANARY" : "shared"}\n`,
+                })),
+              },
+            };
+          implementer.push(input);
+          // A worker may still guess at a private test's name.
+          return implementer.length === 1
+            ? {
+                ...result("one"),
+                proposal: {
+                  summary: "Need the tests",
+                  requests: ["private.test.js"],
+                  changes: [],
+                },
+              }
+            : result("one");
+        }),
+      });
+      const planned = await plan(engine, [step("one", [], "cloud")]);
+      expect(planned.steps.map((item) => item.providerId)).toEqual([
+        "tester",
+        "cloud",
+      ]);
+      const run = await engine.wait((await engine.start(planned.id)).id);
+      return { run, implementer };
+    };
+
+    const mixed = await cloudImplementer(["shared.test.js", "private.test.js"]);
+    expect(mixed.run.error ?? "").toBe("");
+    expect(mixed.run.status).toBe("succeeded");
+    expect(mixed.implementer).toHaveLength(2);
+    expect(mixed.implementer[0]!.provider.kind).toBe("openai");
+    expect(mixed.implementer[0]!.objective).toContain(
+      "The tester has written tests for the acceptance criteria in shared.test.js. Request them",
+    );
+    expect(mixed.implementer[0]!.objective).not.toContain("private.test.js");
+    // The guessed request is refused as feedback instead of failing the run.
+    expect(mixed.implementer[1]!.feedback).toContain(
+      "You requested private.test.js, which this project does not share with your provider",
+    );
+    for (const input of mixed.implementer)
+      expect(JSON.stringify(input)).not.toContain("TESTER_PRIVATE_CANARY");
+
+    // With no test it may request, the sentence is left out.
+    const hidden = await cloudImplementer(["private.test.js"]);
+    expect(hidden.run.status).toBe("succeeded");
+    expect(hidden.implementer[0]!.objective).not.toContain(
+      "The tester has written",
+    );
+    expect(hidden.implementer[0]!.objective).not.toContain("private.test.js");
   });
 
   it("never lets a repair weaken the tests the tester wrote", async () => {

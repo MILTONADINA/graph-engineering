@@ -24,8 +24,10 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/requested-sources.test.ts :: stops a request that returns a file to content the worker already saw
 - AC5: A worker can complete a change to a large file end to end through outlines, line ranges and patch feedback.
   - Test: packages/engine/tests/execution.test.ts :: works through outlines, line ranges and patch feedback on a large file
-- AC6: Cloud workers cannot request non-exportable files, including a file whose name on disk differs in letter case from the exportable name requested (a name differing only in Unicode composition is the same file, and its on-disk name must itself be exportable), receive no range or outline of a file with a potential secret, and get patch details only for exportable paths.
+- AC6: Cloud workers cannot request non-exportable files, including a file whose name on disk differs in letter case from the exportable name requested (a name differing only in Unicode composition is the same file, and its on-disk name must itself be exportable), receive no range or outline of a file with a potential secret, and get patch details only for exportable paths. A request naming any path outside `exportPaths` is refused whole, by export policy alone, before any file is read; the worker is told so as feedback that names only the paths it sent, and can then propose its change.
   - Test: packages/engine/tests/requested-sources.test.ts :: refuses a non-exportable request for a cloud worker before reading it
+  - Test: packages/engine/tests/execution.test.ts :: answers a cloud worker's request for a non-exportable file with feedback, then applies its change
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: exports only allowed source, answers a private source request with feedback once and stops a repeat
   - Test: packages/engine/tests/requested-sources.test.ts :: refuses a cloud request whose file has a differently cased name on disk
   - Test: packages/engine/tests/policy.test.ts :: refuses to export a file whose name on disk differs in case from the exportable request
   - Test: packages/engine/tests/policy.test.ts :: finds a decomposed file by its composed name, and checks the name on disk is exportable
@@ -36,9 +38,10 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/execution.test.ts :: stops a worker that keeps requesting the same missing source
   - Test: packages/engine/tests/requested-sources.test.ts :: lists only files Git tracks or would track, never ignored or protected ones
   - Test: packages/engine/tests/requested-sources.test.ts :: gives a cloud worker a listing of exportable files only
-- AC8: A request that adds nothing new is answered once with feedback and stops the step the second time; a proposal that repeats a request but also proposes changes is applied.
+- AC8: A request that adds nothing new, or that a cloud worker makes for a non-exportable path, is answered once with feedback and stops the step the second time; a proposal that repeats a request but also proposes changes is applied.
   - Test: packages/engine/tests/execution.test.ts :: stops repeated source requests when the worker receives no new evidence
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: applies a DAG proposal that repeats a request but also proposes changes
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: exports only allowed source, answers a private source request with feedback once and stops a repeat
 - AC9: When a tight budget cannot fit every requested file, new evidence and earlier requests win, and the worker is told which files were left out.
   - Test: packages/engine/tests/requested-sources.test.ts :: keeps the first requested file when a tight budget cannot fit them all, and says what was left out
 - AC10: A failing check's feedback includes both its standard output and its error output.
@@ -49,7 +52,7 @@ Workers often need to change large files that do not fit in their context budget
 
 ## Security considerations
 
-Source requests come from a model and are untrusted: they are checked against the working set, exclusions and, for cloud workers, `exportPaths` and credential screening before the file is read. Export matching is case-sensitive while common file systems are not, so a cloud request is served only when each part of the path has exactly the requested name on disk. Feedback messages are built so they do not leak the run workspace location or details of non-exportable files. Repeat detection prevents a worker from burning the turn and cost budget by asking for content it has already seen.
+Source requests come from a model and are untrusted: they are checked against the working set, exclusions and, for cloud workers, `exportPaths` and credential screening before the file is read. Export matching is case-sensitive while common file systems are not, so a cloud request is served only when each part of the path has exactly the requested name on disk. Feedback messages are built so they do not leak the run workspace location or details of non-exportable files; a refused request is decided by export policy alone, so its feedback does not reveal whether the file exists. Repeat detection prevents a worker from burning the turn and cost budget by asking for content it has already seen.
 
 ## Non-goals
 

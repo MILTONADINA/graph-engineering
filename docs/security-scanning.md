@@ -262,8 +262,13 @@ and 1.1.1.1 are unreachable from it; CI runs these in the scanner job.
   repository's lockfiles into the private data directory; it needs
   `policy.network: "allowlisted"` with
   `osv-vulnerabilities.storage.googleapis.com` in `allowedHosts`, and it is
-  the only scanner step with network access. Every later `security-scan` and
-  run gate reads it offline, and `security-scan` reports the database's age,
+  the only scanner step with network access. Dependency resolution through
+  deps.dev is disabled (`--no-resolve`) in the download and in every scan:
+  OSV-Scanner would otherwise send the packages a manifest such as `pom.xml`
+  or `requirements.txt` declares, including private ones, to
+  `api.deps.dev`, a host the policy does not allow. A manifest is matched
+  only on what it declares. Every later `security-scan` and run gate reads
+  the database offline, and `security-scan` reports the database's age,
   flagging it stale after seven days. A lockfile whose ecosystem has no
   downloaded database makes the scan incomplete (so a run stops) with a
   message to run `security-db-update` again; it is never skipped silently.
