@@ -41,7 +41,7 @@ one key labels them all.
 | `s`          | Skip for now; at the end, `r` revisits skipped ones               |
 | `n`          | Type a short note that is saved with your next answer             |
 | `b`          | Back: undo your previous answer                                   |
-| `t`          | Answer this task's questions again                                |
+| `t`          | Answer this task's questions again, from freshly read runs        |
 | `e`          | Export what is labelled so far                                    |
 | `q`          | Quit (everything is already saved)                                |
 
@@ -79,10 +79,12 @@ exists:
   and cost.
 - Nor is anything derived while one of the task's runs has not stopped
   (planned, running or verifying): its outcome is not known and its cost is
-  still growing, so every outcome and cost is asked. Once it stops, press `t`
-  on one of the task's questions to derive them. A resumed run is judged by
-  its live status, not by the outcome its earlier attempt recorded; a run
-  that needs reconciliation counts as stopped and failed.
+  still growing, so every outcome and cost is asked. The labeller reads the
+  recorded runs again each time it asks a task's questions, so once the run
+  stops, press `t` on one of the task's questions to derive them; a task you
+  reach after its run stopped is derived without `t`. A resumed run is
+  judged by its live status, not by the outcome its earlier attempt
+  recorded; a run that needs reconciliation counts as stopped and failed.
 - `labelEvidence`: the packet's SHA-256 and the hash of your answer entry.
   `outcomeEvidence`: the hash of the run outcomes and answers used.
 

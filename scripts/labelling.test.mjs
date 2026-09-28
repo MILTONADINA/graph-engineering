@@ -869,6 +869,125 @@ test("labelling derives no outcome or cost from a run that has not stopped, nor 
   }
 });
 
+test("labelling reads the recorded runs again when it asks a task's questions, so a run that stopped mid-session is derived", async () => {
+  // A running run (cost 0.12) that the engine marks succeeded and accepted
+  // while the labeller is open. Every choice keeps the baseline, so once
+  // the labeller sees it stopped, both arms' outcomes and costs derive.
+  const running = (id) =>
+    run(id, `Synthetic objective ${id}`, {
+      status: "running",
+      completion: undefined,
+      usage: { ...run("x", "").usage, costUsd: 0.12 },
+    });
+  const stopRun = (directory, id) => () => {
+    const db = new Database(
+      path.join(directory, "projects", PROJECT, "runs.sqlite"),
+    );
+    try {
+      db.prepare("UPDATE runs SET json=? WHERE id=?").run(
+        JSON.stringify({ ...running(id), status: "succeeded" }),
+        id,
+      );
+      db.prepare(
+        "INSERT INTO run_outcomes(run_id,project_id,json) VALUES(?,?,?)",
+      ).run(
+        id,
+        PROJECT,
+        JSON.stringify({
+          runId: id,
+          status: "succeeded",
+          automatedChecksPassed: true,
+          humanAcceptance: "accepted",
+        }),
+      );
+    } finally {
+      db.close();
+    }
+  };
+  /** Stops the run as the key at `position` is read. */
+  const stopAtKey = (io, position, stop) => {
+    const readKey = io.readKey;
+    let read = 0;
+    io.readKey = async () => {
+      if (read++ === position) stop();
+      return readKey();
+    };
+    return io;
+  };
+  const setup = (tasks) => {
+    const directory = freshDir();
+    const decisions = [],
+      runs = [],
+      events = [],
+      observations = [];
+    for (const [taskId, item] of tasks) {
+      const decision = record(`rec-${item.id}`, "laya", "q1", "fast", 0.9);
+      decisions.push(decision);
+      runs.push(item);
+      events.push(decisionEvent(`event-${item.id}`, item.id, [decision.id]));
+      observations.push(observation(decision, taskId));
+    }
+    makeStore(directory, { decisions, runs, events });
+    const packetPath = path.join(directory, "packet-refresh.json");
+    writeFileSync(
+      packetPath,
+      JSON.stringify({
+        version: "1.0.0",
+        datasetId: "synthetic-refresh",
+        observations,
+      }),
+    );
+    return { directory, packetPath };
+  };
+  const derivedTask = (packetPath, taskId) =>
+    JSON.parse(readFileSync(companionPaths(packetPath).progress, "utf8")).tasks[
+      taskId
+    ];
+  const allDerived = [
+    "baselineSuccess",
+    "candidateSuccess",
+    "baselineCost",
+    "candidateCost",
+  ];
+
+  // `t`: the run stops after its task's questions were asked with it still
+  // running; pressing t reads it again and asks only the policy question.
+  const first = setup([["task-s", running("run-stop-0001")]]);
+  const redo = stopAtKey(
+    script(["c", "l", "u", "u", "n", "t", "c", "l", "n", "1"], ["", ""]),
+    5,
+    stopRun(first.directory, "run-stop-0001"),
+  );
+  await labelSession(session(first), redo);
+  assert.equal(redo.output.match(/not finished yet/g).length, 1);
+  assert.match(redo.output, /Run run-stop · succeeded · acceptance accepted/);
+  assert.match(redo.output, /baselineSuccess: true \(from recorded runs\)/);
+  assert.match(redo.output, /baselineCost: 0\.12 \(from recorded runs\)/);
+  const redone = derivedTask(first.packetPath, "task-s");
+  assert.deepEqual(redone.derived, allDerived);
+  assert.equal(redone.baselineSuccess, true);
+  assert.equal(redone.candidateCost, 0.12);
+  assert.equal(redone.policyViolation, false);
+
+  // A later task: its run stops while an earlier task is being labelled,
+  // and it is derived when the labeller reaches it, without pressing t.
+  const second = setup([
+    ["task-a", run("run-done-0001", "Synthetic objective done")],
+    ["task-u", running("run-stop-0002")],
+  ]);
+  const later = stopAtKey(
+    script(["c", "l", "n", "1", "c", "l", "n", "1"]),
+    3,
+    stopRun(second.directory, "run-stop-0002"),
+  );
+  await labelSession(session(second), later);
+  assert.doesNotMatch(later.output, /not finished yet/);
+  const reached = derivedTask(second.packetPath, "task-u");
+  assert.deepEqual(reached.derived, allDerived);
+  assert.equal(reached.baselineSuccess, true);
+  assert.equal(reached.baselineCost, 0.12);
+});
+
 /**
  * One route's rows for `gateProgress`: each row is its own task with the
  * given split, confidence, correctness and completeness.
