@@ -295,6 +295,32 @@ describe("durable inference accounting", () => {
     await second.recoverInterrupted();
     expect(second.run(run.id).status).toBe("needs_reconciliation");
   });
+  it("drops a pending acceptance from a run it records as needing reconciliation", async () => {
+    const { directory, first, second } = await fixture();
+    // An older engine saved the acceptance while the run was still
+    // verifying, before its memory capture, and its process died there.
+    const run = {
+      id: "accepting-run",
+      plan: { id: "accepting-plan" },
+      status: "verifying",
+      completion: {
+        automatedChecksPassed: true,
+        humanAcceptance: "pending",
+        reviewScope: "normal",
+      },
+    } as RunRecord;
+    first.reserve(run, 1);
+    const db = new Database(path.join(directory, "runs.sqlite"));
+    db.prepare(
+      "UPDATE owner_proofs SET verifier=? WHERE kind='run' AND id=?",
+    ).run("c".repeat(64), run.id);
+    db.close();
+    await second.recoverInterrupted(run.id);
+    const recovered = second.run(run.id);
+    expect(recovered.status).toBe("needs_reconciliation");
+    expect(recovered.completion).toBeUndefined();
+    expect(second.outcomes(run.id).at(-1)?.humanAcceptance).toBeNull();
+  });
   it("retains a legacy PID-only worker slot when that PID is still live", async () => {
     const { directory, first } = await fixture();
     const db = new Database(path.join(directory, "runs.sqlite"));

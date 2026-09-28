@@ -19,10 +19,12 @@ A team learns by looking back at what it decided and how that turned out. Operat
 - AC4: An outcome links the memories present in the context the run's workers received, and records the security gate.
   - Test: packages/engine/tests/outcomes.test.ts :: links the memories present in the run's context
   - Test: packages/engine/tests/execution.test.ts :: records the security gate in each run's outcome
-- AC5: A person can accept or reject a result once, and only a succeeded result; a decision recorded from another process while the run finishes is never reverted to pending. Only a run whose publication succeeded carries a pending acceptance: a run that fails, is cancelled or needs reconciliation after its checks passed records no completion awaiting a person.
+- AC5: A person can accept or reject a result once, and only a succeeded result; a decision recorded from another process while the run finishes is never reverted to pending. Only a run whose publication succeeded carries a pending acceptance: a run that fails, is cancelled or needs reconciliation after its checks passed records no completion awaiting a person. That includes a run whose process dies after publication while it captures the run's memory: the pending acceptance is saved only with the succeeded status, and recovery drops one that an older engine saved earlier from the run it records as needing reconciliation.
   - Test: packages/engine/tests/outcomes.test.ts :: records a person's acceptance once, only for a succeeded result
   - Test: packages/engine/tests/outcomes.test.ts :: never reverts a person's decision recorded while the run finishes
   - Test: packages/engine/tests/execution.test.ts :: records a pending acceptance only on a run whose publication succeeded
+  - Test: packages/engine/tests/execution.test.ts :: leaves no pending acceptance on a run whose process dies while it captures memory after publication
+  - Test: packages/engine/tests/ledger.test.ts :: drops a pending acceptance from a run it records as needing reconciliation
 - AC6: A rejection's note becomes a proposed, private memory that needs a second human decision to take effect.
   - Test: packages/engine/tests/outcomes.test.ts :: turns a rejection's note into a proposed memory
 

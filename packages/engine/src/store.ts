@@ -779,8 +779,12 @@ export class RunStore {
             const latest = this.run(run.id);
             if (!["planned", "running", "verifying"].includes(latest.status))
               return;
+            // Only a succeeded run awaits a person's acceptance. An older
+            // engine saved it on a run still verifying, before memory
+            // capture, so a process that died there left one behind.
+            const { completion: _completion, ...record } = latest;
             const stopped: RunRecord = {
-              ...latest,
+              ...record,
               status: "needs_reconciliation",
               updatedAt: now(),
               error:

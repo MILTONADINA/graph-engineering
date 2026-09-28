@@ -1,10 +1,16 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdir, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
 import {
   DEFAULT_POLICY,
+  type ExecutionPlan,
   type ProjectConfig,
+  type RunRecord,
 } from "@graph-engineering/contracts";
 import {
   initializeProject,
@@ -19,6 +25,7 @@ import { invokeApiWorker } from "../src/workers/api.js";
 import { checked, writeJson } from "../src/util.js";
 import * as util from "../src/util.js";
 import { RunStore } from "../src/store.js";
+import { ContextEngine } from "../src/context/index.js";
 
 const roots: string[] = [];
 const engines: GraphEngine[] = [];
@@ -65,6 +72,52 @@ async function fixture() {
     endpoint: "http://127.0.0.1:11434/v1",
   });
   return { root, config, data };
+}
+// Stands in for a `graph-engine run` process that reserved these runs as
+// their owner and was then killed (SIGKILL, an out-of-memory kill or a
+// closed terminal), so nothing finishes them. An engine that was already
+// open, such as the dashboard's or an MCP server's, did its start-up
+// recovery before they existed.
+async function orphanRuns(
+  data: string,
+  projectId: string,
+  runs: RunRecord[],
+): Promise<void> {
+  const moduleUrl = new URL("../src/store.ts", import.meta.url).href;
+  const script = `
+    import { RunStore } from ${JSON.stringify(moduleUrl)};
+    const store = new RunStore(process.env.GRAPH_TEST_DATA_DIR, process.env.GRAPH_TEST_PROJECT_ID);
+    await store.ownerReady();
+    for (const run of JSON.parse(process.env.GRAPH_TEST_RUNS)) store.reserve(run, 100);
+    process.stdout.write("READY\\n");
+    process.stdin.resume();
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", script],
+    {
+      cwd: fileURLToPath(new URL("..", import.meta.url)),
+      env: {
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        GRAPH_TEST_DATA_DIR: data,
+        GRAPH_TEST_PROJECT_ID: projectId,
+        GRAPH_TEST_RUNS: JSON.stringify(runs),
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+  const exited = once(child, "exit");
+  try {
+    const [chunk] = await once(child.stdout!, "data", {
+      signal: AbortSignal.timeout(10000),
+    });
+    expect(String(chunk)).toContain("READY");
+  } finally {
+    if (child.exitCode === null && child.signalCode === null)
+      child.kill("SIGKILL");
+    await exited;
+  }
 }
 describe("managed execution", () => {
   it("gives the worker a failing check's stdout even when stderr has unrelated warnings", async () => {
@@ -904,8 +957,94 @@ describe("managed execution", () => {
     await other.recoverInterrupted();
     expect(other.run(run.id).status).not.toBe("needs_reconciliation");
     other.close();
-    engine.cancel(run.id);
+    await engine.cancel(run.id);
     expect((await engine.wait(run.id)).status).toBe("cancelled");
+  });
+  it("recovers runs whose process died before a long-lived engine cancels, resumes or starts one", async () => {
+    const { root, config, data } = await fixture();
+    // The dashboard's or an MCP server's engine, open before the runs below
+    // were reserved.
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker: async () => ({
+        model: "fixture",
+        proposal: {
+          summary: "Fix addition",
+          requests: [],
+          changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+        },
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedTokens: 0,
+          costUsd: 0,
+          estimated: false,
+        },
+      }),
+      verify: async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "",
+          stderr: "",
+          snapshotHash,
+        })),
+    });
+    engines.push(engine);
+    const plans: ExecutionPlan[] = [];
+    for (let index = 0; index < 7; index++)
+      plans.push(
+        await engine.createPlan({
+          objective: "Fix addition",
+          acceptance: ["tests pass"],
+        }),
+      );
+    const orphan = (id: string, plan: ExecutionPlan): RunRecord => ({
+      id,
+      plan,
+      status: "running",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      usage: engine.store.usage(plan.id),
+    });
+    // Two dead runs fill both of the project's worker slots (maxWorkers 2).
+    expect(config.policy.maxWorkers).toBe(2);
+    await orphanRuns(data, config.projectId, [
+      orphan("orphan-one", plans[0]!),
+      orphan("orphan-two", plans[1]!),
+    ]);
+    expect(engine.store.run("orphan-one").status).toBe("running");
+    const started = await engine.start(plans[2]!.id);
+    expect(engine.store.run("orphan-one").status).toBe("needs_reconciliation");
+    expect(engine.store.run("orphan-two").status).toBe("needs_reconciliation");
+    expect((await engine.wait(started.id)).status).toBe("succeeded");
+
+    await orphanRuns(data, config.projectId, [
+      orphan("orphan-three", plans[3]!),
+      orphan("orphan-four", plans[4]!),
+      orphan("orphan-five", plans[5]!),
+      orphan("orphan-six", plans[6]!),
+    ]);
+    // No process would read a cancel request, so the run is recorded as
+    // needing reconciliation instead.
+    await expect(engine.cancel("orphan-three")).rejects.toThrow(
+      "Run is not active: it needs reconciliation",
+    );
+    expect(engine.store.run("orphan-three").status).toBe(
+      "needs_reconciliation",
+    );
+    expect(
+      engine.store.events("orphan-three").map((event) => event.type),
+    ).toEqual(["recovery.required"]);
+    // A person who reconciled it can resume it at once, although two more
+    // dead runs held both worker slots.
+    expect(engine.store.run("orphan-four").status).toBe("running");
+    await engine.resume("orphan-four", true);
+    const resumed = await engine.wait("orphan-four");
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(engine.store.run("orphan-five").status).toBe("needs_reconciliation");
+    expect(engine.store.run("orphan-six").status).toBe("needs_reconciliation");
   });
   it("records a worker dispatch only once its call is reserved, so a run cancelled while waiting for a slot resumes", async () => {
     const { root } = await fixture();
@@ -958,7 +1097,7 @@ describe("managed execution", () => {
     });
     const run = await engine.start(plan.id);
     await blocked;
-    engine.cancel(run.id);
+    await engine.cancel(run.id);
     expect((await engine.wait(run.id)).status).toBe("cancelled");
     expect(worker).not.toHaveBeenCalled();
     expect(
@@ -2397,7 +2536,8 @@ describe("code review gate", () => {
       reviews: [approve],
       configure: publishing(() => {
         const engine = engines.at(-1)!;
-        engine.cancel(engine.store.runs()[0]!.id);
+        // The run executes in this engine, so the cancel reaches it at once.
+        void engine.cancel(engine.store.runs()[0]!.id);
         return 0;
       }),
     });
@@ -2454,6 +2594,53 @@ describe("code review gate", () => {
     const resumed = await engine.wait(result.id);
     expect(resumed.status).toBe("needs_reconciliation");
     expect(engine.store.run(result.id).completion).toBeUndefined();
+  });
+
+  it("leaves no pending acceptance on a run whose process dies while it captures memory after publication", async () => {
+    // The run's memory capture after publication is where its process dies
+    // (SIGKILL, an out-of-memory kill or a closed terminal). Another
+    // process reads the run there, then recovers it as the next engine to
+    // open would. This process goes on only so the test can close it.
+    let during: RunRecord | undefined;
+    let recovered: RunRecord | undefined;
+    const createMemory = ContextEngine.prototype.createMemory;
+    vi.spyOn(ContextEngine.prototype, "createMemory").mockImplementation(
+      async function (this: ContextEngine, input) {
+        if (input.text.startsWith("Completed task:")) {
+          const engine = engines.at(-1)!;
+          const data = projectDataDir(engine.config.projectId);
+          const runId = engine.store.runs()[0]!.id;
+          const other = new RunStore(data, engine.config.projectId);
+          try {
+            during = other.run(runId);
+            const db = new Database(path.join(data, "runs.sqlite"));
+            db.prepare(
+              "UPDATE owner_proofs SET verifier=? WHERE kind='run' AND id=?",
+            ).run("d".repeat(64), runId);
+            db.close();
+            await other.recoverInterrupted(runId);
+            recovered = other.run(runId);
+          } finally {
+            other.close();
+          }
+        }
+        return createMemory.call(this, input);
+      },
+    );
+    const { result } = await setup({
+      reviews: [approve],
+      configure: publishing(() => 0),
+    });
+    expect(during?.status).toBe("verifying");
+    expect(during?.pullRequest).toBe(
+      "https://github.com/test-owner/test-repo/pull/1",
+    );
+    expect(during?.completion).toBeUndefined();
+    expect(recovered?.status).toBe("needs_reconciliation");
+    expect(recovered?.completion).toBeUndefined();
+    // A run that completes still awaits a person's acceptance.
+    expect(result.status).toBe("succeeded");
+    expect(result.completion?.humanAcceptance).toBe("pending");
   });
 
   it("refuses a cloud reviewer for non-exportable changes and reports a failed review", async () => {

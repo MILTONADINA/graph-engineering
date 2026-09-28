@@ -517,7 +517,7 @@ export function createMcpServer(
       },
       async ({ runId }) => {
         await allowed();
-        const run = engine.cancel(runId);
+        const run = await engine.cancel(runId);
         return result({ id: run.id, status: run.status });
       },
     );
