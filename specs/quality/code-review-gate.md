@@ -29,10 +29,11 @@ A team does not call work done because its author says so or because tests pass;
   - Test: packages/engine/tests/execution.test.ts :: refuses a cloud reviewer for non-exportable changes and reports a failed review
   - Test: packages/engine/tests/review.test.ts :: refuses secrets for cloud reviewers, oversized changes and installed agents
 
-- AC7: A person can approve a run's change in place of the reviewer, from the command line only, when the run stopped at review after its required checks passed and its retained workspace still matches that snapshot; the run then completes, and its review is recorded as approved by a person, shown separately from AI approvals.
+- AC7: A person can approve a run's change in place of the reviewer, from the command line only, when the run's latest attempt stopped at review after its required checks passed and its retained workspace still matches that snapshot; the run then completes, and its review is recorded as approved by a person, shown separately from AI approvals.
   - Test: packages/engine/tests/execution.test.ts :: lets a person approve in place of the reviewer, recorded as a person's approval
   - Test: packages/engine/tests/execution.test.ts :: refuses a person's approval when the checks did not pass or the change moved
   - Test: packages/engine/tests/execution.test.ts :: refuses a person's approval for a run the reviewer approved that failed afterwards
+  - Test: packages/engine/tests/execution.test.ts :: refuses a person's approval when the latest attempt stopped before reaching review again
   - Test: packages/engine/tests/mcp.test.ts :: lets a connected client plan, start, follow, list and cancel runs only when enabled
 
 ## Security considerations

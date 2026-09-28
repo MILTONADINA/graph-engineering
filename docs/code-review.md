@@ -94,14 +94,17 @@ senior reviewer would:
 graph-engine review-approve <run-id> --note "What you reviewed"
 ```
 
-The command refuses unless the run stopped at code review, its last
-required checks passed, and its retained workspace still matches the
-snapshot those checks ran on. It records your approval for that snapshot
-only and resumes the run, which then completes without calling the
-reviewer again. The outcome records the review as `approved-by-person`,
-shown separately from the reviewer's approvals on the board and in
-`outcomes --summary`. Accepting the result is still a separate step
-(`graph-engine accept`). Connected AI clients cannot approve a review.
+The command refuses unless the run's latest attempt stopped at code
+review after that attempt's required checks passed, and its retained
+workspace still matches the snapshot those checks ran on. A resume that
+stopped before reaching review again cannot be approved: fix what stopped
+it and resume, and approve once it stops at review again. The command
+records your approval for that snapshot only and resumes the run, which
+then completes without calling the reviewer again. The outcome records
+the review as `approved-by-person`, shown separately from the reviewer's
+approvals on the board and in `outcomes --summary`. Accepting the result
+is still a separate step (`graph-engine accept`). Connected AI clients
+cannot approve a review.
 
 The [project board](project-overview.md) lists this command first for a
 run in that state. Approve it rather than raise `policy.maxTurns`: a

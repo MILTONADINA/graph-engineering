@@ -30,14 +30,16 @@ Each card shows:
   command to run (`graph-engine accept`, `reject`, `review-approve` or
   `resume --reconciled`).
 
-A run that stopped at code review after its required checks passed (the
-reviewer asked for changes, or never finished, for example because the
-run's turn budget ran out) lists
+A run whose latest attempt stopped at code review after its required
+checks passed (the reviewer asked for changes, or never finished, for
+example because the run's turn budget ran out) lists
 `graph-engine review-approve <run-id> --note "…"` first, by the same test
 the command itself applies ([a person's review](code-review.md#a-persons-review)).
 Resuming it asks the reviewer again, so a spent turn budget stops it at
 review again; raising `policy.maxTurns` changes the policy, which voids
-both commands for that run.
+both commands for that run. A resume that stopped before reaching review
+again lists only `resume`, as its gates show: the command refuses an
+earlier attempt's review.
 
 The board refreshes every few seconds while work is running and more
 slowly when idle. It is drawn only from recorded run records and events

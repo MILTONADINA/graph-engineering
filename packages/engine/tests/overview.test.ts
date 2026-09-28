@@ -4,7 +4,11 @@ import type {
   RunEvent,
   RunRecord,
 } from "@graph-engineering/contracts";
-import { projectOverview } from "../src/overview.js";
+import {
+  passedChecksSnapshot,
+  projectOverview,
+  stoppedAtReview,
+} from "../src/overview.js";
 
 const step = (id: string, dependsOn: string[] = []): ExecutionStep => ({
   id,
@@ -347,5 +351,68 @@ describe("project overview regressions", () => {
     expect(byId.lll!.commands).toEqual([resume("lll")]);
     expect(byId.mmmm!.gates.review).toBe("not-configured");
     expect(byId.mmmm!.commands).toEqual([resume("mmmm")]);
+  });
+
+  it("offers review-approve only when the latest attempt itself stopped at code review", () => {
+    const resume = (id: string) => `graph-engine resume ${id} --reconciled`;
+    const approve = (id: string) =>
+      `graph-engine review-approve ${id} --note "…"`;
+    // Attempt 1 passed its checks and stopped at review (a spent turn
+    // budget); the resume stopped before running its checks, in context
+    // assembly, say. Its gates read not run, so neither may its guidance.
+    const firstAttempt = (id: string) => [
+      event(id, "run.started"),
+      event(id, "verification.started"),
+      event(id, "verification.completed", {
+        checks: [{ code: 0 }],
+        snapshotHash: "h",
+      }),
+      event(id, "review.started", { providerId: "reviewer" }),
+    ];
+    const stoppedEarly = [
+      ...firstAttempt("n"),
+      event("n", "recovery.acknowledged"),
+      event("n", "run.started", { resuming: true }),
+    ];
+    // The next resume reached review again and stopped there.
+    const reachedReview = [
+      ...stoppedEarly.map((item) => ({ ...item, runId: "oo" })),
+      event("oo", "verification.started"),
+      event("oo", "verification.completed", {
+        checks: [{ code: 0 }],
+        snapshotHash: "h",
+      }),
+      event("oo", "review.started", { providerId: "reviewer" }),
+    ];
+    const result = overview(
+      [
+        run("n", "failed", { error: "Context assembly failed" }),
+        run("oo", "failed", {
+          error:
+            "Code review did not complete: Run exhausted its shared worker-turn budget",
+        }),
+      ],
+      [...stoppedEarly, ...reachedReview],
+      true,
+    );
+    const byId = Object.fromEntries(
+      result.cards.map((card) => [card.runId, card]),
+    );
+    expect(byId.n!.gates).toMatchObject({
+      checks: "not-run",
+      review: "not-run",
+    });
+    expect(byId.n!.commands).toEqual([resume("n")]);
+    expect(byId.n!.next).toMatch(/^Stopped before passing its gates/);
+    // `review-approve` refuses it by the same test.
+    expect(stoppedAtReview(stoppedEarly)).toBe(false);
+    expect(passedChecksSnapshot(stoppedEarly)).toBeUndefined();
+    expect(byId.oo!.gates).toMatchObject({
+      checks: "passed",
+      review: "stopped",
+    });
+    expect(byId.oo!.commands).toEqual([approve("oo"), resume("oo")]);
+    expect(stoppedAtReview(reachedReview)).toBe(true);
+    expect(passedChecksSnapshot(reachedReview)).toBe("h");
   });
 });

@@ -63,12 +63,28 @@ const PHASES: [string, string][] = [
 ];
 
 /**
- * Whether a run's events show it stopped at code review: its last review
+ * A run's latest attempt: its events from the last `run.started` on (all of
+ * them for a run recorded before attempts were marked).
+ */
+export function latestAttempt(events: RunEvent[]): RunEvent[] {
+  return events.slice(
+    Math.max(
+      0,
+      events.findLastIndex((event) => event.type === "run.started"),
+    ),
+  );
+}
+
+/**
+ * Whether a run's latest attempt stopped at code review: its last review
  * either asked for changes or never finished, and nothing ran after it (a
  * later security, publication or verification step is not a review a person
- * can stand in for). `approveReview` and the board share this test.
+ * can stand in for). An earlier attempt's review does not count: a resume
+ * that stopped before reaching review again did not stop there.
+ * `approveReview` and the board share this test.
  */
-export function stoppedAtReview(events: RunEvent[]): boolean {
+export function stoppedAtReview(runEvents: RunEvent[]): boolean {
+  const events = latestAttempt(runEvents);
   const lastReview = events.findLastIndex(
     (event) =>
       event.type === "review.started" || event.type === "review.completed",
@@ -90,12 +106,15 @@ export function stoppedAtReview(events: RunEvent[]): boolean {
 }
 
 /**
- * The snapshot the run's last required checks passed on, or undefined when
- * they did not all pass: the only snapshot a person's review can stand in
- * for the reviewer on. `approveReview` and the board share this test.
+ * The snapshot the required checks of the run's latest attempt last passed
+ * on, or undefined when they did not all pass or that attempt never ran
+ * them: the only snapshot a person's review can stand in for the reviewer
+ * on. `approveReview` and the board share this test.
  */
-export function passedChecksSnapshot(events: RunEvent[]): string | undefined {
-  const passed = events.findLast(
+export function passedChecksSnapshot(
+  runEvents: RunEvent[],
+): string | undefined {
+  const passed = latestAttempt(runEvents).findLast(
     (event) => event.type === "verification.completed",
   );
   const checks = passed?.data.checks;
@@ -156,12 +175,7 @@ function card(
   outcomes: RunOutcome[],
   options: { reviewerConfigured: boolean },
 ): OverviewCard {
-  const attempt = events.slice(
-    Math.max(
-      0,
-      events.findLastIndex((event) => event.type === "run.started"),
-    ),
-  );
+  const attempt = latestAttempt(events);
   const last = (type: string) =>
     attempt.findLast((event) => event.type === type);
   const active = ["planned", "running", "verifying"].includes(run.status);
@@ -284,9 +298,9 @@ function card(
 
   const column = columnOf(run);
   const resume = `graph-engine resume ${run.id} --reconciled`;
-  // The same test `graph-engine review-approve` applies, over the whole run
-  // as it does: a person can stand in for the reviewer here, and a resume
-  // asks the reviewer again.
+  // The same test `graph-engine review-approve` applies, over the latest
+  // attempt the gates above describe: a person can stand in for the
+  // reviewer here, and a resume asks the reviewer again.
   const approvable =
     run.status === "failed" &&
     configured &&
