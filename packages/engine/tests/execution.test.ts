@@ -770,6 +770,78 @@ describe("managed execution", () => {
     engine.cancel(run.id);
     expect((await engine.wait(run.id)).status).toBe("cancelled");
   });
+  it("records a worker dispatch only once its call is reserved, so a run cancelled while waiting for a slot resumes", async () => {
+    const { root } = await fixture();
+    const worker = vi.fn(async () => ({
+      model: "fixture",
+      proposal: {
+        summary: "Fix addition",
+        requests: [],
+        changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+      },
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cachedTokens: 0,
+        costUsd: 0,
+        estimated: false,
+      },
+    }));
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+      worker,
+      verify: async (_workspace, checks, _policy, snapshotHash) =>
+        checks.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "passed",
+          stderr: "",
+          snapshotHash,
+        })),
+    });
+    engines.push(engine);
+    // Other work holds both worker slots, so the run waits for one.
+    expect(await engine.store.tryAcquireWorker("held-a", 2)).toBe(true);
+    expect(await engine.store.tryAcquireWorker("held-b", 2)).toBe(true);
+    const acquire = engine.store.tryAcquireWorker.bind(engine.store);
+    let waiting!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      waiting = resolve;
+    });
+    vi.spyOn(engine.store, "tryAcquireWorker").mockImplementation(
+      async (...args) => {
+        const acquired = await acquire(...args);
+        if (!acquired) waiting();
+        return acquired;
+      },
+    );
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["tests pass"],
+    });
+    const run = await engine.start(plan.id);
+    await blocked;
+    engine.cancel(run.id);
+    expect((await engine.wait(run.id)).status).toBe("cancelled");
+    expect(worker).not.toHaveBeenCalled();
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "worker.dispatched"),
+    ).toHaveLength(0);
+    engine.store.releaseWorker("held-a");
+    engine.store.releaseWorker("held-b");
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.status).toBe("succeeded");
+    expect(worker).toHaveBeenCalledTimes(1);
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "worker.dispatched"),
+    ).toHaveLength(1);
+  });
   it("re-verifies a retained patch on resume without replaying the worker", async () => {
     const { root } = await fixture();
     let calls = 0,

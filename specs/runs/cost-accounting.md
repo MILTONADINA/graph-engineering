@@ -30,6 +30,10 @@ token count is not known, it stays unknown instead of becoming zero.
 - AC4: Worker turns and pending reservations survive a resume and a new connection; an ambiguous billed failure keeps its reservation rather than refunding it.
   - Test: packages/engine/tests/ledger.test.ts :: retains all durable worker turns and pending cost reservations across resume and connections
   - Test: packages/engine/tests/decision-batch.test.ts :: retains a reservation after ambiguous billed failures rather than refunding unconfirmed costs
+- AC5: A worker dispatch is recorded only once its call is reserved, so a run cancelled or timed out while it waits for a worker slot keeps a consistent ledger and can be resumed.
+  - Test: packages/engine/tests/execution.test.ts :: records a worker dispatch only once its call is reserved, so a run cancelled while waiting for a slot resumes
+- AC6: Releasing a worker slot and marking an interrupted run wait for another connection's write instead of failing, so a settled call is not lost and its slot is not leaked.
+  - Test: packages/engine/tests/ledger.test.ts :: waits for another connection's write before releasing a worker slot or recovering a run
 
 ## Security considerations
 

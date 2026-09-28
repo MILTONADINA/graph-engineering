@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { lstatSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -32,6 +34,31 @@ async function fixture() {
     second = new RunStore(directory, "project-ledger");
   stores.push(first, second);
   return { directory, first, second };
+}
+// Takes the database's write lock on another thread and releases it on its
+// own timer: the caller's thread may be blocked in SQLite's busy handler.
+async function holdWriteLock(directory: string, milliseconds: number) {
+  const holder = new Worker(
+    `const { parentPort, workerData } = require("node:worker_threads");
+    const Database = require(workerData.module);
+    const db = new Database(workerData.file);
+    db.exec("BEGIN IMMEDIATE");
+    parentPort.postMessage("locked");
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.milliseconds);
+    db.exec("COMMIT");
+    db.close();`,
+    {
+      eval: true,
+      workerData: {
+        module: createRequire(import.meta.url).resolve("better-sqlite3"),
+        file: path.join(directory, "runs.sqlite"),
+        milliseconds,
+      },
+    },
+  );
+  const [message] = await once(holder, "message");
+  expect(message).toBe("locked");
+  return { released: once(holder, "exit") };
 }
 describe("durable inference accounting", () => {
   it("keeps the local ownership endpoint private", async () => {
@@ -311,6 +338,29 @@ describe("durable inference accounting", () => {
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill();
     }
+  });
+  it("waits for another connection's write before releasing a worker slot or recovering a run", async () => {
+    const { directory, first } = await fixture();
+    await first.ownerReady();
+    expect(await first.tryAcquireWorker("held-slot", 1)).toBe(true);
+    // Another connection holds the write lock for a moment, as a second run,
+    // the dashboard or the MCP server writing runs.sqlite would.
+    let writer = await holdWriteLock(directory, 300);
+    first.releaseWorker("held-slot");
+    await writer.released;
+    expect(await first.tryAcquireWorker("next-slot", 1)).toBe(true);
+    first.releaseWorker("next-slot");
+    // A run whose owner is gone (no owner row at all) is recovered.
+    const run = {
+      id: "interrupted-run",
+      plan: { id: "interrupted-plan" },
+      status: "running",
+    } as RunRecord;
+    first.saveRun(run);
+    writer = await holdWriteLock(directory, 300);
+    await first.recoverInterrupted();
+    await writer.released;
+    expect(first.run(run.id).status).toBe("needs_reconciliation");
   });
   it("rejects newer database schemas instead of downgrading them", async () => {
     const directory = await mkdtemp(

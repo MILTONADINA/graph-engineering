@@ -194,21 +194,27 @@ export class RunStore {
       })
       .immediate();
   }
+  // Immediate, like every read-then-write transaction here: a deferred one
+  // reads first and then cannot wait for the write lock (SQLite returns
+  // SQLITE_BUSY at once instead of using busy_timeout), which would fail a
+  // settled call and leak its slot.
   releaseWorker(callId: string): void {
-    this.db.transaction(() => {
-      const owner = this.proof("worker", callId, process.pid);
-      if (!owner || owner.verifier !== localProcessOwner().verifier) return;
-      this.db
-        .prepare(
-          "DELETE FROM worker_leases WHERE id=? AND project_id=? AND pid=?",
-        )
-        .run(callId, this.projectId, process.pid);
-      this.db
-        .prepare(
-          "DELETE FROM owner_proofs WHERE kind='worker' AND id=? AND project_id=?",
-        )
-        .run(callId, this.projectId);
-    })();
+    this.db
+      .transaction(() => {
+        const owner = this.proof("worker", callId, process.pid);
+        if (!owner || owner.verifier !== localProcessOwner().verifier) return;
+        this.db
+          .prepare(
+            "DELETE FROM worker_leases WHERE id=? AND project_id=? AND pid=?",
+          )
+          .run(callId, this.projectId, process.pid);
+        this.db
+          .prepare(
+            "DELETE FROM owner_proofs WHERE kind='worker' AND id=? AND project_id=?",
+          )
+          .run(callId, this.projectId);
+      })
+      .immediate();
   }
   planSnapshotIds(): string[] {
     return [
@@ -688,33 +694,36 @@ export class RunStore {
           ? await processOwnerState(owner)
           : legacyOwnerState(original?.pid);
         if (state !== "dead") continue;
-        this.db.transaction(() => {
-          const current = this.db
-            .prepare("SELECT pid FROM run_owners WHERE run_id=?")
-            .get(run.id) as { pid: number } | undefined;
-          const currentOwner = current
-            ? this.proof("run", run.id, current.pid)
-            : null;
-          if (
-            current?.pid !== original?.pid ||
-            currentOwner?.endpoint !== owner?.endpoint ||
-            currentOwner?.verifier !== owner?.verifier
-          )
-            return;
-          const latest = this.run(run.id);
-          if (!["planned", "running", "verifying"].includes(latest.status))
-            return;
-          const stopped: RunRecord = {
-            ...latest,
-            status: "needs_reconciliation",
-            updatedAt: now(),
-            error:
-              "The previous process stopped during execution. Inspect its workspace and events before retrying.",
-          };
-          this.saveRun(stopped);
-          this.event(run.id, "recovery.required", {});
-          this.recordOutcome(this.outcomeFor(stopped, "terminal"));
-        })();
+        // Immediate: this reads the owner, then writes the stopped run.
+        this.db
+          .transaction(() => {
+            const current = this.db
+              .prepare("SELECT pid FROM run_owners WHERE run_id=?")
+              .get(run.id) as { pid: number } | undefined;
+            const currentOwner = current
+              ? this.proof("run", run.id, current.pid)
+              : null;
+            if (
+              current?.pid !== original?.pid ||
+              currentOwner?.endpoint !== owner?.endpoint ||
+              currentOwner?.verifier !== owner?.verifier
+            )
+              return;
+            const latest = this.run(run.id);
+            if (!["planned", "running", "verifying"].includes(latest.status))
+              return;
+            const stopped: RunRecord = {
+              ...latest,
+              status: "needs_reconciliation",
+              updatedAt: now(),
+              error:
+                "The previous process stopped during execution. Inspect its workspace and events before retrying.",
+            };
+            this.saveRun(stopped);
+            this.event(run.id, "recovery.required", {});
+            this.recordOutcome(this.outcomeFor(stopped, "terminal"));
+          })
+          .immediate();
       }
   }
   /** An aggregate from older engines cannot establish individual worker turns. */

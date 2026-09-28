@@ -117,12 +117,16 @@ import {
   templateRuntimeCapability,
 } from "./templates.js";
 import {
+  applyRepair,
+  checkpointPaths,
   runDag,
   validateDag,
   untilAborted,
   writeScope,
   DagReconciliationError,
+  DAG_REPAIR_STEP,
   type DagCheckpoint,
+  type DagEvent,
 } from "./execution/dag.js";
 import type { DecisionBudget, DecisionBatchResult } from "./decision-batch.js";
 import {
@@ -161,7 +165,7 @@ export interface EngineDependencies {
 // The scanner image graph-engine security-scan builds and uses by default.
 export const SECURITY_SCAN_IMAGE = "graph-security:local";
 // The worker step that repairs a multi-step plan whose combined checks failed.
-export const DAG_REPAIR_STEP = "dag-repair";
+export { DAG_REPAIR_STEP };
 const cloudSignals = (state: Record<string, unknown>) =>
   Object.fromEntries(
     Object.entries(state).filter(
@@ -614,10 +618,17 @@ export class GraphEngine {
       this.store.releaseWorker(callId);
     }
   }
+  /**
+   * `onReserved` runs once the call holds a slot and its reservation, just
+   * before the request is sent: a dispatch recorded any earlier (a cancel or
+   * timeout while waiting for a slot, or a refused reservation) would count
+   * a worker turn the ledger never reserved, and resume would refuse it.
+   */
   private async invokeWorker(
     input: WorkerInput,
     workspace: string,
     ownerId: string,
+    onReserved?: () => void,
   ): Promise<WorkerResult> {
     // A run's packet is built once; consent withdrawn since then must stop
     // the next cloud turn, so authorization is read again at each dispatch.
@@ -652,6 +663,7 @@ export class GraphEngine {
         input.policy.maxCostUsd,
         input.policy.maxTurns,
       );
+      onReserved?.();
       const result = this.deps.worker
         ? await this.deps.worker(input, workspace)
         : ["codex", "claude", "cursor"].includes(input.provider.kind)
@@ -1334,6 +1346,46 @@ export class GraphEngine {
         this.store.event(run.id, "review.configured", {
           providerId: reviewerId ?? null,
         });
+      // The DAG checkpoint this run last saved, the record of the files its
+      // steps and repairs wrote (see checkpointPaths).
+      let dagCheckpointPath: string | undefined;
+      let dagCheckpoint: DagCheckpoint | undefined;
+      const saveDagCheckpoint = async (value: DagCheckpoint) => {
+        await writeJson(dagCheckpointPath!, value);
+        dagCheckpoint = value;
+      };
+      const recordDagEvent = (event: DagEvent) => {
+        this.store.event(run.id, event.type, event.data, event.stepId);
+      };
+      // Every file this run's workers wrote: patches, cached solutions and
+      // the DAG's steps and repairs, including one an acknowledged resume
+      // recorded as applied. The operator's own uncommitted files in the
+      // workspace are not the worker's change.
+      const runWrittenPaths = () => [
+        ...new Set([
+          ...this.store
+            .events(run.id)
+            .filter((event) =>
+              [
+                "patch.applied",
+                "dag.step.completed",
+                "solution.cache_hit",
+              ].includes(event.type),
+            )
+            .flatMap((event) => {
+              const paths = event.data.paths;
+              if (
+                !Array.isArray(paths) ||
+                paths.some((item) => typeof item !== "string")
+              )
+                throw new Error(
+                  "Retained patch lacks its verification path inventory; explicit source review is required before reuse",
+                );
+              return paths as string[];
+            }),
+          ...(dagCheckpoint ? checkpointPaths(dagCheckpoint) : []),
+        ]),
+      ];
       const reviewChange = async (
         stepId: string,
         checks: Awaited<ReturnType<typeof verifyInContainer>>,
@@ -1366,26 +1418,8 @@ export class GraphEngine {
         let exportable: boolean;
         try {
           reviewer = await this.reviewer(reviewerId);
-          // Only files this run's workers wrote; the operator's own uncommitted
-          // files in the workspace are not the worker's change.
-          const written = [
-            ...new Set(
-              this.store
-                .events(run.id)
-                .filter((event) =>
-                  [
-                    "patch.applied",
-                    "dag.step.completed",
-                    "solution.cache_hit",
-                  ].includes(event.type),
-                )
-                .flatMap((event) =>
-                  Array.isArray(event.data.paths)
-                    ? (event.data.paths as string[])
-                    : [],
-                ),
-            ),
-          ].sort();
+          // Only files this run's workers wrote.
+          const written = runWrittenPaths().sort();
           exportable = written.every((file) =>
             isAllowedPath(file, policy, true),
           );
@@ -1571,22 +1605,7 @@ export class GraphEngine {
         });
         // A file this run's workers wrote that no scanner could read (for
         // example one made "binary" by a NUL byte) is not accepted unseen.
-        const workerPaths = new Set(
-          this.store
-            .events(run.id)
-            .filter((event) =>
-              [
-                "patch.applied",
-                "dag.step.completed",
-                "solution.cache_hit",
-              ].includes(event.type),
-            )
-            .flatMap((event) =>
-              Array.isArray(event.data.paths)
-                ? (event.data.paths as string[])
-                : [],
-            ),
-        );
+        const workerPaths = new Set(runWrittenPaths());
         // Dependency scanning reads a downloaded database. Without one, a
         // run that changed a lockfile is not passed unscanned, and a skipped
         // dependency scan is always recorded.
@@ -1686,10 +1705,11 @@ export class GraphEngine {
           ),
         };
       };
-      // Files the plan's tester step wrote in this run.
+      // Files the plan's tester step wrote in this run. Its checkpoint
+      // completion counts even without an event, as for runWrittenPaths.
       const testerWrittenFiles = () => [
-        ...new Set(
-          this.store
+        ...new Set([
+          ...this.store
             .events(run.id)
             .filter(
               (event) =>
@@ -1701,7 +1721,10 @@ export class GraphEngine {
                 ? (event.data.paths as string[])
                 : [],
             ),
-        ),
+          ...(dagCheckpoint?.completed.find(
+            (item) => item.id === TESTER_STEP_ID,
+          )?.paths ?? []),
+        ]),
       ];
       // Why a worker's proposal went back to it, for people reading the
       // run's events: a reason code, never the proposal.
@@ -1720,26 +1743,7 @@ export class GraphEngine {
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
         save("verifying");
-        const proposedPaths = this.store
-          .events(run.id)
-          .filter((event) =>
-            [
-              "patch.applied",
-              "dag.step.completed",
-              "solution.cache_hit",
-            ].includes(event.type),
-          )
-          .flatMap((event) => {
-            const paths = event.data.paths;
-            if (
-              !Array.isArray(paths) ||
-              paths.some((item) => typeof item !== "string")
-            )
-              throw new Error(
-                "Retained patch lacks its verification path inventory; explicit source review is required before reuse",
-              );
-            return paths as string[];
-          });
+        const proposedPaths = runWrittenPaths();
         await assertVerificationPaths(
           workspace,
           proposedPaths,
@@ -1831,7 +1835,6 @@ export class GraphEngine {
       };
       let singleSteps: ExecutionStep[] = run.plan.steps;
       let firstAttempt = 1;
-      let dagCheckpointPath: string | undefined;
       if (
         run.plan.steps.length > 1 ||
         run.plan.steps.some((step) => step.kind === "template")
@@ -1865,15 +1868,13 @@ export class GraphEngine {
             (await this.context.snapshotById(run.plan.snapshotId)).fileCount,
             this.config.policy,
           ),
-          saveCheckpoint: (value) => writeJson(checkpointPath, value),
+          saveCheckpoint: saveDagCheckpoint,
           beforeApply: async () => {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
               throw new Error("Policy changed before DAG patch application");
           },
-          onEvent: (event) => {
-            this.store.event(run.id, event.type, event.data, event.stepId);
-          },
+          onEvent: recordDagEvent,
           generate: async (step, state) => {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
@@ -2271,19 +2272,14 @@ export class GraphEngine {
               throw new Error(
                 "The next call exceeds the configured estimated cost budget",
               );
-            this.store.event(
-              run.id,
-              "worker.dispatched",
-              {
-                provider: provider.id,
-                model: provider.model,
-                effort: step.effort ?? null,
-                attempt,
-                turn,
-                contextItems: stepPacket.items.length,
-              },
-              step.id,
-            );
+            const dispatched = {
+              provider: provider.id,
+              model: provider.model,
+              effort: step.effort ?? null,
+              attempt,
+              turn,
+              contextItems: stepPacket.items.length,
+            };
             // Test logs may quote private source even when they contain no key-like
             // strings. They stay local; remote workers get only a generic failure.
             const workerFeedback = [
@@ -2319,6 +2315,13 @@ export class GraphEngine {
               input,
               workspace,
               run.plan.id,
+              () =>
+                this.store.event(
+                  run.id,
+                  "worker.dispatched",
+                  dispatched,
+                  step.id,
+                ),
             );
             run.usage = this.store.usage(run.plan.id);
             save("running");
@@ -2412,12 +2415,29 @@ export class GraphEngine {
             }
             let changed: string[];
             try {
-              changed = await applyProposal(
-                workspace,
-                result.proposal,
-                this.config.policy,
-              );
+              // A repair patch keeps a DAG step's crash discipline (a pending
+              // marker, rollback on failure) and moves the checkpoint with
+              // it, so a resume passes the checkpoint's workspace check.
+              changed =
+                step.id === DAG_REPAIR_STEP && dagCheckpoint
+                  ? (
+                      await applyRepair({
+                        workspace,
+                        policy: this.config.policy,
+                        checkpoint: dagCheckpoint,
+                        proposal: result.proposal,
+                        saveCheckpoint: saveDagCheckpoint,
+                        onEvent: recordDagEvent,
+                      })
+                    ).paths
+                  : await applyProposal(
+                      workspace,
+                      result.proposal,
+                      this.config.policy,
+                    );
             } catch (error) {
+              // A repair that could not be rolled back needs reconciliation.
+              if (error instanceof DagReconciliationError) throw error;
               const message = errorMessage(error);
               const returnedPatch = patchErrorFeedback(message, step.id);
               if (!returnedPatch) throw error;
@@ -2429,19 +2449,6 @@ export class GraphEngine {
                 this.config.policy,
               );
               continue;
-            }
-            if (step.id === DAG_REPAIR_STEP && dagCheckpointPath) {
-              // Keep the DAG checkpoint current, so resuming after a repair
-              // patch passes the checkpoint's workspace check.
-              const checkpoint =
-                await readJson<DagCheckpoint>(dagCheckpointPath);
-              await writeJson(dagCheckpointPath, {
-                ...checkpoint,
-                workspaceHash: await workspaceFingerprint(
-                  workspace,
-                  this.config.policy,
-                ),
-              });
             }
             reusableProposal =
               attempt === 1 && !cached && !resuming
