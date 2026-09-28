@@ -617,9 +617,13 @@ test("collect-paired binds its pairs file to the packet and the labeller refuses
   await assert.rejects(label(), { code: EXIT.refused });
 
   // Without its pairs file, a paired packet is refused, export included.
+  const missingPairs = {
+    code: EXIT.refused,
+    message: /collected from paired runs/,
+  };
   rmSync(written.files.pairs);
-  await assert.rejects(label(), { code: EXIT.refused });
-  await assert.rejects(label({ exportOnly: true }), { code: EXIT.refused });
+  await assert.rejects(label(), missingPairs);
+  await assert.rejects(label({ exportOnly: true }), missingPairs);
   const paths = companionPaths(written.files.packet);
   assert.equal(existsSync(paths.progress), false);
   assert.equal(existsSync(paths.export), false);
@@ -633,6 +637,13 @@ test("collect-paired binds its pairs file to the packet and the labeller refuses
   );
   assert.match(io.output, /candidateSuccess: false \(from recorded runs\)/);
   assert.match(io.output, /Exported 2 rows/);
+
+  // With a complete task saved, losing the pairs file still refuses the
+  // export rather than writing one from the saved outcomes.
+  rmSync(paths.export);
+  rmSync(written.files.pairs);
+  await assert.rejects(label({ exportOnly: true }), missingPairs);
+  assert.equal(existsSync(paths.export), false);
 });
 
 test("labelling asks outcomes when a task's runs span plans and no pairs file names the arms", async () => {
@@ -794,15 +805,52 @@ test("labelling gate progress counts only rows the engine can count", async () =
       heldOutTasks: 5,
     },
   );
-  // The engine counts the exported rows the same way.
-  const { packet, progress } = gateCase(rows);
-  const dataset = await validateExport(
-    buildExport(packet, progress, { repositoryId: "repository-synthetic" })
-      .input,
-  );
+  // Once a threshold fits, the engine counts the exported rows the same way.
   const { evaluateDecisions } = await engineModule("decisions.js");
-  const [report] = evaluateDecisions(dataset).reports;
-  assert.equal(report.calibrationCount, fitted.labelled);
-  assert.equal(report.heldOutCount, fitted.heldOut);
-  assert.equal(report.taskCount, fitted.heldOutTasks);
+  const engineCounts = async (routeRows) => {
+    const { packet, progress } = gateCase(routeRows);
+    const dataset = await validateExport(
+      buildExport(packet, progress, { repositoryId: "repository-synthetic" })
+        .input,
+    );
+    const [report] = evaluateDecisions(dataset).reports;
+    return {
+      calibrationCount: report.calibrationCount,
+      heldOutCount: report.heldOutCount,
+      taskCount: report.taskCount,
+    };
+  };
+  assert.deepEqual(await engineCounts(rows), {
+    calibrationCount: fitted.labelled,
+    heldOutCount: fitted.heldOut,
+    taskCount: fitted.heldOutTasks,
+  });
+
+  // Until one fits, the display shows the rows at 0.5 as progress, unmet,
+  // while the engine counts none of them.
+  const unfittedRows = [
+    ...rowsOf(49, { ...calibration, confidence: 0.9 }),
+    ...rowsOf(5, {
+      split: "held-out",
+      confidence: 0.9,
+      correct: true,
+      complete: true,
+    }),
+  ];
+  const unfitted = route(unfittedRows);
+  assert.deepEqual(
+    {
+      met: unfitted.met,
+      threshold: unfitted.threshold,
+      labelled: unfitted.labelled,
+      heldOut: unfitted.heldOut,
+      heldOutTasks: unfitted.heldOutTasks,
+    },
+    { met: false, threshold: 0.5, labelled: 49, heldOut: 5, heldOutTasks: 5 },
+  );
+  assert.deepEqual(await engineCounts(unfittedRows), {
+    calibrationCount: 0,
+    heldOutCount: 0,
+    taskCount: 0,
+  });
 });
