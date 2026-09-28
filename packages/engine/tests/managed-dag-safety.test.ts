@@ -2748,7 +2748,12 @@ describe("publication when Git skips checking files for changes", () => {
     await checked("git", ["update-index", "--no-skip-worktree", "asset.bin"], {
       cwd: root,
     });
-    await checked("git", ["checkout", "--", "asset.bin"], { cwd: root });
+    // Restore the bytes directly: `git checkout` can skip a same-size file
+    // whose timestamp looks unchanged (racy stat), leaving the edit behind.
+    await writeFile(asset, Buffer.from([0, 1, 2, 0]));
+    expect(await checked("git", ["status", "--porcelain"], { cwd: root })).toBe(
+      "",
+    );
     const run = await engine.wait(
       (await engine.start(planned.id, { approvedByPerson: true })).id,
     );
