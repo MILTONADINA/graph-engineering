@@ -53,10 +53,12 @@ Larger changes are made of steps, some independent and some depending on others.
   - Test: packages/engine/tests/execution.test.ts :: warns when a plan may need more model calls than the run-wide turn budget
   - Test: packages/engine/tests/cli.test.ts :: estimates the model calls a plan's roles need
 
-- AC11: A repair patch is applied like a step: a write that fails partway is rolled back so the run stays resumable, and an acknowledged resume after a crash records the repair as applied when the workspace matches its post-patch fingerprint, or runs it again when it matches its pre-patch fingerprint.
+- AC11: A repair patch is applied like a step: a write that fails partway, or a patch that leaves a file the plan or repair wrote outside the verification inventory, is rolled back so the run stays resumable, and an acknowledged resume after a crash records the repair as applied when the workspace matches its post-patch fingerprint, or runs it again when it matches its pre-patch fingerprint.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rolls back a repair patch that fails while its files are written, so the run resumes into repair
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: resolves an interrupted repair patch on an acknowledged resume and reviews the files it wrote
   - Test: packages/engine/tests/dag.test.ts :: reconciles an interrupted repair patch by fingerprint and records the files it wrote
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: rolls back a repair patch that writes a Git-ignored file, so the run resumes into repair
+  - Test: packages/engine/tests/dag.test.ts :: rolls back a repair patch that leaves a file outside the verification inventory
 
 - AC12: Every file a step or repair wrote counts as the run's change even when a crash left no completion event for it, including a patch an acknowledged resume recorded as applied: the reviewer sees it, the security gate treats it as written by the run, and later steps and repairs may not change the tests the tester wrote.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: shows the reviewer a step an acknowledged resume recorded as applied

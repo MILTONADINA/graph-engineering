@@ -924,6 +924,87 @@ describe("managed DAG safety boundaries", () => {
     ).toContain("repaired");
   });
 
+  it("rolls back a repair patch that writes a Git-ignored file, so the run resumes into repair", async () => {
+    const { root, config, data } = await fixture((value) => {
+      value.policy.maxTurns = 8;
+    });
+    const hidden: WorkerResult = {
+      ...result("two"),
+      proposal: {
+        summary: "Fix second and log the repair",
+        requests: [],
+        changes: [
+          { path: "second.js", before: "= 4", after: "= 5" },
+          { path: ".gitignore", before: null, after: "*.log\n" },
+          { path: "out.log", before: null, after: "repaired\n" },
+        ],
+      },
+    };
+    let repairs = 0;
+    const worker = vi.fn(async (input: WorkerInput) => {
+      if (!input.objective.startsWith("Repair")) return result(input.objective);
+      // The first repair hides a file it wrote; the next one does not.
+      return ++repairs === 1
+        ? hidden
+        : {
+            ...result("two"),
+            proposal: {
+              summary: "Fix second",
+              requests: [],
+              changes: [{ path: "second.js", before: "= 4", after: "= 5" }],
+            },
+          };
+    });
+    const engine = await open(root, {
+      worker,
+      verify: passesWhen("second.js", "= 5"),
+    });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(
+      /absent from the verification inventory[\s\S]*out\.log[\s\S]*repair patch was rolled back/,
+    );
+    expect(
+      await readFile(path.join(run.workspace!, "second.js"), "utf8"),
+    ).toContain("= 4");
+    await expect(
+      readFile(path.join(run.workspace!, "out.log"), "utf8"),
+    ).rejects.toThrow();
+    await expect(
+      readFile(path.join(run.workspace!, ".gitignore"), "utf8"),
+    ).rejects.toThrow();
+    const checkpoint = await readJson<DagCheckpoint>(
+      path.join(data, "checkpoints", `${run.id}.json`),
+    );
+    expect(checkpoint.pending).toBeUndefined();
+    expect(checkpoint.repairPaths).toBeUndefined();
+    expect(checkpoint.workspaceHash).toBe(
+      await workspaceFingerprint(run.workspace!, config.policy),
+    );
+    const events = engine.store.events(run.id);
+    expect(
+      events.find((event) => event.type === "dag.step.rolled_back"),
+    ).toMatchObject({
+      stepId: "dag-repair",
+      data: { paths: ["second.js", ".gitignore", "out.log"] },
+    });
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "patch.applied" && event.stepId === "dag-repair",
+      ),
+    ).toEqual([]);
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.status).toBe("succeeded");
+    expect(repairs).toBe(2);
+    expect(
+      await readFile(path.join(resumed.workspace!, "second.js"), "utf8"),
+    ).toContain("= 5");
+  });
+
   it("resolves an interrupted repair patch on an acknowledged resume and reviews the files it wrote", async () => {
     const { root, config, data } = await fixture((value) => {
       value.policy.providers = ["local", "reviewer"];

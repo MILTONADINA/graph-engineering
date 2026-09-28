@@ -504,6 +504,65 @@ describe("dependency DAG execution", () => {
       ["dag-repair", "not_applied"],
     ]);
   });
+  it("rolls back a repair patch that leaves a file outside the verification inventory", async () => {
+    const workspace = await fixture();
+    await writeFile(path.join(workspace, ".gitignore"), "*.log\n");
+    const { checkpoint: done } = await runDag({
+      workspace,
+      policy: DEFAULT_POLICY,
+      steps: [step("a")],
+      saveCheckpoint: async () => {},
+      generate: async () => proposal("a.txt", "a"),
+    });
+    const repair = async (file: string, after: string, before?: string) => {
+      let saved: DagCheckpoint | undefined;
+      const events: DagEvent[] = [];
+      await expect(
+        applyRepair({
+          workspace,
+          policy: DEFAULT_POLICY,
+          checkpoint: done,
+          proposal: proposal(file, after, before).proposal,
+          saveCheckpoint: async (value) => {
+            saved = structuredClone(value);
+          },
+          onEvent: (entry) => {
+            events.push(entry);
+          },
+        }),
+      ).rejects.toThrow(
+        /verification inventory[\s\S]*repair patch was rolled back/,
+      );
+      expect(saved?.pending).toBeUndefined();
+      expect(saved?.workspaceHash).toBe(done.workspaceHash);
+      expect(saved?.repairPaths).toBeUndefined();
+      expect(events.map((entry) => [entry.type, entry.stepId])).toEqual([
+        ["dag.step.rolled_back", "dag-repair"],
+      ]);
+      return saved!;
+    };
+    // A new Git-ignored file, and the directories created for it.
+    await repair("nested/out.log", "hidden");
+    await expect(access(path.join(workspace, "nested"))).rejects.toThrow();
+    // An ignore-rule edit that hides the output of an earlier step.
+    const saved = await repair(".gitignore", "*.log\na.txt\n", "*.log\n");
+    expect(await readFile(path.join(workspace, ".gitignore"), "utf8")).toBe(
+      "*.log\n",
+    );
+    expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("a");
+    // The rolled-back checkpoint still resumes.
+    const resumed = await runDag({
+      workspace,
+      policy: DEFAULT_POLICY,
+      steps: [step("a")],
+      checkpoint: saved,
+      saveCheckpoint: async () => {},
+      generate: async () => {
+        throw new Error("must not generate");
+      },
+    });
+    expect(resumed.appliedStepIds).toEqual([]);
+  });
   it("accounts for successful siblings of failures and detects worker filesystem mutation", async () => {
     const workspace = await fixture();
     const charged: string[] = [];

@@ -608,7 +608,9 @@ export interface RepairOptions {
  * discipline. The patch is validated first, so a precondition failure
  * records nothing. A pending marker with the pre-patch fingerprint is saved
  * before any write and the post-patch fingerprint once the patch is on disk;
- * a failed application is rolled back; completion moves the checkpoint to
+ * a failed application, or a patch that leaves any file the plan or repair
+ * wrote outside the verification inventory, is rolled back; completion moves
+ * the checkpoint to
  * the post-patch fingerprint and records the files in `repairPaths`. An
  * acknowledged resume reconciles an interrupted repair like a step.
  */
@@ -645,6 +647,13 @@ export async function applyRepair(
     afterHash = await workspaceFingerprint(workspace, policy);
     checkpoint.pending = { ...checkpoint.pending, afterHash };
     await save();
+    // As for a step, and as reconciliation checks after a crash: a repair
+    // must not create a Git-ignored file or hide an earlier step's output.
+    await assertVerificationPaths(
+      workspace,
+      [...checkpointPaths(checkpoint), ...paths],
+      policy,
+    );
   } catch (error) {
     await rollBack(checkpoint, originals, error, {
       workspace,
