@@ -38,11 +38,13 @@ import { fileURLToPath } from "node:url";
 export const ROLES = Object.freeze(["approver", "issuer", "labeler"]);
 export const KEY_FORMAT = "graph-engineering.promotion-key";
 export const BACKUP_FORMAT = "graph-engineering.promotion-key-backup";
+export const BACKUP_SET_FORMAT = "graph-engineering.promotion-key-backup-set";
 export const ENVELOPE_VERSION = 1;
 export const ITERATIONS = 1_000_000;
 const MIN_ITERATIONS = 600_000;
 const MAX_ITERATIONS = 10_000_000;
 export const MIN_PASSPHRASE_CHARACTERS = 12;
+export const PASSPHRASE_ATTEMPTS = 3;
 const MAX_SIGNED_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_ENVELOPE_BYTES = 64 * 1024;
 const MAX_PASSPHRASE_BYTES = 1024;
@@ -64,17 +66,28 @@ export class KeyError extends Error {
 
 const usage = `Usage: npm run promotion-key -- <command> [arguments] [--key-dir <dir>]
 
-Commands, in the order an owner first uses them:
-  create <role>          Make a new key under a new passphrase; refuses if the role has one.
+First use (one command):
+  setup [<backup>]       Make all three keys under one passphrase and write one
+                         backup file holding them (default
+                         ${defaultBackupPath()}).
+
+Every day:
   public <role>          Print the role's public key (no passphrase).
   sign <role> <file>     Sign the file's exact bytes; prints a base64 signature.
-  backup <role> <out>    Write a copy of the key under a separate backup passphrase.
-  restore <role> <in>    Put a backed-up key back, under a new key passphrase.
+
+Backups:
+  verify-backup <file>   Check a backup opens to the stored keys; writes nothing.
+  restore-all <file>     Put all three keys back from the setup backup, as they are.
+
+One role at a time:
+  create <role>          Make one key under a new passphrase.
+  backup <role> <out>    Write one key's backup under a separate passphrase.
+  restore <role> <in>    Put one key back from a backup or combined backup.
 
 Roles: approver, issuer, labeler.
 
 Keys live in ${defaultKeyDir()} unless --key-dir is given.
-Every command except \`public\` and \`--help\` needs an interactive terminal on
+Every command except "public" and "--help" needs an interactive terminal on
 stdin and stderr, and refuses when CI is set. Never type your key passphrase
 into a prompt you did not start yourself.
 `;
@@ -101,6 +114,11 @@ export function defaultKeyDir(
       ? env.XDG_DATA_HOME
       : path.join(home, ".local", "share");
   return path.join(data, "graph-engineering", "promotion-keys");
+}
+
+/** Where `setup` writes the combined backup unless given a path. */
+export function defaultBackupPath(home = os.homedir()) {
+  return path.join(home, "graph-engineering-keys.backup.json");
 }
 
 // Windows has no POSIX mode bits or uids; only the symlink check applies.
@@ -203,12 +221,17 @@ export function writeNewPrivateFile(target, data) {
       );
     throw error;
   }
+  let written = false;
   try {
     if (posix) fchmodSync(fd, 0o600);
-    writeSync(fd, data);
+    if (writeSync(fd, data) !== data.length)
+      throw new KeyError(`could not write all of ${target}`);
     fsyncSync(fd);
+    written = true;
   } finally {
     closeSync(fd);
+    // This call created the file, so a half-written one is removed.
+    if (!written) rmSync(target, { force: true });
   }
 }
 
@@ -503,20 +526,13 @@ export function signFile(keyDir, role, message, passphrase) {
 }
 
 export function backupKey(keyDir, role, out, keyPassphrase, backupPassphrase) {
-  if (keyPassphrase.equals(backupPassphrase))
-    throw new KeyError(
-      "use a backup passphrase different from the key passphrase",
-    );
   const publicKey = readPublicKey(keyDir, role);
   if (lstatOrNull(out))
     throw new KeyError(`${out} already exists; not overwriting`, EXIT.refused);
   const { key } = keyPaths(keyDir, role);
   const pkcs8 = openKey(
     readBounded(key, MAX_ENVELOPE_BYTES, { private: true }),
-    {
-      role,
-      passphrase: keyPassphrase,
-    },
+    { role, passphrase: keyPassphrase },
   );
   try {
     writeNewPrivateFile(
@@ -534,13 +550,55 @@ export function backupKey(keyDir, role, out, keyPassphrase, backupPassphrase) {
   return publicKey;
 }
 
-/** Opens a backup; the caller stores it with restoreKey. */
+/**
+ * Splits a backup file into per-role envelopes. A file is either one role's
+ * backup (`backup`) or a combined set (`setup`) that bundles the three key
+ * envelopes exactly as they are stored, under the key passphrase.
+ */
+export function backupEntries(json) {
+  let parsed;
+  try {
+    parsed = JSON.parse(Buffer.from(json).toString("utf8"));
+  } catch {
+    throw new KeyError("the backup is not JSON");
+  }
+  if (parsed?.format === BACKUP_FORMAT && ROLES.includes(parsed.role))
+    return {
+      [parsed.role]: {
+        format: BACKUP_FORMAT,
+        bytes: Buffer.from(JSON.stringify(parsed)),
+      },
+    };
+  if (
+    parsed?.format !== BACKUP_SET_FORMAT ||
+    parsed.version !== ENVELOPE_VERSION ||
+    !parsed.keys ||
+    typeof parsed.keys !== "object" ||
+    Object.keys(parsed.keys).sort().join() !== [...ROLES].sort().join()
+  )
+    throw new KeyError(
+      `the file is not a promotion key backup (${BACKUP_FORMAT}, or version ${ENVELOPE_VERSION} ${BACKUP_SET_FORMAT} with ${ROLES.join(", ")})`,
+    );
+  return Object.fromEntries(
+    ROLES.map((role) => [
+      role,
+      {
+        format: KEY_FORMAT,
+        bytes: Buffer.from(`${JSON.stringify(parsed.keys[role], null, 2)}\n`),
+      },
+    ]),
+  );
+}
+
+function openEntry(entry, role, passphrase) {
+  return openKey(entry.bytes, { role, passphrase, format: entry.format });
+}
+
+/** Opens one role from a backup or backup set; the caller zeroes the result. */
 export function openBackup(file, role, backupPassphrase) {
-  return openKey(readBounded(file, MAX_ENVELOPE_BYTES), {
-    role,
-    passphrase: backupPassphrase,
-    format: BACKUP_FORMAT,
-  });
+  const entry = backupEntries(readBounded(file, MAX_ENVELOPE_BYTES))[role];
+  if (!entry) throw new KeyError("the file is for another role");
+  return openEntry(entry, role, backupPassphrase);
 }
 
 export function restoreKey(keyDir, role, pkcs8, keyPassphrase) {
@@ -551,6 +609,152 @@ export function restoreKey(keyDir, role, pkcs8, keyPassphrase) {
   } finally {
     pkcs8.fill(0);
   }
+}
+
+// ---------------------------------------------------------------------------
+// All three roles at once, under one passphrase
+
+export function refuseIfAnyRoleExists(keyDir) {
+  for (const role of ROLES) refuseIfRoleExists(keyDir, role);
+}
+
+/** Removes only the files a run created; used to leave a clean re-run. */
+function removeCreated(keyDir, roles) {
+  for (const role of roles) {
+    const { key, pub } = keyPaths(keyDir, role);
+    rmSync(key, { force: true });
+    rmSync(pub, { force: true });
+  }
+}
+
+/** Opens a key envelope to its public key, zeroing the private bytes. */
+function publicKeyOf(entry, role, passphrase) {
+  const pkcs8 = openEntry(entry, role, passphrase);
+  try {
+    return createPublicKey(
+      createPrivateKey({ key: pkcs8, format: "der", type: "pkcs8" }),
+    );
+  } finally {
+    pkcs8.fill(0);
+  }
+}
+
+/**
+ * Writes each role's key envelope as given, with its public key, all or
+ * nothing: on any failure the files this call created are removed.
+ */
+function storeEnvelopes(keyDir, envelopes, publicKeys) {
+  const created = [];
+  try {
+    for (const role of ROLES) {
+      const { key, pub } = keyPaths(keyDir, role);
+      writeNewPrivateFile(key, envelopes[role]);
+      created.push(role);
+      writeNewPrivateFile(pub, Buffer.from(publicPem(publicKeys[role])));
+    }
+  } catch (error) {
+    removeCreated(keyDir, created);
+    throw error;
+  }
+  return created;
+}
+
+/** The combined backup: the three stored key envelopes, unchanged. */
+export function bundleKeyEnvelopes(envelopes) {
+  const set = {
+    format: BACKUP_SET_FORMAT,
+    version: ENVELOPE_VERSION,
+    keys: Object.fromEntries(
+      ROLES.map((role) => [role, JSON.parse(envelopes[role].toString())]),
+    ),
+  };
+  return Buffer.from(`${JSON.stringify(set, null, 2)}\n`);
+}
+
+/**
+ * Creates three distinct keys under one passphrase (each envelope with its
+ * own salt and nonce) and writes one combined backup holding those
+ * envelopes, then checks the backup opens to the stored keys. Refuses if any
+ * role or the backup already exists; on any failure removes the keys and
+ * backup this call created.
+ */
+export function setupKeys(keyDir, out, passphrase) {
+  ensureKeyDir(keyDir);
+  refuseIfAnyRoleExists(keyDir);
+  if (lstatOrNull(out))
+    throw new KeyError(`${out} already exists; not overwriting`, EXIT.refused);
+  const envelopes = {};
+  const publicKeys = {};
+  for (const role of ROLES) {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const pkcs8 = privateKey.export({ type: "pkcs8", format: "der" });
+    try {
+      envelopes[role] = sealKey({ pkcs8, role, passphrase });
+    } finally {
+      pkcs8.fill(0);
+    }
+    publicKeys[role] = publicKey;
+  }
+  if (new Set(ROLES.map((role) => fingerprint(publicKeys[role]))).size !== 3)
+    throw new KeyError("the three keys are not distinct");
+  let created = [];
+  let wroteBackup = false;
+  try {
+    created = storeEnvelopes(keyDir, envelopes, publicKeys);
+    writeNewPrivateFile(out, bundleKeyEnvelopes(envelopes));
+    wroteBackup = true;
+    if (!verifyBackup(keyDir, out, passphrase).ok)
+      throw new KeyError("the new backup did not open to the new keys");
+    return publicKeys;
+  } catch (error) {
+    removeCreated(keyDir, created);
+    if (wroteBackup) rmSync(out, { force: true });
+    throw error;
+  }
+}
+
+/**
+ * Restores the three key envelopes from a combined backup as they are, after
+ * checking each opens under the passphrase. Refuses if any role exists.
+ */
+export function restoreAll(keyDir, file, passphrase) {
+  ensureKeyDir(keyDir);
+  refuseIfAnyRoleExists(keyDir);
+  const entries = backupEntries(readBounded(file, MAX_ENVELOPE_BYTES));
+  const envelopes = {};
+  const publicKeys = {};
+  for (const role of ROLES) {
+    const entry = entries[role];
+    if (!entry || entry.format !== KEY_FORMAT)
+      throw new KeyError(
+        "restore-all needs a combined backup from setup; use restore <role> for a single-role backup",
+      );
+    publicKeys[role] = publicKeyOf(entry, role, passphrase);
+    envelopes[role] = entry.bytes;
+  }
+  storeEnvelopes(keyDir, envelopes, publicKeys);
+  return publicKeys;
+}
+
+/**
+ * Decrypts every key in a backup in memory and compares its public key hash
+ * with the stored `<role>.pub.pem`. Writes nothing.
+ */
+export function verifyBackup(keyDir, file, passphrase) {
+  const entries = backupEntries(readBounded(file, MAX_ENVELOPE_BYTES));
+  const results = [];
+  for (const role of ROLES) {
+    if (!entries[role]) continue;
+    const backedUp = fingerprint(publicKeyOf(entries[role], role, passphrase));
+    let stored = null;
+    try {
+      stored = fingerprint(readPublicKey(keyDir, role));
+    } catch (error) {
+      if (!(error instanceof KeyError)) throw error;
+    }
+    results.push({ role, backedUp, stored, ok: stored === backedUp });
+  }
+  return { ok: results.every((result) => result.ok), results };
 }
 
 // ---------------------------------------------------------------------------
@@ -625,21 +829,42 @@ function readPassphrase(prompt) {
   });
 }
 
-async function newPassphrase(what) {
-  const first = await readPassphrase(
-    `New ${what} passphrase (at least ${MIN_PASSPHRASE_CHARACTERS} characters): `,
-  );
-  const second = await readPassphrase(`Repeat the ${what} passphrase: `);
-  try {
-    checkNewPassphrase(first, second);
-  } catch (error) {
-    first.fill(0);
-    throw error;
-  } finally {
-    second.fill(0);
+/**
+ * Asks for a new passphrase twice through `read` (the terminal reader in
+ * the CLI), re-asking up to `attempts` times when the two entries differ,
+ * or the passphrase is too short.
+ */
+export async function askNewPassphrase(
+  read,
+  what,
+  { attempts = PASSPHRASE_ATTEMPTS, tell = note } = {},
+) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const first = await read(
+      `New ${what} passphrase (at least ${MIN_PASSPHRASE_CHARACTERS} characters): `,
+    );
+    let second;
+    try {
+      second = await read(`Repeat the ${what} passphrase: `);
+      checkNewPassphrase(first, second);
+      return first;
+    } catch (error) {
+      first.fill(0);
+      if (!(error instanceof KeyError) || error.code === 130) throw error;
+      const left = attempts - attempt;
+      if (!left) throw error;
+      tell(
+        `${error.message}. Try again (${left} ${left === 1 ? "try" : "tries"} left).`,
+      );
+    } finally {
+      second?.fill(0);
+    }
   }
-  return first;
+  throw new KeyError("no passphrase was set");
 }
+
+const newPassphrase = (what, options) =>
+  askNewPassphrase(readPassphrase, what, options);
 
 // ---------------------------------------------------------------------------
 // Commands
@@ -655,7 +880,17 @@ function printPublic(role, publicKey) {
   );
 }
 
-const ARITY = { create: 1, public: 1, sign: 2, backup: 2, restore: 2 };
+// [minimum, maximum] operands; commands marked with a role take it first.
+const COMMANDS = {
+  create: { role: true, operands: [1, 1] },
+  public: { role: true, operands: [1, 1] },
+  sign: { role: true, operands: [2, 2] },
+  backup: { role: true, operands: [2, 2] },
+  restore: { role: true, operands: [2, 2] },
+  setup: { role: false, operands: [0, 1] },
+  "restore-all": { role: false, operands: [1, 1] },
+  "verify-backup": { role: false, operands: [1, 1] },
+};
 
 export function parseArguments(argv) {
   const rest = [];
@@ -670,18 +905,24 @@ export function parseArguments(argv) {
   }
   const [command, ...operands] = rest;
   if (["--help", "-h", "help"].includes(command)) return { command: "help" };
-  if (!command || !(command in ARITY) || operands.length !== ARITY[command])
+  const spec = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : null;
+  if (!spec)
     throw new KeyError(
-      command && !(command in ARITY)
-        ? `unknown command ${command}\n\n${usage}`
-        : usage,
+      command ? `unknown command ${command}\n\n${usage}` : usage,
       EXIT.usage,
     );
-  checkRole(operands[0]);
+  const [min, max] = spec.operands;
+  if (operands.length < min || operands.length > max)
+    throw new KeyError(usage, EXIT.usage);
+  if (spec.role) checkRole(operands[0]);
+  const target = spec.role ? operands[1] : operands[0];
   return {
     command,
-    role: operands[0],
-    path: operands[1],
+    role: spec.role ? operands[0] : undefined,
+    path:
+      command === "setup"
+        ? path.resolve(target ?? defaultBackupPath())
+        : target && path.resolve(target),
     keyDir: keyDir ?? defaultKeyDir(),
   };
 }
@@ -740,10 +981,58 @@ async function run(argv) {
     note(
       `Wrote ${target} (mode 0600). Move it off this laptop and keep the backup passphrase apart from it.`,
     );
+  } else if (command === "setup") {
+    ensureKeyDir(keyDir);
+    refuseIfAnyRoleExists(keyDir);
+    if (lstatOrNull(target))
+      throw new KeyError(
+        `${target} already exists; not overwriting`,
+        EXIT.refused,
+      );
+    note(
+      "One passphrase protects all three keys and the backup file. You type it when you sign.",
+    );
+    const passphrase = await newPassphrase("key");
+    try {
+      const publicKeys = setupKeys(keyDir, target, passphrase);
+      for (const role of ROLES) printPublic(role, publicKeys[role]);
+    } finally {
+      passphrase.fill(0);
+    }
+    note(`Stored the approver, issuer and labeler keys in ${keyDir}.`);
+    process.stdout.write(`Move ${target} off this laptop.\n`);
+  } else if (command === "restore-all") {
+    ensureKeyDir(keyDir);
+    refuseIfAnyRoleExists(keyDir);
+    const passphrase = await readPassphrase("Key passphrase: ");
+    try {
+      const publicKeys = restoreAll(keyDir, target, passphrase);
+      for (const role of ROLES) printPublic(role, publicKeys[role]);
+    } finally {
+      passphrase.fill(0);
+    }
+  } else if (command === "verify-backup") {
+    const passphrase = await readPassphrase("Passphrase for the backup: ");
+    let check;
+    try {
+      check = verifyBackup(keyDir, target, passphrase);
+    } finally {
+      passphrase.fill(0);
+    }
+    for (const result of check.results)
+      process.stdout.write(
+        result.ok
+          ? `${result.role}: OK ${result.backedUp}\n`
+          : `${result.role}: MISMATCH backup ${result.backedUp}, stored ${result.stored ?? "none"}\n`,
+      );
+    process.stdout.write(check.ok ? "OK\n" : "MISMATCH\n");
+    if (!check.ok) process.exitCode = EXIT.failure;
   } else if (command === "restore") {
     ensureKeyDir(keyDir);
     refuseIfRoleExists(keyDir, role);
-    const backupPassphrase = await readPassphrase("Backup passphrase: ");
+    const backupPassphrase = await readPassphrase(
+      "Passphrase for the backup: ",
+    );
     let pkcs8;
     try {
       pkcs8 = openBackup(target, role, backupPassphrase);
