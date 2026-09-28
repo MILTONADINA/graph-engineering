@@ -21,7 +21,11 @@ import {
   safePath,
   validGlobEntry,
 } from "../policy.js";
-import { proposalSchema, type WorkerResult } from "../workers/api.js";
+import {
+  proposalSchema,
+  type WorkerProposal,
+  type WorkerResult,
+} from "../workers/api.js";
 import {
   applyProposal,
   assertVerificationPaths,
@@ -29,6 +33,8 @@ import {
   workspaceFingerprint,
 } from "./workspace.js";
 
+/** The engine's repair step after a plan's combined checks fail; plans may not use its ID. */
+export const DAG_REPAIR_STEP = "dag-repair";
 export interface ValidatedDag {
   steps: ExecutionStep[];
   ancestors: ReadonlyMap<string, ReadonlySet<string>>;
@@ -44,7 +50,10 @@ export interface DagCheckpoint {
   planHash: string;
   workspaceHash: string;
   completed: DagCompletedStep[];
+  /** Every file an applied repair patch wrote; repairs run once every step completed. */
+  repairPaths?: string[];
   pending?: {
+    /** A plan step, or DAG_REPAIR_STEP for a repair patch. */
     stepId: string;
     proposalHash: string;
     beforeHash: string;
@@ -136,6 +145,8 @@ const checkpointSchema = z
     planHash: z.string().regex(/^[a-f0-9]{64}$/),
     workspaceHash: z.string().regex(/^[a-f0-9]{64}$/),
     completed: z.array(completedSchema).max(100),
+    // At most policy.maxTurns (100) repair patches of 50 files each.
+    repairPaths: z.array(z.string()).max(5000).optional(),
     pending: z
       .object({
         stepId: z.string(),
@@ -183,8 +194,8 @@ export function validateDag(input: ExecutionStep[]): ValidatedDag {
     throw new Error("DAG step IDs must be unique");
   for (const step of steps) {
     // Reserved for the engine's repair step after failed combined checks.
-    if (step.id === "dag-repair")
-      throw new Error("Step ID dag-repair is reserved");
+    if (step.id === DAG_REPAIR_STEP)
+      throw new Error(`Step ID ${DAG_REPAIR_STEP} is reserved`);
     if (step.kind === "worker" && !step.providerId)
       throw new Error(`Worker step ${step.id} requires a providerId`);
     if (step.kind === "template" && !step.templateId)
@@ -212,6 +223,20 @@ export function validateDag(input: ExecutionStep[]): ValidatedDag {
   };
   for (const step of steps) visit(step.id);
   return { steps, ancestors };
+}
+
+/**
+ * Every file a checkpoint records as written: its completed steps' and its
+ * applied repairs'. A crash can stop a run after a completion is saved but
+ * before its event is recorded, and an acknowledged resume records an
+ * interrupted patch as applied without one, so the checkpoint, not the
+ * run's events, is the record of what the DAG wrote.
+ */
+export function checkpointPaths(checkpoint: DagCheckpoint): string[] {
+  return [
+    ...checkpoint.completed.flatMap((item) => item.paths),
+    ...(checkpoint.repairPaths ?? []),
+  ];
 }
 
 const overlaps = (left: string, right: string) => {
@@ -269,6 +294,9 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
   ) => options.onEvent?.({ type, stepId, data });
   if (checkpoint.pending) {
     const pending = checkpoint.pending;
+    // A repair patch follows every completed step and is recorded in
+    // repairPaths, never as a completed step.
+    const repair = pending.stepId === DAG_REPAIR_STEP;
     if (!options.reconcilePending)
       throw new DagReconciliationError(
         `Step ${pending.stepId} was interrupted during patch application; inspect the retained workspace, then resume with explicit reconciliation acknowledgement`,
@@ -280,14 +308,17 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
           `(the step then runs again)${pending.afterHash ? " or to the step's complete patch (the step is then recorded as applied)" : ""}, ` +
           `and resume with reconciliation acknowledgement again; or leave this run and create a new plan to start a fresh run.`,
       );
+    const done = (id: string) =>
+      checkpoint.completed.some((item) => item.id === id);
     if (
       pending.beforeHash !== checkpoint.workspaceHash ||
-      !dag.ancestors.has(pending.stepId) ||
-      checkpoint.completed.some((item) => item.id === pending.stepId) ||
-      [...dag.ancestors.get(pending.stepId)!].some(
-        (dependency) =>
-          !checkpoint.completed.some((item) => item.id === dependency),
-      ) ||
+      (repair
+        ? dag.steps.some((step) => !done(step.id))
+        : !dag.ancestors.has(pending.stepId) ||
+          done(pending.stepId) ||
+          [...dag.ancestors.get(pending.stepId)!].some(
+            (dependency) => !done(dependency),
+          )) ||
       pending.paths.some((file) => !isAllowedPath(file, policy))
     )
       throw unresolved("its checkpoint record is inconsistent with the plan");
@@ -302,10 +333,7 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
       try {
         await assertVerificationPaths(
           workspace,
-          [
-            ...checkpoint.completed.flatMap((item) => item.paths),
-            ...pending.paths,
-          ],
+          [...checkpointPaths(checkpoint), ...pending.paths],
           policy,
         );
       } catch (error) {
@@ -313,19 +341,25 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
           `its applied patch fails the verification inventory check (${(error as Error).message})`,
         );
       }
-      checkpoint = {
-        ...checkpoint,
-        workspaceHash: pending.afterHash,
-        completed: [
-          ...checkpoint.completed,
-          {
-            id: pending.stepId,
-            proposalHash: pending.proposalHash,
-            paths: pending.paths,
-            completedAt: now(),
-          },
-        ],
-      };
+      checkpoint = repair
+        ? {
+            ...checkpoint,
+            workspaceHash: pending.afterHash,
+            repairPaths: withRepairPaths(checkpoint, pending.paths),
+          }
+        : {
+            ...checkpoint,
+            workspaceHash: pending.afterHash,
+            completed: [
+              ...checkpoint.completed,
+              {
+                id: pending.stepId,
+                proposalHash: pending.proposalHash,
+                paths: pending.paths,
+                completedAt: now(),
+              },
+            ],
+          };
       delete checkpoint.pending;
       await save();
       await event("dag.step.reconciled", pending.stepId, {
@@ -359,6 +393,14 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
       );
     completed.add(step.id);
   }
+  if (
+    checkpoint.repairPaths?.length &&
+    (completed.size < dag.steps.length ||
+      checkpoint.repairPaths.some((file) => !isAllowedPath(file, policy)))
+  )
+    throw new DagReconciliationError(
+      "DAG checkpoint has invalid completion ordering or paths",
+    );
   const controller = new AbortController();
   const signal = AbortSignal.any([
     controller.signal,
@@ -368,30 +410,6 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
     if (signal.aborted) throw new Error("DAG execution cancelled");
   };
   const appliedStepIds: string[] = [];
-  // Undo a patch that failed during or after application, so the run stops
-  // cleanly at its pre-step state instead of leaving a pending marker.
-  const rollBack = async (cause: unknown) => {
-    const pending = checkpoint.pending!;
-    const reason = (cause as Error)?.message ?? String(cause);
-    try {
-      await restoreOriginals(pendingOriginals!);
-      if (
-        (await workspaceFingerprint(workspace, policy)) !== pending.beforeHash
-      )
-        throw new Error("the workspace does not match its pre-patch state");
-      delete checkpoint.pending;
-      await save();
-    } catch (error) {
-      throw new DagReconciliationError(
-        `Step ${pending.stepId} failed after patch application (${reason}) and could not be rolled back (${(error as Error).message}); inspect the retained workspace, then resume with reconciliation acknowledgement or create a new plan`,
-      );
-    }
-    await event("dag.step.rolled_back", pending.stepId, {
-      error: reason,
-      paths: pending.paths,
-    });
-  };
-  let pendingOriginals: Originals | undefined;
   checkCancelled();
   await save();
   while (completed.size < dag.steps.length) {
@@ -521,7 +539,7 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
       // A crash from this point is reconciliation-required: a resume matches
       // the workspace against the pre-patch and post-patch fingerprints.
       await save();
-      pendingOriginals = await captureOriginals(workspace, paths, policy);
+      const originals = await captureOriginals(workspace, paths, policy);
       let afterHash: string;
       try {
         await applyProposal(workspace, proposal, policy);
@@ -532,11 +550,18 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
         // rules that hide a sibling's earlier output.
         await assertVerificationPaths(
           workspace,
-          [...checkpoint.completed.flatMap((item) => item.paths), ...paths],
+          [...checkpointPaths(checkpoint), ...paths],
           policy,
         );
       } catch (error) {
-        await rollBack(error);
+        // Undo it, so the run stops cleanly at its pre-step state instead
+        // of leaving a pending marker.
+        await rollBack(checkpoint, originals, error, {
+          workspace,
+          policy,
+          save,
+          event,
+        });
         throw new Error(
           `${(error as Error)?.message ?? String(error)} Step ${step.id}'s patch was rolled back; the workspace is at its pre-step state, and resuming with reconciliation acknowledgement runs the step again.`,
           { cause: error },
@@ -566,6 +591,127 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
     }
   }
   return { checkpoint: structuredClone(checkpoint), appliedStepIds };
+}
+
+export interface RepairOptions {
+  workspace: string;
+  policy: ProjectPolicy;
+  /** The plan's checkpoint, with every step completed. */
+  checkpoint: DagCheckpoint;
+  proposal: WorkerProposal;
+  /** Must durably persist before resolving; JSON writes should use atomic rename. */
+  saveCheckpoint: (checkpoint: DagCheckpoint) => Promise<void>;
+  onEvent?: (event: DagEvent) => Promise<void> | void;
+}
+/**
+ * Applies a repair patch to a plan's completed result with a step's crash
+ * discipline. The patch is validated first, so a precondition failure
+ * records nothing. A pending marker with the pre-patch fingerprint is saved
+ * before any write and the post-patch fingerprint once the patch is on disk;
+ * a failed application is rolled back; completion moves the checkpoint to
+ * the post-patch fingerprint and records the files in `repairPaths`. An
+ * acknowledged resume reconciles an interrupted repair like a step.
+ */
+export async function applyRepair(
+  options: RepairOptions,
+): Promise<{ checkpoint: DagCheckpoint; paths: string[] }> {
+  const { workspace, policy, proposal } = options;
+  let checkpoint: DagCheckpoint = checkpointSchema.parse(options.checkpoint);
+  if (checkpoint.pending)
+    throw new DagReconciliationError(
+      `Step ${checkpoint.pending.stepId} still has an unresolved patch application`,
+    );
+  await prepareProposal(workspace, proposal, policy);
+  const paths = [...new Set(proposal.changes.map((change) => change.path))];
+  if (!paths.length) return { checkpoint, paths };
+  if (
+    (await workspaceFingerprint(workspace, policy)) !== checkpoint.workspaceHash
+  )
+    throw new DagReconciliationError(
+      "Workspace changed before the repair patch was applied",
+    );
+  const save = async () => options.saveCheckpoint(structuredClone(checkpoint));
+  const originals = await captureOriginals(workspace, paths, policy);
+  checkpoint.pending = {
+    stepId: DAG_REPAIR_STEP,
+    proposalHash: hash(proposal),
+    beforeHash: checkpoint.workspaceHash,
+    paths,
+  };
+  await save();
+  let afterHash: string;
+  try {
+    await applyProposal(workspace, proposal, policy);
+    afterHash = await workspaceFingerprint(workspace, policy);
+    checkpoint.pending = { ...checkpoint.pending, afterHash };
+    await save();
+  } catch (error) {
+    await rollBack(checkpoint, originals, error, {
+      workspace,
+      policy,
+      save,
+      event: (type, stepId, data) => options.onEvent?.({ type, stepId, data }),
+    });
+    throw new Error(
+      `${(error as Error)?.message ?? String(error)} The repair patch was rolled back; the workspace is at its state before the repair.`,
+      { cause: error },
+    );
+  }
+  checkpoint = {
+    ...checkpoint,
+    workspaceHash: afterHash,
+    repairPaths: withRepairPaths(checkpoint, paths),
+  };
+  delete checkpoint.pending;
+  await save();
+  return { checkpoint: structuredClone(checkpoint), paths };
+}
+function withRepairPaths(checkpoint: DagCheckpoint, paths: string[]) {
+  return [...new Set([...(checkpoint.repairPaths ?? []), ...paths])];
+}
+
+/**
+ * Undoes a patch that failed during or after application: restores each
+ * file it touched, removes directories it created, confirms the pre-patch
+ * fingerprint, clears the pending marker and records the rollback. If the
+ * workspace cannot be restored, the marker stays and the run needs
+ * reconciliation.
+ */
+async function rollBack(
+  checkpoint: DagCheckpoint,
+  originals: Originals,
+  cause: unknown,
+  context: {
+    workspace: string;
+    policy: ProjectPolicy;
+    save: () => Promise<void>;
+    event: (
+      type: string,
+      stepId: string | undefined,
+      data: Record<string, unknown>,
+    ) => Promise<void> | void;
+  },
+): Promise<void> {
+  const pending = checkpoint.pending!;
+  const reason = (cause as Error)?.message ?? String(cause);
+  try {
+    await restoreOriginals(originals);
+    if (
+      (await workspaceFingerprint(context.workspace, context.policy)) !==
+      pending.beforeHash
+    )
+      throw new Error("the workspace does not match its pre-patch state");
+    delete checkpoint.pending;
+    await context.save();
+  } catch (error) {
+    throw new DagReconciliationError(
+      `Step ${pending.stepId} failed after patch application (${reason}) and could not be rolled back (${(error as Error).message}); inspect the retained workspace, then resume with reconciliation acknowledgement or create a new plan`,
+    );
+  }
+  await context.event("dag.step.rolled_back", pending.stepId, {
+    error: reason,
+    paths: pending.paths,
+  });
 }
 
 interface Originals {

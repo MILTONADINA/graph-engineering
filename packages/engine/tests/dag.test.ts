@@ -7,6 +7,7 @@ import {
   type ExecutionStep,
 } from "@graph-engineering/contracts";
 import {
+  applyRepair,
   DagReconciliationError,
   runDag,
   untilAborted,
@@ -437,6 +438,71 @@ describe("dependency DAG execution", () => {
       /no complete patch was recorded[\s\S]*create a new plan/,
     );
     expect(generated).toEqual([]);
+  });
+  it("reconciles an interrupted repair patch by fingerprint and records the files it wrote", async () => {
+    const workspace = await fixture();
+    const { checkpoint: done } = await runDag({
+      workspace,
+      policy: DEFAULT_POLICY,
+      steps: [step("a")],
+      saveCheckpoint: async () => {},
+      generate: async () => proposal("a.txt", "a"),
+    });
+    // The process stops once the repair patch is on disk, before the
+    // repair's completion is saved.
+    let saved: DagCheckpoint | undefined;
+    await expect(
+      applyRepair({
+        workspace,
+        policy: DEFAULT_POLICY,
+        checkpoint: done,
+        proposal: proposal("r.txt", "r").proposal,
+        saveCheckpoint: async (value) => {
+          if (!value.pending) throw new Error("simulated crash");
+          saved = structuredClone(value);
+        },
+      }),
+    ).rejects.toThrow("simulated crash");
+    expect(saved?.pending).toMatchObject({
+      stepId: "dag-repair",
+      beforeHash: done.workspaceHash,
+      paths: ["r.txt"],
+      afterHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    const events: DagEvent[] = [];
+    const resume = () =>
+      runDag({
+        workspace,
+        policy: DEFAULT_POLICY,
+        steps: [step("a")],
+        checkpoint: saved,
+        reconcilePending: true,
+        saveCheckpoint: async () => {},
+        onEvent: (entry) => {
+          events.push(entry);
+        },
+        generate: async () => {
+          throw new Error("must not generate");
+        },
+      });
+    const applied = await resume();
+    expect(applied.checkpoint.pending).toBeUndefined();
+    expect(applied.checkpoint.workspaceHash).toBe(saved!.pending!.afterHash);
+    expect(applied.checkpoint.repairPaths).toEqual(["r.txt"]);
+    expect(applied.checkpoint.completed.map((item) => item.id)).toEqual(["a"]);
+    // Back at the pre-repair state, the repair counts as not applied.
+    await rm(path.join(workspace, "r.txt"));
+    const reverted = await resume();
+    expect(reverted.checkpoint.workspaceHash).toBe(done.workspaceHash);
+    expect(reverted.checkpoint.repairPaths).toBeUndefined();
+    expect(
+      events
+        .filter((entry) => entry.type === "dag.step.reconciled")
+        .map((entry) => [entry.stepId, entry.data.outcome]),
+    ).toEqual([
+      ["dag-repair", "applied"],
+      ["dag-repair", "not_applied"],
+    ]);
   });
   it("accounts for successful siblings of failures and detects worker filesystem mutation", async () => {
     const workspace = await fixture();

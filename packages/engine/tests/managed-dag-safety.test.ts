@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type {
@@ -17,6 +17,7 @@ import {
 } from "../src/project.js";
 import { checked, readJson, writeJson } from "../src/util.js";
 import type { DagCheckpoint } from "../src/execution/dag.js";
+import * as workspaceModule from "../src/execution/workspace.js";
 import { workspaceFingerprint } from "../src/execution/workspace.js";
 import {
   invokeApiWorker,
@@ -135,6 +136,74 @@ async function assertUnchanged(workspace: string) {
   expect(await readFile(path.join(workspace, "second.js"), "utf8")).toContain(
     "= 2",
   );
+}
+
+// A reviewer that approves every change and keeps each diff it was shown.
+function approvingReviewer(
+  reviewed: string[],
+): NonNullable<EngineDependencies["review"]> {
+  return async (input) => {
+    reviewed.push(input.diff);
+    return {
+      review: {
+        verdict: "approve",
+        summary: "Approved",
+        criteria: input.acceptance.map((criterion) => ({
+          criterion,
+          met: "yes" as const,
+          evidence: "diff",
+        })),
+        findings: [],
+      },
+      model: "reviewer-fixture",
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cachedTokens: 0,
+        costUsd: 0,
+        estimated: false,
+      },
+    };
+  };
+}
+async function withReviewer(data: string) {
+  await configureProvider(data, {
+    id: "reviewer",
+    kind: "local",
+    model: "reviewer-fixture",
+  });
+}
+// Makes recording one step's completion event fail once, as if the process
+// stopped after the step's completion was saved to its checkpoint.
+function loseCompletionEvent(engine: GraphEngine, stepId: string) {
+  const event = engine.store.event.bind(engine.store);
+  let lost = false;
+  vi.spyOn(engine.store, "event").mockImplementation((...args) => {
+    if (!lost && args[1] === "dag.step.completed" && args[3] === stepId) {
+      lost = true;
+      throw new Error("Simulated process death");
+    }
+    return event(...args);
+  });
+}
+// Checks pass once a file contains the expected text.
+function passesWhen(
+  file: string,
+  text: string,
+): NonNullable<EngineDependencies["verify"]> {
+  return async (workspace, checks, _policy, snapshotHash) => {
+    const content = await readFile(path.join(workspace, file), "utf8").catch(
+      () => "",
+    );
+    const passed = content.includes(text);
+    return checks.map((check) => ({
+      ...check,
+      code: passed ? 0 : 1,
+      stdout: "",
+      stderr: passed ? "" : `expected ${file} to contain ${text}`,
+      snapshotHash,
+    }));
+  };
 }
 
 describe("managed DAG safety boundaries", () => {
@@ -307,6 +376,91 @@ describe("managed DAG safety boundaries", () => {
         .events(run.id)
         .find((entry) => entry.type === "dag.step.reconciled")?.data,
     ).toEqual(expect.objectContaining({ outcome: "applied" }));
+  });
+
+  it("shows the reviewer a step an acknowledged resume recorded as applied", async () => {
+    const { root, config, data } = await fixture((value) => {
+      value.policy.providers = ["local", "reviewer"];
+      value.review = { providerId: "reviewer" };
+    });
+    await withReviewer(data);
+    const reviewed: string[] = [];
+    let failSecond = true;
+    const engine = await open(root, {
+      worker: async (input) => {
+        if (input.objective === "two" && failSecond)
+          throw new Error("Simulated transport failure");
+        return result(input.objective);
+      },
+      review: approvingReviewer(reviewed),
+    });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    // Step two's patch reached disk and its post-patch fingerprint was
+    // saved; the process stopped before its completion was recorded.
+    const checkpointPath = path.join(data, "checkpoints", `${run.id}.json`);
+    const checkpoint = await readJson<DagCheckpoint>(checkpointPath);
+    const second = path.join(run.workspace!, "second.js");
+    await writeFile(
+      second,
+      (await readFile(second, "utf8")).replace("= 2", "= 4"),
+    );
+    await writeJson(checkpointPath, {
+      ...checkpoint,
+      pending: {
+        stepId: "two",
+        proposalHash: "a".repeat(64),
+        beforeHash: checkpoint.workspaceHash,
+        afterHash: await workspaceFingerprint(run.workspace!, config.policy),
+        paths: ["second.js"],
+      },
+    });
+    failSecond = false;
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.status).toBe("succeeded");
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toContain("+export const first = 3;");
+    expect(reviewed[0]).toContain("+export const second = 4;");
+  });
+
+  it("scans a step whose saved completion has no event as a file the run wrote", async () => {
+    const { root } = await fixture();
+    await writeFile(
+      path.join(root, ".graph/security-baseline.json"),
+      JSON.stringify({ version: 1, findings: [] }),
+    );
+    await checked("git", ["add", ".graph/security-baseline.json"], {
+      cwd: root,
+    });
+    await checked("git", ["commit", "-m", "test: baseline"], { cwd: root });
+    const engine = await open(root, {
+      worker: async (input) => result(input.objective),
+      securityScan: async () => ({
+        tools: ["semgrep"],
+        findings: [],
+        errors: [],
+        unscanned: [{ path: "second.js", reason: "binary file" }],
+      }),
+    });
+    loseCompletionEvent(engine, "two");
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "dag.step.completed")
+        .map((event) => event.stepId),
+    ).toEqual(["one"]);
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.status).toBe("failed");
+    expect(resumed.error).toContain(
+      "Security scan could not read 1 file(s) this run wrote (second.js: binary file)",
+    );
   });
 
   it("rejects unaffordable parallel calls before dispatch and preserves the budget on resume", async () => {
@@ -692,6 +846,137 @@ describe("managed DAG safety boundaries", () => {
     expect(
       await readFile(path.join(resumed.workspace!, "second.js"), "utf8"),
     ).toContain("= 6");
+  });
+
+  it("rolls back a repair patch that fails while its files are written, so the run resumes into repair", async () => {
+    const { root, config, data } = await fixture((value) => {
+      value.policy.maxTurns = 8;
+    });
+    const repair: WorkerResult = {
+      ...result("two"),
+      proposal: {
+        summary: "Fix second and note the repair",
+        requests: [],
+        changes: [
+          { path: "second.js", before: "= 4", after: "= 5" },
+          {
+            path: "notes/repair.js",
+            before: null,
+            after: "export const repaired = true;\n",
+          },
+        ],
+      },
+    };
+    const worker = vi.fn(async (input: WorkerInput) =>
+      input.objective.startsWith("Repair") ? repair : result(input.objective),
+    );
+    const apply = workspaceModule.applyProposal;
+    let failWrite = true;
+    vi.spyOn(workspaceModule, "applyProposal").mockImplementation(
+      async (workspace, proposal, policy) => {
+        if (!failWrite || proposal.summary !== repair.proposal.summary)
+          return apply(workspace, proposal, policy);
+        failWrite = false;
+        // The first file reaches disk, then the disk fills up.
+        const second = path.join(workspace, "second.js");
+        await writeFile(
+          second,
+          (await readFile(second, "utf8")).replace("= 4", "= 5"),
+        );
+        throw Object.assign(new Error("ENOSPC: no space left on device"), {
+          code: "ENOSPC",
+        });
+      },
+    );
+    const engine = await open(root, {
+      worker,
+      verify: passesWhen("second.js", "= 5"),
+    });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("no space left on device");
+    // The half-written repair was undone, and nothing is left pending.
+    expect(
+      await readFile(path.join(run.workspace!, "second.js"), "utf8"),
+    ).toContain("= 4");
+    const checkpoint = await readJson<DagCheckpoint>(
+      path.join(data, "checkpoints", `${run.id}.json`),
+    );
+    expect(checkpoint.pending).toBeUndefined();
+    expect(checkpoint.workspaceHash).toBe(
+      await workspaceFingerprint(run.workspace!, config.policy),
+    );
+    expect(
+      engine.store
+        .events(run.id)
+        .find((event) => event.type === "dag.step.rolled_back"),
+    ).toMatchObject({
+      stepId: "dag-repair",
+      data: { paths: ["second.js", "notes/repair.js"] },
+    });
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.status).toBe("succeeded");
+    expect(
+      await readFile(path.join(resumed.workspace!, "notes/repair.js"), "utf8"),
+    ).toContain("repaired");
+  });
+
+  it("resolves an interrupted repair patch on an acknowledged resume and reviews the files it wrote", async () => {
+    const { root, config, data } = await fixture((value) => {
+      value.policy.providers = ["local", "reviewer"];
+      value.review = { providerId: "reviewer" };
+      value.policy.maxTurns = 8;
+    });
+    await withReviewer(data);
+    const reviewed: string[] = [];
+    const worker = vi.fn(async (input: WorkerInput) => {
+      if (input.objective.startsWith("Repair"))
+        throw new Error("Simulated transport failure");
+      return result(input.objective);
+    });
+    const engine = await open(root, {
+      worker,
+      verify: passesWhen("notes/repair.js", "repaired"),
+      review: approvingReviewer(reviewed),
+    });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("Simulated transport failure");
+    // The repair patch reached disk and its post-patch fingerprint was
+    // saved; the process stopped before the repair's completion was saved.
+    const checkpointPath = path.join(data, "checkpoints", `${run.id}.json`);
+    const checkpoint = await readJson<DagCheckpoint>(checkpointPath);
+    await mkdir(path.join(run.workspace!, "notes"));
+    await writeFile(
+      path.join(run.workspace!, "notes/repair.js"),
+      "export const repaired = true;\n",
+    );
+    await writeJson(checkpointPath, {
+      ...checkpoint,
+      pending: {
+        stepId: "dag-repair",
+        proposalHash: "b".repeat(64),
+        beforeHash: checkpoint.workspaceHash,
+        afterHash: await workspaceFingerprint(run.workspace!, config.policy),
+        paths: ["notes/repair.js"],
+      },
+    });
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.status).toBe("succeeded");
+    expect(worker).toHaveBeenCalledTimes(3);
+    expect(
+      engine.store
+        .events(run.id)
+        .find((event) => event.type === "dag.step.reconciled"),
+    ).toMatchObject({ stepId: "dag-repair", data: { outcome: "applied" } });
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]).toContain("+export const repaired = true;");
   });
 
   it("keeps single-attempt plans failing without repair and reserves the repair step ID", async () => {
@@ -1640,6 +1925,68 @@ describe("tester role", () => {
     expect(
       await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
     ).toBe("expect 5\n");
+  });
+
+  it("keeps guarding the tester's tests when its saved completion has no event", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.providers = ["local", "tester"];
+      value.tester = { providerId: "tester" };
+    });
+    await configureProvider(projectDataDir(config.projectId), {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    const implementer: { objective: string; feedback?: string }[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (input.provider.id === "tester")
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "Tests",
+              requests: [],
+              changes: [
+                { path: "first.test.js", before: null, after: "expect 3\n" },
+              ],
+            },
+          };
+        implementer.push({
+          objective: input.objective,
+          feedback: input.feedback,
+        });
+        return implementer.length === 1
+          ? {
+              ...result("one"),
+              proposal: {
+                summary: "Weaken the test",
+                requests: [],
+                changes: [
+                  { path: "first.test.js", before: "expect 3", after: "" },
+                ],
+              },
+            }
+          : result("one");
+      }),
+    });
+    loseCompletionEvent(engine, "tester");
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(implementer).toHaveLength(0);
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(implementer[0]!.objective).toContain(
+      "The tester has written tests for the acceptance criteria in first.test.js",
+    );
+    expect(implementer[1]!.feedback).toContain(
+      "The tester wrote first.test.js to prove the acceptance criteria. Do not change those tests",
+    );
+    expect(
+      await readFile(path.join(resumed.workspace!, "first.test.js"), "utf8"),
+    ).toBe("expect 3\n");
   });
 
   const testerFixture = async (attempts: number) => {
