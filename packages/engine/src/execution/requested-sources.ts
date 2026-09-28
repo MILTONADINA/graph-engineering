@@ -188,11 +188,19 @@ export async function requestedSourcePacket(options: {
   let mandatoryFits: boolean | undefined;
   const requested: ContextPacket["items"] = [];
   const partialIds = new Set<string>();
-  for (const entry of new Set(options.requests)) {
+  const entries = [...new Set(options.requests)];
+  // A cloud request for a file the project does not export is refused whole,
+  // before any file is read, by export policy alone: whether the file
+  // exists is never looked up.
+  if (provider.kind !== "local") {
+    const refused = [
+      ...new Set(entries.map((entry) => parseRequest(entry).path)),
+    ].filter((relative) => !isAllowedPath(relative, policy, true));
+    if (refused.length) throw new UnexportableRequestError(refused);
+  }
+  for (const entry of entries) {
     const request = parseRequest(entry);
     const relative = request.path;
-    if (provider.kind !== "local" && !isAllowedPath(relative, policy, true))
-      throw new Error(`Source request is not exportable: ${relative}`);
     const absolute = await safePath(options.workspace, relative, policy, {
       forExport: provider.kind !== "local",
     });
@@ -517,3 +525,25 @@ export class RepeatedRequestError extends Error {}
 /** What a worker is told the first time it repeats a request. */
 export const REPEATED_REQUEST_FEEDBACK =
   "Your last request added nothing new: you already have those sources, or they do not fit the context budget. Propose your change now from the context you have, or request a different file or a smaller line range such as path#L1-L80. Another request that adds nothing stops the run.";
+
+/**
+ * A cloud worker asked for paths the project does not export to it. Nothing
+ * was read. Like a repeated request, it is answered once with feedback and
+ * stops the step the second time.
+ */
+export class UnexportableRequestError extends Error {
+  readonly paths: readonly string[];
+  constructor(paths: readonly string[]) {
+    super(`Source request is not exportable: ${paths.join(", ")}`);
+    this.paths = paths;
+  }
+}
+
+/**
+ * What a worker is told the first time it requests paths it may not receive.
+ * It names only the paths the worker itself sent, and says nothing about
+ * whether they exist.
+ */
+export function unexportableRequestFeedback(paths: readonly string[]): string {
+  return `You requested ${paths.join(", ")}, which this project does not share with your provider, so nothing was read. Propose your change now from the context you have, or request a different file. Another request that adds nothing stops the run.`;
+}

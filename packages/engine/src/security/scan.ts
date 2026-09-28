@@ -600,6 +600,8 @@ export async function runSecurityScan(options: {
         } else if (tool.id === "osv-scanner" && options.osvDatabase) {
           // Missing an ecosystem's database fails the scan (incomplete), never
           // skips that lockfile silently; the error says how to fix it.
+          // --no-resolve: manifests are matched on what they declare, never
+          // resolved through deps.dev.
           await run(
             "osv-scanner",
             [
@@ -608,6 +610,7 @@ export async function runSecurityScan(options: {
               "source",
               "--recursive",
               "--offline-vulnerabilities",
+              "--no-resolve",
               "--format",
               "json",
               "--output-file",
@@ -670,7 +673,10 @@ export async function osvDatabase(
  * Downloads the OSV vulnerability databases for the ecosystems the
  * repository's lockfiles use, into the private data directory. This is the
  * only scanner step with network access, and it needs the project's policy
- * to allow the OSV database host. Later scans read it offline.
+ * to allow the OSV database host. Dependency resolution is off
+ * (--no-resolve): OSV-Scanner would otherwise send the packages a manifest
+ * such as pom.xml or requirements.txt declares to api.deps.dev, a host the
+ * policy does not allow. Later scans read the database offline.
  */
 export async function updateOsvDatabase(options: {
   root: string;
@@ -734,6 +740,8 @@ export async function updateOsvDatabase(options: {
         "source",
         "--recursive",
         "--offline-vulnerabilities",
+        // Never resolve manifests through deps.dev: only the database host.
+        "--no-resolve",
         "--download-offline-databases",
         "--format",
         "json",

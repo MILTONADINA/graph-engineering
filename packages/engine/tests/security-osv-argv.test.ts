@@ -1,0 +1,102 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+// Every docker call is recorded instead of run, so the tests read the exact
+// argv each scanner step would start.
+const mocks = vi.hoisted(() => ({ command: vi.fn() }));
+vi.mock("../src/util.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/util.js")>()),
+  command: mocks.command,
+}));
+import {
+  OSV_DATABASE_HOST,
+  runSecurityScan,
+  updateOsvDatabase,
+} from "../src/security/scan.js";
+
+const IMAGE_ID = `sha256:${"a".repeat(64)}`;
+const directories: string[] = [];
+const directory = async () => {
+  const created = await mkdtemp(path.join(os.tmpdir(), "graph-osv-argv-"));
+  directories.push(created);
+  return created;
+};
+afterEach(async () => {
+  mocks.command.mockReset();
+  for (const created of directories.splice(0))
+    await rm(created, { recursive: true, force: true });
+});
+
+function fakeDocker() {
+  const runs: string[][] = [];
+  mocks.command.mockImplementation(async (_executable, argv: string[]) => {
+    if (argv[0] === "image")
+      return { code: 0, stdout: `${IMAGE_ID}\n`, stderr: "" };
+    if (argv[0] === "run") runs.push(argv);
+    return { code: 0, stdout: "", stderr: "" };
+  });
+  // The OSV-Scanner arguments: everything after the image it runs.
+  const osv = () => {
+    const found = runs.filter(
+      (argv) => argv[argv.indexOf(IMAGE_ID) + 1] === "osv-scanner",
+    );
+    expect(found).toHaveLength(1);
+    return {
+      docker: found[0]!.slice(0, found[0]!.indexOf(IMAGE_ID)),
+      scanner: found[0]!.slice(found[0]!.indexOf(IMAGE_ID) + 1),
+    };
+  };
+  return { osv };
+}
+
+describe("OSV-Scanner never resolves dependencies through deps.dev", () => {
+  it("downloads the OSV database without resolving manifest dependencies", async () => {
+    const root = await directory();
+    const dataDir = await directory();
+    await writeFile(
+      path.join(root, "pom.xml"),
+      "<project><groupId>com.example.internal</groupId></project>\n",
+    );
+    await writeFile(
+      path.join(root, "requirements.txt"),
+      "internal-private-lib==1.2.3\n",
+    );
+    const docker = fakeDocker();
+    const result = await updateOsvDatabase({
+      root,
+      dataDir,
+      image: "graph-security:local",
+      files: ["pom.xml", "requirements.txt"],
+      policy: { network: "allowlisted", allowedHosts: [OSV_DATABASE_HOST] },
+    });
+    expect(result.lockfiles).toEqual(["pom.xml", "requirements.txt"]);
+    const { scanner } = docker.osv();
+    expect(scanner).toContain("--download-offline-databases");
+    // An OSV-Scanner flag, not a docker one: the networked step fetches only
+    // the database, never the manifests' packages from api.deps.dev.
+    expect(scanner).toContain("--no-resolve");
+  });
+
+  it("scans lockfiles offline without resolving manifest dependencies", async () => {
+    const root = await directory();
+    const database = await directory();
+    await writeFile(path.join(root, "package-lock.json"), "{}\n");
+    const docker = fakeDocker();
+    await runSecurityScan({
+      root,
+      image: "graph-security:local",
+      profile: {
+        files: ["package-lock.json"],
+        authorizedTargets: [],
+        configuredTools: [],
+      },
+      osvDatabase: database,
+    });
+    const { docker: container, scanner } = docker.osv();
+    expect(container).toContain("--network=none");
+    expect(scanner).toContain("--offline-vulnerabilities");
+    expect(scanner).toContain("--no-resolve");
+  });
+});

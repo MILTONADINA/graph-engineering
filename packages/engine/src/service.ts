@@ -98,6 +98,8 @@ import {
   REPEATED_REQUEST_FEEDBACK,
   requestedSourcePacket,
   SuppliedLines,
+  UnexportableRequestError,
+  unexportableRequestFeedback,
   unseenPatchLocation,
 } from "./execution/requested-sources.js";
 import { checkedGit, gitBlob } from "./execution/git.js";
@@ -1909,6 +1911,15 @@ export class GraphEngine {
             // steps must make pass and may not change.
             const testsWritten =
               step.id === TESTER_STEP_ID ? [] : testerWrittenFiles();
+            // A cloud worker is told only of the tests it may request: the
+            // others' names were chosen by a tester that may have seen
+            // private context, and requesting them is refused.
+            const testsListed =
+              provider.kind === "local"
+                ? testsWritten
+                : testsWritten.filter((file) =>
+                    isAllowedPath(file, this.config.policy, true),
+                  );
             for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
               await this.refresh();
               if (hash(this.config.policy) !== run.plan.policyHash)
@@ -1917,8 +1928,8 @@ export class GraphEngine {
                 provider,
                 policy: this.config.policy,
                 context: stepPacket,
-                objective: testsWritten.length
-                  ? `${step.objective}\n\nThe tester has written tests for the acceptance criteria in ${testsWritten.join(", ")}. Request them, and make them pass without changing them.`
+                objective: testsListed.length
+                  ? `${step.objective}\n\nThe tester has written tests for the acceptance criteria in ${testsListed.join(", ")}. Request them, and make them pass without changing them.`
                   : step.objective,
                 acceptance: run.plan.acceptance,
                 effort: step.effort,
@@ -1957,13 +1968,15 @@ export class GraphEngine {
                   repeatedRequests = 0;
                   continue;
                 } catch (error) {
-                  // A repeated request with changes is a proposal; a bare
-                  // repeat is told so once before it stops the step.
-                  if (!(error instanceof RepeatedRequestError)) throw error;
+                  // A repeated or unexportable request with changes is a
+                  // proposal; a bare one is told so once before it stops the
+                  // step.
+                  const refused = refusedRequest(error);
+                  if (!refused) throw error;
                   if (!result.proposal.changes.length) {
                     if (++repeatedRequests > 1) throw error;
-                    returned(step.id, "no-new-evidence");
-                    patchFeedback = REPEATED_REQUEST_FEEDBACK;
+                    returned(step.id, refused.reason);
+                    patchFeedback = refused.feedback;
                     continue;
                   }
                 }
@@ -2338,11 +2351,12 @@ export class GraphEngine {
                 repeatedRequests = 0;
                 continue;
               } catch (error) {
-                if (!(error instanceof RepeatedRequestError)) throw error;
+                const refused = refusedRequest(error);
+                if (!refused) throw error;
                 if (!result.proposal.changes.length) {
                   if (++repeatedRequests > 1) throw error;
-                  returned(step.id, "no-new-evidence");
-                  patchFeedback = REPEATED_REQUEST_FEEDBACK;
+                  returned(step.id, refused.reason);
+                  patchFeedback = refused.feedback;
                   continue;
                 }
               }
@@ -2753,6 +2767,22 @@ function compactFailures(checks: VerificationResult[]): string {
 
 // Test first: the tester only creates new test files, and writes at least
 // one; implementing steps make those tests pass without changing them.
+// A source request answered with feedback instead of evidence: one that
+// added nothing new, or one naming paths this worker may not receive. Any
+// other error is not the worker's to fix.
+function refusedRequest(
+  error: unknown,
+): { reason: string; feedback: string } | undefined {
+  if (error instanceof UnexportableRequestError)
+    return {
+      reason: "not-exportable",
+      feedback: unexportableRequestFeedback(error.paths),
+    };
+  if (error instanceof RepeatedRequestError)
+    return { reason: "no-new-evidence", feedback: REPEATED_REQUEST_FEEDBACK };
+  return undefined;
+}
+
 function testFirstFeedback(
   step: ExecutionStep,
   proposal: WorkerResult["proposal"],
