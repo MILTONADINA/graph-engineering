@@ -797,6 +797,9 @@ describe("managed execution", () => {
     expect(engine.config.policy).toBe(live);
     expect("allowPublicTemplateLedger" in engine.config.policy).toBe(false);
     expect(Object.keys(engine.config.policy)).toEqual(Object.keys(fresh));
+    // Indexing and context use the same policy as the file.
+    expect("allowPublicTemplateLedger" in engine.context.policy).toBe(false);
+    expect(engine.context.policy).toEqual(fresh);
     // A plan made in this process matches one made by a fresh process.
     expect(util.hash(engine.config.policy)).toBe(util.hash(fresh));
     const plan = await engine.createPlan({
@@ -804,6 +807,40 @@ describe("managed execution", () => {
       acceptance: ["tests pass"],
     });
     expect(plan.policyHash).toBe(util.hash(fresh));
+  });
+  it("stops narrowing indexing to a working set removed from the project file, so a plan made in a long-lived engine starts in a fresh one", async () => {
+    const { root, config } = await fixture();
+    config.policy.allowPublicTemplateLedger = true;
+    config.policy.workingSet = ["math.cjs"];
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    const engine = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+    });
+    engines.push(engine);
+    const narrowed = await engine.context.index({ semantic: false });
+    // The operator removes the working set and the ledger opt-in by hand.
+    const {
+      workingSet: _workingSet,
+      allowPublicTemplateLedger: _ledger,
+      ...policy
+    } = config.policy;
+    await writeJson(path.join(root, PROJECT_FILE), { ...config, policy });
+    await engine.refresh();
+    expect("workingSet" in engine.context.policy).toBe(false);
+    expect("allowPublicTemplateLedger" in engine.context.policy).toBe(false);
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["tests pass"],
+    });
+    expect(plan.snapshotId).not.toBe(narrowed.id);
+    // A fresh process indexes the same files, which start() compares.
+    const other = await GraphEngine.open(root, {
+      dockerAvailable: async () => true,
+    });
+    engines.push(other);
+    expect(plan.snapshotId).toBe(
+      (await other.context.index({ semantic: false })).id,
+    );
   });
   it("does not mark a live process interrupted when another client opens its store", async () => {
     const { root, data, config } = await fixture();
