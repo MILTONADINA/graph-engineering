@@ -57,6 +57,7 @@ positions were recorded:
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: removes a stale high-water lock and releases its own
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a head whose size another reader stored with a different root during the read
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses to replace a high-water mark that moved during the read, and a retry proves consistency from it
+  - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses to write a head when the high-water mark was removed during the read
 - AC6: Only statements signed by the issuer key count. Third-party entries, including a flood under the subject, never refuse on their own. A re-logged copy of an owner payload counts once, at its lowest index. A bad signature under the issuer key is refused, and so are a missing statement, two different owner payloads for one subject and a payload that does not match its logged hash. When the fetch budget runs out before an answer, the read refuses with `rekor-search-budget-exhausted`.
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: ignores statements signed by another key and refuses a bad issuer signature
   - Test: packages/engine/tests/promotion-rekor-witness.test.ts :: refuses a missing statement, a duplicate freeze and a payload that does not match

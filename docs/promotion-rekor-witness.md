@@ -302,8 +302,8 @@ reads. It also covers every refusal:
 - entry proof heads older and newer than the verified head;
 - population published before registration;
 - a stale high-water lock and concurrent writers;
-- a mark that another reader moved during a read, or stored with a
-  different root at the same size;
+- a mark that another reader moved or removed during a read, or stored
+  with a different root at the same size;
 - a payload mismatch;
 - a host that is not allowlisted;
 - the response size limit.
