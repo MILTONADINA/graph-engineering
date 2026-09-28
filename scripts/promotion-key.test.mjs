@@ -79,7 +79,13 @@ function engineFingerprint(key) {
 test("promotion-key uses a per-user data directory by default", () => {
   assert.equal(
     defaultKeyDir("darwin", {}, "/Users/o"),
-    "/Users/o/Library/Application Support/graph-engineering/promotion-keys",
+    path.join(
+      "/Users/o",
+      "Library",
+      "Application Support",
+      "graph-engineering",
+      "promotion-keys",
+    ),
   );
   assert.equal(
     defaultKeyDir("linux", { XDG_DATA_HOME: "/data" }, "/home/o"),

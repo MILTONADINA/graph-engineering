@@ -22,6 +22,7 @@ import {
   closeSync,
   constants,
   fchmodSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -164,7 +165,22 @@ function readBounded(target, limit, { private: isPrivate = false } = {}) {
     throw new KeyError(`${target} is not a regular file`, EXIT.refused);
   if (stat.size > limit)
     throw new KeyError(`${target} is larger than ${limit} bytes`);
-  return readFileSync(target);
+  // Read through the descriptor that was checked, so a swap between the
+  // lstat above and the read cannot substitute another file.
+  const fd = openSync(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (opened.dev !== stat.dev || opened.ino !== stat.ino)
+      throw new KeyError(
+        `${target} changed while opening; refusing`,
+        EXIT.refused,
+      );
+    if (opened.size > limit)
+      throw new KeyError(`${target} is larger than ${limit} bytes`);
+    return readFileSync(fd);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** Writes a new file with mode 0600; never overwrites or follows a link. */
