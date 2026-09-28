@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { Command } from "commander";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, open, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -765,7 +765,7 @@ cli
           throw new Error(
             "With --spec, the objective and acceptance criteria come from the spec",
           );
-        return warnAboutTurns(
+        return warnAboutPlan(
           engine,
           await engine.createPlanFromSpec(
             path.relative(root(), path.resolve(root(), options.spec)),
@@ -777,7 +777,7 @@ cli
         throw new Error(
           "Give an objective and --accept criteria, or plan from a spec with --spec",
         );
-      return warnAboutTurns(
+      return warnAboutPlan(
         engine,
         await engine.createPlan({
           ...common,
@@ -787,14 +787,14 @@ cli
       );
     }),
   );
-// A plan's roles share one run-wide budget of model calls; say so before
-// the run, not when it stops half way.
-function warnAboutTurns(
+// Say before the run, not when it refuses or stops half way, that a plan
+// has no verification commands or needs more model calls than its roles'
+// shared run-wide budget allows.
+function warnAboutPlan(
   engine: GraphEngine,
   plan: import("@graph-engineering/contracts").ExecutionPlan,
 ) {
-  const warning = engine.turnWarning(plan);
-  if (warning) console.error(warning);
+  for (const warning of engine.planWarnings(plan)) console.error(warning);
   return plan;
 }
 cli
@@ -873,19 +873,27 @@ cli
   .option("--effort <effort>")
   .action(async (objective, options) =>
     withEngine(async (engine) => {
-      const proposal = await engine.proposeSteps({
-        objective,
-        acceptance: options.accept,
-        plannerId: options.planner,
-        providerId: options.provider,
-        effort: options.effort,
-      });
       // Never overwrite: the file is what a person reviews and approves.
-      await writeFile(
-        path.resolve(options.out),
-        `${JSON.stringify(proposal.steps, null, 2)}\n`,
-        { flag: "wx", mode: 0o600 },
-      );
+      // Claim it before the planner call, so a path that exists or cannot
+      // be created costs no call, and remove it if no proposal reaches it.
+      const out = path.resolve(options.out);
+      const file = await open(out, "wx", 0o600);
+      let proposal: Awaited<ReturnType<GraphEngine["proposeSteps"]>>;
+      try {
+        proposal = await engine.proposeSteps({
+          objective,
+          acceptance: options.accept,
+          plannerId: options.planner,
+          providerId: options.provider,
+          effort: options.effort,
+        });
+        await file.writeFile(`${JSON.stringify(proposal.steps, null, 2)}\n`);
+      } catch (error) {
+        await file.close();
+        await rm(out, { force: true });
+        throw error;
+      }
+      await file.close();
       return {
         ...proposal,
         next: `Review ${options.out}, then: graph-engine plan ${JSON.stringify(objective)} --accept ... --steps ${options.out}`,

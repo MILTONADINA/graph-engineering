@@ -28,7 +28,10 @@ graph-engine plan "Add invoices with a list endpoint" \
 - The engine assigns every step the implementing worker (`--provider`, or
   the first permitted one), validates the steps as a dependency graph
   (unique IDs, known dependencies, no cycles, the reserved `dag-repair` ID
-  refused) and writes them to a new file; it never overwrites one.
+  refused) and writes them to a new file; it never overwrites one. The file
+  is created before the planner is called, so an `--out` that already exists
+  or whose directory is missing is refused without spending a planner call,
+  and it is removed again if the call fails.
 - **Nothing runs.** The steps file is the proposal. A person reviews and may
   edit it, then creates the plan with `plan --steps`, which validates the
   steps again and binds the plan to the current policy and source.
