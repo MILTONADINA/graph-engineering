@@ -1854,6 +1854,9 @@ export class GraphEngine {
           policy: this.config.policy,
           signal,
           checkpoint,
+          // resume() refuses without the operator's reconciliation
+          // acknowledgement, so a resumed run may resolve a pending patch.
+          reconcilePending: resuming,
           // Strict paid reservations are cross-process; each DAG stays within
           // the configured bound, and small repositories use at most two.
           maxParallel: dagParallelism(

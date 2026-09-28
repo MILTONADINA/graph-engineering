@@ -3,6 +3,15 @@ import type {
   ProjectPolicy,
   Usage,
 } from "@graph-engineering/contracts";
+import {
+  mkdir,
+  readFile,
+  realpath,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { hash, now } from "../util.js";
@@ -39,6 +48,8 @@ export interface DagCheckpoint {
     stepId: string;
     proposalHash: string;
     beforeHash: string;
+    /** Workspace fingerprint once the patch is on disk, before its checks. */
+    afterHash?: string;
     paths: string[];
   };
 }
@@ -55,6 +66,13 @@ export interface DagOptions {
   writeScopes?: Record<string, string[]>;
   signal?: AbortSignal;
   checkpoint?: DagCheckpoint;
+  /**
+   * The operator acknowledged the retained state (`resume --reconciled`), so a
+   * pending patch application is resolved by fingerprint: a workspace at its
+   * pre-patch state re-runs the step, one at its post-patch state records it
+   * as applied, and anything else still refuses.
+   */
+  reconcilePending?: boolean;
   /** Must durably persist before resolving; JSON writes should use atomic rename. */
   saveCheckpoint: (checkpoint: DagCheckpoint) => Promise<void>;
   /** Read/proposal only: a worker is never allowed to edit the workspace. */
@@ -123,6 +141,10 @@ const checkpointSchema = z
         stepId: z.string(),
         proposalHash: z.string().regex(/^[a-f0-9]{64}$/),
         beforeHash: z.string().regex(/^[a-f0-9]{64}$/),
+        afterHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
         paths: z.array(z.string()).max(50),
       })
       .strict()
@@ -239,10 +261,85 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
     throw new DagReconciliationError(
       "DAG plan or policy changed since checkpoint",
     );
-  if (checkpoint.pending)
-    throw new DagReconciliationError(
-      `Step ${checkpoint.pending.stepId} was interrupted during patch application; inspect and reconcile the retained workspace before resuming`,
-    );
+  const save = async () => options.saveCheckpoint(structuredClone(checkpoint));
+  const event = async (
+    type: string,
+    stepId: string | undefined,
+    data: Record<string, unknown>,
+  ) => options.onEvent?.({ type, stepId, data });
+  if (checkpoint.pending) {
+    const pending = checkpoint.pending;
+    if (!options.reconcilePending)
+      throw new DagReconciliationError(
+        `Step ${pending.stepId} was interrupted during patch application; inspect the retained workspace, then resume with explicit reconciliation acknowledgement`,
+      );
+    const unresolved = (reason: string) =>
+      new DagReconciliationError(
+        `Step ${pending.stepId} was interrupted during patch application and ${reason}. ` +
+          `Restore ${pending.paths.join(", ") || "its files"} in the retained workspace to their content before the step ` +
+          `(the step then runs again)${pending.afterHash ? " or to the step's complete patch (the step is then recorded as applied)" : ""}, ` +
+          `and resume with reconciliation acknowledgement again; or leave this run and create a new plan to start a fresh run.`,
+      );
+    if (
+      pending.beforeHash !== checkpoint.workspaceHash ||
+      !dag.ancestors.has(pending.stepId) ||
+      checkpoint.completed.some((item) => item.id === pending.stepId) ||
+      [...dag.ancestors.get(pending.stepId)!].some(
+        (dependency) =>
+          !checkpoint.completed.some((item) => item.id === dependency),
+      ) ||
+      pending.paths.some((file) => !isAllowedPath(file, policy))
+    )
+      throw unresolved("its checkpoint record is inconsistent with the plan");
+    if (snapshotHash === pending.beforeHash) {
+      delete checkpoint.pending;
+      await save();
+      await event("dag.step.reconciled", pending.stepId, {
+        outcome: "not_applied",
+        paths: pending.paths,
+      });
+    } else if (pending.afterHash && snapshotHash === pending.afterHash) {
+      try {
+        await assertVerificationPaths(
+          workspace,
+          [
+            ...checkpoint.completed.flatMap((item) => item.paths),
+            ...pending.paths,
+          ],
+          policy,
+        );
+      } catch (error) {
+        throw unresolved(
+          `its applied patch fails the verification inventory check (${(error as Error).message})`,
+        );
+      }
+      checkpoint = {
+        ...checkpoint,
+        workspaceHash: pending.afterHash,
+        completed: [
+          ...checkpoint.completed,
+          {
+            id: pending.stepId,
+            proposalHash: pending.proposalHash,
+            paths: pending.paths,
+            completedAt: now(),
+          },
+        ],
+      };
+      delete checkpoint.pending;
+      await save();
+      await event("dag.step.reconciled", pending.stepId, {
+        outcome: "applied",
+        paths: pending.paths,
+        snapshotHash: checkpoint.workspaceHash,
+      });
+    } else
+      throw unresolved(
+        pending.afterHash
+          ? "the retained workspace matches neither its state before the patch nor after it"
+          : "the retained workspace no longer matches its state before the patch, and no complete patch was recorded",
+      );
+  }
   if (checkpoint.workspaceHash !== snapshotHash)
     throw new DagReconciliationError(
       "DAG workspace differs from its checkpoint",
@@ -270,13 +367,31 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
   const checkCancelled = () => {
     if (signal.aborted) throw new Error("DAG execution cancelled");
   };
-  const save = async () => options.saveCheckpoint(structuredClone(checkpoint));
-  const event = async (
-    type: string,
-    stepId: string | undefined,
-    data: Record<string, unknown>,
-  ) => options.onEvent?.({ type, stepId, data });
   const appliedStepIds: string[] = [];
+  // Undo a patch that failed during or after application, so the run stops
+  // cleanly at its pre-step state instead of leaving a pending marker.
+  const rollBack = async (cause: unknown) => {
+    const pending = checkpoint.pending!;
+    const reason = (cause as Error)?.message ?? String(cause);
+    try {
+      await restoreOriginals(pendingOriginals!);
+      if (
+        (await workspaceFingerprint(workspace, policy)) !== pending.beforeHash
+      )
+        throw new Error("the workspace does not match its pre-patch state");
+      delete checkpoint.pending;
+      await save();
+    } catch (error) {
+      throw new DagReconciliationError(
+        `Step ${pending.stepId} failed after patch application (${reason}) and could not be rolled back (${(error as Error).message}); inspect the retained workspace, then resume with reconciliation acknowledgement or create a new plan`,
+      );
+    }
+    await event("dag.step.rolled_back", pending.stepId, {
+      error: reason,
+      paths: pending.paths,
+    });
+  };
+  let pendingOriginals: Originals | undefined;
   checkCancelled();
   await save();
   while (completed.size < dag.steps.length) {
@@ -403,18 +518,33 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
         beforeHash: checkpoint.workspaceHash,
         paths,
       };
-      await save(); // A crash from this point is intentionally reconciliation-required.
-      await applyProposal(workspace, proposal, policy);
-      // Evaluate after application too: this patch may itself change ignore rules
-      // that hide a sibling's earlier output. Keep the pending checkpoint on failure.
-      await assertVerificationPaths(
-        workspace,
-        [...checkpoint.completed.flatMap((item) => item.paths), ...paths],
-        policy,
-      );
+      // A crash from this point is reconciliation-required: a resume matches
+      // the workspace against the pre-patch and post-patch fingerprints.
+      await save();
+      pendingOriginals = await captureOriginals(workspace, paths, policy);
+      let afterHash: string;
+      try {
+        await applyProposal(workspace, proposal, policy);
+        afterHash = await workspaceFingerprint(workspace, policy);
+        checkpoint.pending = { ...checkpoint.pending, afterHash };
+        await save();
+        // Evaluate after application too: this patch may itself change ignore
+        // rules that hide a sibling's earlier output.
+        await assertVerificationPaths(
+          workspace,
+          [...checkpoint.completed.flatMap((item) => item.paths), ...paths],
+          policy,
+        );
+      } catch (error) {
+        await rollBack(error);
+        throw new Error(
+          `${(error as Error)?.message ?? String(error)} Step ${step.id}'s patch was rolled back; the workspace is at its pre-step state, and resuming with reconciliation acknowledgement runs the step again.`,
+          { cause: error },
+        );
+      }
       checkpoint = {
         ...checkpoint,
-        workspaceHash: await workspaceFingerprint(workspace, policy),
+        workspaceHash: afterHash,
         completed: [
           ...checkpoint.completed,
           {
@@ -436,6 +566,74 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
     }
   }
   return { checkpoint: structuredClone(checkpoint), appliedStepIds };
+}
+
+interface Originals {
+  files: { absolute: string; content: Buffer | null }[];
+  /** Directories the patch may create, deepest first. */
+  directories: string[];
+}
+async function captureOriginals(
+  workspace: string,
+  paths: string[],
+  policy: ProjectPolicy,
+): Promise<Originals> {
+  const files: Originals["files"] = [],
+    directories = new Set<string>();
+  const root = await realpath(workspace); // safePath resolves from here
+  for (const file of paths) {
+    const absolute = await safePath(workspace, file, policy);
+    let content: Buffer | null = null;
+    try {
+      content = await readFile(absolute);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    files.push({ absolute, content });
+    for (
+      let directory = path.dirname(absolute);
+      directory.startsWith(`${root}${path.sep}`);
+      directory = path.dirname(directory)
+    ) {
+      try {
+        await stat(directory);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        directories.add(directory);
+      }
+    }
+  }
+  return {
+    files,
+    directories: [...directories].sort((a, b) => b.length - a.length),
+  };
+}
+async function restoreOriginals(originals: Originals): Promise<void> {
+  for (const { absolute, content } of originals.files) {
+    if (content === null) {
+      try {
+        await unlink(absolute);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    } else {
+      await mkdir(path.dirname(absolute), { recursive: true });
+      await writeFile(absolute, content);
+    }
+  }
+  for (const directory of originals.directories) {
+    try {
+      await rmdir(directory);
+    } catch (error) {
+      if (
+        !["ENOENT", "ENOTEMPTY", "EEXIST"].includes(
+          (error as NodeJS.ErrnoException).code ?? "",
+        )
+      )
+        throw error;
+    }
+  }
 }
 
 /**
