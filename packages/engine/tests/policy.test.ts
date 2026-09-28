@@ -170,6 +170,144 @@ describe("project boundaries", () => {
       expect(redact(text), text).toBe(text);
     }
   });
+  it("detects and redacts credential assignments whose values contain punctuation, not templates, placeholders or code", () => {
+    // Built by concatenation so this file holds no literal credential.
+    const symbols = "Xk9!mQ2#" + "vL7$pR4@zT";
+    const secrets: [string, string][] = [
+      // Django settings, YAML, .properties, .env and JavaScript.
+      [`    'PASSWORD': '${symbols}',`, symbols],
+      [`password: "${"S3cure!Pass" + "#2024xyz"}"`, "S3cure!Pass#2024xyz"],
+      [`  password: ${"S3cure!Pass" + "#2024xyz"}`, "S3cure!Pass#2024xyz"],
+      [`- db.password: ${"S3cure!Pass" + "#2024xyz"} # prod`, "S3cure!Pass"],
+      [`spring.datasource.password=${"Xk9!mQ2#" + "vL7pR4zTq"}`, "Xk9!mQ2#"],
+      [`DB_PASSWORD="${symbols}"`, symbols],
+      [`DB_PASSWORD=${"P@ssw0rd-" + "2024-prod"}`, "P@ssw0rd-2024-prod"],
+      [`export API_SECRET=${"P@ssw0rd-" + "2024-prod"}`, "P@ssw0rd-2024"],
+      [`const dbPassword = "${symbols}";`, symbols],
+      [`const password = "${"Tr0ub4dor&" + "3xyzAB"}";`, "Tr0ub4dor&3xyzAB"],
+      [`accessToken: \`${symbols}\`,`, symbols],
+      // A password that begins with a template character is still one.
+      [`DB_PASSWORD="<${symbols}"`, symbols],
+      [`DB_PASSWORD='{${symbols}'`, symbols],
+      // Mid-line in a log, and after an assignment whose value would
+      // otherwise run over it.
+      [`connect user=admin password=${symbols} host=db`, symbols],
+      [`?user=bob&password=${symbols}`, symbols],
+      [`Server=db;User=sa;Password=${symbols}`, symbols],
+    ];
+    for (const [text, value] of secrets) {
+      expect(containsSecret(text), text).toBe(true);
+      expect(introducesSecret("", text), text).toBe(true);
+      expect(secretFindings(text).size, text).toBeGreaterThan(0);
+      const redacted = redact(text);
+      expect(redacted, text).toContain("[REDACTED]");
+      expect(redacted, text).not.toContain(value);
+      expect(containsSecret(redacted), redacted).toBe(false);
+    }
+    expect(redact(`DB_PASSWORD="${symbols}"`)).toBe('DB_PASSWORD="[REDACTED]"');
+    expect(redact(`connect user=admin password=${symbols} host=db`)).toBe(
+      "connect user=admin password=[REDACTED] host=db",
+    );
+    // A token value cut short by punctuation is redacted whole.
+    expect(
+      redact(`const serviceToken = "${"sixteencharprefix!" + "fixture"}";`),
+    ).toBe('const serviceToken = "[REDACTED]";');
+    expect(
+      redact(`PRIVATE_KEY_VALUE=${"abcdefghijklmnopqrst" + "!tail"} next`),
+    ).toBe("PRIVATE_KEY_VALUE=[REDACTED] next");
+    // A changed punctuated password is an added finding.
+    expect(
+      introducesSecret(
+        `DB_PASSWORD="${symbols}"\n`,
+        `DB_PASSWORD="${symbols}x"\n`,
+      ),
+    ).toBe(true);
+    const notSecrets = [
+      "    'PASSWORD': '{{vault_db_password}}',",
+      "    'PASSWORD': '%(db_password)s',",
+      'password: "${DB_PASSWORD}"',
+      "DB_PASSWORD=$DB_PASSWORD_FROM_VAULT",
+      "DB_PASSWORD=<placeholder-value>",
+      'DB_PASSWORD="<your-password>"',
+      'password = "************"',
+      'DB_PASSWORD="changeme-now!!"',
+      'password: "your-password-here"',
+      "DB_PASSWORD=\nDB_NAME=application_database",
+      // Values made only of token characters are left to the 16-character
+      // token rule, and key paths are not passwords.
+      'const REFRESH_TOKEN = "refresh_token";',
+      'const REFRESH_TOKEN_KEY = "auth.refreshToken";',
+      // Code, not values.
+      "const token=authorization===undefined?cookie:header;",
+      "password=hashPassword(input.password);",
+      "  apiKey: config.services.apiKey,",
+      "  accessToken: session?.accessToken,",
+      "  secret: options.secret||fallbackSecret",
+      "type Keys = { privateKey: Uint8Array|null }",
+      "items.map(token=>token.trim().toLowerCase())",
+      "if (token==storedToken.value) return;",
+      "  /^(?:access|refresh)_token=;/.test(cookie) &&",
+      "const idToken = (keyLastToken = sourceCode.getFirstToken(",
+      // Minified code, sentinels, interpolations, URLs and example values.
+      "c&&(this.errorToken=!0),null}else{var o=x(e,t)",
+      "_.multiLine=i,_.token=132,_.transformFlags|=4,_}function vu(r)",
+      "this.lastOnToken=[nn(t),this.tokenIndex]",
+      'lastSignificantToken = "?NoLineTerminatorHere";',
+      "const BEGIN_AUDIO_TOKEN = '[BEGIN_AUDIO]';",
+      "  apiKey: `key-${i}-secret`,",
+      '  apiKey: "https://api.example.com/v1/keys",',
+      "[![codecov](https://codecov.io/gh/o/r/badge.svg?token=AB12CD34EF)](https://codecov.io/gh/o/r)",
+    ];
+    for (const text of notSecrets) {
+      expect(containsSecret(text), text).toBe(false);
+      expect(secretFindings(text).size, text).toBe(0);
+      expect(redact(text), text).toBe(text);
+    }
+  });
+  it("exempts only whole-value template and masked URL passwords, not passwords that begin with a template character", () => {
+    // Built by concatenation so this file holds no literal credential.
+    const secrets = [
+      "postgres://app:" + "$3cr3tPa55w0rdXYZ" + "@db.example.com/prod",
+      "redis://default:" + ".Hq8zLm2Vx9Kp4Rt" + "@cache.internal:6379",
+      "amqp://svc:" + "*Hq8zLm2Vx9Kp4Rt" + "@mq.internal",
+      "postgres://app:" + "{Hq8zLm2Vx9Kp4Rt" + "@db.internal/prod",
+      "postgres://app:" + "%2EHq8zLm2Vx9Kp4Rt" + "@db/app",
+      "postgres://app:" + "%zQ8vR2mLx9Tk" + "@db/app",
+      "postgres://app:" + "%{Hq8zLm2Vx9Kp4Rt" + "@db/app",
+      "postgres://app:" + "****Hq8zLm2Vx9Kp4Rt" + "@db/app",
+    ];
+    for (const secret of secrets) {
+      expect(containsSecret(secret), secret).toBe(true);
+      expect(introducesSecret("", secret), secret).toBe(true);
+      expect(secretFindings(secret).size, secret).toBeGreaterThan(0);
+      expect(redact(secret), secret).toMatch(/^[a-z]+:\/\/\w+:\[REDACTED\]@/);
+    }
+    // A "<" never reaches the exemption: the URL grammar ends a password
+    // there, so neither the placeholder nor this counts as a password.
+    expect(containsSecret("postgres://app:<Hq8zLm2Vx9Kp4Rt@db/app")).toBe(
+      false,
+    );
+    const notSecrets = [
+      "postgresql://app:$DB_PASSWORD@db/app",
+      "postgresql://app:$dbPassword@db/app",
+      "postgresql://app:${DB_PASSWORD:-fallback}@db/app",
+      "postgresql://app:$(DB_PASSWORD)@db/app",
+      "postgresql://app:{password}@db/app",
+      "postgresql://app:{{db_password}}@db/app",
+      "postgresql://app:${{secrets.DB_PASSWORD}}@db/app",
+      "postgresql://app:%{db_password}@db/app",
+      "postgresql://app:%(password)s@db/app",
+      "postgresql://app:%DB_PASSWORD%@db/app",
+      "postgresql://app:%24%7BDB_PASSWORD%7D@db/app",
+      "postgresql://app:********@db/app",
+      "postgresql://app:............@db/app",
+    ];
+    for (const text of notSecrets) {
+      expect(containsSecret(text), text).toBe(false);
+      expect(secretFindings(text).size, text).toBe(0);
+      expect(redact(text), text).toBe(text);
+    }
+  });
   it("redacts every credential screening detects, including a key with no END marker and keys in any letter case", () => {
     const body = "MIIBuwIBAAKBgQDlC0Zq8vR2mLx9TkPr0dUc7Hs";
     const keys = [
@@ -301,6 +439,17 @@ describe("project boundaries", () => {
       // Scheme-like runs and many URL starts stay linear.
       const schemes = "a+".repeat(size / 2);
       expect(introducesSecret(schemes, `${schemes}x`)).toBe(false);
+      // Runs of assignments and credential-named values stay linear too.
+      for (const run of [
+        "a=".repeat(size / 2),
+        "token=".repeat(size / 6),
+        'token="'.repeat(size / 7),
+        "x password: S3cure!Pass#2024xyz ".repeat(size / 33),
+        "u=bob&password=S3cure!Pass#2024xyz&".repeat(size / 36),
+      ]) {
+        expect(introducesSecret(run, run), run.slice(0, 40)).toBe(false);
+        expect(redact(run).length, run.slice(0, 40)).toBeGreaterThan(0);
+      }
       const urls = "s://u:passwordpassword@h ".repeat(size / 25);
       expect(introducesSecret(urls, `${urls}x`)).toBe(false);
       const ats = `s://u:${"@".repeat(250)} `.repeat(size / 257);
