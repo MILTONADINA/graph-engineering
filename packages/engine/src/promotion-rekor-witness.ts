@@ -569,6 +569,18 @@ function lstatOrNull(target: string): Stats | null {
   }
 }
 
+function sameHighWater(
+  a: HighWater | undefined,
+  b: HighWater | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.treeId === b.treeId &&
+    a.treeSize === b.treeSize &&
+    a.rootHash === b.rootHash
+  );
+}
+
 class HighWaterStore {
   constructor(
     private readonly dir: string,
@@ -670,24 +682,37 @@ class HighWaterStore {
     }
   }
 
-  /** Replace the state atomically under the lock; never lowers the mark. */
-  write(next: HighWater): Promise<void> {
-    return this.locked(() => this.writeLocked(next));
+  /**
+   * Replace the state atomically under the lock; never lowers the mark.
+   * `proven` is the mark that `next` was proven consistent with (undefined on
+   * first use). The write refuses when the stored mark is no longer `proven`,
+   * so a mark is only ever replaced by a head proven consistent with it.
+   */
+  write(next: HighWater, proven: HighWater | undefined): Promise<void> {
+    return this.locked(() => this.writeLocked(next, proven));
   }
 
-  private writeLocked(next: HighWater) {
+  private writeLocked(next: HighWater, proven: HighWater | undefined) {
     const current = this.read();
     if (
       current &&
       (current.treeId !== next.treeId || current.treeSize > next.treeSize)
     )
       fail("rekor-rollback", "the high-water mark moved during this read");
-    if (
-      current &&
-      current.treeSize === next.treeSize &&
-      current.rootHash === next.rootHash
-    )
+    if (current && current.treeSize === next.treeSize) {
+      // Another reader stored a head of this size: a different root is a
+      // fork, and the same root is already the mark, so nothing advances.
+      if (current.rootHash !== next.rootHash)
+        fail(
+          "rekor-consistency-invalid",
+          "two signed heads of one size have different roots",
+        );
       return;
+    }
+    // The mark moved (or appeared, or was removed) since `next` was proven
+    // consistent with `proven`: refuse, and a retry proves from the new mark.
+    if (!sameHighWater(current, proven))
+      fail("rekor-rollback", "the high-water mark moved during this read");
     const data = Buffer.from(
       `${JSON.stringify({
         version: 1,
@@ -1227,8 +1252,9 @@ class RekorWitness implements RekorWitnessController {
         );
       await this.requireConsistent(previous, head);
     }
-    // Advance only after the new head verified and is consistent.
-    await this.store.write(head);
+    // Advance only after the new head verified and is consistent with the
+    // mark it replaces.
+    await this.store.write(head, previous);
     return head;
   }
 

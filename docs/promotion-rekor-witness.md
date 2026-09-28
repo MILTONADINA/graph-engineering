@@ -237,10 +237,17 @@ matches `scripts/promotion-key.mjs`:
 - Symlinks are refused.
 - Reads use `lstat`, then `O_NOFOLLOW`, then a device and inode check.
 - A write holds an `O_EXCL` lock file, `<logId>.json.lock`, around its
-  read-modify-write, so concurrent processes cannot lower the mark. A
-  writer that finds a newer mark refuses rather than lowering it. A live
+  read-modify-write, so concurrent processes cannot lower the mark. A live
   lock is waited for for up to 5 s. A lock older than 30 s was left by a
   crashed process and is removed.
+- Under the lock, the writer reads the mark again. Another process may
+  have stored a head of the same size during the read. If that head has a
+  different root, the two signed roots prove a fork, and the write refuses
+  with `rekor-consistency-invalid`. If it has the same root, the mark is
+  already the new head, and nothing is written. Any other change to the mark
+  since the read that proved consistency (moved, created or removed) refuses
+  with `rekor-rollback`. A retry then proves consistency from the new mark,
+  so a mark is only ever replaced by a head proven consistent with it.
 - Under the lock, the write creates a new `O_EXCL | O_NOFOLLOW` file,
   fsyncs it and renames it into place.
 
@@ -295,6 +302,8 @@ reads. It also covers every refusal:
 - entry proof heads older and newer than the verified head;
 - population published before registration;
 - a stale high-water lock and concurrent writers;
+- a mark that another reader moved during a read, or stored with a
+  different root at the same size;
 - a payload mismatch;
 - a host that is not allowlisted;
 - the response size limit.

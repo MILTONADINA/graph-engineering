@@ -122,6 +122,11 @@ class FakeRekor {
     return this.leaves.length;
   }
 
+  /** Drop the leaves after `size`, so the same key can sign another tail. */
+  rewind(size: number) {
+    this.leaves.splice(size);
+  }
+
   note(size: number, key: KeyObject = this.logKey.privateKey): string {
     const root = mth(this.hashes(size)).toString("base64");
     const body = `${ORIGIN} - ${TREE_ID}\n${size}\n${root}\n`;
@@ -1045,6 +1050,93 @@ describe("Rekor witness refusals", () => {
       JSON.parse(readFileSync(path.join(stateDir, `${log.logId}.json`), "utf8"))
         .treeSize,
     ).toBe(String(log.size));
+  });
+
+  // Serve `log`, and run `during` once while the adapter's consistency proof
+  // is in flight (after its response is captured): another reader of the
+  // same state directory moving the mark inside the read.
+  const racing = (log: FakeRekor, during: () => Promise<unknown>) => {
+    let ran = false;
+    const fetch: RekorFetch = async (url, init) => {
+      const response = await log.fetch(url, init);
+      if (!ran && new URL(url).pathname === "/api/v1/log/proof") {
+        ran = true;
+        await during();
+      }
+      return response;
+    };
+    return fetch;
+  };
+
+  it("refuses a head whose size another reader stored with a different root during the read", async () => {
+    const log = logged();
+    const stateDir = path.join(tempDir(), "rekor-witness");
+    const stored = () =>
+      JSON.parse(
+        readFileSync(path.join(stateDir, `${log.logId}.json`), "utf8"),
+      );
+    await witness(log, { stateDir }).verifyTreeHead();
+    const base = log.size;
+    log.filler(3);
+    let otherRoot = "";
+    const fetch = racing(log, async () => {
+      // The log key signs a second tail of the same size for another reader,
+      // which is consistent with the stored mark and advances it.
+      log.rewind(base);
+      log.filler(3);
+      otherRoot = (await witness(log, { stateDir }).verifyTreeHead()).rootHash;
+    });
+    expect(
+      await refusal(witness(log, { stateDir, fetch }).verifyTreeHead()),
+    ).toBe("rekor-consistency-invalid");
+    // The other reader's head stays as the evidence of the fork.
+    expect(stored().treeSize).toBe(String(base + 3));
+    expect(stored().rootHash).toBe(otherRoot);
+  });
+
+  it("refuses to replace a high-water mark that moved during the read, and a retry proves consistency from it", async () => {
+    const log = logged();
+    const stateDir = path.join(tempDir(), "rekor-witness");
+    const stored = () =>
+      JSON.parse(
+        readFileSync(path.join(stateDir, `${log.logId}.json`), "utf8"),
+      );
+    await witness(log, { stateDir }).verifyTreeHead();
+    const base = log.size;
+    log.filler(6);
+    // Another reader, served a smaller head, advances the mark mid-read.
+    const adapter = witness(log, {
+      stateDir,
+      fetch: racing(log, async () => {
+        log.tamper.servedSize = base + 3;
+        await witness(log, { stateDir }).verifyTreeHead();
+        log.tamper = {};
+      }),
+    });
+    expect(await refusal(adapter.verifyTreeHead())).toBe("rekor-rollback");
+    expect(stored().treeSize).toBe(String(base + 3));
+    // The retry proves consistency from the moved mark before advancing.
+    log.requests.length = 0;
+    const head = await adapter.verifyTreeHead();
+    expect(head.treeSize).toBe(BigInt(base + 6));
+    expect(stored().treeSize).toBe(String(base + 6));
+    expect(
+      log.requests.some(({ url }) => {
+        const parsed = new URL(url);
+        return (
+          parsed.pathname === "/api/v1/log/proof" &&
+          parsed.searchParams.get("firstSize") === String(base + 3)
+        );
+      }),
+    ).toBe(true);
+    // A reader that stored the same head during the read is not a refusal.
+    log.filler(2);
+    const same = witness(log, {
+      stateDir,
+      fetch: racing(log, () => witness(log, { stateDir }).verifyTreeHead()),
+    });
+    expect((await same.verifyTreeHead()).treeSize).toBe(BigInt(log.size));
+    expect(stored().treeSize).toBe(String(log.size));
   });
 
   it("refuses a host that is not allowlisted before any request", async () => {
