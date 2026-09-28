@@ -108,6 +108,13 @@ npm run graph:local -- promotion anchor-verify
 npm run graph:local -- promotion enroll
 ```
 
+If your keys are in a directory you chose with `--key-dir` at `setup`,
+pass the same `--key-dir <dir>` to `anchor-prepare`, `anchor-verify` and
+`enroll`; `anchor-prepare` then prints the two follow-up commands with it.
+Without it they read the default directory and refuse with `run npm run
+promotion-key -- setup first`. Do not run `setup` again: a second key set
+does not match the anchor you installed.
+
 `anchor-verify` prints `OK` or a refusal code. `enroll` records the
 anchor's witness and key fingerprints in
 `~/Library/Application Support/graph-engineering/promotion-enrollment/enrollment.json`

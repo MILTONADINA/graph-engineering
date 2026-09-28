@@ -610,6 +610,23 @@ export class RunStore {
       })
       .immediate();
   }
+  /**
+   * Saves a run as stopped (failed, cancelled or needing reconciliation)
+   * with its event and terminal outcome in one transaction, so a reader in
+   * another process never sees the final status without its last event.
+   */
+  stopRun(run: RunRecord): void {
+    this.db
+      .transaction(() => {
+        this.saveRun(run);
+        this.event(run.id, "run.stopped", {
+          status: run.status,
+          error: run.error,
+        });
+        this.recordOutcome(this.outcomeFor(run, "terminal"));
+      })
+      .immediate();
+  }
   recordOutcome(outcome: RunOutcome): void {
     this.db
       .prepare("INSERT INTO run_outcomes(run_id,project_id,json) VALUES(?,?,?)")

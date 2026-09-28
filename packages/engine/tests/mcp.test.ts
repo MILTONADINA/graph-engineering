@@ -951,3 +951,113 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
     await rm(data, { recursive: true, force: true });
   }
 });
+
+it("follows a run another engine is executing until that run stops", async () => {
+  const { checked, writeJson } = await import("../src/util.js");
+  const { configureProvider, PROJECT_FILE } = await import("../src/project.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-follow-"));
+  await checked("git", ["init", "-b", "dev"], { cwd: root });
+  await checked("git", ["config", "user.name", "Graph Test"], { cwd: root });
+  await checked("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  await writeFile(
+    path.join(root, "math.cjs"),
+    "exports.add = (a, b) => a - b;\n",
+  );
+  const config = await initializeProject(root);
+  config.policy.providers = ["local"];
+  config.verification = [{ image: "fixture", argv: ["test"] }];
+  await writeJson(path.join(root, PROJECT_FILE), config);
+  await checked("git", ["add", "."], { cwd: root });
+  await checked("git", ["commit", "-m", "test: fixture"], { cwd: root });
+  const data = projectDataDir(config.projectId);
+  await configureProvider(data, {
+    id: "local",
+    kind: "local",
+    model: "fixture",
+  });
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  let working!: () => void;
+  const workerStarted = new Promise<void>((resolve) => (working = resolve));
+  // The engine that executes the run, as `graph-engine run`, the dashboard or
+  // another MCP server would in its own process.
+  const runner = await GraphEngine.open(root, {
+    dockerAvailable: async () => true,
+    worker: async () => {
+      working();
+      await released;
+      return {
+        model: "fixture",
+        proposal: {
+          summary: "Fix addition",
+          requests: [],
+          changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+        },
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedTokens: 0,
+          costUsd: 0,
+          estimated: false,
+        },
+      };
+    },
+    verify: async (_workspace, checks, _policy, snapshotHash) =>
+      checks.map((check) => ({
+        ...check,
+        code: 0,
+        stdout: "passed",
+        stderr: "",
+        snapshotHash,
+      })),
+  });
+  // The engine behind the MCP server shares the run store but never
+  // executes the run itself.
+  const observer = await GraphEngine.open(root);
+  const server = createMcpServer(observer, { client: "local" });
+  const client = new Client({ name: "follow-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const events = async (runId: string) =>
+    JSON.parse(
+      (
+        (await client.callTool({
+          name: "run_events",
+          arguments: { runId },
+        })) as { content: { text: string }[] }
+      ).content[0]!.text,
+    ) as { status: string; next: number; complete: boolean };
+  let runId: string | undefined;
+  try {
+    const plan = await runner.createPlan({
+      objective: "Fix addition",
+      acceptance: ["2 + 3 is 5"],
+    });
+    runId = (await runner.start(plan.id)).id;
+    await workerStarted;
+    expect(observer.isActive(runId)).toBe(false);
+    const during = await events(runId);
+    expect(during.status).toBe("running");
+    expect(during.complete).toBe(false);
+
+    release();
+    await runner.wait(runId);
+    const after = await events(runId);
+    expect(after.status).toBe("succeeded");
+    expect(after.complete).toBe(true);
+    expect(after.next).toBe(observer.store.events(runId).length);
+  } finally {
+    release();
+    if (runId) await runner.wait(runId).catch(() => undefined);
+    await client.close();
+    await server.close();
+    await observer.close();
+    await runner.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});

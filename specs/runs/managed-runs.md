@@ -40,6 +40,11 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/execution.test.ts :: needs reconciliation, not a plain cancel, when cancelled after the branch was pushed
 - AC11: A cached solution is reused only for the same step write scope, and never applied when it changes a file outside that scope.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: never reuses a cached solution outside a step's write scope
+- AC12: `run`, `resume` and `review-approve` exit 0 only when the run they waited for succeeded: 1 when it failed or was cancelled (as for a command error) and 2 when it needs reconciliation.
+  - Test: packages/engine/tests/cli.test.ts :: exits nonzero when the run it waited for did not succeed
+  - Test: packages/engine/tests/run-exit-code.test.ts :: exits 0 only for a succeeded run, 2 when a person must reconcile it and 1 otherwise
+- AC13: `check-add` stores everything after the image as the check's command exactly as typed, including its own `-C`, `-V`, `--version`, `-h` and `--`; a single leading `--` only separates the command, and the program's own options such as `-C <project>` go before `check-add`.
+  - Test: packages/engine/tests/cli.test.ts :: stores a check's command exactly as typed, with its own options and --
 
 ## Security considerations
 

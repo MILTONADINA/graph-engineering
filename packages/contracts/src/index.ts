@@ -101,8 +101,10 @@ export interface ProjectConfig {
   /** A reviewer worker that must approve a run before it completes. */
   review?: { providerId: string };
   /**
-   * A tester worker that adds tests for each acceptance criterion after the
-   * implementation, changing only test files (default globs unless `writes`).
+   * A tester worker that runs first, before the implementation, and writes
+   * tests for each acceptance criterion as new test files only (default globs
+   * unless `writes`), which implementing steps may not change. See
+   * specs/quality/tester-role.md.
    */
   tester?: { providerId: string; writes?: string[] };
   /** Security settings a person records for the project. */

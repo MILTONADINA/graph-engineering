@@ -320,7 +320,7 @@ export function createMcpServer(
       "run_events",
       {
         description:
-          "Returns a run's recorded events in order, from position `after`, with the position to pass next time and `complete`, which is true only when the run has stopped and every event has been returned, so a client can follow a run by polling until complete. A local client gets each event's full data; a cloud-backed client (only with --allow-run-status) gets each event's type, time and step, which show progress without the run's content. It is read-only and fails for an ID that is not a run in this project.",
+          "Returns a run's recorded events in order, from position `after`, with the position to pass next time and `complete`, which is true only when the run has stopped (its recorded status is final and no process is still executing it) and every event has been returned, so a client can follow a run by polling until complete, whichever process started it. A local client gets each event's full data; a cloud-backed client (only with --allow-run-status) gets each event's type, time and step, which show progress without the run's content. It is read-only and fails for an ID that is not a run in this project.",
         inputSchema: {
           runId: z.string().describe("ID of a run in this project."),
           after: z
@@ -340,10 +340,16 @@ export function createMcpServer(
       },
       async ({ runId, after, limit }) => {
         await allowed();
+        // Read whether the run has stopped before its events, so a run that
+        // stops between the two reads is reported incomplete, not cut short.
+        // The stored status covers a run another process is executing (the
+        // CLI, the dashboard or another server), which this engine's own
+        // isActive cannot see; a run's terminal status and its last event are
+        // saved together.
         const run = engine.store.run(runId);
-        // Read whether the run is still executing before its events, so a run
-        // that stops between the two reads is reported incomplete, not cut short.
-        const stopped = !engine.isActive(run.id);
+        const stopped =
+          !["planned", "running", "verifying"].includes(run.status) &&
+          !engine.isActive(run.id);
         const all = engine.store.events(run.id);
         const events = all.slice(after, after + limit);
         return result({

@@ -39,6 +39,9 @@ Operators want to use the models they already have: hosted APIs, local OpenAI-co
 - AC8: Adding a local worker permits it in the project policy; a cloud or installed worker needs an explicit `--enable`. Planning names each configured worker that cannot be used, why, and the command that fixes it, and setting a reviewer or tester to an unusable worker warns at once.
   - Test: packages/engine/tests/cli.test.ts :: sets up a project, permits a local worker when added, and warns about what would fail later
   - Test: packages/engine/tests/execution.test.ts :: names each configured worker that cannot be used and why
+- AC9: `provider-enable <id>` permits an already configured worker in the project policy without changing its stored configuration (endpoint, key variable, prices, efforts, limits and local options), and refuses an ID that is not configured; every hint for a configured worker the policy does not permit points to it, never to re-running `provider-add`, which replaces the stored worker.
+  - Test: packages/engine/tests/cli.test.ts :: permits a configured worker with provider-enable without changing its configuration
+  - Test: packages/engine/tests/execution.test.ts :: names each configured worker that cannot be used and why
 
 ## Security considerations
 

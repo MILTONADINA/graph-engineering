@@ -14,6 +14,11 @@ docker build -t my-project-verify:local -f verify.Dockerfile .
 graph-engine check-add my-project-verify:local <the check command>
 ```
 
+Everything after the image is stored as the check's command exactly as
+typed, including its own options and `--` (`make -C sub test`,
+`mvn -B -V verify`, `npm test -- --run`). Put graph-engine's own options,
+such as `-C <project>`, before `check-add`.
+
 ## The reliable recipe: run the real check while building
 
 The Maven recipe below has been exercised end to end on a real repository;

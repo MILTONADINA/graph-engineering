@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,6 +118,173 @@ describe("command line", () => {
       '"kinds": {}',
     );
   }, 120_000);
+
+  it("permits a configured worker with provider-enable without changing its configuration", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    const added = await graph(
+      "provider-add",
+      "cloud",
+      "anthropic",
+      "fixture",
+      "--key-env",
+      "FIXTURE_KEY",
+      "--input-cost",
+      "3",
+      "--output-cost",
+      "15",
+      "--efforts",
+      "low,high",
+      "--default-effort",
+      "low",
+      "--max-context",
+      "12000",
+    );
+    expect(added.stderr).toContain("graph-engine provider-enable cloud");
+    expect(added.stderr).not.toContain("rerun with --enable");
+    const before = JSON.parse((await graph("providers")).stdout);
+    const plan = await graph(
+      "plan",
+      "Fix addition",
+      "--accept",
+      "The addition test passes",
+    );
+    expect(plan.code).toBe(1);
+    expect(plan.stderr).toContain(
+      "add it to policy.providers with graph-engine provider-enable cloud",
+    );
+    expect(plan.stderr).not.toContain("provider-add cloud");
+    expect((await graph("reviewer", "cloud")).stderr).toContain(
+      "graph-engine provider-enable cloud",
+    );
+
+    const enabled = await graph("provider-enable", "cloud");
+    expect(enabled.code).toBe(0);
+    expect(JSON.parse(enabled.stdout)).toContain("cloud");
+    const config = JSON.parse(
+      await readFile(path.join(root, ".graph/project.json"), "utf8"),
+    );
+    expect(config.policy.providers).toContain("cloud");
+    // The stored worker keeps its key variable, prices, efforts and limits.
+    expect(JSON.parse((await graph("providers")).stdout)).toEqual(before);
+    expect(before).toEqual([
+      expect.objectContaining({
+        id: "cloud",
+        apiKeyEnv: "FIXTURE_KEY",
+        inputCostPerMillion: 3,
+        outputCostPerMillion: 15,
+        efforts: ["low", "high"],
+        defaultEffort: "low",
+        maxContextTokens: 12000,
+      }),
+    ]);
+    // Enabling again changes nothing; an unknown worker is refused.
+    await graph("provider-enable", "cloud");
+    expect(
+      JSON.parse(
+        await readFile(path.join(root, ".graph/project.json"), "utf8"),
+      ).policy.providers.filter((id: string) => id === "cloud"),
+    ).toEqual(["cloud"]);
+    const missing = await graph("provider-enable", "missing");
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain(
+      "missing is not a configured provider; add it with graph-engine provider-add",
+    );
+  }, 120_000);
+
+  it("stores a check's command exactly as typed, with its own options and --", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    const commands = [
+      ["make", "-C", "sub", "test"],
+      ["node", "--version"],
+      ["mvn", "-B", "-V", "verify"],
+      ["npx", "vitest", "run", "-h"],
+      ["cargo", "test", "--", "--nocapture"],
+      ["npm", "test", "--", "--run"],
+    ];
+    for (const argv of commands) {
+      const added = await graph("check-add", "fixture:local", ...argv);
+      expect(added.code).toBe(0);
+      expect(added.stdout).not.toContain("0.1.0");
+    }
+    // A leading -- only separates the command from check-add's own options.
+    await graph("check-add", "fixture:local", "--", "pytest", "-x");
+    const config = JSON.parse(
+      await readFile(path.join(root, ".graph/project.json"), "utf8"),
+    );
+    expect(config.verification).toEqual(
+      [...commands, ["pytest", "-x"]].map((argv) => ({
+        image: "fixture:local",
+        argv,
+      })),
+    );
+    // The program's own options still work before the command.
+    expect((await graph("--version")).stdout.trim()).toBe("0.1.0");
+  }, 120_000);
+
+  // The fake docker is a shell script, which Windows cannot run.
+  it.skipIf(process.platform === "win32")(
+    "exits nonzero when the run it waited for did not succeed",
+    async () => {
+      const { root, graph } = await project();
+      await graph("init");
+      // The worker's endpoint refuses connections, so the run fails inside
+      // the engine rather than the command throwing.
+      await graph(
+        "provider-add",
+        "qwen",
+        "local",
+        "fixture",
+        "--endpoint",
+        "http://127.0.0.1:1/v1",
+      );
+      await graph("check-add", "fixture:local", "node", "--test");
+      await writeFile(path.join(root, "math.cjs"), "exports.add = 1;\n");
+      await checked("git", ["add", "."], { cwd: root });
+      await checked(
+        "git",
+        [
+          "-c",
+          "user.name=Graph Test",
+          "-c",
+          "user.email=test@example.invalid",
+          "commit",
+          "-qm",
+          "test: fixture",
+        ],
+        { cwd: root },
+      );
+      const plan = await graph(
+        "plan",
+        "Fix addition",
+        "--accept",
+        "The addition test passes",
+        "--provider",
+        "qwen",
+      );
+      expect(plan.code).toBe(0);
+      // A docker that answers only the availability probe; no check can run.
+      const bin = await mkdtemp(path.join(tmpdir(), "graph-cli-bin-"));
+      directories.push(bin);
+      await writeFile(
+        path.join(bin, "docker"),
+        '#!/bin/sh\n[ "$1" = info ] && { echo 27.0.0; exit 0; }\nexit 1\n',
+      );
+      await chmod(path.join(bin, "docker"), 0o755);
+      const withDocker = graph.with({
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      });
+      const run = await withDocker("run", JSON.parse(plan.stdout).id);
+      const failed = JSON.parse(run.stdout);
+      expect(failed.status).toBe("failed");
+      expect(run.code).toBe(1);
+      const resumed = await withDocker("resume", failed.id, "--reconciled");
+      expect(JSON.parse(resumed.stdout).status).toBe("failed");
+      expect(resumed.code).toBe(1);
+    },
+    120_000,
+  );
 
   it("records nothing when feedback is turned off", async () => {
     const { graph } = await project();
