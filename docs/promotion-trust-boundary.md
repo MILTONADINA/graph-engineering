@@ -36,20 +36,32 @@ Promotion is dead by construction, and is now also dead by test.
 The owner leads the project alone and has overridden the separation below:
 the owner holds every key role (approver D4, grant issuer D5 and evidence
 signer D7), and a public transparency log (Sigstore Rekor) is the witness
-(D6). Kevin holds no role. Keys are Ed25519, stored in the owner's macOS
-Keychain and usable only after Touch ID or the owner's password for each
-signature; a small owner-run helper signs inside itself, so no graph
-process ever holds a private key, and each prompt shows the SHA-256 of what
-is being signed. Backups are passphrase-encrypted and kept off the laptop.
+(D6). Kevin holds no role. Keys are Ed25519, one per role, each kept as a
+passphrase-encrypted file in the owner's per-user data directory and usable
+only when the owner types the passphrase at a terminal they started. A small
+owner-run helper, [`scripts/promotion-key.mjs`](promotion-keys.md), decrypts
+and signs inside itself, so no graph process ever holds a private key, and
+it prints the SHA-256 of what is being signed before asking for the
+passphrase. One passphrase protects all three roles. The backup is the same
+three encrypted key files bundled into one file, kept off the laptop, so
+anyone with the backup file and the passphrase holds every role.
 
-What this keeps: nothing can be signed without the owner approving that
-signature in person, so an AI session on the laptop cannot promote on its
-own; and the public log makes tampering, rollback and revocation visible.
-What it gives up: no second person checks the evidence, and if the laptop
-itself is compromised (malware that can approve or fake prompts), promotion
-trust is compromised. That would be detectable through the public log, not
-prevented. The owner rule that makes this hold: never approve a signing
-prompt you did not start yourself.
+Touch ID in the macOS Keychain was the first design, but a probe showed that
+an ad-hoc-signed helper gets OSStatus -34018 (`errSecMissingEntitlement`)
+from the data-protection keychain, the only one that enforces per-use Touch
+ID. Touch ID needs a helper signed with an Apple developer certificate and a
+`keychain-access-groups` entitlement; that remains a possible later upgrade
+(see [promotion keys](promotion-keys.md#why-a-passphrase-file-not-the-keychain)).
+
+What this keeps: nothing can be signed without the owner typing the
+passphrase in person, so an AI session or graph process on the laptop can
+copy the key files but cannot promote on its own; and the public log makes
+tampering, rollback and revocation visible. What it gives up: no second
+person checks the evidence; one passphrase unlocks every role; and if the
+laptop itself is compromised (a keylogger or other malware that captures
+the passphrase), promotion trust is compromised. That would be detectable
+through the public log, not prevented. The owner rule that makes this hold:
+never type your key passphrase into a prompt you did not start yourself.
 
 Where the sections below say D5, D6 or D7 must be held by someone other
 than the owner, this amendment replaces that requirement.
@@ -92,7 +104,7 @@ These come from the handover and are not open for redesign:
 | D1 `.graph/project.json`                     | Anyone who can commit                      | Requesting promotion (`decisionMode`, `promotedCategories`)              | Granting it; its hash is bound into every grant         |
 | D2 Operator data dir                         | The owner's uid, so also agents            | Locating grant envelopes and original evidence                           | Any authority; everything is re-verified at start       |
 | D3 Local trust anchor                        | Owner (see decision 1)                     | Pinning enrolled projects, issuer/approver keys and selected controllers | Being a security boundary on its own                    |
-| D4 Operator approver key                     | Owner, offline or on hardware              | Signing the existing promotion-approval claim                            | Issuing grants                                          |
+| D4 Operator approver key                     | Owner, passphrase-encrypted file           | Signing the existing promotion-approval claim                            | Issuing grants                                          |
 | D5 Grant issuer key                          | An independent custodian                   | Signing runtime grants                                                   | Being held by the owner's uid or any agent              |
 | D6 Witness controller                        | Independently operated                     | Checkpoints, grant registration, revocation and status                   | Being "selected" by a data write or env var             |
 | D7 Evidence signers                          | Kevin and independent reviewers            | Curation, source, labels, reviews, worker delivery, oracle execution     | Reusing keys or actors across roles                     |
