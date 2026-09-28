@@ -29,9 +29,10 @@ Larger changes are made of steps, some independent and some depending on others.
   - Test: packages/engine/tests/dag.test.ts :: re-runs a pending step when the acknowledged workspace is back at its pre-patch state
   - Test: packages/engine/tests/dag.test.ts :: refuses to reconcile a pending step whose workspace matches neither fingerprint
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: resolves a crash-interrupted patch on an acknowledged resume when the workspace matches its post-patch state
-- AC5: When the combined checks fail, a repair step receives the failure as feedback within the attempt budget; a single-attempt plan fails without repair.
+- AC5: When the combined checks fail, a repair step receives the failure as feedback within the attempt budget; a single-attempt plan fails without repair. A resumed plan whose unchanged combined result fails verification or review goes on to repair without checking and reviewing that same snapshot again.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: repairs a multi-step plan whose combined checks failed, with the failure as feedback
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: keeps single-attempt plans failing without repair and reserves the repair step ID
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: verifies and reviews an unchanged repaired plan once when it resumes into repair
 - AC6: Parallel steps share one turn and cost budget, and a parallel call the budget cannot afford is refused before dispatch.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: shares one durable worker-turn ceiling across parallel siblings and resume attempts
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rejects unaffordable parallel calls before dispatch and preserves the budget on resume

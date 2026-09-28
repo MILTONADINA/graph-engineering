@@ -18,9 +18,11 @@ An operator wants a worker model to implement a planned change without touching 
 - AC3: A change to the source or policy between planning and dispatch, or to a retained workspace after a checkpoint, stops the run.
   - Test: packages/engine/tests/execution.test.ts :: rejects source and policy changes between planning and dispatch
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: fails closed on a retained workspace changed after a DAG checkpoint
-- AC4: A patch is validated as a whole before any file changes, and a patch whose new source would be Git-ignored and invisible to verification is refused.
+- AC4: A patch is validated as a whole before any file changes, and a patch whose new source would be Git-ignored and invisible to verification is refused. A patch that uses one path as both a file and a directory goes back to the worker as feedback with nothing written, and a single-step patch whose write fails partway is rolled back, so no file the run did not record stays in the workspace to escape review and reach publication.
   - Test: packages/engine/tests/execution.test.ts :: validates a whole patch before changing any file
   - Test: packages/engine/tests/execution.test.ts :: never accepts a patch whose new source is Git-ignored and absent from the verifier view
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns a single-step patch that uses one path as both a file and a directory to the worker, writing nothing
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: rolls back a single-step patch that fails while its files are written, so the run resumes cleanly
 - AC5: Resuming a run re-verifies its retained patch without calling the worker again, and concurrent clients cannot resume the same run twice.
   - Test: packages/engine/tests/execution.test.ts :: re-verifies a retained patch on resume without replaying the worker
   - Test: packages/engine/tests/execution.test.ts :: reserves resumed runs transactionally across independent clients
@@ -47,6 +49,8 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/cli.test.ts :: stores a check's command exactly as typed, with its own options and --
 - AC14: A check that replaces a verification input with anything other than a regular file, such as a FIFO, fails verification as a changed source input; the engine never waits on it.
   - Test: packages/engine/tests/verification-inputs.test.ts :: fails a check that swaps a verification input for a FIFO instead of waiting on it
+- AC15: A run that publishes starts, and resumes before its workspace was created, only from a clean checkout, so local files the source snapshot leaves out (binary, large or credential-like) cannot be copied into the workspace and committed.
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses to resume a publishing run that has no workspace yet while the checkout has local changes
 
 ## Security considerations
 

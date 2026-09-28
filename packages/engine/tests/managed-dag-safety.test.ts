@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type {
@@ -1058,6 +1065,94 @@ describe("managed DAG safety boundaries", () => {
     ).toMatchObject({ stepId: "dag-repair", data: { outcome: "applied" } });
     expect(reviewed).toHaveLength(1);
     expect(reviewed[0]).toContain("+export const repaired = true;");
+  });
+
+  it("verifies and reviews an unchanged repaired plan once when it resumes into repair", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.providers = ["local", "reviewer"];
+      value.review = { providerId: "reviewer" };
+      value.policy.maxTurns = 12;
+      value.policy.maxAttempts = 2;
+    });
+    await withReviewer(data);
+    const reviewed: string[] = [];
+    // The reviewer asks for changes until the second constant is 6.
+    const review: NonNullable<EngineDependencies["review"]> = async (input) => {
+      reviewed.push(input.diff);
+      const approved = input.diff.includes("+export const second = 6;");
+      return {
+        review: {
+          verdict: approved ? "approve" : "request-changes",
+          summary: approved ? "Approved" : "The second constant must be 6",
+          criteria: input.acceptance.map((criterion) => ({
+            criterion,
+            met: approved ? ("yes" as const) : ("no" as const),
+            evidence: "diff",
+          })),
+          findings: approved
+            ? []
+            : [
+                {
+                  severity: "blocking" as const,
+                  path: "second.js",
+                  line: 1,
+                  message: "Set the second constant to 6",
+                },
+              ],
+        },
+        model: "reviewer-fixture",
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedTokens: 0,
+          costUsd: 0,
+          estimated: false,
+        },
+      };
+    };
+    let repairs = 0;
+    const worker = vi.fn(async (input: WorkerInput) => {
+      if (!input.objective.startsWith("Repair")) return result(input.objective);
+      repairs++;
+      // The repair before the stop sets 5; the one after the resume sets 6.
+      return {
+        ...result("two"),
+        proposal: {
+          summary: "Fix second",
+          requests: [],
+          changes: [
+            {
+              path: "second.js",
+              before: `= ${3 + repairs}`,
+              after: `= ${4 + repairs}`,
+            },
+          ],
+        },
+      };
+    });
+    const engine = await open(root, { worker, review });
+    const planned = await plan(engine, [step("one"), step("two", ["one"])]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(reviewed).toHaveLength(2);
+    const before = engine.store.events(run.id).length;
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error).toBeUndefined();
+    expect(resumed.status).toBe("succeeded");
+    expect(repairs).toBe(2);
+    // One review of the unchanged combined result, then one of the new
+    // repair: the retained repair is not checked and reviewed a second time.
+    expect(reviewed).toHaveLength(4);
+    const events = engine.store.events(run.id).slice(before);
+    expect(
+      events
+        .filter((event) => event.type === "verification.started")
+        .map((event) => event.stepId),
+    ).toEqual(["dag", "dag-repair"]);
+    expect(events.some((event) => event.type === "step.reconciled")).toBe(
+      false,
+    );
   });
 
   it("keeps single-attempt plans failing without repair and reserves the repair step ID", async () => {
@@ -2476,5 +2571,148 @@ describe("approval of publishing plans", () => {
     const run = await engine.start(planned.id, { approvedByPerson: true });
     expect(engine.store.planApproved(planned.id)).toBe(true);
     await engine.wait(run.id);
+  });
+
+  it("refuses to resume a publishing run that has no workspace yet while the checkout has local changes", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    // The run stops before its workspace exists, as when it is interrupted
+    // while the workspace is being copied.
+    vi.spyOn(workspaceModule, "createWorkspace").mockRejectedValueOnce(
+      new Error("Simulated interruption"),
+    );
+    const run = await engine.wait(
+      (await engine.start(planned.id, { approvedByPerson: true })).id,
+    );
+    expect(run.status).toBe("failed");
+    expect(run.workspace).toBeUndefined();
+    // A binary file the source snapshot leaves out, so the plan's snapshot
+    // still matches; the workspace would copy it and publication commit it.
+    const local = path.join(root, "local-asset.bin");
+    await writeFile(local, Buffer.from([0, 1, 2, 0]));
+    await expect(engine.resume(run.id, true)).rejects.toThrow(
+      "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",
+    );
+    expect(engine.store.run(run.id).status).toBe("failed");
+    await rm(local);
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+  });
+});
+
+describe("single-step patch application", () => {
+  it("returns a single-step patch that uses one path as both a file and a directory to the worker, writing nothing", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.maxTurns = 8;
+    });
+    const feedback: (string | undefined)[] = [];
+    const aliases = [
+      [
+        { path: "lib", before: null, after: "export const lib = 1;\n" },
+        { path: "lib/a.js", before: null, after: "export const a = 1;\n" },
+      ],
+      [
+        { path: "lib/a.js", before: null, after: "export const a = 1;\n" },
+        { path: "lib", before: null, after: "export const lib = 1;\n" },
+      ],
+    ];
+    const worker = vi.fn(async (input: WorkerInput) => {
+      feedback.push(input.feedback);
+      const changes = aliases[feedback.length - 1];
+      return changes
+        ? {
+            ...result("one"),
+            proposal: { summary: "Alias", requests: [], changes },
+          }
+        : result("one");
+    });
+    const engine = await open(root, {
+      worker,
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(worker).toHaveBeenCalledTimes(3);
+    expect(feedback[1]).toContain("lib and lib/a.js");
+    expect(feedback[2]).toContain("lib/a.js and lib");
+    await expect(stat(path.join(run.workspace!, "lib"))).rejects.toThrow();
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "proposal.returned")
+        .map((event) => event.data.reason),
+    ).toEqual(["path-alias", "path-alias"]);
+  });
+
+  it("rolls back a single-step patch that fails while its files are written, so the run resumes cleanly", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.maxTurns = 8;
+    });
+    const worker = vi.fn(async (): Promise<WorkerResult> => ({
+      ...result("one"),
+      proposal: {
+        summary: "Change first and add a note",
+        requests: [],
+        changes: [
+          {
+            path: "notes/one.js",
+            before: null,
+            after: "export const note = 1;\n",
+          },
+          { path: "first.js", before: "= 1", after: "= 3" },
+        ],
+      },
+    }));
+    const apply = workspaceModule.applyProposal;
+    let failWrite = true;
+    vi.spyOn(workspaceModule, "applyProposal").mockImplementation(
+      async (workspace, proposal, policy) => {
+        if (!failWrite) return apply(workspace, proposal, policy);
+        failWrite = false;
+        // The new file reaches disk, then the disk fills up.
+        await mkdir(path.join(workspace, "notes"));
+        await writeFile(
+          path.join(workspace, "notes/one.js"),
+          "export const note = 1;\n",
+        );
+        throw Object.assign(new Error("ENOSPC: no space left on device"), {
+          code: "ENOSPC",
+        });
+      },
+    );
+    const engine = await open(root, {
+      worker,
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("no space left on device");
+    // Nothing the failed patch wrote is left in the workspace unrecorded,
+    // where review would miss it and publication would commit it.
+    await expect(stat(path.join(run.workspace!, "notes"))).rejects.toThrow();
+    await assertUnchanged(run.workspace!);
+    expect(
+      engine.store
+        .events(run.id)
+        .some((event) => event.type === "patch.applied"),
+    ).toBe(false);
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(
+      await readFile(path.join(resumed.workspace!, "notes/one.js"), "utf8"),
+    ).toContain("note = 1");
   });
 });

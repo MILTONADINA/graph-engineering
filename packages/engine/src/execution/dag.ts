@@ -3,15 +3,6 @@ import type {
   ProjectPolicy,
   Usage,
 } from "@graph-engineering/contracts";
-import {
-  mkdir,
-  readFile,
-  realpath,
-  rmdir,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { hash, now } from "../util.js";
@@ -29,7 +20,11 @@ import {
 import {
   applyProposal,
   assertVerificationPaths,
+  captureOriginals,
+  pathsOverlap,
   prepareProposal,
+  restoreOriginals,
+  type Originals,
   workspaceFingerprint,
 } from "./workspace.js";
 
@@ -238,12 +233,6 @@ export function checkpointPaths(checkpoint: DagCheckpoint): string[] {
     ...(checkpoint.repairPaths ?? []),
   ];
 }
-
-const overlaps = (left: string, right: string) => {
-  const a = left.normalize("NFC").toLowerCase(),
-    b = right.normalize("NFC").toLowerCase();
-  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
-};
 
 /** Parallelize independent proposal generation; all filesystem mutation is serialized. */
 export async function runDag(options: DagOptions): Promise<DagResult> {
@@ -488,7 +477,9 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
       const scope = writeScope(step, options.writeScopes);
       if (
         paths.some((file, position) =>
-          paths.slice(0, position).some((previous) => overlaps(previous, file)),
+          paths
+            .slice(0, position)
+            .some((previous) => pathsOverlap(previous, file)),
         )
       )
         throw new Error(`Step ${step.id} has conflicting path aliases`);
@@ -501,7 +492,7 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
         for (const previous of [...checkpoint.completed, ...waveWrites]) {
           if (
             !dag.ancestors.get(step.id)!.has(previous.id) &&
-            previous.paths.some((prior) => overlaps(prior, file))
+            previous.paths.some((prior) => pathsOverlap(prior, file))
           )
             throw new Error(
               `Independent DAG steps ${previous.id} and ${step.id} collide at ${file}; add an explicit dependency`,
@@ -721,74 +712,6 @@ async function rollBack(
     error: reason,
     paths: pending.paths,
   });
-}
-
-interface Originals {
-  files: { absolute: string; content: Buffer | null }[];
-  /** Directories the patch may create, deepest first. */
-  directories: string[];
-}
-async function captureOriginals(
-  workspace: string,
-  paths: string[],
-  policy: ProjectPolicy,
-): Promise<Originals> {
-  const files: Originals["files"] = [],
-    directories = new Set<string>();
-  const root = await realpath(workspace); // safePath resolves from here
-  for (const file of paths) {
-    const absolute = await safePath(workspace, file, policy);
-    let content: Buffer | null = null;
-    try {
-      content = await readFile(absolute);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    files.push({ absolute, content });
-    for (
-      let directory = path.dirname(absolute);
-      directory.startsWith(`${root}${path.sep}`);
-      directory = path.dirname(directory)
-    ) {
-      try {
-        await stat(directory);
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        directories.add(directory);
-      }
-    }
-  }
-  return {
-    files,
-    directories: [...directories].sort((a, b) => b.length - a.length),
-  };
-}
-async function restoreOriginals(originals: Originals): Promise<void> {
-  for (const { absolute, content } of originals.files) {
-    if (content === null) {
-      try {
-        await unlink(absolute);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-    } else {
-      await mkdir(path.dirname(absolute), { recursive: true });
-      await writeFile(absolute, content);
-    }
-  }
-  for (const directory of originals.directories) {
-    try {
-      await rmdir(directory);
-    } catch (error) {
-      if (
-        !["ENOENT", "ENOTEMPTY", "EEXIST"].includes(
-          (error as NodeJS.ErrnoException).code ?? "",
-        )
-      )
-        throw error;
-    }
-  }
 }
 
 /**
