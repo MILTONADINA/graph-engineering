@@ -58,7 +58,9 @@ a working set:
 
 The working set is part of the hashed policy, so a plan made under one
 working set refuses to start or resume under another; create a new plan
-after changing it.
+after changing it. A running dashboard or MCP server reloads
+`.graph/project.json` before it plans or runs, so its indexing follows a
+working set changed or removed there exactly as a fresh process's would.
 
 ## Not yet
 

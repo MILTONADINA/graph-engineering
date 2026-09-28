@@ -223,8 +223,16 @@ export class ContextEngine {
     this.embeddings = new LocalEmbeddings(this.dataDir);
     this.ready = this.initialize();
   }
+  // Asynchronous indexing and retrieval read this object, so it keeps its
+  // identity, but its contents become the given policy's exactly: a key
+  // removed from the project file (a working set, say) stops narrowing
+  // indexing, as it would in a fresh process.
   updatePolicy(policy: ProjectPolicy): void {
-    Object.assign(this.policy, structuredClone(policy));
+    const next = structuredClone(policy);
+    const live: Partial<ProjectPolicy> = this.policy;
+    for (const key of Object.keys(live) as (keyof ProjectPolicy)[])
+      delete live[key];
+    Object.assign(this.policy, next);
   }
   private async ensureExportScope(
     snapshotId: string,
