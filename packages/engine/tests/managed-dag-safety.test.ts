@@ -2608,6 +2608,136 @@ describe("approval of publishing plans", () => {
   });
 });
 
+describe("publication when Git is set to hide untracked files", () => {
+  it("refuses to start a publishing run while the checkout has an untracked file Git status hides", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    await checked("git", ["config", "status.showUntrackedFiles", "no"], {
+      cwd: root,
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    // A binary file the source snapshot leaves out, so the plan's snapshot
+    // still matches; the workspace would copy it and publication commit it.
+    const local = path.join(root, "local-asset.bin");
+    await writeFile(local, Buffer.from([0, 1, 2, 0]));
+    await expect(
+      engine.start(planned.id, { approvedByPerson: true }),
+    ).rejects.toThrow(
+      "Commit your existing changes before a run that publishes; unrelated local work must not enter its commit",
+    );
+    expect(engine.store.runs()).toHaveLength(0);
+    await rm(local);
+    const run = await engine.wait(
+      (await engine.start(planned.id, { approvedByPerson: true })).id,
+    );
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+  });
+
+  it("commits a run whose change is only new files", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    await checked("git", ["config", "status.showUntrackedFiles", "no"], {
+      cwd: root,
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async () => ({
+        ...result("one"),
+        proposal: {
+          summary: "Add a module",
+          requests: [],
+          changes: [
+            {
+              path: "third.js",
+              before: null,
+              after: "export const third = 3;\n",
+            },
+          ],
+        },
+      })),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait(
+      (await engine.start(planned.id, { approvedByPerson: true })).id,
+    );
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(run.commit).toMatch(/^[a-f0-9]{40}$/);
+    expect(
+      engine.store
+        .events(run.id)
+        .find((event) => event.type === "publication.completed")?.data.commit,
+    ).toBe(run.commit);
+    expect(
+      await checked("git", ["show", "--name-only", "--format=", run.commit!], {
+        cwd: run.workspace,
+      }),
+    ).toBe("third.js");
+  });
+});
+
+describe("stored run events", () => {
+  it("verifies and resumes a file whose name looks like a key, and still redacts free text", async () => {
+    const { root } = await fixture();
+    // "sk-" and 20 or more name characters: the shape of an API key.
+    const file = "packages/sk-button-component-library/index.js";
+    const token = "sk-proj-A1b2C3d4E5f6G7h8I9j0K1l2";
+    let calls = 0,
+      checks = 0;
+    const engine = await open(root, {
+      worker: vi.fn(async () => {
+        calls++;
+        return {
+          ...result("one"),
+          proposal: {
+            summary: `Added the library; the old key was ${token}`,
+            requests: [],
+            changes: [
+              { path: file, before: null, after: "export const button = 1;\n" },
+            ],
+          },
+        };
+      }),
+      verify: async (_workspace, commands, _policy, snapshotHash) => {
+        if (++checks === 1)
+          throw new Error("Verification temporarily unavailable");
+        return commands.map((check) => ({
+          ...check,
+          code: 0,
+          stdout: "pass",
+          stderr: "",
+          snapshotHash,
+        }));
+      },
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("Verification temporarily unavailable");
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(calls).toBe(1);
+    expect(checks).toBe(2);
+    const events = engine.store.events(run.id);
+    expect(
+      events.find((event) => event.type === "patch.applied")?.data.paths,
+    ).toEqual([file]);
+    const summary = String(
+      events.find((event) => event.type === "worker.completed")?.data.summary,
+    );
+    expect(summary).toContain("[REDACTED]");
+    expect(summary).not.toContain(token);
+  });
+});
+
 describe("single-step patch application", () => {
   it("returns a single-step patch that uses one path as both a file and a directory to the worker, writing nothing", async () => {
     const { root } = await fixture((value) => {

@@ -854,15 +854,20 @@ export async function readBaseline(
   }
 }
 
-/** Whether the baseline differs from the committed version, so it needs review. */
+/**
+ * Whether the baseline differs from the committed version, so it needs
+ * review. A baseline that was never committed counts, whatever
+ * status.showUntrackedFiles says.
+ */
 export async function baselineChanged(
   root: string,
   file: string = BASELINE_FILE,
 ): Promise<boolean> {
-  const status = await command("git", ["status", "--porcelain", "--", file], {
-    cwd: root,
-    timeoutMs: 10000,
-  });
+  const status = await command(
+    "git",
+    ["status", "--porcelain", "--untracked-files=all", "--", file],
+    { cwd: root, timeoutMs: 10000 },
+  );
   return status.code === 0 && status.stdout.trim().length > 0;
 }
 

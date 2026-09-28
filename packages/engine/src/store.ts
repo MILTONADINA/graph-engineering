@@ -44,6 +44,26 @@ function legacyOwnerState(pid: number | undefined): "dead" | "unknown" {
 
 const RUN_SCHEMA_VERSION = 4;
 
+// Event fields the engine reads back for its own logic: the files a patch or
+// step wrote (paths the policy already confined to the workspace), snapshot
+// hashes, and the IDs of events, providers, decisions, memories and calls.
+// They are stored as recorded, so a file whose name looks like a key is still
+// verified, reviewed and resumed; redaction rewrote it into a path that does
+// not exist. Only a string or a list of strings is kept as it is; free text
+// such as errors, summaries and check output is still redacted.
+const STRUCTURAL_EVENT_KEYS: ReadonlySet<string> = new Set([
+  "paths",
+  "applying",
+  "snapshotHash",
+  "providerId",
+  "decisionIds",
+  "memoryIds",
+  "callId",
+]);
+const structural = (value: unknown): boolean =>
+  typeof value === "string" ||
+  (Array.isArray(value) && value.every((item) => typeof item === "string"));
+
 /**
  * Reads a retained run and its ordered events read-only, without opening the
  * engine or running crash recovery. Local CLI use only: it returns run
@@ -669,7 +689,9 @@ export class RunStore {
                   /api.?key|password|credential|secret|token/i.test(k) &&
                   !["inputTokens", "outputTokens", "cachedTokens"].includes(k)
                     ? "[REDACTED]"
-                    : clean(v),
+                    : STRUCTURAL_EVENT_KEYS.has(k) && structural(v)
+                      ? v
+                      : clean(v),
                 ]),
               )
             : value;
