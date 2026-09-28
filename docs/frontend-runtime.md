@@ -40,7 +40,7 @@ Deploy the frontend and API **same-site** under the backend's `SameSite=Strict` 
 
 ## Verification
 
-The focused Vite renderer checks run with `npx vitest run packages/engine/tests/template-runtime-frontend.test.ts -t Vite`. The opt-in generated-app check installs declared dependencies in a temporary project, then runs its strict typecheck, generated Vitest tests and Vite production build. It needs package-registry access for the temporary install; the renderer itself does not install packages.
+The focused Vite renderer checks run with `npx vitest run packages/engine/tests/template-runtime-frontend.test.ts -t Vite`. The opt-in generated-app check installs declared dependencies in a temporary project, then runs its strict typecheck, generated Vitest tests and Vite production build. It needs package-registry access for the temporary install; the renderer itself does not install packages. CI runs it on Linux x64 in the generated frontend step.
 
 ```sh
 GRAPH_ENGINE_VITE_BUILD_TESTS=1 npx vitest run packages/engine/tests/template-runtime-frontend.test.ts -t 'typechecks, tests, and builds the generated Vite application'

@@ -203,6 +203,8 @@ jobs:
           npm test -w @graph-engineering/engine -- --run tests/template-runtime-frontend.test.ts
         env:
           GRAPH_ENGINE_FRONTEND_DOCKER_TESTS: "1"
+          # Installs the generated Vite app from the registry, then typechecks, tests and builds it.
+          GRAPH_ENGINE_VITE_BUILD_TESTS: "1"
       - name: Generated full-stack authentication with real PostgreSQL and Chromium
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |
