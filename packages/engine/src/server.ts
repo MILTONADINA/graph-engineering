@@ -258,6 +258,18 @@ export function createServer(
       .parse(request.body ?? {});
     return engine.resume(id, reconciled);
   });
+  // An event stream stays open until its client leaves, and closing the
+  // server waits for every open request, so an open stream would keep
+  // `serve` from stopping and from closing the engine, which cancels the
+  // runs it started. Closing sends each stream the events recorded so far
+  // and ends it while the engine is still open; a stream whose request was
+  // already being handled when closing began ends as soon as it starts.
+  const eventStreams = new Set<() => void>();
+  let closing = false;
+  app.addHook("preClose", async () => {
+    closing = true;
+    for (const end of eventStreams) end();
+  });
   app.get("/api/runs/:id/events", async (request, reply) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     engine.store.run(id);
@@ -276,7 +288,18 @@ export function createServer(
     };
     flush();
     const timer = setInterval(flush, 1000);
-    reply.raw.on("close", () => clearInterval(timer));
+    const stop = () => {
+      clearInterval(timer);
+      eventStreams.delete(end);
+    };
+    const end = () => {
+      stop();
+      flush();
+      reply.raw.end();
+    };
+    eventStreams.add(end);
+    reply.raw.on("close", stop);
+    if (closing) end();
   });
   const dashboard =
     options.dashboardRoot ??

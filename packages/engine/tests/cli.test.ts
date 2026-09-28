@@ -1250,11 +1250,13 @@ describe("command line", () => {
     120_000,
   );
 
-  // The dashboard's runs are cancelled when serve stops. Removing the check
-  // container takes 3 s here, and a second Ctrl-C then must not end the
-  // process before the run has been stopped and recorded.
+  // The dashboard's runs are cancelled when serve stops. An API client is
+  // following the run's event stream, which must not keep the server from
+  // closing. Removing the check container takes 3 s here, and a second
+  // Ctrl-C then must not end the process before the run has been stopped
+  // and recorded.
   it.skipIf(process.platform === "win32")(
-    "keeps cancelling the runs the dashboard started when Ctrl-C is pressed again while serve stops, then exits",
+    "ends open event streams and keeps cancelling the runs the dashboard started when Ctrl-C is pressed again while serve stops, then exits",
     async () => {
       const { planId, pidFile, log, graph, start } = await checkProject(
         "hung",
@@ -1286,12 +1288,22 @@ describe("command line", () => {
           body: JSON.stringify({ planId }),
         });
         expect(response.status).toBe(200);
+        const run = (await response.json()) as { id: string };
         pid = await until(
           child,
           "its check started",
           () => checkPid(pidFile),
           output,
         );
+        // The run has recorded events by now, so the stream answers at once.
+        const events = await fetch(`${address}/api/runs/${run.id}/events`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(events.status).toBe(200);
+        const reader = events.body!.getReader();
+        const stream = (async () => {
+          for (;;) if ((await reader.read()).done) return "ended";
+        })().catch((error: unknown) => `failed: ${String(error)}`);
         child.kill("SIGINT");
         await until(
           child,
@@ -1304,6 +1316,7 @@ describe("command line", () => {
           exit: await exitOf(exited),
           checkRunning: alive(pid),
         }).toEqual({ exit: [0, null], checkRunning: false });
+        expect(await stream).toBe("ended");
       } finally {
         child.kill("SIGKILL");
         if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
