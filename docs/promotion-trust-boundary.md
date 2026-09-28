@@ -54,6 +54,13 @@ prompt you did not start yourself.
 Where the sections below say D5, D6 or D7 must be held by someone other
 than the owner, this amendment replaces that requirement.
 
+The [Rekor witness adapter](promotion-rekor-witness.md) reads the owner's
+statements back from Rekor as a translator. It verifies the signed tree
+head, the consistency with a local high-water mark, and the inclusion of
+each statement, then fills in the challenge and the reply times, which
+carry no security for this witness kind. It is not yet in the controller
+registry.
+
 ## Fixed requirements
 
 These come from the handover and are not open for redesign:
