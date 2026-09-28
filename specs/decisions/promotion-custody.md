@@ -1,7 +1,7 @@
 # Promotion custody and owner decisions
 
 - ID: promotion-custody
-- Status: draft
+- Status: ready
 - Area: decisions
 - Epic: AI agile team
 
@@ -12,7 +12,7 @@ needs trust that nothing on the owner's machine can manufacture
 ([promotion trust boundary](../../docs/promotion-trust-boundary.md)). The
 owner approves; independent parties issue and witness. This spec records the
 owner's decisions of 2026-09-27 and proposes who holds each role. The owner
-and Kevin decide the roles; nothing here is built until they agree.
+decided the roles on 2026-09-27.
 
 ## Owner decisions (2026-09-27)
 
@@ -33,26 +33,27 @@ and Kevin decide the roles; nothing here is built until they agree.
 - **Policy identity:** keep the strict hash of the policy, so any policy
   edit invalidates a grant.
 
-## Proposed roles (for the owner and Kevin to decide)
+## Roles (owner decision, 2026-09-27)
 
-- **Grant issuer (D5): Kevin.** He holds the issuer key offline, never on
-  the owner's machine, and signs a grant only for a report the importer
-  prepared and the owner approved.
-- **Witness (D6): a public transparency log.** Sigstore's Rekor is operated
-  independently of both of them, is append-only, and publishes signed,
-  externally witnessed checkpoints. Grant registration is an entry; a
-  revocation is a later entry for the same grant; status is the absence of
-  a revocation after registration, checked against a fresh signed
-  checkpoint. Entries hold only digests. If a revocation check against
-  Rekor proves too slow for the per-route lease, the fallback is the
-  smallest service run by someone other than the owner and Kevin.
-- **Evidence signers (D7):** Kevin and independent reviewers, with separate
-  keys per role. The owner may label tasks they did not produce or curate.
+The owner leads the project alone and holds every role; Kevin holds none.
+
+- **Approver (D4), grant issuer (D5) and evidence signer (D7): the owner**,
+  with separate Ed25519 keys per role, stored in the macOS Keychain behind
+  Touch ID or the owner's password for every use, and signed only through
+  an owner-run helper that shows what is being signed. Backups are
+  passphrase-encrypted and kept off the laptop.
+- **Witness (D6): Sigstore's public Rekor log**, pinned to its API version,
+  queried read-only by the graph. Allowlisting its host is a policy change
+  the owner makes, which also changes the policy hash bound into grants.
+- **Labels:** the owner, for runs an AI produced.
+- The trade-off is recorded in the
+  [trust boundary](../../docs/promotion-trust-boundary.md#owner-amendment-single-custodian-2026-09-27):
+  no second person checks the evidence; a compromised laptop would be
+  detectable through the public log, not prevented.
 
 ## Acceptance criteria
 
-- AC1: The owner and Kevin have agreed the D5 and D6 roles in writing, and
-  this spec moves to `ready` with their names.
+- AC1: The owner holds every key role, with keys usable only after the owner approves each signature, and Rekor is the witness.
 
 ## Security considerations
 

@@ -28,6 +28,29 @@ Promotion is dead by construction, and is now also dead by test.
   alternative. Planning, managed runs and a policy refresh all stay shadow and
   keep the baseline worker. The tests fail if authority is allowed through.
 
+## Owner amendment: single custodian (2026-09-27)
+
+The owner leads the project alone and has overridden the separation below:
+the owner holds every key role (approver D4, grant issuer D5 and evidence
+signer D7), and a public transparency log (Sigstore Rekor) is the witness
+(D6). Kevin holds no role. Keys are Ed25519, stored in the owner's macOS
+Keychain and usable only after Touch ID or the owner's password for each
+signature; a small owner-run helper signs inside itself, so no graph
+process ever holds a private key, and each prompt shows the SHA-256 of what
+is being signed. Backups are passphrase-encrypted and kept off the laptop.
+
+What this keeps: nothing can be signed without the owner approving that
+signature in person, so an AI session on the laptop cannot promote on its
+own; and the public log makes tampering, rollback and revocation visible.
+What it gives up: no second person checks the evidence, and if the laptop
+itself is compromised (malware that can approve or fake prompts), promotion
+trust is compromised. That would be detectable through the public log, not
+prevented. The owner rule that makes this hold: never approve a signing
+prompt you did not start yourself.
+
+Where the sections below say D5, D6 or D7 must be held by someone other
+than the owner, this amendment replaces that requirement.
+
 ## Fixed requirements
 
 These come from the handover and are not open for redesign:
