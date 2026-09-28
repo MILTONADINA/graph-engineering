@@ -18,7 +18,7 @@ import {
   type ProjectProfile,
 } from "./catalog.js";
 
-const LOCKFILE_NAMES = new Set<string>(LOCKFILES);
+const LOCKFILE_NAMES = new Set(LOCKFILES.map((name) => name.toLowerCase()));
 import { isDockerfile } from "./files.js";
 
 export interface SecurityFinding {
@@ -192,6 +192,45 @@ export function parseSemgrep(
       line: row.start.line,
       message: row.extra.message,
     }));
+}
+
+/**
+ * Files Semgrep did not fully scan. A non-fatal error (a timeout, a parse
+ * failure, an out-of-memory target) is reported at level `warn` and names
+ * the file; with `--verbose` the report also lists skipped paths. Either
+ * way the rules did not cover all of that file, so the gate must know.
+ */
+export function parseSemgrepUnscanned(text: string): SecurityScan["unscanned"] {
+  const report = JSON.parse(text) as {
+    errors?: {
+      level?: string;
+      message?: string;
+      type?: unknown;
+      path?: unknown;
+    }[];
+    paths?: { skipped?: { path?: unknown; reason?: unknown }[] };
+  };
+  const unscanned = new Map<string, string>();
+  const note = (file: unknown, reason: string) => {
+    if (typeof file !== "string" || !file) return;
+    const path = relative(file);
+    if (!unscanned.has(path)) unscanned.set(path, reason.slice(0, 200));
+  };
+  for (const error of report.errors ?? [])
+    note(
+      error.path,
+      `semgrep ${String(error.level ?? "error")}: ${String(
+        (Array.isArray(error.type) ? error.type[0] : error.type) ??
+          error.message ??
+          "error",
+      )}`,
+    );
+  for (const skipped of report.paths?.skipped ?? [])
+    note(
+      skipped.path,
+      `semgrep skipped: ${String(skipped.reason ?? "unknown")}`,
+    );
+  return [...unscanned].map(([path, reason]) => ({ path, reason }));
 }
 
 export function parseHadolint(
@@ -519,11 +558,11 @@ export async function runSecurityScan(options: {
             "--quiet",
             "/scan",
           ]);
-          raw.push(
-            ...parseSemgrep(
-              await readFile(path.join(out, "semgrep.json"), "utf8"),
-            ),
-          );
+          const report = await readFile(path.join(out, "semgrep.json"), "utf8");
+          raw.push(...parseSemgrep(report));
+          for (const entry of parseSemgrepUnscanned(report))
+            if (!unscanned.some((known) => known.path === entry.path))
+              unscanned.push(entry);
         } else if (tool.id === "hadolint") {
           const files = profile.files
             .filter((file) => isDockerfile(file) && lines.has(file))

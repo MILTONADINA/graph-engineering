@@ -69,7 +69,8 @@ non-zero when there are new findings or a scanner's report could not be read.
   with no errors; Checkov files it cannot parse, Semgrep rule errors and
   unexpected exit codes make the scan incomplete, never clean.
 - Files no scanner can read (binary content, larger than 50 MB, or not a
-  regular file) are listed under `unscanned`.
+  regular file) are listed under `unscanned`, as are files a non-fatal
+  Semgrep error (such as a timeout or parse failure) or a Semgrep skip names.
 - A finding's fingerprint combines the tool, rule, file, the resource the
   tool names, and the text of the flagged line with two lines either side,
   so it survives edits elsewhere and two resources flagged at similar lines

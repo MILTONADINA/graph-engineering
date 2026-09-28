@@ -31,9 +31,10 @@ and scanned before the run can succeed.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: never lets a repair weaken the tests the tester wrote
 - AC6: The tester creates new test files only and writes at least one; an edit to an existing file or an empty proposal is returned as feedback. Implementing steps' edits to the tester's files are returned as feedback.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: keeps test-first roles apart: the tester only creates tests, implementers may not change them
-- AC7: The implementer repairs first. If it disputes a test the tester wrote by proposing no change, the tester gets the next attempt, limited to the files it wrote and told the implementer's reason (a cloud tester is only told to recheck its expectations, since the reason may quote code); an unresolved dispute when attempts run out is named in the run's error for a person to decide.
+- AC7: The implementer repairs first. If it disputes a test the tester wrote by proposing no change, the tester gets the next attempt, limited to exactly the files it wrote (matched as paths, never as globs) and told the implementer's reason (a cloud tester is only told to recheck its expectations, since the reason may quote code); an unresolved dispute when attempts run out is named in the run's error for a person to decide.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: lets the implementer dispute a tester's test, and the tester then fixes only its own files
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: names an unresolved dispute for a person when attempts run out
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: limits a tester repair to the exact files it wrote, never treating them as globs
 - AC8: Protection of the tester's files ignores letter case, since common file systems do.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses an implementer edit to the tester's file under a different letter case
 
