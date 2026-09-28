@@ -42,6 +42,7 @@ Start with [working as an AI agile team](agile-team.md), then the
 | [Decisions](decisions.md)                                                                                           | Shadow-mode Laya/Jev decisions and cost accounting              |
 | [Promotion trust boundary](promotion-trust-boundary.md)                                                             | What evidence promotion would need                              |
 | [Your promotion keys](promotion-keys.md)                                                                            | Creating, backing up and restoring owner keys                   |
+| [Rekor witness adapter](promotion-rekor-witness.md)                                                                 | Reading owner statements back from Rekor (D6)                   |
 | [Labelling decisions](labelling.md)                                                                                 | Labelling a packet with single keys, and collecting paired runs |
 | [Calibration corpus](calibration-corpus.md)                                                                         | Real-task intake for evaluation                                 |
 | [Paired cohort evaluation](paired-cohort-evaluation.md)                                                             | Baseline and candidate accounting                               |
