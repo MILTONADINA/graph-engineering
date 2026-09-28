@@ -3344,3 +3344,140 @@ describe("recovery escalation across the export boundary", () => {
     );
   });
 });
+
+describe("a cloud client's plan when its run starts", () => {
+  const cloudProvider = (id: string) => ({
+    id,
+    kind: "openai" as const,
+    model: "fixture",
+    apiKeyEnv: "GRAPH_TEST_API_KEY",
+    inputCostPerMillion: 0,
+    outputCostPerMillion: 0,
+  });
+  // A project that allows a cloud provider beside the local worker. The
+  // working set leaves .graph/project.json out of the source snapshot, so a
+  // reviewer configured there after planning changes neither the plan's
+  // policy hash nor its snapshot.
+  async function allowingCloud(configure?: (config: ProjectConfig) => void) {
+    const { root, config, data } = await fixture((value) => {
+      value.policy.providers = ["local", "reviewer", "tester", "cloud"];
+      value.policy.inference = "allowlisted";
+      value.policy.network = "allowlisted";
+      value.policy.allowedHosts = ["api.openai.com"];
+      value.policy.workingSet = ["first.js", "second.js"];
+      configure?.(value);
+    });
+    await withReviewer(data);
+    await configureProvider(data, {
+      id: "tester",
+      kind: "local",
+      model: "tester-fixture",
+    });
+    await configureProvider(data, cloudProvider("cloud"));
+    vi.stubEnv("GRAPH_TEST_API_KEY", "fixture-only-not-a-real-key");
+    const worker = vi.fn(async (input: WorkerInput) =>
+      result(input.objective.startsWith("Change first") ? "one" : "two"),
+    );
+    const reviewed: string[] = [];
+    const engine = await open(root, {
+      worker,
+      review: approvingReviewer(reviewed),
+    });
+    // What MCP plan_create does for a cloud-backed client.
+    const planned = await engine.createPlan({
+      objective: "Change first",
+      acceptance: ["first is 3"],
+      providerId: "local",
+      cloudAuthored: true,
+    });
+    expect(planned.exportSide).toBe("local");
+    return { root, config, data, engine, planned, worker, reviewed };
+  }
+
+  it("refuses to start or resume a cloud client's local plan once a cloud reviewer is configured", async () => {
+    const { root, config, engine, planned, worker, reviewed } =
+      await allowingCloud();
+    // graph-engine reviewer cloud: a provider the policy already allows.
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      review: { providerId: "cloud" },
+    });
+    await expect(engine.start(planned.id)).rejects.toThrow(
+      "A cloud-backed client created this plan with every model role running locally, but the reviewer (cloud) now runs on a non-local provider",
+    );
+    expect(engine.store.runs()).toHaveLength(0);
+    expect(worker).not.toHaveBeenCalled();
+    expect(reviewed).toHaveLength(0);
+
+    // A run that stopped before it recorded its reviewer takes the
+    // configured one when it resumes, so resume checks it too.
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    vi.spyOn(workspaceModule, "createWorkspace").mockRejectedValueOnce(
+      new Error("Simulated interruption"),
+    );
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(
+      engine.store
+        .events(run.id)
+        .some((event) => event.type === "review.configured"),
+    ).toBe(false);
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      review: { providerId: "cloud" },
+    });
+    await expect(engine.resume(run.id, true)).rejects.toThrow(
+      "but the reviewer (cloud) now runs on a non-local provider",
+    );
+    expect(engine.store.run(run.id).status).toBe("failed");
+    expect(worker).not.toHaveBeenCalled();
+    expect(reviewed).toHaveLength(0);
+  });
+
+  it("refuses to start a cloud client's local plan once a planned provider ID names a cloud provider", async () => {
+    const { data, engine, planned, worker, reviewed } = await allowingCloud(
+      (value) => {
+        value.review = { providerId: "reviewer" };
+      },
+    );
+    // provider-add replaces a provider by ID, in the user data directory,
+    // so neither the policy nor the source snapshot changes.
+    await configureProvider(data, cloudProvider("reviewer"));
+    await expect(engine.start(planned.id)).rejects.toThrow(
+      "but the reviewer (reviewer) now runs on a non-local provider",
+    );
+    await withReviewer(data);
+    await configureProvider(data, cloudProvider("local"));
+    await expect(engine.start(planned.id)).rejects.toThrow(
+      "but step implement (local) now runs on a non-local provider",
+    );
+    expect(engine.store.runs()).toHaveLength(0);
+    expect(worker).not.toHaveBeenCalled();
+    // Back on the plan's side, it runs.
+    await configureProvider(data, {
+      id: "local",
+      kind: "local",
+      model: "fixture",
+    });
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(reviewed).toHaveLength(1);
+  });
+
+  it("names the tester when its planned provider ID now names a cloud provider", async () => {
+    const { data, engine, planned, worker } = await allowingCloud((value) => {
+      value.tester = { providerId: "tester" };
+    });
+    expect(planned.steps.map((entry) => entry.providerId)).toEqual([
+      "tester",
+      "local",
+    ]);
+    await configureProvider(data, cloudProvider("tester"));
+    await expect(engine.start(planned.id)).rejects.toThrow(
+      "but the tester (tester) now runs on a non-local provider",
+    );
+    expect(engine.store.runs()).toHaveLength(0);
+    expect(worker).not.toHaveBeenCalled();
+  });
+});

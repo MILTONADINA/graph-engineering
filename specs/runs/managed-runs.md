@@ -84,6 +84,9 @@ An operator wants a worker model to implement a planned change without touching 
   - Test: packages/engine/tests/store-open.test.ts :: waits for another process that holds a new run database's write lock instead of failing to switch it to WAL
   - Test: packages/engine/tests/cli.test.ts :: opens a new project's data directory from several commands at once
   - Test: packages/engine/tests/cli.test.ts :: exits with the error when the engine cannot open its run database, instead of keeping the process alive
+- AC21: An engine records each unfinished run whose owning process is proven dead as `needs_reconciliation` when it opens, and a long-lived engine (the dashboard's, or an MCP server's) checks again with the same owner proof before it acts on runs another process left unfinished: before cancelling or resuming such a run, and before starting or resuming any run, for every unfinished run. So once a `graph-engine run` process is killed (SIGKILL, an out-of-memory kill or a closed terminal) while such an engine stays up, cancelling its run says it needs reconciliation instead of recording a request nothing will read, a reconciled resume of it goes ahead, and its runs stop counting against `maxWorkers`. A run whose owner is alive or cannot be checked is left as it is.
+  - Test: packages/engine/tests/execution.test.ts :: recovers runs whose process died before a long-lived engine cancels, resumes or starts one
+  - Test: packages/engine/tests/execution.test.ts :: does not mark a live process interrupted when another client opens its store
 
 ## Security considerations
 

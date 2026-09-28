@@ -946,8 +946,9 @@ export class GraphEngine {
         throw new Error(`Template ${step.templateId} is not executable`);
     }
     if (input.cloudAuthored) {
-      // Stored with the plan, so recovery keeps an escalating step there.
-      const side = await this.assertOneSideOfExport(plan, available);
+      // Stored with the plan, so recovery keeps an escalating step there,
+      // and start and resume refuse a role that has since moved sides.
+      const side = await this.assertOneSideOfExport(plan);
       if (side) plan.exportSide = side;
     }
     this.store.savePlan(plan);
@@ -964,32 +965,13 @@ export class GraphEngine {
    */
   private async assertOneSideOfExport(
     plan: ExecutionPlan,
-    workers: ProviderConfig[],
   ): Promise<ExecutionPlan["exportSide"]> {
-    const roles: { role: string; local: boolean }[] = [];
-    for (const step of plan.steps)
-      if (step.kind === "worker") {
-        const worker = workers.find(
-          (candidate) => candidate.id === step.providerId,
-        )!;
-        roles.push({
-          role:
-            step.id === TESTER_STEP_ID
-              ? `the tester (${worker.id})`
-              : `step ${step.id} (${worker.id})`,
-          local: worker.kind === "local",
-        });
-      }
-    const reviewerId = this.config.review?.providerId;
     // start() refuses a reviewer that is not configured.
-    const reviewer = (await this.providers()).find(
-      (provider) => provider.id === reviewerId,
+    const roles = modelRoles(
+      plan,
+      await this.providers(),
+      this.config.review?.providerId,
     );
-    if (reviewer)
-      roles.push({
-        role: `the reviewer (${reviewer.id})`,
-        local: reviewer.kind === "local",
-      });
     const local = roles.filter((entry) => entry.local);
     const remote = roles.filter((entry) => !entry.local);
     if (local.length && remote.length)
@@ -997,6 +979,30 @@ export class GraphEngine {
         `A cloud-backed client can create a plan only when its worker steps, the configured tester and the configured reviewer all run locally or all run on non-local providers: a local model may read files the export policy keeps from cloud models and write them where a cloud model receives them. This plan runs ${local.map((entry) => entry.role).join(", ")} locally and ${remote.map((entry) => entry.role).join(", ")} on non-local providers. Choose providers on one side, or have a person create the plan with graph-engine plan.`,
       );
     return local.length ? "local" : remote.length ? "non-local" : undefined;
+  }
+  /**
+   * Refuses to run a cloud-backed client's plan once a model role it would
+   * run with is on the other side of the export boundary from the plan. The
+   * reviewer is read from the project when a run first executes, and steps
+   * find their providers by ID, so a reviewer configured after planning, or
+   * a planned provider ID redefined as another kind, would otherwise
+   * straddle the boundary the plan was checked against. `reviewerId` is the
+   * reviewer the run will use: the configured one for a new run, the one a
+   * resumed run recorded.
+   */
+  private async assertPlanSide(
+    plan: ExecutionPlan,
+    reviewerId: string | undefined,
+  ): Promise<void> {
+    if (!plan.exportSide) return;
+    const local = plan.exportSide === "local";
+    const moved = modelRoles(plan, await this.providers(), reviewerId).filter(
+      (entry) => entry.local !== local,
+    );
+    if (moved.length)
+      throw new Error(
+        `A cloud-backed client created this plan with every model role ${local ? "running locally" : "on non-local providers"}, but ${moved.map((entry) => entry.role).join(", ")} now ${moved.length === 1 ? "runs" : "run"} ${local ? "on a non-local provider" : "locally"}: a local model may read files the export policy keeps from cloud models and write them where a cloud model receives them. Configure the reviewer and providers the plan was created with again, or create a fresh plan.`,
+      );
   }
   /**
    * Starts a run. A plan that publishes (commit or draft PR) needs a person's
@@ -1026,10 +1032,14 @@ export class GraphEngine {
     await this.assertSecurityScanner();
     const missingDatabase = await this.missingDependencyDatabase();
     if (this.config.review) await this.reviewer();
+    // The run records the configured reviewer when it first executes.
+    await this.assertPlanSide(plan, this.config.review?.providerId);
     const snapshot = await this.context.index({ semantic: false });
     if (snapshot.id !== plan.snapshotId)
       throw new Error("Source changed since planning; create a fresh plan");
     await this.assertCleanForPublication(plan.publication);
+    // A run whose process died stops counting against the concurrency limit.
+    await this.store.recoverInterrupted();
     this.assertOpen("started");
     const run: RunRecord = {
       id: id(),
@@ -1114,12 +1124,36 @@ export class GraphEngine {
     await this.active.get(runId)?.promise;
     return this.store.run(runId);
   }
-  cancel(runId: string): RunRecord {
-    const run = this.store.run(runId);
-    if (!["planned", "running", "verifying"].includes(run.status))
-      throw new Error("Run is not active");
+  /**
+   * Requests that an unfinished run stop. A run executing in this process
+   * is aborted at once; one another process is executing stops when that
+   * process reads the request. A run whose process died is recorded as
+   * needing reconciliation instead, since nothing would read the request.
+   */
+  async cancel(runId: string): Promise<RunRecord> {
+    const run = await this.recoverDeadOwner(runId);
+    if (!unfinished(run.status))
+      throw new Error(
+        run.status === "needs_reconciliation"
+          ? "Run is not active: it needs reconciliation. Inspect its workspace and events, then resume it with explicit reconciliation acknowledgement"
+          : "Run is not active",
+      );
     this.active.get(runId)?.controller.abort();
     this.store.event(runId, "cancel.requested", {});
+    return this.store.run(runId);
+  }
+  /**
+   * An engine recovers dead-owner runs when it opens; a long-lived one (the
+   * dashboard or MCP server) checks again before it acts on a run another
+   * process left unfinished, with the same owner proof. A run executing in
+   * this process, or whose owner is alive or cannot be checked, is returned
+   * as stored. Nothing awaits for a run executing in this process, so a
+   * cancel reaches it at once.
+   */
+  private async recoverDeadOwner(runId: string): Promise<RunRecord> {
+    const run = this.store.run(runId);
+    if (this.active.has(runId) || !unfinished(run.status)) return run;
+    await this.store.recoverInterrupted(runId);
     return this.store.run(runId);
   }
   // A project with a committed security baseline scans every run; check the
@@ -1252,7 +1286,7 @@ export class GraphEngine {
   }
   async resume(runId: string, reconciled = false): Promise<RunRecord> {
     if (this.active.has(runId)) throw new Error("Run is already active");
-    const run = this.store.run(runId);
+    const run = await this.recoverDeadOwner(runId);
     if (!["failed", "cancelled", "needs_reconciliation"].includes(run.status))
       throw new Error("Run does not need resumption");
     if (!reconciled)
@@ -1276,6 +1310,7 @@ export class GraphEngine {
     );
     const pinnedReviewer = this.runReviewerId(runId);
     if (pinnedReviewer) await this.reviewer(pinnedReviewer);
+    await this.assertPlanSide(run.plan, pinnedReviewer);
     if (
       !run.workspace &&
       (await this.context.index({ semantic: false })).id !== run.plan.snapshotId
@@ -1286,6 +1321,9 @@ export class GraphEngine {
     // The resumed run creates its workspace from the checkout, as start does.
     if (!run.workspace)
       await this.assertCleanForPublication(run.plan.publication);
+    // As in start, a run whose process died stops counting against the
+    // concurrency limit.
+    await this.store.recoverInterrupted();
     this.assertOpen("resumed");
     const reserved = this.store.reserveResume(
       runId,
@@ -2899,10 +2937,13 @@ export class GraphEngine {
         pullRequest: run.pullRequest ?? null,
       });
       publishing = false;
-      run.completion = acceptance;
       // Memory capture awaits a decision provider, so it finishes before the
       // run is saved as succeeded: a person's decision can be recorded only
       // on a succeeded run, and no later save of this record may revert it.
+      // Capturing its decision saves the run, still verifying, so the
+      // pending acceptance is set only with the succeeded status: a process
+      // that dies here leaves a run that needs reconciliation and awaits no
+      // acceptance.
       try {
         const memory = await controlMemoryWrite({
           ...withState({ completed: true, committed: Boolean(run.commit) }),
@@ -2920,6 +2961,7 @@ export class GraphEngine {
           error: errorMessage(error),
         });
       }
+      run.completion = acceptance;
       run.status = "succeeded";
       run.updatedAt = now();
       this.store.completeRun(run);
@@ -2950,6 +2992,40 @@ export class GraphEngine {
       this.store.close();
     })());
   }
+}
+const unfinished = (status: RunRecord["status"]) =>
+  ["planned", "running", "verifying"].includes(status);
+// The model roles a plan runs with, each marked by whether it runs locally:
+// its worker steps, the tester's among them, with the providers their IDs
+// name now, and the given reviewer. A provider no longer configured has no
+// role here; a run refuses it when it reaches that step.
+function modelRoles(
+  plan: ExecutionPlan,
+  providers: ProviderConfig[],
+  reviewerId: string | undefined,
+): { role: string; local: boolean }[] {
+  const roles: { role: string; local: boolean }[] = [];
+  for (const step of plan.steps) {
+    if (step.kind !== "worker") continue;
+    const worker = providers.find(
+      (candidate) => candidate.id === step.providerId,
+    );
+    if (worker)
+      roles.push({
+        role:
+          step.id === TESTER_STEP_ID
+            ? `the tester (${worker.id})`
+            : `step ${step.id} (${worker.id})`,
+        local: worker.kind === "local",
+      });
+  }
+  const reviewer = providers.find((provider) => provider.id === reviewerId);
+  if (reviewer)
+    roles.push({
+      role: `the reviewer (${reviewer.id})`,
+      local: reviewer.kind === "local",
+    });
+  return roles;
 }
 // Files a proposal changes outside its step's declared write scope.
 function outsideWriteScope(
