@@ -1659,25 +1659,39 @@ describe("managed execution", () => {
         .map((event) => event.data.reason),
     ).toEqual(["not-exportable"]);
   });
-  it("answers a cloud worker's patch to a non-exportable path the same way whether or not the file exists, without reading it", async () => {
+  it("answers a cloud worker's patch to a non-exportable or credential-named path the same way whether or not the file exists, without reading it", async () => {
     const PRIVATE = "private-deployment-value";
+    // Built at run time, so this source holds no token-shaped literal.
+    const tokenName = "gh" + "p_" + "Q7mZ2xK9vB4nR8tW3yL6pD1sF5hJ0cGa";
+    // A path outside exportPaths, and an exportable one whose name looks
+    // like a credential (the worker is never shown it, as a request for it
+    // is refused).
+    const targets = [
+      {
+        file: "notes/plan.md",
+        exportPaths: ["math.cjs"],
+        named: "notes/plan.md",
+      },
+      {
+        file: `notes/${tokenName}.md`,
+        exportPaths: ["math.cjs", "notes/**"],
+        named: "1 path whose name looks like a credential",
+      },
+    ];
     // A creation over the file, and an edit whose before is in it: without
     // the refusal the first fails only when the file exists, and the second
     // applies only when it does.
-    const changes = [
-      { path: "notes/plan.md", before: null, after: "x\n" },
-      { path: "notes/plan.md", before: PRIVATE, after: "x" },
-    ];
-    for (const change of changes) {
+    const cases = targets.flatMap((target) => [
+      { target, change: { path: target.file, before: null, after: "x\n" } },
+      { target, change: { path: target.file, before: PRIVATE, after: "x" } },
+    ]);
+    for (const { target, change } of cases) {
       const outcomes: unknown[] = [];
       for (const exists of [true, false]) {
         const { root, config, data } = await fixture();
         if (exists) {
           await mkdir(path.join(root, "notes"));
-          await writeFile(
-            path.join(root, "notes/plan.md"),
-            `plan: ${PRIVATE}\n`,
-          );
+          await writeFile(path.join(root, target.file), `plan: ${PRIVATE}\n`);
         }
         config.policy = {
           ...config.policy,
@@ -1685,7 +1699,7 @@ describe("managed execution", () => {
           network: "allowlisted",
           allowedHosts: ["api.openai.com"],
           providers: ["cloud"],
-          exportPaths: ["math.cjs"],
+          exportPaths: target.exportPaths,
         };
         await writeJson(path.join(root, PROJECT_FILE), config);
         await checked("git", ["add", "."], { cwd: root });
@@ -1737,13 +1751,13 @@ describe("managed execution", () => {
         });
         const run = await engine.wait((await engine.start(plan.id)).id);
         expect(JSON.stringify(inputs)).not.toContain(PRIVATE);
+        expect(JSON.stringify(inputs)).not.toContain(tokenName);
         // Nothing was written in the run's workspace either.
         if (run.workspace)
           expect(
-            await readFile(
-              path.join(run.workspace, "notes/plan.md"),
-              "utf8",
-            ).catch(() => "absent"),
+            await readFile(path.join(run.workspace, target.file), "utf8").catch(
+              () => "absent",
+            ),
           ).toBe(exists ? `plan: ${PRIVATE}\n` : "absent");
         outcomes.push({
           status: run.status,
@@ -1767,7 +1781,7 @@ describe("managed execution", () => {
         applied: 0,
       });
       expect((outcomes[0] as { feedback: string[] }).feedback[1]).toContain(
-        "You proposed changes to notes/plan.md, which this project does not share with your provider, so nothing was read or written.",
+        `You proposed changes to ${target.named}, which this project does not share with your provider, so nothing was read or written.`,
       );
     }
   });
