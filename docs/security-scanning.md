@@ -135,6 +135,10 @@ worker created, and records `security.scan_completed`.
   `security.database_missing` and `graph-engine run` prints it as a
   warning, before any worker is paid; the run is not refused, since one
   that changes no lockfile passes the gate without a database.
+- `security-db-update`, like `security-scan`, needs Docker running and the
+  scanner image built; it says which one is missing, so a stopped Docker
+  daemon is reported as `Docker is not running` rather than as an image to
+  build.
 - To download the database, `graph-engine security-db-update` needs
   `policy.network: "allowlisted"` with
   `osv-vulnerabilities.storage.googleapis.com` in `allowedHosts`. A plan

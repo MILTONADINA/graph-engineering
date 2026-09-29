@@ -22,7 +22,10 @@ runs first, before the implementation: a separate worker writes tests that
 prove each acceptance criterion. It creates new test files only, never
 editing an existing test, within the test-file globs
 (`graph-engine tester --writes <glob...>` narrows them for the configured
-tester, so they must leave room for new files), and implementing steps may
+tester, so they must leave room for new files; to set a tester and its globs
+together, put the provider ID first, `graph-engine tester <providerId>
+--writes <glob...>`, since `--writes` takes every argument after it and a
+provider ID there is refused), and implementing steps may
 not change the files it wrote. The combined result is then verified and
 reviewed ([tester spec](../specs/quality/tester-role.md)).
 

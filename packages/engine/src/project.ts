@@ -13,7 +13,21 @@ import { id, readJson, writeJson } from "./util.js";
 
 export const PROJECT_FILE = ".graph/project.json";
 export async function loadProject(root: string): Promise<ProjectConfig> {
-  const value = await readJson<unknown>(path.join(root, PROJECT_FILE));
+  const file = path.join(root, PROJECT_FILE);
+  let value: unknown;
+  try {
+    value = await readJson<unknown>(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // Keeps the ENOENT code: initializeProject creates the file on it.
+    throw Object.assign(
+      new Error(
+        `No Graph Engineering project at ${root}: run graph-engine init there, or pass -C <project root> before the command`,
+        { cause: error },
+      ),
+      { code: "ENOENT" },
+    );
+  }
   assertProjectConfig(value);
   return value;
 }

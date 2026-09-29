@@ -751,6 +751,21 @@ cli
     const project = await loadProject(root());
     // --writes alone narrows the current tester; it is never ignored.
     const narrow = !options.clear && !providerId && !!options.writes?.length;
+    // The variadic --writes takes a provider ID written after it as a glob.
+    if (narrow) {
+      const providers = new Set(
+        (await loadProviders(projectDataDir(project.projectId))).map(
+          (provider) => provider.id,
+        ),
+      );
+      const swallowed = (options.writes as string[]).find((glob) =>
+        providers.has(glob),
+      );
+      if (swallowed)
+        throw new Error(
+          `--writes took the provider ID ${swallowed} as a test-file glob; put the provider ID before --writes: graph-engine tester ${swallowed} --writes <glob...>`,
+        );
+    }
     if (narrow && !project.tester)
       throw new Error(
         "No tester is set; give its provider ID: graph-engine tester <providerId> --writes <glob...>",

@@ -40,8 +40,9 @@ and scanned before the run can succeed.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: limits a tester repair to the exact files it wrote, never treating them as globs
 - AC8: Protection of the tester's files ignores letter case, since common file systems do.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: refuses an implementer edit to the tester's file under a different letter case
-- AC9: `tester --writes <glob...>` without a provider ID narrows the configured tester's test-file globs, and is refused with the command to use when no tester is set; it is never silently ignored.
+- AC9: `tester --writes <glob...>` without a provider ID narrows the configured tester's test-file globs, and is refused with the command to use when no tester is set; it is never silently ignored. Since `--writes` takes every argument after it, a `--writes` entry that is a configured provider ID (`tester --writes 'src/**' laya`) is refused with a message to put the provider ID before `--writes`, and the configured tester is left unchanged.
   - Test: packages/engine/tests/cli.test.ts :: narrows the configured tester's test-file globs with tester --writes, and refuses --writes when no tester is set
+  - Test: packages/engine/tests/cli.test.ts :: refuses tester --writes that took a provider ID written after it as a glob, keeping the configured tester
 
 ## Security considerations
 
