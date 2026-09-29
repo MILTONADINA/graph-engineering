@@ -12,6 +12,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import type {
+  ExecutionPlan,
   ExecutionStep,
   ProjectConfig,
 } from "@graph-engineering/contracts";
@@ -3432,6 +3433,57 @@ describe("a cloud client's plan when its run starts", () => {
     expect(engine.store.run(run.id).status).toBe("failed");
     expect(worker).not.toHaveBeenCalled();
     expect(reviewed).toHaveLength(0);
+  });
+
+  it("refuses a plan stored before plans recorded their author while its roles straddle the export boundary", async () => {
+    const { root, config, engine, worker, reviewed } = await allowingCloud();
+    // A plan of template steps alone that a cloud-backed client wrote
+    // before template steps counted as local was stored with no side, as a
+    // person's plan is, and before plans recorded their author.
+    const current = await engine.createPlan({
+      objective: "Document the API",
+      acceptance: ["docs/API.md lists the routes"],
+      steps: [
+        {
+          id: "api-docs",
+          kind: "template",
+          objective: "Document the API",
+          dependsOn: [],
+          templateId: "documentation.api",
+        },
+      ],
+    });
+    expect(current.cloudAuthored).toBe(false);
+    expect(current.exportSide).toBeUndefined();
+    const legacy: ExecutionPlan = {
+      ...structuredClone(current),
+      id: `${current.id}-legacy`,
+    };
+    delete legacy.cloudAuthored;
+    engine.store.savePlan(legacy);
+    // Its author cannot be told, so a cloud reviewer, which would receive
+    // what the local template wrote, refuses it.
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      review: { providerId: "cloud" },
+    });
+    await expect(engine.start(legacy.id)).rejects.toThrow(
+      "This plan was stored before plans recorded whether a cloud-backed client wrote them, and it runs template step api-docs locally and the reviewer (cloud) on non-local providers",
+    );
+    expect(engine.store.runs()).toHaveLength(0);
+    expect(worker).not.toHaveBeenCalled();
+    expect(reviewed).toHaveLength(0);
+    // A person's plan made now records its author and may still mix them.
+    const own = await engine.start(current.id);
+    await engine.wait(own.id);
+    // With every role on one side, the stored plan still runs.
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      review: { providerId: "reviewer" },
+    });
+    const run = await engine.start(legacy.id);
+    expect(run.plan.id).toBe(legacy.id);
+    await engine.wait(run.id);
   });
 
   it("refuses to start a cloud client's local plan once a planned provider ID names a cloud provider", async () => {

@@ -1295,11 +1295,22 @@ describe("managed execution", () => {
         objective: "Fix addition",
         acceptance: ["addition passes"],
       });
-      const refusal = engine.start(plan.id);
-      await expect(refusal).rejects.toThrow(
+      // The message leaves the operator's image name to the local detail,
+      // which the CLI and a local MCP client print.
+      const refusal = await engine.start(plan.id).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(refusal).toBeInstanceOf(util.LocalDetailError);
+      expect((refusal as Error).message).toContain(
+        "A verification image one of the plan's checks runs in is not on this machine",
+      );
+      expect((refusal as Error).message).not.toContain("graph-missing");
+      const detail = util.localErrorMessage(refusal);
+      expect(detail).toContain(
         "Verification image graph-missing:local is not on this machine",
       );
-      await expect(refusal).rejects.toThrow("docker pull graph-missing:local");
+      expect(detail).toContain("docker pull graph-missing:local");
       expect(calls).toBe(0);
       expect(engine.store.runs()).toHaveLength(0);
       // Each distinct image is inspected once.
@@ -1314,7 +1325,7 @@ describe("managed execution", () => {
       // Removed again (a docker prune), resume refuses before the worker.
       await writeFile(images, "node:24-alpine\n");
       await expect(engine.resume(run.id, true)).rejects.toThrow(
-        "Verification image graph-missing:local is not on this machine",
+        "A verification image one of the plan's checks runs in is not on this machine",
       );
       expect(calls).toBe(1);
       expect(engine.store.run(run.id).status).toBe("failed");

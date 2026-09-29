@@ -820,6 +820,7 @@ export class GraphEngine {
           verification: structuredClone(this.config.verification),
           publication: this.config.policy.publication,
           ...(input.spec ? { spec: input.spec } : {}),
+          cloudAuthored: input.cloudAuthored === true,
         };
         // Template steps run locally, so a cloud-backed client's plan of
         // template steps alone keeps the reviewer local too.
@@ -943,6 +944,7 @@ export class GraphEngine {
       verification: structuredClone(this.config.verification),
       publication: this.config.policy.publication,
       ...(input.spec ? { spec: input.spec } : {}),
+      cloudAuthored: input.cloudAuthored === true,
     };
     for (const step of plan.steps) {
       if (step.kind === "worker") {
@@ -1000,13 +1002,30 @@ export class GraphEngine {
    * reviewer the run will use: the configured one for a new run, the one a
    * resumed run recorded. This is the early refusal: a run also checks each
    * provider when it reaches it (see assertOnPlanSide), since either can
-   * change while the run is in progress.
+   * change while the run is in progress. A plan stored before plans
+   * recorded their author is refused while its roles straddle the
+   * boundary, whoever wrote it.
    */
   private async assertPlanSide(
     plan: ExecutionPlan,
     reviewerId: string | undefined,
   ): Promise<void> {
-    if (!plan.exportSide) return;
+    if (!plan.exportSide) {
+      if (plan.cloudAuthored !== undefined) return;
+      // A plan stored before plans recorded who wrote them may be a
+      // cloud-backed client's that the one-side check at planning let
+      // through: one of template steps alone got no side before template
+      // steps counted as local. Its author cannot be told, so it runs
+      // only while its roles are all on one side.
+      const roles = modelRoles(plan, await this.providers(), reviewerId);
+      const local = roles.filter((entry) => entry.local);
+      const remote = roles.filter((entry) => !entry.local);
+      if (local.length && remote.length)
+        throw new Error(
+          `This plan was stored before plans recorded whether a cloud-backed client wrote them, and it runs ${local.map((entry) => entry.role).join(", ")} locally and ${remote.map((entry) => entry.role).join(", ")} on non-local providers: a local model or template may read files the export policy keeps from cloud models and write them where a cloud model receives them. Create a fresh plan, which records its author, or configure providers on one side.`,
+        );
+      return;
+    }
     const local = plan.exportSide === "local";
     const moved = modelRoles(plan, await this.providers(), reviewerId).filter(
       (entry) => entry.local !== local,
@@ -1218,8 +1237,13 @@ export class GraphEngine {
         result.code !== 0 ||
         !/^sha256:[a-f0-9]{64}$/.test(result.stdout.trim())
       )
-        throw new Error(
-          `Verification image ${image} is not on this machine, so no check could run. Pull it with docker pull ${image}, or build it with docker build -t ${image} <directory>, then ${then}; the plan is still valid`,
+        // The image name comes from the operator's configuration (a
+        // private registry path, say), which a cloud-backed client that
+        // can start a run otherwise never sees, so only the CLI and a
+        // local client get it.
+        throw new LocalDetailError(
+          `A verification image one of the plan's checks runs in is not on this machine, so no check could run. Pull it with docker pull, or build it with docker build -t, then ${then}; the plan is still valid`,
+          `Verification image ${image} is not on this machine: docker pull ${image}, or docker build -t ${image} <directory>`,
         );
     }
   }

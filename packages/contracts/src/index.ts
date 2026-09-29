@@ -305,6 +305,12 @@ export interface ExecutionPlan {
    * after repeated failures moves only to a provider on the same side.
    */
   exportSide?: "local" | "non-local";
+  /**
+   * Whether a cloud-backed MCP client wrote the plan. Every plan created
+   * since this was recorded carries it; a plan without it predates it, so
+   * a missing exportSide cannot show that a person wrote it.
+   */
+  cloudAuthored?: boolean;
 }
 export interface Usage {
   inputTokens: number | null;
