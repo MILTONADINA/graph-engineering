@@ -657,6 +657,95 @@ describe("managed DAG safety boundaries", () => {
     await assertUnchanged(run.workspace!);
   });
 
+  it("answers a DAG cloud worker's patch to a non-exportable path the same way whether or not the file exists, without reading it", async () => {
+    // A creation over second.js, and an edit whose before is in it: without
+    // the refusal the first fails only when the file exists, and the second
+    // applies only when it does.
+    const changes = [
+      { path: "second.js", before: null, after: "x\n" },
+      { path: "second.js", before: "PRIVATE_CONTENT_CANARY", after: "x" },
+    ];
+    for (const change of changes) {
+      const outcomes: unknown[] = [];
+      for (const exists of [true, false]) {
+        const { root, data } = await fixture((config) => {
+          config.policy.inference = "allowlisted";
+          config.policy.network = "allowlisted";
+          config.policy.allowedHosts = ["api.openai.com"];
+          config.policy.exportPaths = ["first.js"];
+          config.policy.providers = ["cloud"];
+        });
+        if (!exists) {
+          await checked("git", ["rm", "-q", "second.js"], { cwd: root });
+          await checked("git", ["commit", "-m", "test: no second"], {
+            cwd: root,
+          });
+        }
+        await configureProvider(data, {
+          id: "cloud",
+          kind: "openai",
+          model: "fixture",
+        });
+        const inputs: WorkerInput[] = [];
+        const engine = await open(root, {
+          worker: async (input) => {
+            inputs.push(input);
+            return {
+              ...result("one"),
+              proposal: {
+                summary: "Change the second export",
+                requests: [],
+                changes: [change],
+              },
+            };
+          },
+        });
+        const planned = await engine.createPlan({
+          objective: "Update the second export",
+          acceptance: ["The second constant is updated"],
+          providerId: "cloud",
+          steps: [step("one", [], "cloud"), step("two", ["one"], "cloud")],
+        });
+        const run = await engine.wait((await engine.start(planned.id)).id);
+        const sent = JSON.stringify(inputs);
+        expect(sent).not.toContain("PRIVATE_CONTENT_CANARY");
+        // Nothing was written in the run's workspace either.
+        expect(
+          await readFile(path.join(run.workspace!, "second.js"), "utf8").catch(
+            () => "absent",
+          ),
+        ).toBe(
+          exists
+            ? "export const second = 2; // PRIVATE_CONTENT_CANARY\n"
+            : "absent",
+        );
+        const events = engine.store.events(run.id);
+        outcomes.push({
+          status: run.status,
+          error: run.error,
+          feedback: inputs.map((input) => input.feedback ?? ""),
+          returned: events
+            .filter((event) => event.type === "proposal.returned")
+            .map((event) => [event.stepId, event.data.reason]),
+          applied: events.filter((event) => event.type === "patch.applied")
+            .length,
+        });
+      }
+      // The provider sees the same answer either way: feedback once that
+      // names only the path it sent, then the step stops.
+      expect(outcomes[0]).toEqual(outcomes[1]);
+      expect(outcomes[0]).toMatchObject({
+        status: "failed",
+        returned: [["one", "not-exportable"]],
+        applied: 0,
+      });
+      expect((outcomes[0] as { feedback: string[] }).feedback).toHaveLength(2);
+      expect((outcomes[0] as { feedback: string[] }).feedback[1]).toContain(
+        "You proposed changes to second.js, which this project does not share with your provider, so nothing was read or written.",
+      );
+    }
+  });
+
   it("stops a DAG worker that repeats an already supplied source without new evidence", async () => {
     const { root } = await fixture((config) => {
       config.policy.maxTurns = 6;

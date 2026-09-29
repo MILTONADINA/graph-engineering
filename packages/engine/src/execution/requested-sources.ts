@@ -445,7 +445,8 @@ export async function unseenPatchLocation(
 
 /**
  * Refuses a cloud worker's proposal that changes any path the project does
- * not export to it, before any file is read. Whether a patch applies (a
+ * not export to it, or whose name looks like a credential, before any file
+ * is read. Whether a patch applies (a
  * creation over an existing file, a `before` that matches once) would
  * otherwise tell the provider whether a private file exists or what it
  * holds, so the refusal is decided by export policy, and for an exportable
@@ -460,8 +461,11 @@ export async function assertExportablePatch(
 ): Promise<void> {
   if (provider.kind === "local") return;
   const paths = [...new Set(proposal.changes.map((change) => change.path))];
+  // A name that looks like a credential is refused as a request for it is:
+  // the worker is never shown such a file, so it may not change one either.
   const refused = paths.filter(
-    (relative) => !isAllowedPath(relative, policy, true),
+    (relative) =>
+      !isAllowedPath(relative, policy, true) || containsSecret(relative),
   );
   // An exportable name that reaches a file on disk under another name
   // (letter case on macOS and Windows) is that file, and so not exported.
@@ -608,7 +612,7 @@ export class UnexportableRequestError extends Error {
 
 /**
  * A cloud worker proposed changes to paths the project does not export to
- * it. Nothing was read or written. Like an unexportable request, it is
+ * it, or whose names look like credentials. Nothing was read or written. Like an unexportable request, it is
  * answered once with feedback and stops the step the second time.
  */
 export class UnexportablePatchError extends Error {
@@ -621,8 +625,9 @@ export class UnexportablePatchError extends Error {
 
 /**
  * What a worker is told the first time it proposes changes to paths it may
- * not receive. It names only paths the worker itself sent, and says nothing
- * about whether they exist or what they hold.
+ * not receive. It names only paths the worker itself sent, counting rather
+ * than naming one whose name looks like a credential, and says nothing about
+ * whether they exist or what they hold.
  */
 export function unexportablePatchFeedback(paths: readonly string[]): string {
   return `You proposed changes to ${refusedPathList(paths)}, which this project does not share with your provider, so nothing was read or written. Propose your change again without those files. Another such proposal stops the run.`;
