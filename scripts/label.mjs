@@ -33,8 +33,10 @@ import {
   readStore,
   requireInteractiveOwner,
   requirePairsForPairedPacket,
+  requireResolvedRecords,
   saveProgress,
   taskComplete,
+  terminalText,
   validateExport,
   writeFileAtomic,
 } from "./labelling.mjs";
@@ -137,7 +139,11 @@ export async function labelSession(options, io) {
     packetSha256,
     labeler: options.labeler,
   });
-  const pairs = loadPairs(paths.pairs, { packet, sha256: packetSha256 });
+  const pairs = loadPairs(paths.pairs, {
+    packet,
+    sha256: packetSha256,
+    projectId: options.projectId ?? null,
+  });
   requirePairsForPairedPacket(packet, pairs, paths.pairs);
   const readIndex = () =>
     indexStore(
@@ -157,9 +163,15 @@ export async function labelSession(options, io) {
   };
   const now = options.now ?? (() => new Date().toISOString());
   const save = () => saveProgress(paths.progress, progress);
-  const out = (text = "") => io.write(`${text}\n`);
+  // Every line printed here may hold store, packet or pairs-file text (an
+  // objective, a provider's failure, a model name), so control characters
+  // are shown as placeholders; each out() call is exactly one line.
+  const out = (text = "") => io.write(`${terminalText(text)}\n`);
 
   const doExport = async () => {
+    requireResolvedRecords(packet, index, {
+      repositoryExplicit: options.repositoryExplicit === true,
+    });
     const built = buildExport(packet, progress, {
       repositoryId: options.repositoryId,
       reviewedAt: now(),
@@ -541,6 +553,7 @@ async function run(argv) {
     projectId,
     dataRoot: dataRoot(env),
     repositoryId: options.repository ?? projectId,
+    repositoryExplicit: options.repository !== undefined,
     exportOnly: options.export,
   };
   const io = terminalIO();
@@ -548,7 +561,7 @@ async function run(argv) {
     const result = await labelSession(session, io);
     if (result.exported)
       io.write(
-        `Exported ${result.exported.rows} rows to ${result.exported.file}; left out ${JSON.stringify(result.exported.excluded)}.\n`,
+        `${terminalText(`Exported ${result.exported.rows} rows to ${result.exported.file}; left out ${JSON.stringify(result.exported.excluded)}.`)}\n`,
       );
     else if (result.quit) io.write("Saved. Run npm run label to resume.\n");
   } finally {
@@ -561,8 +574,9 @@ if (
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 )
   run(process.argv.slice(2)).catch((error) => {
+    // A message or stack can quote a packet, pairs file or provider body.
     process.stderr.write(
-      `label: ${error instanceof LabelError ? error.message : error.stack}\n`,
+      `label: ${terminalText(error instanceof LabelError ? error.message : error.stack, { multiline: true })}\n`,
     );
     process.exitCode = error instanceof LabelError ? error.code : EXIT.failure;
   });

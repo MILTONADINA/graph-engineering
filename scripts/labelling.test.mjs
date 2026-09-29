@@ -38,7 +38,7 @@ import {
   writeFileAtomic,
 } from "./labelling.mjs";
 import { labelSession } from "./label.mjs";
-import { collect } from "./collect-paired.mjs";
+import { collect, listText } from "./collect-paired.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const Database = createRequire(import.meta.url)("better-sqlite3");
@@ -655,6 +655,140 @@ test("collect-paired binds its pairs file to the packet and the labeller refuses
   rmSync(written.files.pairs);
   await assert.rejects(label({ exportOnly: true }), missingPairs);
   assert.equal(existsSync(paths.export), false);
+});
+
+test("the labeller refuses a pairs file or an export for a packet collected from another project", async () => {
+  const OTHER = "proj-synthetic-02";
+  const { directory } = pairedFixture();
+  const out = path.join(directory, "labelling");
+  const written = await collect({
+    projectId: PROJECT,
+    dataRoot: directory,
+    pairs: ["run-base:run-cand"],
+    stamp: "project",
+    out,
+  });
+  const pairsText = readFileSync(written.files.pairs, "utf8");
+  assert.equal(JSON.parse(pairsText).projectId, PROJECT);
+  const paths = companionPaths(written.files.packet);
+  const keys = () => script(["c", "l", "n", "2", "2", "e"]);
+
+  // Labelled under another project, or none, the pairs file is refused
+  // before anything is asked or written.
+  const otherProject = {
+    code: EXIT.refused,
+    message: /collected from project proj-synthetic-01's runs/,
+  };
+  for (const projectId of [OTHER, null]) {
+    const io = keys();
+    await assert.rejects(
+      labelSession(
+        session({ directory, packetPath: written.files.packet }, { projectId }),
+        io,
+      ),
+      otherProject,
+    );
+    assert.equal(io.output, "");
+  }
+  assert.equal(existsSync(paths.progress), false);
+
+  // A pairs file that records no project (or a packet with no pairs file)
+  // still cannot be exported under a project whose store holds none of its
+  // decision records.
+  const { projectId: _project, ...unrecorded } = JSON.parse(pairsText);
+  writeFileSync(written.files.pairs, JSON.stringify(unrecorded));
+  const foreign = { directory, packetPath: written.files.packet };
+  const io = keys();
+  await labelSession(session(foreign, { projectId: OTHER }), io);
+  assert.match(io.output, /Run: not found in the recorded runs/);
+  assert.match(io.output, /None of the packet's decision records/);
+  assert.equal(existsSync(paths.export), false);
+  await assert.rejects(
+    labelSession(
+      session(foreign, { projectId: OTHER, exportOnly: true }),
+      script([]),
+    ),
+    { code: EXIT.refused, message: /None of the packet's decision records/ },
+  );
+  assert.equal(existsSync(paths.export), false);
+
+  // Naming the repository explicitly lets the export through under it.
+  await labelSession(
+    session(foreign, {
+      projectId: OTHER,
+      exportOnly: true,
+      repositoryId: "repository-named",
+      repositoryExplicit: true,
+    }),
+    script([]),
+  );
+  const exported = JSON.parse(readFileSync(paths.export, "utf8"));
+  assert.deepEqual(exported.provenance.repositoryIds, ["repository-named"]);
+  rmSync(paths.export);
+
+  // Under its own project the same packet exports as before.
+  await labelSession(session(foreign, { exportOnly: true }), script([]));
+  assert.equal(existsSync(paths.export), true);
+});
+
+test("the labeller and collect-paired --list show control characters in store and packet text as placeholders", async () => {
+  // A cloud client's objective with an escape and a forged option line, a
+  // provider's failure text quoting a raw clipboard escape, and packet
+  // strings holding C1 controls the draft schema lets through.
+  const objective =
+    "Synthetic objective E \u001b[8mhidden\u001b[0m\n  1  careful   ← baseline";
+  const candidates = ["fast", "care\u009bful"];
+  const failure =
+    "Unexpected token '\u001b', \"\u001b]52;c;aGk=\u0007xx\" is not valid JSON";
+  const decisions = [
+    record("rec-e1", "laya", "q\u009d1", "fast", 0.9, {
+      candidates,
+      modelVersion: "laya-1\u0085\u007f",
+    }),
+    record("rec-e2", "jev", "q\u009d1", null, null, {
+      candidates,
+      evidence: {
+        questionId: "q\u009d1",
+        callId: "call-jev",
+        stateHash: "state-1",
+        failure,
+      },
+    }),
+  ];
+  const directory = freshDir();
+  makeStore(directory, {
+    decisions,
+    runs: [run("run-e-000001", objective)],
+    events: [decisionEvent("event-e", "run-e-000001", ["rec-e1", "rec-e2"])],
+  });
+  const packetPath = path.join(directory, "packet-escape.json");
+  writeFileSync(
+    packetPath,
+    JSON.stringify({
+      version: "1.0.0",
+      datasetId: "synthetic-escape",
+      observations: decisions.map((item) => observation(item, "task-e")),
+    }),
+  );
+  const io = script(["c", "l", "n"]);
+  await labelSession(session({ directory, packetPath }), io);
+  // Only the labeller's own clear-screen sequence may reach the terminal.
+  const shown = io.output.replaceAll("\u001b[2J\u001b[H", "");
+  const control = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
+  assert.doesNotMatch(shown, control);
+  assert.match(shown, /Objective: Synthetic objective E \uFFFD\[8mhidden/);
+  assert.match(shown, /no answer \(Unexpected token '\uFFFD'/);
+  assert.match(shown, /laya laya-1\uFFFD\uFFFD: 1 fast/);
+  assert.match(shown, /2 {2}care\uFFFDful/);
+  assert.match(shown, /\[q\uFFFD1\]/);
+  // The forged option line stays on the objective's line.
+  assert.doesNotMatch(shown, /^ {2}1 {2}careful/m);
+  assert.match(shown, /^ {2}1 {2}fast {3}← baseline$/m);
+
+  const listed = listText(readStore(directory, PROJECT));
+  assert.doesNotMatch(listed, control);
+  assert.match(listed, /Synthetic objective E \uFFFD\[8mhidden/);
+  assert.equal(listed.split("\n").length, 3);
 });
 
 test("labelling asks outcomes when a task's runs span plans and no pairs file names the arms", async () => {

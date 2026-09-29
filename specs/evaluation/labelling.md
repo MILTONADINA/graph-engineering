@@ -43,17 +43,25 @@ guide is [labelling decisions](../../docs/labelling.md).
   - Test: packages/engine/tests/decision-evaluation.test.ts :: refuses at export a draft whose labels the importer would refuse, such as a model name with a control character
   - Test: scripts/labelling.test.mjs :: collect-paired and the labeller refuse a packet whose model name the label importer would refuse
   - Test: scripts/labelling.test.mjs :: labelling export validates against the engine's evaluation label schema
+- AC10: The collector records the project whose run store it read in the pairs file, and the labeller refuses (exit 5) a pairs file recorded for any project other than the selected one, before asking or writing anything. For any packet, an export is refused (exit 5) when none of its decision records is in the selected project's recorded runs, unless `--repository` names the repository explicitly, so another project's decisions are never exported under this project's ID.
+  - Test: scripts/labelling.test.mjs :: the labeller refuses a pairs file or an export for a packet collected from another project
+- AC11: Store-, packet- and pairs-file text the labeller and `collect-paired --list` print (objectives, provider failure text, providers, models, candidates, question and task IDs, error messages) has every control character (U+0000-U+001F, U+007F-U+009F) shown as a visible placeholder (U+FFFD); each printed line stays one line, so such text cannot move the cursor, repaint the screen, set the clipboard or forge an option line.
+  - Test: scripts/labelling.test.mjs :: the labeller and collect-paired --list show control characters in store and packet text as placeholders
 
 ## Security considerations
 
 Both tools run only for the owner at a terminal and use no network. They
 read the project's run store read-only and write only beside the packet
 (or to `--out`), mode 0600. The collector copies only the packet's existing
-fields plus each arm's run ID, status, acceptance and cost, and the packet's
-SHA-256; task IDs are hashes, so objective text stays in the store. A pairs
+fields plus each arm's run ID, status, acceptance and cost, the packet's
+SHA-256 and the project ID; task IDs are hashes, so objective text stays in the store. A pairs
 file is used only beside the packet it was collected for, so a separated or
 stale file cannot supply measured outcomes. The labeller shows the run
-objective on screen but never writes it. Labels are unsigned owner labels:
+objective on screen but never writes it, and shows control characters in
+any store, packet or pairs-file text as placeholders, so a cloud client's
+objective or a provider's failure text cannot drive the terminal. A pairs
+file or packet from another project is refused rather than labelled under
+this project's ID. Labels are unsigned owner labels:
 analysis-only evidence that cannot grant promotion. No dependency is added.
 
 ## Non-goals
