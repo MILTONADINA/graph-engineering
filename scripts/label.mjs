@@ -37,6 +37,7 @@ import {
   requireResolvedRecords,
   saveProgress,
   taskComplete,
+  errorText,
   terminalText,
   validateExport,
   writeFileAtomic,
@@ -589,7 +590,7 @@ if (
   run(process.argv.slice(2)).catch((error) => {
     // A message or stack can quote a packet, pairs file or provider body.
     process.stderr.write(
-      `label: ${terminalText(error instanceof LabelError ? error.message : error.stack, { multiline: true })}\n`,
+      `label: ${errorText(error, { stack: !(error instanceof LabelError) })}\n`,
     );
     process.exitCode = error instanceof LabelError ? error.code : EXIT.failure;
   });

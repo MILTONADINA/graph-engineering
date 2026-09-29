@@ -22,6 +22,7 @@ import {
   packetText,
   readStore,
   requireInteractiveOwner,
+  errorText,
   terminalText,
   writeNewFile,
 } from "./labelling.mjs";
@@ -162,7 +163,7 @@ if (
 )
   run(process.argv.slice(2)).catch((error) => {
     process.stderr.write(
-      `collect-paired: ${terminalText(error instanceof LabelError ? error.message : error.stack, { multiline: true })}\n`,
+      `collect-paired: ${errorText(error, { stack: !(error instanceof LabelError) })}\n`,
     );
     process.exitCode = error instanceof LabelError ? error.code : EXIT.failure;
   });

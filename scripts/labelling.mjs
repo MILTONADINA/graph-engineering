@@ -109,6 +109,24 @@ export function terminalText(value, { multiline = false } = {}) {
   );
 }
 
+/**
+ * An error as shown on the terminal. Its message can carry untrusted text
+ * (a pairs file's datasetId, say), so it is shown on one line with every
+ * control character, newline included, replaced; only the stack frames,
+ * which the program produces, keep their line breaks.
+ */
+export function errorText(error, { stack = false } = {}) {
+  const message = terminalText(
+    error instanceof Error ? error.message : String(error),
+  );
+  if (!stack || !(error instanceof Error) || !error.stack) return message;
+  const frames = error.stack
+    .split("\n")
+    .filter((line) => /^\s+at /.test(line))
+    .map((line) => terminalText(line));
+  return [message, ...frames].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Hashing and files
 
