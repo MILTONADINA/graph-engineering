@@ -160,6 +160,10 @@ describe("promotion stays shadow at the engine level", () => {
       worker: async () => {
         throw new Error("Stop after run decisions are recorded");
       },
+      // The run stops before its checks, so their image need not exist.
+      verify: async () => {
+        throw new Error("This test's run does not reach its checks");
+      },
     });
     engines.push(engine);
     const plan = await engine.createPlan({

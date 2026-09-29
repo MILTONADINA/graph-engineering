@@ -251,7 +251,11 @@ export class GraphEngine {
           outputTokens: usage.outputTokens,
           cachedTokens: 0,
           costUsd: usage.chargedUsd,
-          estimated: usage.reportedCostUsd === null,
+          // The debit is conservative: a reviewed price or a reservation
+          // above the reported charge is an estimate, not a measured cost.
+          estimated:
+            usage.reportedCostUsd === null ||
+            usage.chargedUsd !== usage.reportedCostUsd,
         }),
     };
   }
@@ -817,6 +821,12 @@ export class GraphEngine {
           publication: this.config.policy.publication,
           ...(input.spec ? { spec: input.spec } : {}),
         };
+        // Template steps run locally, so a cloud-backed client's plan of
+        // template steps alone keeps the reviewer local too.
+        if (input.cloudAuthored) {
+          const side = await this.assertOneSideOfExport(plan);
+          if (side) plan.exportSide = side;
+        }
         this.store.savePlan(plan);
         return plan;
       }
@@ -956,12 +966,12 @@ export class GraphEngine {
   }
   /**
    * Refuses a plan whose model roles straddle the export boundary. A local
-   * worker or tester may read files the export policy keeps from cloud
+   * worker, tester or template step may read files the export policy keeps from cloud
    * models and write them under exported paths, where a later cloud step or
    * a cloud reviewer receives them. Path filters cannot tell such a copy
    * from the project's own source, so a plan a cloud-backed client wrote
    * keeps every role on one side; a person's own plan may mix them.
-   * Returns that side, or nothing when the plan runs no model.
+   * Returns that side, or nothing when the plan runs no model or template.
    */
   private async assertOneSideOfExport(
     plan: ExecutionPlan,
@@ -976,7 +986,7 @@ export class GraphEngine {
     const remote = roles.filter((entry) => !entry.local);
     if (local.length && remote.length)
       throw new Error(
-        `A cloud-backed client can create a plan only when its worker steps, the configured tester and the configured reviewer all run locally or all run on non-local providers: a local model may read files the export policy keeps from cloud models and write them where a cloud model receives them. This plan runs ${local.map((entry) => entry.role).join(", ")} locally and ${remote.map((entry) => entry.role).join(", ")} on non-local providers. Choose providers on one side, or have a person create the plan with graph-engine plan.`,
+        `A cloud-backed client can create a plan only when its worker steps, the configured tester and the configured reviewer all run locally or all run on non-local providers, and template steps count as local: a local model or template may read files the export policy keeps from cloud models and write them where a cloud model receives them. This plan runs ${local.map((entry) => entry.role).join(", ")} locally and ${remote.map((entry) => entry.role).join(", ")} on non-local providers. Choose providers on one side, or have a person create the plan with graph-engine plan.`,
       );
     return local.length ? "local" : remote.length ? "non-local" : undefined;
   }
@@ -1043,6 +1053,7 @@ export class GraphEngine {
     if (snapshot.id !== plan.snapshotId)
       throw new Error("Source changed since planning; create a fresh plan");
     await this.assertCleanForPublication(plan.publication);
+    await this.assertVerificationImages(plan, "start the run");
     // A run whose process died stops counting against the concurrency limit.
     await this.store.recoverInterrupted();
     this.assertOpen("started");
@@ -1091,6 +1102,30 @@ export class GraphEngine {
       throw new LocalDetailError(
         `Git skips checking ${hidden.length === 1 ? "1 file" : `${hidden.length} files`} in this checkout for changes (assume-unchanged or skip-worktree; git ls-files -v tags them with a lowercase letter or S). Clear the marks with git update-index --no-assume-unchanged or --no-skip-worktree (core.ignoreStat=true sets them on checkout) before a run that publishes, so unrelated local work cannot enter its commit`,
         `Files Git skips checking: ${describeHiddenEntries(hidden)}`,
+      );
+  }
+  // start and resume check the checkout is clean, but the run creates its
+  // workspace later, copying whatever the checkout holds then. Local work
+  // saved, or a commit made, in between would enter a publishing run's
+  // commit without review, so the new workspace must be the planned commit
+  // and nothing else. Checked before any decision or worker call. The
+  // message names no file: a cloud-backed client can start a run.
+  private async assertWorkspaceMatchesPlan(
+    plan: ExecutionPlan,
+    created: { workspace: string; baseCommit: string },
+  ): Promise<void> {
+    if (plan.publication === "none") return;
+    const planned = (await this.context.snapshotById(plan.snapshotId)).revision;
+    if (
+      (planned && planned !== created.baseCommit) ||
+      (await checkedGit(created.workspace, [
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+      ]))
+    )
+      throw new Error(
+        "The checkout changed after the run checked it was clean (a commit, or local work saved while its workspace was created), so its commit could include unreviewed work. Nothing was sent to a model. Remove the changes and start the plan again, or commit them and create a fresh plan",
       );
   }
   // start and resume call this after their last await. A close() that began
@@ -1160,6 +1195,33 @@ export class GraphEngine {
     if (this.active.has(runId) || !unfinished(run.status)) return run;
     await this.store.recoverInterrupted(runId);
     return this.store.run(runId);
+  }
+  // Checks run only in images already on this machine (see
+  // verifyInContainer), which first looks after the worker and tester have
+  // been paid. start and resume find a missing image after their cheaper
+  // checks and before the run launches instead. Injected verification runs
+  // no image.
+  private async assertVerificationImages(
+    plan: ExecutionPlan,
+    then: string,
+  ): Promise<void> {
+    if (this.deps.verify) return;
+    for (const image of new Set(
+      plan.verification.map((check) => check.image),
+    )) {
+      const result = await command(
+        "docker",
+        ["image", "inspect", "--format", "{{.Id}}", image],
+        { timeoutMs: 10000 },
+      );
+      if (
+        result.code !== 0 ||
+        !/^sha256:[a-f0-9]{64}$/.test(result.stdout.trim())
+      )
+        throw new Error(
+          `Verification image ${image} is not on this machine, so no check could run. Pull it with docker pull ${image}, or build it with docker build -t ${image} <directory>, then ${then}; the plan is still valid`,
+        );
+    }
   }
   // A project with a committed security baseline scans every run; check the
   // scanner before any worker spend rather than after verification.
@@ -1326,6 +1388,10 @@ export class GraphEngine {
     // The resumed run creates its workspace from the checkout, as start does.
     if (!run.workspace)
       await this.assertCleanForPublication(run.plan.publication);
+    await this.assertVerificationImages(
+      run.plan,
+      `resume it with graph-engine resume ${runId} --reconciled`,
+    );
     // As in start, a run whose process died stops counting against the
     // concurrency limit.
     await this.store.recoverInterrupted();
@@ -1359,15 +1425,16 @@ export class GraphEngine {
       save("running");
       this.store.event(run.id, "run.started", { resuming });
       if (!run.workspace) {
-        Object.assign(
-          run,
-          await createWorkspace(
-            this.root,
-            this.dataDir,
-            run.id,
-            this.config.policy,
-          ),
+        const created = await createWorkspace(
+          this.root,
+          this.dataDir,
+          run.id,
+          this.config.policy,
         );
+        // Checked before the run records the workspace, so a refused run
+        // has none and a reconciled resume checks the checkout again.
+        await this.assertWorkspaceMatchesPlan(run.plan, created);
+        Object.assign(run, created);
         save("running");
       } else if (!run.baseCommit) {
         run.baseCommit = await recoverBaseCommit(run.workspace, run.id);
@@ -3026,7 +3093,8 @@ const unfinished = (status: RunRecord["status"]) =>
   ["planned", "running", "verifying"].includes(status);
 // The model roles a plan runs with, each marked by whether it runs locally:
 // its worker steps, the tester's among them, with the providers their IDs
-// name now, and the given reviewer. A provider no longer configured has no
+// name now, its template steps, which always run locally, and the given
+// reviewer. A provider no longer configured has no
 // role here; a run refuses it when it reaches that step.
 function modelRoles(
   plan: ExecutionPlan,
@@ -3035,6 +3103,12 @@ function modelRoles(
 ): { role: string; local: boolean }[] {
   const roles: { role: string; local: boolean }[] = [];
   for (const step of plan.steps) {
+    // A template step renders on this machine from whatever files it reads,
+    // including ones the export policy keeps from cloud models.
+    if (step.kind === "template") {
+      roles.push({ role: `template step ${step.id}`, local: true });
+      continue;
+    }
     if (step.kind !== "worker") continue;
     const worker = providers.find(
       (candidate) => candidate.id === step.providerId,

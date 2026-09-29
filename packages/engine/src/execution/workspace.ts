@@ -349,7 +349,10 @@ export async function workspaceFingerprint(
   return hash(pieces);
 }
 /** Every proposed file must actually reach the fingerprint/verifier inventory.
- * A new Git-ignored file is otherwise invisible to both checks and publication. */
+ * A new Git-ignored file is otherwise invisible to both checks and publication.
+ * A file no longer on disk, which an operator deleted while reconciling a
+ * retained workspace, is skipped: there is nothing to verify or publish, and
+ * a deleted tracked file is checked and published as a deletion. */
 export async function assertVerificationPaths(
   workspace: string,
   paths: string[],
@@ -359,11 +362,20 @@ export async function assertVerificationPaths(
   policy = wholeRepository(policy);
   const visible = new Set(await gitFiles(workspace));
   for (const relative of new Set(paths)) {
-    if (!visible.has(relative) || !isAllowedPath(relative, policy))
+    let info;
+    try {
+      info = isAllowedPath(relative, policy)
+        ? await stat(await safePath(workspace, relative, policy))
+        : undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    if (!info || !visible.has(relative))
       throw new Error(
         `Proposed file is absent from the verification inventory (possibly Git-ignored): ${relative}. Review the retained workspace before continuing.`,
       );
-    if (!(await stat(await safePath(workspace, relative, policy))).isFile())
+    if (!info.isFile())
       throw new Error(
         `Proposed verification input is not a regular file: ${relative}`,
       );

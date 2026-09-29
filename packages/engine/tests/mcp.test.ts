@@ -1101,6 +1101,41 @@ it("refuses a cloud client's plan whose workers, tester and reviewer are not all
     // A cloud reviewer receives the diff a local worker wrote.
     await configure({ review: { providerId: "remote" } });
     expect(await refused(single("qwen"))).toContain("the reviewer (remote)");
+    // A template step runs locally and reads files the export policy keeps
+    // from cloud models (documentation.api reads api.schema.json and writes
+    // docs/API.md), so it counts as a local role, even in a plan that runs
+    // no worker.
+    const template = {
+      id: "api-docs",
+      kind: "template",
+      objective: "Document the API",
+      dependsOn: [],
+      templateId: "documentation.api",
+    };
+    const templateOnly = await refused({
+      objective: "Document the API",
+      acceptance: ["docs/API.md lists the routes"],
+      steps: [template],
+    });
+    expect(templateOnly).toContain("template step api-docs");
+    expect(templateOnly).toContain("the reviewer (remote)");
+    await configure({});
+    const templateThenCloud = await refused({
+      objective: "Document the API",
+      acceptance: ["docs/API.md lists the routes"],
+      steps: [
+        template,
+        {
+          id: "polish",
+          kind: "worker",
+          objective: "Tidy docs/API.md",
+          dependsOn: ["api-docs"],
+          providerId: "remote",
+        },
+      ],
+    });
+    expect(templateThenCloud).toContain("template step api-docs");
+    expect(templateThenCloud).toContain("step polish (remote)");
     // All on one side is accepted, and the plan records that side, so a
     // step that escalates stays on it.
     const planOf = (response: Awaited<ReturnType<Client["callTool"]>>) => {
@@ -1122,6 +1157,16 @@ it("refuses a cloud client's plan whose workers, tester and reviewer are not all
       review: { providerId: "qwen" },
     });
     expect((await accepted(single("qwen"))).exportSide).toBe("local");
+    // A plan of template steps alone, with a local reviewer, is local.
+    expect(
+      (
+        await accepted({
+          objective: "Document the API",
+          acceptance: ["docs/API.md lists the routes"],
+          steps: [template],
+        })
+      ).exportSide,
+    ).toBe("local");
     // An operator's own plan may mix them, as the tester role allows.
     await configure({});
     const local = await connect("local");
