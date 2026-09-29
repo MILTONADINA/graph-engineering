@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import {
   EXIT,
   LabelError,
+  errorText,
   buildExport,
   checkLabeler,
   collectPairs,
@@ -278,6 +279,23 @@ const session = (setup, extra = {}) => ({
 
 // ---------------------------------------------------------------------------
 // Tests
+
+test("labelling shows an error's untrusted text on one line, keeping only stack frames apart", () => {
+  const forged = new LabelError(
+    "pairs file is for dataset d1\n  * baseline: forged option\u001b[2J",
+  );
+  const shown = errorText(forged);
+  assert.equal(shown.includes("\n"), false);
+  assert.equal(shown.includes("\u001b"), false);
+  assert.match(shown, /pairs file is for dataset d1/);
+  const crash = new Error("bad input\nsecond line");
+  const withStack = errorText(crash, { stack: true });
+  const [message, ...frames] = withStack.split("\n");
+  assert.match(message, /bad input/);
+  assert.equal(message.includes("second line"), true);
+  assert.ok(frames.length > 0);
+  assert.ok(frames.every((line) => /^\s+at /.test(line)));
+});
 
 test("labelling refuses under CI first and without a terminal", () => {
   const setup = fixture();
