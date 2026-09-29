@@ -1135,12 +1135,16 @@ export class GraphEngine {
   ): Promise<void> {
     if (plan.publication === "none") return;
     const planned = (await this.context.snapshotById(plan.snapshotId)).revision;
+    // Content, not `git status`: with core.autocrlf the new worktree checks
+    // files out with CRLF, and the copied LF bytes then read as modified
+    // though they normalize to the committed blob (seen on Windows runners).
     if (
       (planned && planned !== created.baseCommit) ||
+      (await checkedGit(created.workspace, ["diff", "HEAD", "--name-only"])) ||
       (await checkedGit(created.workspace, [
-        "status",
-        "--porcelain",
-        "--untracked-files=all",
+        "ls-files",
+        "--others",
+        "--exclude-standard",
       ]))
     )
       throw new Error(

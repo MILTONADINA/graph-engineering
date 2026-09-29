@@ -2690,6 +2690,26 @@ describe("publication and untracked files", () => {
     expect(run.status).toBe("succeeded");
   });
 
+  it("publishes when Git converts line endings on checkout (core.autocrlf, as on Windows runners)", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    // The run's worktree shares this repository's configuration, so its
+    // files are checked out with CRLF while the checkout's copies are LF.
+    await checked("git", ["config", "core.autocrlf", "true"], { cwd: root });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const run = await engine.wait(
+      (await engine.start(planned.id, { approvedByPerson: true })).id,
+    );
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(run.commit).toMatch(/^[a-f0-9]{40}$/);
+  });
+
   it("commits a run whose change is only new files", async () => {
     const { root } = await fixture((value) => {
       value.policy.publication = "commit";
