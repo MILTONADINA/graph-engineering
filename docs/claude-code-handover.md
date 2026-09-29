@@ -505,6 +505,10 @@ Jev under a cap, the `spec-check` comment scanner). Then, round by round
   off cold runtime budgets; labeller store text shown safely and another
   project's packet refused; CLI dead-ends (`tester --writes` provider
   mix-up, stopped Docker versus missing scanner image, no-project message).
+  Not ready to merge: `platform (windows-2025)` fails 5 publication tests
+  in `managed-dag-safety.test.ts` with "The checkout changed after the run
+  checked it was clean" (run `36517297902` on #108), probably from the
+  publishing-workspace recheck (`cefc5d7`); fix it before the stack merges.
 - **Round 10** (this round): five confirmed findings, none rated medium or
   higher by both verifiers: a refused publishing workspace kept and reused;
   labeller export using outcomes captured before a resume; `security-scan`
@@ -516,13 +520,15 @@ Jev under a cap, the `spec-check` comment scanner). Then, round by round
 **Stop rule.** The loop stops when a round produces no finding that both
 verifiers rate medium or higher, and Jev, Laya and the advisor, asked at
 the round level, do not recommend another round.
-Round 10 met it: 0 both-medium findings; Jev 0.45 and Laya 0.31 for another
-round, and the advisor advised against one.
+Round 10 met it: 0 both-medium findings (verifier ratings). The round-level
+answers (Jev 0.45 and Laya 0.31 for another round, the advisor against one)
+were reported by the workflow orchestrator; the raw responses were not kept,
+so only the question (context, per-round counts) survives.
 
 **CI flakes**, each seen once and passed on the next run: historical-replays
 reported `infrastructure-error` for one QuickJS fixture (run `36382912386`,
-#74's branch); the Windows C# analyzer passed its cold 5 s cap in the
-multi-language indexing test (run `36436078659`, attempt 1), which round 9
+#74's branch); a cold C# analysis went over its fixed 5 s cap in the
+multi-language indexing test on Windows (run `36436078659`, attempt 1), which round 9
 warms in a `beforeAll` (`6283b7e`). Round 5 also widened the linear-screening
 test's Windows bound (`4d505e9`) and round 6 rewrote the skip-worktree
 fixture's bytes (`0fe5088`).
