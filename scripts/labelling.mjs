@@ -89,6 +89,27 @@ export function requireInteractiveOwner(
 }
 
 // ---------------------------------------------------------------------------
+// Terminal text
+
+/** What a control character is shown as on the owner's terminal. */
+export const CONTROL_PLACEHOLDER = "\uFFFD";
+
+/**
+ * Text from a run store, a packet or a pairs file, made safe to print: every
+ * C0, DEL and C1 control character (U+0000-U+001F, U+007F-U+009F) becomes a
+ * visible placeholder, so an objective, a provider's failure text or a model
+ * name cannot move the cursor, repaint lines or set the clipboard. Newlines
+ * are replaced too unless `multiline` is set, so such text cannot forge an
+ * extra line, such as an option marked as the baseline.
+ */
+export function terminalText(value, { multiline = false } = {}) {
+  return String(value).replace(
+    multiline ? /[\x00-\x09\x0b-\x1f\x7f-\x9f]/g : /[\x00-\x1f\x7f-\x9f]/g,
+    CONTROL_PLACEHOLDER,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hashing and files
 
 export const sha256 = (bytes) =>
@@ -922,7 +943,7 @@ export function listTasks(store) {
  * baseline:candidate run pairs. Both runs of a pair must be terminal and
  * have the same task key, and the dataset ID starts with `paired-`. Only
  * the fields the packet format already holds are copied, plus each arm's
- * run ID, status, acceptance and cost, and the packet's SHA-256.
+ * run ID, status, acceptance and cost, the packet's SHA-256 and the store's project ID.
  */
 export function collectPairs(store, pairs, { datasetId }) {
   // The prefix lets the labeller tell a paired packet that lost its pairs file.
@@ -1003,6 +1024,9 @@ export function collectPairs(store, pairs, { datasetId }) {
       format: PAIRS_FORMAT,
       version: FORMAT_VERSION,
       datasetId,
+      // The project whose store the runs came from: the labeller refuses
+      // the file under any other project, whose ID would go on the labels.
+      projectId: store.projectId,
       packetSha256: sha256(packetText(packet)),
       tasks,
     },
@@ -1012,9 +1036,13 @@ export function collectPairs(store, pairs, { datasetId }) {
 /**
  * Reads the paired-runs sidecar beside a packet, or returns null when there
  * is none. A sidecar collected for other packet bytes or another dataset is
- * refused rather than used for outcomes.
+ * refused rather than used for outcomes, and so is one collected from
+ * another project's runs than the selected one (`projectId`), since the
+ * labels would carry the selected project's ID. A sidecar written before
+ * the project was recorded has none to compare; the export's own check
+ * (`requireResolvedRecords`) still catches a packet from another project.
  */
-export function loadPairs(file, { packet, sha256: packetSha256 }) {
+export function loadPairs(file, { packet, sha256: packetSha256, projectId }) {
   if (!existsSync(file)) return null;
   const pairs = JSON.parse(readFileSync(file, "utf8"));
   if (pairs?.format !== PAIRS_FORMAT || pairs.version !== FORMAT_VERSION)
@@ -1027,7 +1055,29 @@ export function loadPairs(file, { packet, sha256: packetSha256 }) {
       `${path.basename(file)} was collected for another packet (dataset ${pairs.datasetId}, packet sha256 ${pairs.packetSha256 ?? "not recorded"}); refusing to take outcomes from it. Run npm run collect-paired again with a new --stamp.`,
       EXIT.refused,
     );
+  if (pairs.projectId !== undefined && pairs.projectId !== projectId)
+    throw new LabelError(
+      `${path.basename(file)} was collected from project ${pairs.projectId}'s runs, not ${projectId ?? "the selected project (none)"}; refusing to label it under another project's ID. Pass --project ${pairs.projectId}.`,
+      EXIT.refused,
+    );
   return pairs;
+}
+
+/**
+ * Refuses an export when none of the packet's decision records is in the
+ * selected project's run store: the packet was collected for another
+ * project (or the store is missing), so the selected project's ID would be
+ * written on its labels. `--repository` given explicitly names the
+ * repository instead, and is let through.
+ */
+export function requireResolvedRecords(packet, index, { repositoryExplicit }) {
+  if (repositoryExplicit) return;
+  if (packet.observations.some((item) => index.records.has(item.recordId)))
+    return;
+  throw new LabelError(
+    "None of the packet's decision records is in the selected project's recorded runs, so it was likely collected for another project; refusing to export its labels under this project's ID. Pass --project <id> for the project it came from, or --repository <id> to name the repository explicitly.",
+    EXIT.refused,
+  );
 }
 
 /**

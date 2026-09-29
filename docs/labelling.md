@@ -61,7 +61,11 @@ candidate broke a hard policy. The rest comes from recorded data when it
 exists:
 
 - `labeler`: your saved actor ID. `repositoryId`: the project ID in
-  `.graph/project.json` (or `--repository`).
+  `.graph/project.json` (or `--repository`). The export is refused when
+  none of the packet's decision records is in that project's recorded runs
+  (the packet came from another project): pass `--project <id>` for the
+  project it came from, or `--repository <id>` to name the repository
+  explicitly.
 - `baselineSuccess`: the task's last run succeeded and a person accepted it
   (true), or it failed, was cancelled or was rejected (false). A result still
   awaiting acceptance is asked.
@@ -94,6 +98,11 @@ provider-reported model name holding a control character, is refused with
 the field's location (not its value), so an export can never fail on it
 after the work is done; `evaluation-export` and `collect-paired` refuse to
 write such a packet.
+
+Text from recorded runs, the packet or a pairs file (an objective, a
+provider's failure text, a model name) is shown with any control character
+replaced by `�`, here and in `collect-paired --list`, so it cannot move the
+cursor, repaint the screen or set the clipboard.
 
 Progress lives in `labels-<stamp>.json` beside the packet (mode 0600,
 replaced atomically). It is tied to the packet's bytes and your actor ID and
@@ -138,7 +147,9 @@ objective, not its text. It reads the run store read-only and uses no
 network.
 
 The dataset ID starts with `paired-` (`--dataset` must too), and the pairs
-file records the packet's dataset ID and SHA-256. Keep the packet and its
-pairs file together: the labeller refuses a pairs file collected for another
-packet, and refuses a `paired-` packet whose pairs file is missing, because
-its tasks hold both arms' runs.
+file records the packet's dataset ID and SHA-256 and the project whose runs
+were collected. Keep the packet and its pairs file together: the labeller
+refuses a pairs file collected for another packet, refuses a `paired-` packet
+whose pairs file is missing, because its tasks hold both arms' runs, and
+refuses a pairs file collected for another project than the one it labels
+under. If you collected with `--project X`, label with `--project X` too.

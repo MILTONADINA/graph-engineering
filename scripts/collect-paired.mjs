@@ -22,6 +22,7 @@ import {
   packetText,
   readStore,
   requireInteractiveOwner,
+  terminalText,
   writeNewFile,
 } from "./labelling.mjs";
 
@@ -40,8 +41,9 @@ const HELP = `Usage: npm run collect-paired -- [options]
 
 Writes packet-<stamp>.json, mapping-<stamp>.json and pairs-<stamp>.json
 (mode 0600) and refuses to overwrite. The pairs file records the packet's
-SHA-256; keep the two together. Then run: npm run label -- --packet
-<out>/packet-<stamp>.json. Refuses when CI is set or without a terminal.
+SHA-256 and the project; keep the two together. Then run: npm run label --
+--packet <out>/packet-<stamp>.json (with the same --project, if you gave
+one). Refuses when CI is set or without a terminal.
 `;
 
 export function parseArguments(argv) {
@@ -71,6 +73,22 @@ export function parseArguments(argv) {
       EXIT.usage,
     );
   return options;
+}
+
+/**
+ * The --list text: each task's objective and its runs, one line each, with
+ * control characters in store text shown as placeholders.
+ */
+export function listText(store) {
+  const lines = [];
+  for (const [taskId, runs] of listTasks(store)) {
+    lines.push(`${taskId}  ${runs[0]?.objective ?? ""}`);
+    for (const item of runs)
+      lines.push(
+        `  ${item.runId}  ${item.status}${item.terminal ? "" : " (not finished)"}  acceptance ${item.humanAcceptance ?? "-"}  ${item.decisions} decisions  ${item.createdAt}`,
+      );
+  }
+  return lines.map((line) => `${terminalText(line)}\n`).join("");
 }
 
 /** Collects and writes the three files; returns their paths and counts. */
@@ -124,13 +142,7 @@ async function run(argv) {
   if (options.list) {
     const store = readStore(root, projectId);
     if (!store) throw new LabelError("This project has no recorded runs");
-    for (const [taskId, runs] of listTasks(store)) {
-      process.stderr.write(`${taskId}  ${runs[0]?.objective ?? ""}\n`);
-      for (const item of runs)
-        process.stderr.write(
-          `  ${item.runId}  ${item.status}${item.terminal ? "" : " (not finished)"}  acceptance ${item.humanAcceptance ?? "-"}  ${item.decisions} decisions  ${item.createdAt}\n`,
-        );
-    }
+    process.stderr.write(listText(store));
     return;
   }
   const result = await collect({
@@ -150,7 +162,7 @@ if (
 )
   run(process.argv.slice(2)).catch((error) => {
     process.stderr.write(
-      `collect-paired: ${error instanceof LabelError ? error.message : error.stack}\n`,
+      `collect-paired: ${terminalText(error instanceof LabelError ? error.message : error.stack, { multiline: true })}\n`,
     );
     process.exitCode = error instanceof LabelError ? error.code : EXIT.failure;
   });
