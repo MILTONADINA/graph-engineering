@@ -505,10 +505,15 @@ Jev under a cap, the `spec-check` comment scanner). Then, round by round
   off cold runtime budgets; labeller store text shown safely and another
   project's packet refused; CLI dead-ends (`tester --writes` provider
   mix-up, stopped Docker versus missing scanner image, no-project message).
-  Not ready to merge: `platform (windows-2025)` fails 5 publication tests
-  in `managed-dag-safety.test.ts` with "The checkout changed after the run
-  checked it was clean" (run `36517297902` on #108), probably from the
-  publishing-workspace recheck (`cefc5d7`); fix it before the stack merges.
+  The first CI run failed 5 publication tests on `platform (windows-2025)`
+  with "The checkout changed after the run checked it was clean" (run
+  `36517297902` on #108). Cause: with `core.autocrlf=true` (set on Windows
+  runners) the run's worktree checks files out with CRLF, and the copied LF
+  bytes read as modified in `git status` though they normalize to the
+  committed blob. Fixed in `314d902`: the publishing-workspace recheck now
+  compares content (`git diff HEAD` and the untracked-file list), with a
+  test that sets `core.autocrlf=true`; the engine suite passes with and
+  without a global `core.autocrlf=true`.
 - **Round 10** (this round): five confirmed findings, none rated medium or
   higher by both verifiers: a refused publishing workspace kept and reused;
   labeller export using outcomes captured before a resume; `security-scan`
