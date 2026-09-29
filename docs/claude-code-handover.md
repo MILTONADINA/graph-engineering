@@ -457,6 +457,88 @@ installing the anchor when promotion work needs them; choosing unseen tasks
 and labelling calibration and held-out rows with `npm run label`; and the
 step-8 decision above.
 
+## Continuation update — 2026-09-28 (audit loop, rounds 3–10)
+
+After #76 a second improvement loop ran as repository audit rounds; its
+round numbers are separate from the 2026-09-26 loop's above. Each round had
+five independent auditors and two adversarial verifiers per finding, and
+each verified finding was fixed test-first on a feature branch and merged
+into fork `dev` as one stacked PR set per round (branches named
+`*/r<round>-*` from round 3). Round 2 was #77–#82 (`b40761e`–`c629052`:
+export exclusion globs and live revocation, review against the base
+commit, DAG patch rollback, the single-custodian docs sweep, zero-priced
+Jev under a cap, the `spec-check` comment scanner). Then, round by round
+(fork `dev` commits unless marked open):
+
+- **Round 3** (#83–#86, `d76025b`–`eae62d4`): no dependency resolution
+  through deps.dev and only exportable tester files listed to cloud
+  workers; reconciled DAG writes counted, repair patches checkpointed,
+  reservation before dispatch; cross-process `run_events` that recovers a
+  dead-owner run, kept check argv, nonzero exits; CI proves cloud MCP
+  refuses a stale `dist`.
+- **Round 4** (#87–#90, `92c8c92`–`093f2a7`): secret screening for every PEM
+  private key, live vendor keys and URL passwords; guarded publishing
+  resumes and whole single-step patches; paired-runs files bound to their
+  labelling packet; dashboard `review-approve` only at code review.
+- **Round 5** (#91–#93, `9e8d7da`–`4d505e9`): punctuated credential values
+  and linear-time screening; exact policy reload, rollback of ignored
+  single-step writes, publishing scoped to the current attempt; decompose
+  output claimed before the planner call.
+- **Round 6** (#94–#98, `4deec01`–`0fe5088`): Git edge cases (untracked
+  files whatever `status.showUntrackedFiles` says, `skip-worktree` and
+  `core.ignoreStat` edits); person approval for a change a cloud reviewer
+  may not receive, worker paths screened for secrets; `serve`, `mcp` and
+  `watch` exit on early errors; the Rekor high-water write refuses a moved
+  or forked mark; scan output redacted before printing or cutting.
+- **Round 7** (#99–#102, `24a9a12`–`c94841f`): the memory-export flow
+  (`memory-add --source/--supersedes`, so `memory-export-authorize` can
+  succeed; authorization stays operator-only); a cloud client's plan kept
+  on one side of the export boundary; engine exits when it cannot open,
+  Ctrl-C cancels runs; no labelling outcome from unfinished runs.
+- **Round 8** (#103–#104, `4d80326`–`5c6d78d`): a cloud plan's side
+  rechecked at run time and at each role lookup; dead-owner runs recovered
+  in long-lived engines; SIGHUP and repeated stop signals handled; `serve`
+  ends open event streams so it can stop.
+- **Round 9** (open #105–#108, stacked): template steps counted as local
+  for cloud plans, publishing workspace rechecked, check images preflighted,
+  legacy straddling plans refused; the multi-language indexing test warmed
+  off cold runtime budgets; labeller store text shown safely and another
+  project's packet refused; CLI dead-ends (`tester --writes` provider
+  mix-up, stopped Docker versus missing scanner image, no-project message).
+- **Round 10** (this round): five confirmed findings, none rated medium or
+  higher by both verifiers: a refused publishing workspace kept and reused;
+  labeller export using outcomes captured before a resume; `security-scan`
+  ignoring Ctrl-C; a cloud worker patch probing whether a private file
+  exists; and [project overview](project-overview.md) wrongly saying resume
+  has no dashboard button (the Runs page has one, behind the reconciliation
+  acknowledgement).
+
+**Stop rule.** The loop stops when a round produces no finding that both
+verifiers rate medium or higher, and Jev, Laya and the advisor, asked at
+the round level, do not recommend another round.
+Round 10 met it: 0 both-medium findings; Jev 0.45 and Laya 0.31 for another
+round, and the advisor advised against one.
+
+**CI flakes**, each seen once and passed on the next run: historical-replays
+reported `infrastructure-error` for one QuickJS fixture (run `36382912386`,
+#74's branch); the Windows C# analyzer passed its cold 5 s cap in the
+multi-language indexing test (run `36436078659`, attempt 1), which round 9
+warms in a `beforeAll` (`6283b7e`). Round 5 also widened the linear-screening
+test's Windows bound (`4d505e9`) and round 6 rewrote the skip-worktree
+fixture's bytes (`0fe5088`).
+
+**Open for the owner** after the loop:
+
+- promotion keys are not created and the trust anchor is not installed.
+  When promotion evidence exists, keys are one owner-run command
+  (`npm run promotion-key -- setup`, [promotion keys](promotion-keys.md)) and
+  the anchor is `promotion anchor-prepare` plus the `sudo` install it
+  prints, followed by `anchor-verify` and `enroll`;
+- PR-5 (admission) is not started, and the step-8 distinct-actor question
+  above remains the owner's decision;
+- `.graph/project.json` stays `shadow`, `[]` and `0`; no agent authorizes
+  memory export or enables cloud run status.
+
 ## Where the work stands
 
 - Workspace: this checkout only; do not expand work into other project folders.

@@ -56,8 +56,14 @@ never shown as accepted until a person records that.
 ## Decisions stay with you
 
 The board shows the `accept`, `reject`, `review-approve` and `resume`
-commands rather than buttons: those decisions are made deliberately on the
-command line and are never offered to connected AI clients
-([run outcomes](outcomes.md)). The dashboard server listens only on
+commands rather than buttons, and none of these decisions is offered to
+connected AI clients ([run outcomes](outcomes.md)). Accepting or rejecting a
+run, and approving a review in place of the AI reviewer, are done only on
+the command line. Resuming a failed, cancelled or
+`needs_reconciliation` run can also be done from the dashboard's Runs page:
+its Resume run button stays disabled until you tick the box saying you have
+inspected the retained workspace and reconciled any external effects (the
+same acknowledgement `resume --reconciled` records), and while Docker is
+unavailable. The dashboard server listens only on
 loopback and requires the private token from the link your terminal
 prints.
