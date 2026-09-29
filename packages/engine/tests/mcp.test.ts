@@ -2,7 +2,7 @@ import { it, expect, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1265,6 +1265,91 @@ it("tells a cloud client how many checkout files Git skips checking, never their
     }
     await engine.close();
     await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
+it("tells a cloud client a verification image is missing, never its name", async () => {
+  const { checked, writeJson } = await import("../src/util.js");
+  const { configureProvider, PROJECT_FILE } = await import("../src/project.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-image-"));
+  const bin = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-image-bin-"));
+  await checked("git", ["init", "-b", "dev"], { cwd: root });
+  await checked("git", ["config", "user.name", "Graph Test"], { cwd: root });
+  await checked("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  await writeFile(
+    path.join(root, "math.cjs"),
+    "exports.add = (a, b) => a + b;\n",
+  );
+  // An operator's image in a private registry: a cloud-backed client never
+  // sees the plan's checks, so it must not learn this name from a refusal.
+  const image = "registry.internal.example/secret-team/checks:7";
+  const config = await initializeProject(root);
+  config.policy.providers = ["local"];
+  config.policy.inference = "allowlisted";
+  config.policy.network = "allowlisted";
+  config.policy.exportPaths = ["math.cjs"];
+  config.verification = [{ image, argv: ["test"] }];
+  await writeJson(path.join(root, PROJECT_FILE), config);
+  await checked("git", ["add", "."], { cwd: root });
+  await checked("git", ["commit", "-m", "test: fixture"], { cwd: root });
+  const data = projectDataDir(config.projectId);
+  await configureProvider(data, {
+    id: "local",
+    kind: "local",
+    model: "fixture",
+  });
+  // A docker with no images at all.
+  await writeFile(
+    path.join(bin, "docker"),
+    '#!/bin/sh\necho "Error: No such image" >&2\nexit 1\n',
+  );
+  await chmod(path.join(bin, "docker"), 0o755);
+  vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH ?? ""}`);
+  const engine = await GraphEngine.open(root, {
+    dockerAvailable: async () => true,
+  });
+  const connections: { client: Client; server: { close(): Promise<void> } }[] =
+    [];
+  const runStart = async (kind: "local" | "cloud", planId: string) => {
+    const server = createMcpServer(engine, { client: kind, allowRun: true });
+    const client = new Client({ name: `image-${kind}`, version: "1.0.0" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    connections.push({ client, server });
+    return client.callTool({ name: "run_start", arguments: { planId } });
+  };
+  try {
+    const plan = await engine.createPlan({
+      objective: "Fix addition",
+      acceptance: ["2 + 3 is 5"],
+    });
+    const cloud = await runStart("cloud", plan.id);
+    expect(cloud.isError).toBe(true);
+    const text = JSON.stringify(cloud);
+    expect(text).toContain("A verification image");
+    expect(text).toContain("is not on this machine");
+    expect(text).not.toContain("registry.internal");
+    expect(text).not.toContain("secret-team");
+    // A local client's model stays on this machine, so it is told which,
+    // and how to pull it.
+    const local = await runStart("local", plan.id);
+    expect(local.isError).toBe(true);
+    expect(JSON.stringify(local)).toContain(`docker pull ${image}`);
+    expect(engine.store.runs()).toHaveLength(0);
+  } finally {
+    vi.unstubAllEnvs();
+    for (const { client, server } of connections) {
+      await client.close();
+      await server.close();
+    }
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(bin, { recursive: true, force: true });
     await rm(data, { recursive: true, force: true });
   }
 });
