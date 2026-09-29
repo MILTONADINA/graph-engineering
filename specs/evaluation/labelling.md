@@ -48,6 +48,10 @@ guide is [labelling decisions](../../docs/labelling.md).
 - AC11: Store-, packet- and pairs-file text the labeller and `collect-paired --list` print (objectives, provider failure text, providers, models, candidates, question and task IDs, error messages) has every control character (U+0000-U+001F, U+007F-U+009F) shown as a visible placeholder (U+FFFD); each printed line stays one line, so such text cannot move the cursor, repaint the screen, set the clipboard or forge an option line.
   - Test: scripts/labelling.test.mjs :: the labeller and collect-paired --list show control characters in store and packet text as placeholders
 
+- AC12: Outcomes derived from recorded runs are checked again at every export (in the session and with `--export`): the store is read again and each complete task with derived fields is derived anew, and the export is refused (exit 5), writing nothing and naming the task, the field's saved and live value and any run that has not stopped, when a derived value changed or a run is running again, as after a `resume`. Pressing `t` on one of the task's questions derives it from the live runs and the export then carries them. A pair arm whose run is in the store is judged by its live status, acceptance and cost rather than the pairs file's snapshot (nothing is derived while it runs again, and the screen says the pairs file is out of date); an arm whose run is not in the store keeps the recorded values, and unchanged arms keep the pairs file's own entries as outcome evidence.
+  - Test: scripts/labelling.test.mjs :: labelling refuses to export outcomes derived from a run that was resumed after its task was set up
+  - Test: scripts/labelling.test.mjs :: labelling judges each pair arm by its live run and refuses an export whose paired outcomes changed
+
 ## Security considerations
 
 Both tools run only for the owner at a terminal and use no network. They
@@ -56,7 +60,9 @@ read the project's run store read-only and write only beside the packet
 fields plus each arm's run ID, status, acceptance and cost, the packet's
 SHA-256 and the project ID; task IDs are hashes, so objective text stays in the store. A pairs
 file is used only beside the packet it was collected for, so a separated or
-stale file cannot supply measured outcomes. The labeller shows the run
+stale file cannot supply measured outcomes, and its arms are checked against
+the live store, so a resumed run's new result is never exported as the old
+one. The labeller shows the run
 objective on screen but never writes it, and shows control characters in
 any store, packet or pairs-file text as placeholders, so a cloud client's
 objective or a provider's failure text cannot drive the terminal. A pairs

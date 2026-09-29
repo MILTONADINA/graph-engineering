@@ -31,6 +31,7 @@ import {
   localProjectId,
   newestPacket,
   readStore,
+  requireCurrentOutcomes,
   requireInteractiveOwner,
   requirePairsForPairedPacket,
   requireResolvedRecords,
@@ -169,9 +170,13 @@ export async function labelSession(options, io) {
   const out = (text = "") => io.write(`${terminalText(text)}\n`);
 
   const doExport = async () => {
+    // Outcomes derived when a task was set up are checked against the runs
+    // as they are now: a run resumed since then may have a new result.
+    refreshRuns();
     requireResolvedRecords(packet, index, {
       repositoryExplicit: options.repositoryExplicit === true,
     });
+    requireCurrentOutcomes(packet, progress, index, pairs);
     const built = buildExport(packet, progress, {
       repositoryId: options.repositoryId,
       reviewedAt: now(),
@@ -221,11 +226,19 @@ export async function labelSession(options, io) {
     const derived = deriveTask(taskId, tasks.get(taskId), index, pairs);
     out(RULE);
     out(`Task ${taskId}: ${tasks.get(taskId).length} observations`);
-    if (derived.source?.pair)
+    if (derived.source?.pair) {
       out(
         `  paired runs: baseline ${short(derived.source.pair.baseline.runId)} (${derived.source.pair.baseline.status}), candidate ${short(derived.source.pair.candidate.runId)} (${derived.source.pair.candidate.status})`,
       );
-    else if (derived.source?.runs) {
+      if (derived.source.pairChanged)
+        out(
+          `  changed since the pairs file was collected (resumed): ${derived.source.pairChanged.join(", ")}; its live status, acceptance and cost are used`,
+        );
+      if (derived.source.unfinished?.length)
+        out(
+          `  not finished yet: ${derived.source.unfinished.map(short).join(", ")}; its outcome and cost are not known, so outcomes and costs are asked (once it stops, press t on one of this task's questions)`,
+        );
+    } else if (derived.source?.runs) {
       for (const run of derived.source.runs)
         out(
           `  run ${short(run.runId)}: ${run.status}, acceptance ${run.humanAcceptance ?? "-"}, checks ${run.automatedChecksPassed ?? "-"}, cost ${run.costUsd ?? "unknown"}`,

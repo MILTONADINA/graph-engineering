@@ -89,6 +89,13 @@ exists:
   reach after its run stopped is derived without `t`. A resumed run is
   judged by its live status, not by the outcome its earlier attempt
   recorded; a run that needs reconciliation counts as stopped and failed.
+- A failed, cancelled or needs-reconciliation run can be resumed after you
+  labelled its task, and its result and cost can change. Every export reads
+  the recorded runs again and derives each complete task's outcomes anew;
+  when a value taken from recorded runs has changed, or one of the task's
+  runs is running again, the export is refused and names the task and the
+  change. Go back to one of the task's questions (`b` once every question
+  is answered) and press `t` to read its runs again, then export.
 - `labelEvidence`: the packet's SHA-256 and the hash of your answer entry.
   `outcomeEvidence`: the hash of the run outcomes and answers used.
 
@@ -153,3 +160,11 @@ refuses a pairs file collected for another packet, refuses a `paired-` packet
 whose pairs file is missing, because its tasks hold both arms' runs, and
 refuses a pairs file collected for another project than the one it labels
 under. If you collected with `--project X`, label with `--project X` too.
+
+The pairs file records each arm as it was when collected. The labeller
+checks each arm's run in the store: an arm whose run was resumed since is
+judged by its live status, acceptance and cost (the task's screen says the
+pairs file is out of date for it), nothing is derived while it runs again,
+and an export whose paired outcomes changed after you labelled the task is
+refused as above. An arm whose run is not in the store keeps what the pairs
+file recorded.

@@ -510,14 +510,25 @@ export function runSummary(run, outcome) {
   };
 }
 
+/** The recorded fields of a pair arm that a resumed run can change. */
+const PAIR_ARM_FIELDS = [
+  "status",
+  "humanAcceptance",
+  "automatedChecksPassed",
+  "success",
+  "costUsd",
+  "estimated",
+];
+
 const sumCosts = (summaries) =>
   summaries.some((item) => typeof item.costUsd !== "number")
     ? null
     : summaries.reduce((total, item) => total + item.costUsd, 0);
 
 /**
- * Derives a task's outcomes. A collected pair gives both arms directly.
- * Without one, the task's recorded runs are the baseline arm, and the
+ * Derives a task's outcomes. A collected pair gives both arms, each judged
+ * by its run's live state when the store holds it (nothing is derived while
+ * an arm's run is running again). Without one, the task's recorded runs are the baseline arm, and the
  * candidate arm equals it only when no provider choice differed from the
  * baseline (every selection was the baseline or no answer). When those runs
  * belong to more than one plan, nothing says which run is which arm (they
@@ -529,17 +540,40 @@ const sumCosts = (summaries) =>
 export function deriveTask(taskId, observations, index, pairs) {
   const pair = pairs?.tasks?.[taskId];
   if (pair) {
+    // The pairs file holds each arm as collected. A stopped run can be
+    // resumed, so an arm whose run is in the store is judged by its live
+    // state; one the store lacks keeps what the pairs file recorded.
+    const arms = {},
+      changed = [],
+      unfinished = [];
+    for (const arm of ["baseline", "candidate"]) {
+      const recorded = pair[arm];
+      const run = index.runs.get(recorded.runId);
+      if (!run) {
+        arms[arm] = recorded;
+        continue;
+      }
+      const live = runSummary(run, index.outcomes.get(run.id));
+      if (!runStopped(run)) unfinished.push(run.id);
+      if (PAIR_ARM_FIELDS.some((field) => live[field] !== recorded[field])) {
+        changed.push(arm);
+        arms[arm] = live;
+      } else arms[arm] = recorded;
+    }
+    const source = {
+      pair: changed.length ? arms : pair,
+      ...(changed.length ? { pairChanged: changed } : {}),
+      ...(unfinished.length ? { unfinished } : {}),
+    };
+    const estimated = arms.baseline.estimated || arms.candidate.estimated;
+    if (unfinished.length) return { source, values: {}, estimated };
     const values = {
-      baselineSuccess: pair.baseline.success,
-      candidateSuccess: pair.candidate.success,
-      baselineCost: pair.baseline.costUsd,
-      candidateCost: pair.candidate.costUsd,
+      baselineSuccess: arms.baseline.success,
+      candidateSuccess: arms.candidate.success,
+      baselineCost: arms.baseline.costUsd,
+      candidateCost: arms.candidate.costUsd,
     };
-    return {
-      source: { pair },
-      values,
-      estimated: pair.baseline.estimated || pair.candidate.estimated,
-    };
+    return { source, values, estimated };
   }
   const runIds = [
     ...new Set(
@@ -616,6 +650,49 @@ export function taskComplete(task) {
       (field) => typeof task[field] === "number" && task[field] >= 0,
     )
   );
+}
+
+/**
+ * Refuses an export when a task's outcomes derived from recorded runs no
+ * longer match those runs. A stopped run can be resumed (`resume` accepts
+ * failed, cancelled and needs-reconciliation runs), so its success and cost
+ * can change after the task's questions were asked; the export would then
+ * present the old values as measured. Every complete task with derived
+ * fields is derived again from `index` (read just before) and compared
+ * field by field, along with whether its costs are estimates.
+ */
+export function requireCurrentOutcomes(packet, progress, index, pairs) {
+  const byTask = new Map();
+  for (const observation of packet.observations) {
+    if (!byTask.has(observation.taskId)) byTask.set(observation.taskId, []);
+    byTask.get(observation.taskId).push(observation);
+  }
+  const stale = [];
+  for (const [taskId, observations] of byTask) {
+    const task = progress.tasks[taskId];
+    if (!taskComplete(task) || !task.derived?.length) continue;
+    const live = deriveTask(taskId, observations, index, pairs);
+    const changes = task.derived
+      .filter((field) => live.values[field] !== task[field])
+      .map(
+        (field) =>
+          `${field} was ${task[field]}, now ${live.values[field] ?? "not derivable"}`,
+      );
+    if (live.source?.unfinished?.length)
+      changes.push(`run ${live.source.unfinished.join(", ")} has not stopped`);
+    if (!!live.estimated !== !!task.estimated)
+      changes.push(
+        live.estimated
+          ? "its costs are now estimates"
+          : "its costs are no longer estimates",
+      );
+    if (changes.length) stale.push(`${taskId} (${changes.join("; ")})`);
+  }
+  if (stale.length)
+    throw new LabelError(
+      `The recorded runs changed after these tasks' outcomes were derived from them, so exporting would present old values as measured; nothing was written: ${stale.join(", ")}. Run npm run label and press t on one of each task's questions (b goes back to one once every question is answered) to read its runs again, then export.`,
+      EXIT.refused,
+    );
 }
 
 // ---------------------------------------------------------------------------

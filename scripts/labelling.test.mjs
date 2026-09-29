@@ -1122,6 +1122,228 @@ test("labelling reads the recorded runs again when it asks a task's questions, s
   assert.equal(reached.baselineCost, 0.12);
 });
 
+/** Rewrites a run in a synthetic store, as a resume would, with an outcome row. */
+function updateRun(directory, item, outcome) {
+  const db = new Database(
+    path.join(directory, "projects", PROJECT, "runs.sqlite"),
+  );
+  try {
+    db.prepare("UPDATE runs SET json=? WHERE id=?").run(
+      JSON.stringify(item),
+      item.id,
+    );
+    if (outcome)
+      db.prepare(
+        "INSERT INTO run_outcomes(run_id,project_id,json) VALUES(?,?,?)",
+      ).run(item.id, PROJECT, JSON.stringify({ runId: item.id, ...outcome }));
+  } finally {
+    db.close();
+  }
+}
+
+test("labelling refuses to export outcomes derived from a run that was resumed after its task was set up", async () => {
+  // Every choice keeps the baseline, so a failed run (cost 0.2) gives both
+  // arms' outcomes and costs. It is then resumed with --reconciled.
+  const directory = freshDir();
+  const decisions = [record("rec-r1", "laya", "q1", "fast", 0.9)];
+  const failed = run("run-resm-0001", "Synthetic objective resumed", {
+    status: "failed",
+    completion: undefined,
+    usage: { ...run("x", "").usage, costUsd: 0.2 },
+  });
+  makeStore(directory, {
+    decisions,
+    runs: [failed],
+    events: [decisionEvent("event-r1", failed.id, ["rec-r1"])],
+    outcomes: [
+      {
+        runId: failed.id,
+        status: "failed",
+        automatedChecksPassed: false,
+        humanAcceptance: null,
+      },
+    ],
+  });
+  const packetPath = path.join(directory, "packet-resumed.json");
+  writeFileSync(
+    packetPath,
+    JSON.stringify({
+      version: "1.0.0",
+      datasetId: "synthetic-resumed",
+      observations: decisions.map((item) => observation(item, "task-r")),
+    }),
+  );
+  const setup = { directory, packetPath };
+  const paths = companionPaths(packetPath);
+  const io = script(["c", "l", "n", "1"]);
+  await labelSession(session(setup), io);
+  assert.match(io.output, /baselineSuccess: false \(from recorded runs\)/);
+  assert.match(io.output, /baselineCost: 0\.2 \(from recorded runs\)/);
+
+  // Unchanged runs export as before.
+  await labelSession(session(setup, { exportOnly: true }), script([]));
+  assert.equal(existsSync(paths.export), true);
+  rmSync(paths.export);
+
+  // Resumed and running again: the saved failure and cost are not measured
+  // any more, so the export is refused, in the session and --export alike.
+  updateRun(directory, {
+    ...failed,
+    status: "running",
+    usage: { ...failed.usage, costUsd: 0.3 },
+  });
+  const running = {
+    code: EXIT.refused,
+    message:
+      /task-r \(baselineSuccess was false, now not derivable; .*baselineCost was 0\.2, now not derivable; .*run run-resm-0001 has not stopped\).*press t/,
+  };
+  await assert.rejects(
+    labelSession(session(setup, { exportOnly: true }), script([])),
+    running,
+  );
+  const inSession = script(["e"]);
+  await labelSession(session(setup), inSession);
+  assert.match(inSession.output, /The recorded runs changed/);
+  assert.equal(existsSync(paths.export), false);
+
+  // It now succeeds, is accepted and cost more: still refused, naming both.
+  const succeeded = {
+    ...failed,
+    status: "succeeded",
+    usage: { ...failed.usage, costUsd: 0.45 },
+    completion: {
+      automatedChecksPassed: true,
+      humanAcceptance: "accepted",
+      reviewScope: "normal",
+    },
+  };
+  updateRun(directory, succeeded, {
+    status: "succeeded",
+    automatedChecksPassed: true,
+    humanAcceptance: "accepted",
+  });
+  await assert.rejects(
+    labelSession(session(setup, { exportOnly: true }), script([])),
+    {
+      code: EXIT.refused,
+      message:
+        /baselineSuccess was false, now true.*candidateSuccess was false, now true.*baselineCost was 0\.2, now 0\.45/,
+    },
+  );
+  assert.equal(existsSync(paths.export), false);
+
+  // Going back to the question and pressing t reads the runs again; the
+  // export then carries the live outcome and cost.
+  const redo = script(["b", "t", "c", "l", "n", "1", "e"]);
+  await labelSession(session(setup), redo);
+  assert.match(redo.output, /baselineSuccess: true \(from recorded runs\)/);
+  assert.match(redo.output, /Exported 1 rows/);
+  const [label] = JSON.parse(readFileSync(paths.export, "utf8")).labels;
+  assert.equal(label.baselineSuccess, true);
+  assert.equal(label.candidateSuccess, true);
+  assert.equal(label.baselineCost, 0.45);
+  assert.equal(label.candidateCost, 0.45);
+});
+
+test("labelling judges each pair arm by its live run and refuses an export whose paired outcomes changed", async () => {
+  const { directory } = pairedFixture();
+  const written = await collect({
+    projectId: PROJECT,
+    dataRoot: directory,
+    pairs: ["run-base:run-cand"],
+    stamp: "resumed",
+    out: path.join(directory, "labelling"),
+  });
+  const setup = { directory, packetPath: written.files.packet };
+  const paths = companionPaths(written.files.packet);
+  const packet = loadPacket(written.files.packet).packet;
+  const pairs = JSON.parse(readFileSync(written.files.pairs, "utf8"));
+  const [taskId] = Object.keys(pairs.tasks);
+  await labelSession(session(setup), script(["c", "l", "n", "2", "2"]));
+
+  // Unchanged arms export as before, with the pairs file's own arms as
+  // outcome evidence.
+  const unchanged = deriveTask(
+    taskId,
+    packet.observations,
+    indexStore(readStore(directory, PROJECT)),
+    pairs,
+  );
+  assert.equal(unchanged.source.pair, pairs.tasks[taskId]);
+  assert.equal(unchanged.source.pairChanged, undefined);
+  await labelSession(session(setup, { exportOnly: true }), script([]));
+  assert.equal(existsSync(paths.export), true);
+  rmSync(paths.export);
+
+  // The rejected candidate is resumed and runs again: its arm has no
+  // outcome, and the export is refused.
+  const candidate = readStore(directory, PROJECT).runs.find(
+    (item) => item.id === "run-cand-0001",
+  );
+  updateRun(directory, {
+    ...candidate,
+    status: "running",
+    completion: undefined,
+    usage: { ...candidate.usage, costUsd: 0.4 },
+  });
+  const live = deriveTask(
+    taskId,
+    packet.observations,
+    indexStore(readStore(directory, PROJECT)),
+    pairs,
+  );
+  assert.deepEqual(live.values, {});
+  assert.deepEqual(live.source.unfinished, ["run-cand-0001"]);
+  assert.deepEqual(live.source.pairChanged, ["candidate"]);
+  await assert.rejects(
+    labelSession(session(setup, { exportOnly: true }), script([])),
+    {
+      code: EXIT.refused,
+      message:
+        /candidateSuccess was false, now not derivable.*candidateCost was 0\.25, now not derivable.*run run-cand-0001 has not stopped/,
+    },
+  );
+  assert.equal(existsSync(paths.export), false);
+
+  // It then succeeds, is accepted and cost more: the pairs file's arm is
+  // out of date, and the export is refused until the task is read again.
+  updateRun(
+    directory,
+    {
+      ...candidate,
+      usage: { ...candidate.usage, costUsd: 0.6 },
+      completion: { ...candidate.completion, humanAcceptance: "accepted" },
+    },
+    {
+      status: "succeeded",
+      automatedChecksPassed: true,
+      humanAcceptance: "accepted",
+    },
+  );
+  await assert.rejects(
+    labelSession(session(setup, { exportOnly: true }), script([])),
+    {
+      code: EXIT.refused,
+      message:
+        /candidateSuccess was false, now true.*candidateCost was 0\.25, now 0\.6/,
+    },
+  );
+  assert.equal(existsSync(paths.export), false);
+  const redo = script(["b", "t", "c", "l", "n", "2", "e"]);
+  await labelSession(session(setup), redo);
+  assert.match(
+    redo.output,
+    /changed since the pairs file was collected \(resumed\): candidate/,
+  );
+  assert.match(redo.output, /candidateSuccess: true \(from recorded runs\)/);
+  assert.match(redo.output, /candidateCost: 0\.6 \(from recorded runs\)/);
+  assert.match(redo.output, /Exported 2 rows/);
+  const exported = JSON.parse(readFileSync(paths.export, "utf8"));
+  assert.equal(exported.labels[0].baselineSuccess, true);
+  assert.equal(exported.labels[0].candidateSuccess, true);
+  assert.equal(exported.labels[0].candidateCost, 0.6);
+});
+
 /**
  * One route's rows for `gateProgress`: each row is its own task with the
  * given split, confidence, correctness and completeness.
