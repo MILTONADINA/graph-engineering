@@ -57,6 +57,9 @@ Teams need security tools chosen for what their repository actually contains, wi
   - Test: packages/engine/tests/security-scan-redaction.test.ts :: are redacted before a fatal one is cut into the scan error
   - Test: packages/engine/tests/security-scan-redaction.test.ts :: are redacted before a non-fatal one is cut into an unscanned file's reason
   - Test: packages/engine/tests/security-live.test.ts :: redacts Docker's stderr before cutting it when the target cannot be pulled or started
+- AC15: When the scanner image cannot be inspected, `security-db-update` (and every other caller that looks up the scanner image, such as a run start with a committed baseline) says Docker is not running when the Docker daemon cannot be reached, and says the image is not built, with where to build it from, only when Docker is running.
+  - Test: packages/engine/tests/security-osv-argv.test.ts :: says Docker is not running instead of telling the user to build the image
+  - Test: packages/engine/tests/security-osv-argv.test.ts :: says the image is not built when Docker is running
 
 ## Security considerations
 

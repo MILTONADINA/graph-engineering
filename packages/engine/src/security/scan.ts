@@ -808,10 +808,19 @@ export async function scannerImageId(
     { timeoutMs: 10000, signal },
   );
   const id = result.stdout.trim();
-  if (result.code !== 0 || !/^sha256:[a-f0-9]{64}$/.test(id))
+  if (result.code !== 0 || !/^sha256:[a-f0-9]{64}$/.test(id)) {
+    // A stopped daemon fails the inspect too; building the image would not help.
+    const daemon = await command(
+      "docker",
+      ["version", "--format", "{{.Server.Version}}"],
+      { timeoutMs: 10000, signal },
+    );
+    if (daemon.code !== 0)
+      throw new Error("Docker is not running; start it and retry");
     throw new Error(
       `Security scanner image ${image} is not built; build it from sidecars/security/Dockerfile in the Graph Engineering repository`,
     );
+  }
   return id;
 }
 

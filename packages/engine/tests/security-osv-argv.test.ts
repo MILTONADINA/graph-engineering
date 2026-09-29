@@ -139,3 +139,51 @@ describe("a lockfile whose ecosystem has no downloaded OSV database", () => {
     );
   });
 });
+
+describe("security-db-update when the scanner image cannot be inspected", () => {
+  // `docker image inspect` fails the same way for a stopped daemon and a
+  // missing image; only `docker version` tells them apart.
+  const download = async (daemonRunning: boolean) => {
+    const root = await directory();
+    const dataDir = await directory();
+    await writeFile(path.join(root, "package-lock.json"), "{}\n");
+    mocks.command.mockImplementation(async (_executable, argv: string[]) => {
+      if (!daemonRunning)
+        return {
+          code: 1,
+          stdout: "",
+          stderr:
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+        };
+      if (argv[0] === "image")
+        return {
+          code: 1,
+          stdout: "",
+          stderr: "Error: No such image: graph-security:local",
+        };
+      return { code: 0, stdout: "27.0.0\n", stderr: "" };
+    });
+    return updateOsvDatabase({
+      root,
+      dataDir,
+      image: "graph-security:local",
+      files: ["package-lock.json"],
+      policy: { network: "allowlisted", allowedHosts: [OSV_DATABASE_HOST] },
+    }).then(
+      () => "",
+      (error: Error) => error.message,
+    );
+  };
+
+  it("says Docker is not running instead of telling the user to build the image", async () => {
+    expect(await download(false)).toBe(
+      "Docker is not running; start it and retry",
+    );
+  });
+
+  it("says the image is not built when Docker is running", async () => {
+    expect(await download(true)).toContain(
+      "Security scanner image graph-security:local is not built",
+    );
+  });
+});

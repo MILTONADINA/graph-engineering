@@ -93,6 +93,8 @@ An operator wants a worker model to implement a planned change without touching 
 - AC22: Starting or resuming a run is refused, before it is reserved and before any worker or tester call, when an image one of the plan's checks runs in is not on this machine (never pulled, or removed by a Docker prune); the refusal says to `docker pull` or `docker build -t` the image and leaves the plan usable. The image name, which comes from the operator's configuration (a private registry path, say), and the exact commands are local detail: the CLI and a local MCP client print them, while a cloud-backed client's `run_start` is told only that an image is missing.
   - Test: packages/engine/tests/execution.test.ts :: refuses to start or resume a run whose verification image is missing, before any worker call
   - Test: packages/engine/tests/mcp.test.ts :: tells a cloud client a verification image is missing, never its name
+- AC23: A command run where there is no `.graph/project.json` (before `init`, or from a subdirectory of a project, since `-C` defaults to the current directory and no parent is searched) fails with `No Graph Engineering project at <root>: run graph-engine init there, or pass -C <project root> before the command` instead of a bare ENOENT; `init` still creates the project there.
+  - Test: packages/engine/tests/cli.test.ts :: says to run init or pass -C when there is no project, and init still creates one
 
 ## Security considerations
 

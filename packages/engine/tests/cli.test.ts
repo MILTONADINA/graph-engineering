@@ -1472,6 +1472,42 @@ describe("command line", () => {
     ).toEqual(tester);
   }, 120_000);
 
+  it("refuses tester --writes that took a provider ID written after it as a glob, keeping the configured tester", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    for (const id of ["qwen", "laya"])
+      await graph(
+        "provider-add",
+        id,
+        "local",
+        "fixture",
+        "--endpoint",
+        "http://127.0.0.1:1/v1",
+      );
+    expect((await graph("tester", "qwen")).code).toBe(0);
+    const refused = await graph("tester", "--writes", "src/**", "laya");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      "put the provider ID before --writes: graph-engine tester laya --writes <glob...>",
+    );
+    expect(
+      JSON.parse(await readFile(path.join(root, ".graph/project.json"), "utf8"))
+        .tester,
+    ).toEqual({ providerId: "qwen" });
+  }, 120_000);
+
+  it("says to run init or pass -C when there is no project, and init still creates one", async () => {
+    const { root, graph } = await project();
+    const missing = await graph("tester");
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain(
+      `No Graph Engineering project at ${root}: run graph-engine init there, or pass -C <project root> before the command`,
+    );
+    expect(missing.stderr).not.toContain("ENOENT");
+    expect((await graph("init")).code).toBe(0);
+    expect((await graph("tester")).code).toBe(0);
+  }, 120_000);
+
   it("names the zero-price fix for an unpriced local worker under a cost cap, when it is set up and at planning", async () => {
     const { root, graph } = await project();
     await graph("init");
