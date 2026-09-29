@@ -172,6 +172,35 @@ function closeOnStopSignal(message: string, close: () => Promise<void>) {
     void close().finally(release);
   });
 }
+// security-scan and security-db-update run scanner containers in their own
+// process groups, so a terminal's Ctrl-C reaches only this process. Exiting
+// at once would leave those containers running with no time limit and the
+// scan's temporary copy of the repository on disk. Ctrl-C, SIGTERM or SIGHUP
+// aborts the scan instead: it kills the containers and removes the copy, and
+// the command exits 130. The handlers stay registered until that cleanup
+// has finished, so a repeated Ctrl-C cannot end the process in the middle.
+async function cancellableScan<T>(
+  message: string,
+  scan: (signal: AbortSignal) => Promise<T>,
+): Promise<{ result: T } | undefined> {
+  const controller = new AbortController();
+  const release = onStopSignal(() => {
+    if (controller.signal.aborted) return;
+    process.stderr.write(message);
+    controller.abort();
+  });
+  try {
+    return { result: await scan(controller.signal) };
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
+    // A person's own cancel: cleanup has run; say so, without a report.
+    process.stderr.write(`${errorMessage(error)}\n`);
+    process.exitCode = 130;
+    return undefined;
+  } finally {
+    release();
+  }
+}
 // run, resume and review-approve wait on a run whose checks and installed
 // agents run in their own process groups, so a terminal's Ctrl-C reaches only
 // this process, and exiting would leave a check container or agent running
@@ -554,12 +583,20 @@ cli
       );
     }
     const database = await osvDatabase(await securityDataDir());
-    const scan = await runSecurityScan({
-      root: root(),
-      image: options.image,
-      profile: await securityProfile(),
-      ...(database ? { osvDatabase: database.path } : {}),
-    });
+    const profile = await securityProfile();
+    const scanned = await cancellableScan(
+      "Cancelling the security scan; stopping its scanners...\n",
+      (signal) =>
+        runSecurityScan({
+          root: root(),
+          image: options.image,
+          profile,
+          signal,
+          ...(database ? { osvDatabase: database.path } : {}),
+        }),
+    );
+    if (!scanned) return;
+    const scan = scanned.result;
     if (options.updateBaseline) {
       if (scan.errors.length)
         throw new Error(
@@ -673,15 +710,20 @@ cli
   )
   .action(async (options) => {
     const project = await loadProject(root());
-    print(
-      await updateOsvDatabase({
-        root: root(),
-        dataDir: projectDataDir(project.projectId),
-        image: options.image,
-        files: await trackedFiles(root()),
-        policy: project.policy,
-      }),
+    const files = await trackedFiles(root());
+    const updated = await cancellableScan(
+      "Cancelling the database download; stopping its container...\n",
+      (signal) =>
+        updateOsvDatabase({
+          root: root(),
+          dataDir: projectDataDir(project.projectId),
+          image: options.image,
+          files,
+          policy: project.policy,
+          signal,
+        }),
     );
+    if (updated) print(updated.result);
   });
 // Setting a role to a worker plans cannot use would otherwise only fail
 // later, at planning time, or for a reviewer only when a run starts.

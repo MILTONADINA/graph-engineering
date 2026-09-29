@@ -8,6 +8,7 @@ import {
   writeFile,
   readFile,
   rm,
+  stat,
 } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -1332,20 +1333,31 @@ describe("managed execution", () => {
     },
   );
   it("stops a publishing run whose checkout changed between the clean check and its workspace", async () => {
-    const changes: [(root: string) => Promise<unknown>, boolean][] = [
-      // An editor saves a new file while the workspace is being created.
-      [(root) => writeFile(path.join(root, "notes.txt"), "draft\n"), true],
-      // Or a commit lands, which would become the workspace's base.
+    const changes: [
+      (root: string) => Promise<unknown>,
+      (root: string) => Promise<unknown>,
+    ][] = [
+      // An editor saves a new file while the workspace is being created;
+      // the operator deletes it again.
+      [
+        (root) => writeFile(path.join(root, "notes.txt"), "draft\n"),
+        (root) => rm(path.join(root, "notes.txt")),
+      ],
+      // Or a commit lands, which would become the workspace's base; the
+      // operator moves the checkout back to the planned commit.
       [
         (root) =>
           checked("git", ["commit", "--allow-empty", "-m", "test: later"], {
             cwd: root,
           }),
-        false,
+        (root) =>
+          checked("git", ["reset", "--hard", "HEAD~1"], {
+            cwd: root,
+          }),
       ],
     ];
-    for (const [change, edited] of changes) {
-      const { root, config } = await fixture();
+    for (const [change, undo] of changes) {
+      const { root, config, data } = await fixture();
       config.policy.publication = "commit";
       await writeJson(path.join(root, PROJECT_FILE), config);
       await checked("git", ["commit", "-am", "test: publish"], { cwd: root });
@@ -1377,27 +1389,36 @@ describe("managed execution", () => {
       const result = await engine.wait(run.id);
       expect(result.status).toBe("failed");
       expect(result.error).toContain("checkout changed");
+      expect(result.error).toContain("workspace was removed");
+      // A plan starts only one run, so the refusal never says to start it
+      // again.
+      expect(result.error).not.toContain("start the plan again");
+      expect(result.error).toContain("--reconciled");
       expect(calls).toBe(0);
-      // The refused workspace is not the run's, so a reconciled resume
-      // checks the checkout again instead of running in it.
+      // The refused workspace is not the run's, and it and its branch are
+      // gone, so nothing holds a copy of the local change or its commit.
       expect(result.workspace).toBeUndefined();
+      await expect(
+        stat(path.join(data, "workspaces", run.id)),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        checked(
+          "git",
+          ["show-ref", "--verify", "--quiet", `refs/heads/graph/${run.id}`],
+          { cwd: root },
+        ),
+      ).rejects.toThrow();
       spy.mockRestore();
       await expect(engine.resume(run.id, true)).rejects.toThrow(
         "Source changed",
       );
       expect(calls).toBe(0);
-      if (edited) {
-        // With the file removed the checkout is as planned, but the run's
-        // unrecorded workspace still holds its copy, so the resumed run
-        // stops again before any worker call.
-        await rm(path.join(root, "notes.txt"));
-        const resumed = await engine.wait(
-          (await engine.resume(run.id, true)).id,
-        );
-        expect(resumed.status).toBe("failed");
-        expect(resumed.error).toContain("checkout changed");
-        expect(calls).toBe(0);
-      }
+      // With the change undone the checkout is as planned, and a reconciled
+      // resume creates a clean workspace from it and reaches the worker.
+      await undo(root);
+      const resumed = await engine.wait((await engine.resume(run.id, true)).id);
+      expect(resumed.error).not.toContain("checkout changed");
+      expect(calls).toBe(1);
     }
   });
   it("records a decision call's debit as an estimate unless it is the charge the provider reported", async () => {
@@ -1637,6 +1658,118 @@ describe("managed execution", () => {
         .filter((event) => event.type === "proposal.returned")
         .map((event) => event.data.reason),
     ).toEqual(["not-exportable"]);
+  });
+  it("answers a cloud worker's patch to a non-exportable path the same way whether or not the file exists, without reading it", async () => {
+    const PRIVATE = "private-deployment-value";
+    // A creation over the file, and an edit whose before is in it: without
+    // the refusal the first fails only when the file exists, and the second
+    // applies only when it does.
+    const changes = [
+      { path: "notes/plan.md", before: null, after: "x\n" },
+      { path: "notes/plan.md", before: PRIVATE, after: "x" },
+    ];
+    for (const change of changes) {
+      const outcomes: unknown[] = [];
+      for (const exists of [true, false]) {
+        const { root, config, data } = await fixture();
+        if (exists) {
+          await mkdir(path.join(root, "notes"));
+          await writeFile(
+            path.join(root, "notes/plan.md"),
+            `plan: ${PRIVATE}\n`,
+          );
+        }
+        config.policy = {
+          ...config.policy,
+          inference: "allowlisted",
+          network: "allowlisted",
+          allowedHosts: ["api.openai.com"],
+          providers: ["cloud"],
+          exportPaths: ["math.cjs"],
+        };
+        await writeJson(path.join(root, PROJECT_FILE), config);
+        await checked("git", ["add", "."], { cwd: root });
+        await checked("git", ["commit", "-m", "test: private file"], {
+          cwd: root,
+        });
+        await configureProvider(data, {
+          id: "cloud",
+          kind: "openai",
+          model: "fixture",
+        });
+        const inputs: { feedback?: string; context: string }[] = [];
+        const engine = await GraphEngine.open(root, {
+          dockerAvailable: async () => true,
+          worker: async (input) => {
+            inputs.push({
+              feedback: input.feedback,
+              context: JSON.stringify(input.context),
+            });
+            return {
+              model: "fixture",
+              proposal: {
+                summary: "Change the deployment",
+                requests: [],
+                changes: [change],
+              },
+              usage: {
+                inputTokens: 1,
+                outputTokens: 1,
+                cachedTokens: 0,
+                costUsd: 0,
+                estimated: false,
+              },
+            };
+          },
+          verify: async (_workspace, checks, _policy, snapshotHash) =>
+            checks.map((check) => ({
+              ...check,
+              code: 0,
+              stdout: "",
+              stderr: "",
+              snapshotHash,
+            })),
+        });
+        engines.push(engine);
+        const plan = await engine.createPlan({
+          objective: "Change the deployment",
+          acceptance: ["passes"],
+        });
+        const run = await engine.wait((await engine.start(plan.id)).id);
+        expect(JSON.stringify(inputs)).not.toContain(PRIVATE);
+        // Nothing was written in the run's workspace either.
+        if (run.workspace)
+          expect(
+            await readFile(
+              path.join(run.workspace, "notes/plan.md"),
+              "utf8",
+            ).catch(() => "absent"),
+          ).toBe(exists ? `plan: ${PRIVATE}\n` : "absent");
+        outcomes.push({
+          status: run.status,
+          error: run.error,
+          feedback: inputs.map((input) => input.feedback ?? ""),
+          returned: engine.store
+            .events(run.id)
+            .filter((event) => event.type === "proposal.returned")
+            .map((event) => event.data.reason),
+          applied: engine.store
+            .events(run.id)
+            .filter((event) => event.type === "patch.applied").length,
+        });
+      }
+      // The provider sees the same answer either way: feedback once that
+      // names only the path it sent, then the step stops.
+      expect(outcomes[0]).toEqual(outcomes[1]);
+      expect(outcomes[0]).toMatchObject({
+        status: "failed",
+        returned: ["not-exportable"],
+        applied: 0,
+      });
+      expect((outcomes[0] as { feedback: string[] }).feedback[1]).toContain(
+        "You proposed changes to notes/plan.md, which this project does not share with your provider, so nothing was read or written.",
+      );
+    }
   });
   it("answers a cloud worker's request for a credential-named file with feedback it can receive, then applies its change", async () => {
     const { root, config, data } = await fixture();

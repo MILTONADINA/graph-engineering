@@ -51,6 +51,10 @@ capabilities dropped, and prints the findings that are not in the baseline.
 Untracked scratch files are never scanned into a baseline; the managed-run
 gate below scans files a worker creates separately. It exits
 non-zero when there are new findings or a scanner's report could not be read.
+Ctrl-C, SIGTERM or SIGHUP stops the scan: it kills and removes the running
+scanner container, deletes the private copy and exits with code 130
+(`security-db-update` handles them the same way). Repeated signals are
+ignored until that cleanup finishes.
 
 - Only Semgrep rules categorised as security count; the registry's style and
   portability rules do not. Semgrep's default ignore list (which skips
