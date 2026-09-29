@@ -65,6 +65,7 @@ import {
   captureOriginals,
   createWorkspace,
   recoverBaseCommit,
+  removeWorkspace,
   prepareProposal,
   restoreOriginals,
   workspaceFingerprint,
@@ -108,6 +109,9 @@ import {
   SuppliedLines,
   UnexportableRequestError,
   unexportableRequestFeedback,
+  assertExportablePatch,
+  UnexportablePatchError,
+  unexportablePatchFeedback,
   unseenPatchLocation,
 } from "./execution/requested-sources.js";
 import {
@@ -1128,10 +1132,13 @@ export class GraphEngine {
   // saved, or a commit made, in between would enter a publishing run's
   // commit without review, so the new workspace must be the planned commit
   // and nothing else. Checked before any decision or worker call. The
-  // message names no file: a cloud-backed client can start a run.
+  // message names no file: a cloud-backed client can start a run. A refused
+  // workspace and its branch are removed (no worker ran there and nothing
+  // was committed), so a reconciled resume creates a clean one from the
+  // checkout instead of adopting the stale copy or its later base commit.
   private async assertWorkspaceMatchesPlan(
     plan: ExecutionPlan,
-    created: { workspace: string; baseCommit: string },
+    created: { workspace: string; branch: string; baseCommit: string },
   ): Promise<void> {
     if (plan.publication === "none") return;
     const planned = (await this.context.snapshotById(plan.snapshotId)).revision;
@@ -1139,17 +1146,52 @@ export class GraphEngine {
     // files out with CRLF, and the copied LF bytes then read as modified
     // though they normalize to the committed blob (seen on Windows runners).
     if (
-      (planned && planned !== created.baseCommit) ||
-      (await checkedGit(created.workspace, ["diff", "HEAD", "--name-only"])) ||
-      (await checkedGit(created.workspace, [
+      !(planned && planned !== created.baseCommit) &&
+      !(await checkedGit(created.workspace, ["diff", "HEAD", "--name-only"])) &&
+      !(await checkedGit(created.workspace, [
         "ls-files",
         "--others",
         "--exclude-standard",
       ]))
     )
-      throw new Error(
-        "The checkout changed after the run checked it was clean (a commit, or local work saved while its workspace was created), so its commit could include unreviewed work. Nothing was sent to a model. Remove the changes and start the plan again, or commit them and create a fresh plan",
+      return;
+    const removed = await removeWorkspace(this.root, created).then(
+      () => true,
+      () => false,
+    );
+    // A plan starts only one run, so the way back is a reconciled resume
+    // of this run, or a fresh plan.
+    throw new Error(
+      `The checkout changed after the run checked it was clean (a commit, or local work saved while its workspace was created), so its commit could include unreviewed work. Nothing was sent to a model${
+        removed
+          ? ", and the run's workspace was removed"
+          : // Names no local path: a cloud-backed client can read it.
+            `, but the run's workspace could not be removed; remove the worktree git worktree list shows on branch ${created.branch} (git worktree remove --force) and the branch (git branch -D ${created.branch}) before resuming`
+      }. Remove the changes and resume the run with reconciliation acknowledged (--reconciled), or commit them and create a fresh plan`,
+    );
+  }
+  // A cloud worker's proposal that changes a path the project does not
+  // export to it is refused before any file it names is read: feedback the
+  // first time in a row (returned here), and an error that stops the step
+  // the second. Undefined for a proposal that may be prepared.
+  private async unexportablePatch(
+    workspace: string,
+    proposal: WorkerProposal,
+    provider: WorkerInput["provider"],
+    inARow: number,
+  ): Promise<string | undefined> {
+    try {
+      await assertExportablePatch(
+        workspace,
+        proposal,
+        provider,
+        this.config.policy,
       );
+      return undefined;
+    } catch (error) {
+      if (!(error instanceof UnexportablePatchError) || inARow > 1) throw error;
+      return unexportablePatchFeedback(error.paths);
+    }
   }
   // start and resume call this after their last await. A close() that began
   // during their checks (a person's Ctrl-C, say) found no run to abort, so a
@@ -2283,6 +2325,7 @@ export class GraphEngine {
             const shown = new SuppliedLines();
             let patchFeedback = "";
             let repeatedRequests = 0;
+            let unexportablePatches = 0;
             // Tests the tester wrote earlier in this plan, which implementing
             // steps must make pass and may not change.
             const testsWritten =
@@ -2342,6 +2385,7 @@ export class GraphEngine {
                   });
                   patchFeedback = "";
                   repeatedRequests = 0;
+                  unexportablePatches = 0;
                   continue;
                 } catch (error) {
                   // A repeated or unexportable request with changes is a
@@ -2358,6 +2402,20 @@ export class GraphEngine {
                 }
               }
               {
+                // Before anything reads the files it names (below, or
+                // prepareProposal): see assertExportablePatch.
+                const unexportable = await this.unexportablePatch(
+                  workspace,
+                  result.proposal,
+                  provider,
+                  ++unexportablePatches,
+                );
+                if (unexportable) {
+                  returned(step.id, "not-exportable");
+                  patchFeedback = unexportable;
+                  continue;
+                }
+                unexportablePatches = 0;
                 const unseen = await unseenPatchLocation(
                   workspace,
                   result.proposal,
@@ -2652,6 +2710,7 @@ export class GraphEngine {
           const shown = new SuppliedLines();
           let patchFeedback = "";
           let repeatedRequests = 0;
+          let unexportablePatches = 0;
           for (let turn = 0; turn < this.config.policy.maxTurns; turn++) {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
@@ -2750,6 +2809,7 @@ export class GraphEngine {
                 });
                 patchFeedback = "";
                 repeatedRequests = 0;
+                unexportablePatches = 0;
                 continue;
               } catch (error) {
                 const refused = refusedRequest(error);
@@ -2762,6 +2822,20 @@ export class GraphEngine {
                 }
               }
             }
+            // Before anything reads the files it names (below, or when the
+            // patch is prepared): see assertExportablePatch.
+            const unexportable = await this.unexportablePatch(
+              workspace,
+              result.proposal,
+              provider,
+              ++unexportablePatches,
+            );
+            if (unexportable) {
+              returned(step.id, "not-exportable");
+              patchFeedback = unexportable;
+              continue;
+            }
+            unexportablePatches = 0;
             const unseen = await unseenPatchLocation(
               workspace,
               result.proposal,

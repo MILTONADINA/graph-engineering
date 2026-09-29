@@ -146,6 +146,19 @@ export async function createWorkspace(
   return { workspace, branch, baseCommit };
 }
 /**
+ * Removes a workspace createWorkspace made, and its branch, before any
+ * worker ran in it or anything was committed there, so the next attempt
+ * creates a clean one from the checkout. The worktree goes first: Git
+ * refuses to delete a branch a worktree has checked out.
+ */
+export async function removeWorkspace(
+  root: string,
+  created: { workspace: string; branch: string },
+): Promise<void> {
+  await checkedGit(root, ["worktree", "remove", "--force", created.workspace]);
+  await checkedGit(root, ["branch", "-D", created.branch]);
+}
+/**
  * The base commit of a workspace created before runs recorded one: HEAD,
  * or its parent when HEAD is the run's own publication commit (publication
  * commits once, with a `Graph-Run-Id` trailer).

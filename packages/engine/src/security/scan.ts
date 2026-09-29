@@ -739,49 +739,75 @@ export async function updateOsvDatabase(options: {
       await mkdir(path.dirname(target), { recursive: true });
       await copyFile(path.join(options.root, file), target);
     }
-    const result = await command(
-      "docker",
-      [
-        "run",
-        "--rm",
-        "--pull=never",
-        // The one networked scanner step: fetching the public database.
-        "--cap-drop=ALL",
-        "--security-opt=no-new-privileges",
-        "--pids-limit=256",
-        "--memory=4g",
-        ...(process.getuid && process.getgid
-          ? ["--user", `${process.getuid()}:${process.getgid()}`]
-          : []),
-        "--mount",
-        `type=bind,source=${scan},target=/scan,readonly`,
-        "--mount",
-        `type=bind,source=${directory},target=/db`,
-        "--env",
-        "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db",
-        "--env",
-        "HOME=/tmp",
-        "--workdir",
-        "/tmp",
-        imageId,
-        "osv-scanner",
-        "scan",
-        "source",
-        "--recursive",
-        "--offline-vulnerabilities",
-        // Never resolve manifests through deps.dev: only the database host.
-        "--no-resolve",
-        "--download-offline-databases",
-        "--format",
-        "json",
-        "/scan",
-      ],
-      {
-        signal: options.signal,
-        timeoutMs: options.timeoutMs ?? 30 * 60_000,
-        maxBytes: 64_000_000,
-      },
-    );
+    // Named, so cancellation stops the container and not only the client.
+    const name = `graph-osv-${createHash("sha256")
+      .update(`${work}:${Date.now()}`)
+      .digest("hex")
+      .slice(0, 20)}`;
+    const stop = () => {
+      void command("docker", ["kill", name], { timeoutMs: 5000 }).catch(
+        () => {},
+      );
+    };
+    options.signal?.addEventListener("abort", stop, { once: true });
+    let result: Awaited<ReturnType<typeof command>>;
+    try {
+      result = await command(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "--pull=never",
+          "--name",
+          name,
+          // The one networked scanner step: fetching the public database.
+          "--cap-drop=ALL",
+          "--security-opt=no-new-privileges",
+          "--pids-limit=256",
+          "--memory=4g",
+          ...(process.getuid && process.getgid
+            ? ["--user", `${process.getuid()}:${process.getgid()}`]
+            : []),
+          "--mount",
+          `type=bind,source=${scan},target=/scan,readonly`,
+          "--mount",
+          `type=bind,source=${directory},target=/db`,
+          "--env",
+          "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY=/db",
+          "--env",
+          "HOME=/tmp",
+          "--workdir",
+          "/tmp",
+          imageId,
+          "osv-scanner",
+          "scan",
+          "source",
+          "--recursive",
+          "--offline-vulnerabilities",
+          // Never resolve manifests through deps.dev: only the database host.
+          "--no-resolve",
+          "--download-offline-databases",
+          "--format",
+          "json",
+          "/scan",
+        ],
+        {
+          signal: options.signal,
+          timeoutMs: options.timeoutMs ?? 30 * 60_000,
+          maxBytes: 64_000_000,
+        },
+      );
+    } catch (error) {
+      if (options.signal?.aborted)
+        throw new Error("Download cancelled", { cause: error });
+      throw error;
+    } finally {
+      options.signal?.removeEventListener("abort", stop);
+      await command("docker", ["rm", "-f", name], { timeoutMs: 5000 }).catch(
+        () => {},
+      );
+    }
+    if (options.signal?.aborted) throw new Error("Download cancelled");
     if (![0, 1].includes(result.code))
       throw new Error(
         `osv-scanner could not download its database (exit ${result.code}): ${redactTail(result.stderr, 300)}`,

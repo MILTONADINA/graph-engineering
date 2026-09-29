@@ -3280,6 +3280,8 @@ describe("recovery escalation across the export boundary", () => {
       config.policy.network = "allowlisted";
       config.policy.allowedHosts = ["api.openai.com"];
       config.policy.maxAttempts = 3;
+      // The cloud worker may change only what it may read.
+      config.policy.exportPaths = ["first.js"];
     });
     await configureProvider(data, {
       id: "cloud",

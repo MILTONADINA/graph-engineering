@@ -1752,3 +1752,154 @@ describe("planning warnings", () => {
     ).toBe(3);
   });
 });
+
+// A committed project and a stand-in for Docker whose scanner containers
+// never end, like a scan that runs for its full 30 minutes. It records the
+// container's process ID and every other docker command it is given. The
+// command's temporary directory is one this test can inspect.
+async function scannerProject() {
+  const { root, graph } = await project();
+  await graph("init");
+  const projectFile = path.join(root, ".graph/project.json");
+  const config = JSON.parse(await readFile(projectFile, "utf8"));
+  // Only security-db-update needs the database host.
+  config.policy.network = "allowlisted";
+  config.policy.allowedHosts = ["osv-vulnerabilities.storage.googleapis.com"];
+  await writeFile(projectFile, `${JSON.stringify(config, null, 2)}\n`);
+  await writeFile(path.join(root, "index.js"), "module.exports = 1;\n");
+  await writeFile(path.join(root, "package-lock.json"), "{}\n");
+  await checked("git", ["add", "."], { cwd: root });
+  await checked(
+    "git",
+    [
+      "-c",
+      "user.name=Graph Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "-qm",
+      "test: fixture",
+    ],
+    { cwd: root },
+  );
+  const bin = await mkdtemp(path.join(tmpdir(), "graph-cli-bin-"));
+  const temp = await mkdtemp(path.join(tmpdir(), "graph-cli-tmp-"));
+  directories.push(bin, temp);
+  const pidFile = path.join(bin, "scanner.pid");
+  const log = path.join(bin, "docker.log");
+  await writeFile(
+    path.join(bin, "docker"),
+    [
+      "#!/bin/sh",
+      'case "$1" in',
+      "  version) echo 27.0.0 ;;",
+      `  image) echo sha256:${"a".repeat(64)} ;;`,
+      `  run) echo $$ > ${JSON.stringify(`${pidFile}.tmp`)} && mv ${JSON.stringify(`${pidFile}.tmp`)} ${JSON.stringify(pidFile)}`,
+      "       exec sleep 300 ;;",
+      `  *) echo "$*" >> ${JSON.stringify(log)} ;;`,
+      "esac",
+      "",
+    ].join("\n"),
+  );
+  await chmod(path.join(bin, "docker"), 0o755);
+  return {
+    temp,
+    pidFile,
+    log,
+    start: (...args: string[]) =>
+      graph.startWith(
+        {
+          PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          TMPDIR: temp,
+        },
+        ...args,
+      ),
+  };
+}
+
+// Starts `command`, waits for its scanner container, sends `signal` and
+// checks the command stopped that container by name, removed its temporary
+// copy (named `copy`) and exited 130.
+async function stopsScanOnSignal(
+  command: "security-scan" | "security-db-update",
+  signal: NodeJS.Signals,
+  container: string,
+  copy: string,
+) {
+  const { temp, pidFile, log, start } = await scannerProject();
+  const child = start(command);
+  let stderr = "";
+  child.stderr.on("data", (chunk) => (stderr += chunk));
+  const closed = once(child, "close");
+  let pid: number | undefined;
+  try {
+    // Wait until a scanner has started; it never ends by itself.
+    const deadline = Date.now() + 60_000;
+    while (pid === undefined) {
+      if (child.exitCode !== null || child.signalCode !== null)
+        throw new Error(`${command} ended before a scanner: ${stderr}`);
+      if (Date.now() > deadline)
+        throw new Error(`no scanner started: ${stderr}`);
+      pid = await readFile(pidFile, "utf8").then(
+        (text) => Number(text.trim()),
+        () => undefined,
+      );
+      if (pid === undefined)
+        await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    // The scan's copy of the repository exists while it runs.
+    expect((await readdir(temp)).some((entry) => entry.startsWith(copy))).toBe(
+      true,
+    );
+    child.kill(signal);
+    const outcome = await settled(child);
+    expect({ exit: outcome.exit, scannerRunning: alive(pid) }).toEqual({
+      exit: [130, null],
+      scannerRunning: false,
+    });
+    expect(stderr).toContain("Cancelling");
+  } finally {
+    child.kill("SIGKILL");
+    await closed;
+    if (pid !== undefined && alive(pid)) process.kill(pid, "SIGKILL");
+  }
+  // The container is killed by name and removed, and the copy is gone.
+  const commands = await readFile(log, "utf8");
+  expect(commands).toMatch(new RegExp(`^kill ${container}`, "m"));
+  expect(commands).toMatch(new RegExp(`^rm -f ${container}`, "m"));
+  expect(
+    (await readdir(temp)).filter((entry) => entry.startsWith(copy)),
+  ).toEqual([]);
+}
+
+// Windows has no catchable SIGINT for a child process to receive, and the
+// fake docker is a shell script.
+describe.skipIf(process.platform === "win32")(
+  "security commands on a stop signal",
+  () => {
+    it("security-scan on SIGINT stops its scanner container, removes its copy of the repository and exits 130", async () => {
+      await stopsScanOnSignal(
+        "security-scan",
+        "SIGINT",
+        "graph-scan-",
+        "graph-security-",
+      );
+    }, 120_000);
+    it("security-scan on SIGHUP stops its scanner container, removes its copy of the repository and exits 130", async () => {
+      await stopsScanOnSignal(
+        "security-scan",
+        "SIGHUP",
+        "graph-scan-",
+        "graph-security-",
+      );
+    }, 120_000);
+    it("security-db-update on SIGTERM stops its scanner container, removes its copy of the repository and exits 130", async () => {
+      await stopsScanOnSignal(
+        "security-db-update",
+        "SIGTERM",
+        "graph-osv-",
+        "graph-osv-",
+      );
+    }, 120_000);
+  },
+);

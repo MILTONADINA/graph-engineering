@@ -443,6 +443,44 @@ export async function unseenPatchLocation(
   return undefined;
 }
 
+/**
+ * Refuses a cloud worker's proposal that changes any path the project does
+ * not export to it, before any file is read. Whether a patch applies (a
+ * creation over an existing file, a `before` that matches once) would
+ * otherwise tell the provider whether a private file exists or what it
+ * holds, so the refusal is decided by export policy, and for an exportable
+ * name by the file's own name on disk, as for a source request. Throws
+ * UnexportablePatchError; a local worker is never refused here.
+ */
+export async function assertExportablePatch(
+  workspace: string,
+  proposal: Pick<WorkerProposal, "changes">,
+  provider: WorkerInput["provider"],
+  policy: WorkerInput["policy"],
+): Promise<void> {
+  if (provider.kind === "local") return;
+  const paths = [...new Set(proposal.changes.map((change) => change.path))];
+  const refused = paths.filter(
+    (relative) => !isAllowedPath(relative, policy, true),
+  );
+  // An exportable name that reaches a file on disk under another name
+  // (letter case on macOS and Windows) is that file, and so not exported.
+  for (const relative of paths)
+    if (!refused.includes(relative))
+      try {
+        await safePath(workspace, relative, policy, { forExport: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (
+          !message.startsWith("Path differs from the file's name on disk") &&
+          !message.startsWith("The file's name on disk is not exportable")
+        )
+          throw error;
+        refused.push(relative);
+      }
+  if (refused.length) throw new UnexportablePatchError(refused);
+}
+
 // Feedback for a proposal that did not apply. Cloud workers get the details
 // only when every path in the proposal is exportable.
 export function patchFeedbackFor(
@@ -566,6 +604,28 @@ export class UnexportableRequestError extends Error {
     super(`Source request is not exportable: ${refusedPathList(paths)}`);
     this.paths = paths;
   }
+}
+
+/**
+ * A cloud worker proposed changes to paths the project does not export to
+ * it. Nothing was read or written. Like an unexportable request, it is
+ * answered once with feedback and stops the step the second time.
+ */
+export class UnexportablePatchError extends Error {
+  readonly paths: readonly string[];
+  constructor(paths: readonly string[]) {
+    super(`Proposed change is not exportable: ${refusedPathList(paths)}`);
+    this.paths = paths;
+  }
+}
+
+/**
+ * What a worker is told the first time it proposes changes to paths it may
+ * not receive. It names only paths the worker itself sent, and says nothing
+ * about whether they exist or what they hold.
+ */
+export function unexportablePatchFeedback(paths: readonly string[]): string {
+  return `You proposed changes to ${refusedPathList(paths)}, which this project does not share with your provider, so nothing was read or written. Propose your change again without those files. Another such proposal stops the run.`;
 }
 
 /**

@@ -60,6 +60,10 @@ Teams need security tools chosen for what their repository actually contains, wi
 - AC15: When the scanner image cannot be inspected, `security-db-update` (and every other caller that looks up the scanner image, such as a run start with a committed baseline) says Docker is not running when the Docker daemon cannot be reached, and says the image is not built, with where to build it from, only when Docker is running.
   - Test: packages/engine/tests/security-osv-argv.test.ts :: says Docker is not running instead of telling the user to build the image
   - Test: packages/engine/tests/security-osv-argv.test.ts :: says the image is not built when Docker is running
+- AC16: Ctrl-C, SIGTERM or SIGHUP (sent when the terminal closes) during `security-scan` or `security-db-update` stops the scan instead of ending the process at once. Scanner containers run in their own process groups, which a terminal's Ctrl-C does not reach, so the command kills each running scanner container by name and removes it, deletes its temporary copy of the repository (or of the lockfiles), and exits 130. Repeated signals are ignored until that cleanup finishes.
+  - Test: packages/engine/tests/cli.test.ts :: security-scan on SIGINT stops its scanner container, removes its copy of the repository and exits 130
+  - Test: packages/engine/tests/cli.test.ts :: security-scan on SIGHUP stops its scanner container, removes its copy of the repository and exits 130
+  - Test: packages/engine/tests/cli.test.ts :: security-db-update on SIGTERM stops its scanner container, removes its copy of the repository and exits 130
 
 ## Security considerations
 
