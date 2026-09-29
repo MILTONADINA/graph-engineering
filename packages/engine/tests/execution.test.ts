@@ -1,7 +1,14 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  writeFile,
+  readFile,
+  rm,
+} from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -36,6 +43,11 @@ afterEach(async () => {
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
 });
+// Stands in for container checks in a test whose run stops before them, so
+// the run starts without the check images on this machine.
+const unreachedVerify = async (): Promise<never> => {
+  throw new Error("This test's run does not reach its checks");
+};
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-execution-"));
   roots.push(root);
@@ -235,6 +247,7 @@ describe("managed execution", () => {
       worker: async () => {
         throw new Error("Stop after review scope is recorded");
       },
+      verify: unreachedVerify,
     });
     engines.push(engine);
     const plan = await engine.createPlan({
@@ -541,6 +554,7 @@ describe("managed execution", () => {
           estimated: false,
         },
       }),
+      verify: unreachedVerify,
     });
     engines.push(engine);
     const plan = await engine.createPlan({
@@ -946,6 +960,7 @@ describe("managed execution", () => {
         );
         throw new Error("unreachable");
       },
+      verify: unreachedVerify,
     });
     engines.push(engine);
     const plan = await engine.createPlan({
@@ -1173,6 +1188,265 @@ describe("managed execution", () => {
         .events(run.id)
         .some((event) => event.type === "step.reconciled"),
     ).toBe(true);
+  });
+  it("resumes a run after reconciliation deleted a file its worker wrote", async () => {
+    // A new file the worker created, then a tracked file it edited.
+    for (const deleted of ["notes.txt", "math.cjs"]) {
+      const { root } = await fixture();
+      let calls = 0,
+        checks = 0;
+      const engine = await GraphEngine.open(root, {
+        dockerAvailable: async () => true,
+        worker: async () => {
+          calls++;
+          return {
+            model: "fixture",
+            proposal: {
+              summary: "Fix addition",
+              requests: [],
+              changes: [
+                { path: "math.cjs", before: "a - b", after: "a + b" },
+                { path: "notes.txt", before: null, after: "debug\n" },
+              ],
+            },
+            usage: {
+              inputTokens: 10,
+              outputTokens: 10,
+              cachedTokens: 0,
+              costUsd: 0,
+              estimated: false,
+            },
+          };
+        },
+        verify: async (_workspace, commands, _policy, snapshotHash) => {
+          if (++checks === 1)
+            throw new Error("Verification temporarily unavailable");
+          return commands.map((check) => ({
+            ...check,
+            code: 0,
+            stdout: "passed",
+            stderr: "",
+            snapshotHash,
+          }));
+        },
+      });
+      engines.push(engine);
+      const plan = await engine.createPlan({
+        objective: "Fix addition",
+        acceptance: ["addition passes"],
+      });
+      const run = await engine.start(plan.id);
+      const failed = await engine.wait(run.id);
+      expect(failed.status).toBe("failed");
+      // The operator removes the file while reconciling the workspace.
+      await rm(path.join(failed.workspace!, deleted));
+      await engine.resume(run.id, true);
+      const resumed = await engine.wait(run.id);
+      expect(resumed.error).toBeUndefined();
+      expect(resumed.status).toBe("succeeded");
+      expect(calls).toBe(1);
+      expect(checks).toBe(2);
+    }
+  });
+  // The fake docker is a shell script, which Windows cannot run.
+  it.skipIf(process.platform === "win32")(
+    "refuses to start or resume a run whose verification image is missing, before any worker call",
+    async () => {
+      const { root, config } = await fixture();
+      config.verification = [
+        { image: "node:24-alpine", argv: ["node", "--test"] },
+        { image: "graph-missing:local", argv: ["node", "--test"] },
+        { image: "graph-missing:local", argv: ["node", "--version"] },
+      ];
+      await writeJson(path.join(root, PROJECT_FILE), config);
+      await checked("git", ["commit", "-am", "test: checks"], { cwd: root });
+      // A docker that has only the images listed in its `images` file.
+      const bin = await mkdtemp(path.join(os.tmpdir(), "graph-docker-bin-"));
+      roots.push(bin);
+      const images = path.join(bin, "images");
+      const inspected = path.join(bin, "inspected");
+      await writeFile(
+        path.join(bin, "docker"),
+        [
+          "#!/bin/sh",
+          'if [ "$1 $2" = "image inspect" ]; then',
+          "  for last; do :; done",
+          `  echo "$last" >> ${JSON.stringify(inspected)}`,
+          `  grep -qxF "$last" ${JSON.stringify(images)} && { echo sha256:${"a".repeat(64)}; exit 0; }`,
+          '  echo "Error: No such image: $last" >&2; exit 1',
+          "fi",
+          "exit 1",
+          "",
+        ].join("\n"),
+      );
+      await chmod(path.join(bin, "docker"), 0o755);
+      vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH ?? ""}`);
+      await writeFile(images, "node:24-alpine\n");
+      let calls = 0;
+      const engine = await GraphEngine.open(root, {
+        dockerAvailable: async () => true,
+        worker: async () => {
+          calls++;
+          throw new Error("Worker unavailable");
+        },
+      });
+      engines.push(engine);
+      const plan = await engine.createPlan({
+        objective: "Fix addition",
+        acceptance: ["addition passes"],
+      });
+      const refusal = engine.start(plan.id);
+      await expect(refusal).rejects.toThrow(
+        "Verification image graph-missing:local is not on this machine",
+      );
+      await expect(refusal).rejects.toThrow("docker pull graph-missing:local");
+      expect(calls).toBe(0);
+      expect(engine.store.runs()).toHaveLength(0);
+      // Each distinct image is inspected once.
+      expect(
+        (await readFile(inspected, "utf8")).trim().split("\n").sort(),
+      ).toEqual(["graph-missing:local", "node:24-alpine"]);
+      // Once built, the same plan runs.
+      await writeFile(images, "node:24-alpine\ngraph-missing:local\n");
+      const run = await engine.start(plan.id);
+      expect((await engine.wait(run.id)).status).toBe("failed");
+      expect(calls).toBe(1);
+      // Removed again (a docker prune), resume refuses before the worker.
+      await writeFile(images, "node:24-alpine\n");
+      await expect(engine.resume(run.id, true)).rejects.toThrow(
+        "Verification image graph-missing:local is not on this machine",
+      );
+      expect(calls).toBe(1);
+      expect(engine.store.run(run.id).status).toBe("failed");
+    },
+  );
+  it("stops a publishing run whose checkout changed between the clean check and its workspace", async () => {
+    const changes: [(root: string) => Promise<unknown>, boolean][] = [
+      // An editor saves a new file while the workspace is being created.
+      [(root) => writeFile(path.join(root, "notes.txt"), "draft\n"), true],
+      // Or a commit lands, which would become the workspace's base.
+      [
+        (root) =>
+          checked("git", ["commit", "--allow-empty", "-m", "test: later"], {
+            cwd: root,
+          }),
+        false,
+      ],
+    ];
+    for (const [change, edited] of changes) {
+      const { root, config } = await fixture();
+      config.policy.publication = "commit";
+      await writeJson(path.join(root, PROJECT_FILE), config);
+      await checked("git", ["commit", "-am", "test: publish"], { cwd: root });
+      let calls = 0;
+      const engine = await GraphEngine.open(root, {
+        dockerAvailable: async () => true,
+        worker: async () => {
+          calls++;
+          throw new Error("The worker must not be called");
+        },
+        verify: async () => {
+          throw new Error("Verification must not run");
+        },
+      });
+      engines.push(engine);
+      const plan = await engine.createPlan({
+        objective: "Fix addition",
+        acceptance: ["addition passes"],
+      });
+      // start() recovers dead-owner runs after its clean check and before
+      // the run creates its workspace.
+      const recover = engine.store.recoverInterrupted.bind(engine.store);
+      const spy = vi.spyOn(engine.store, "recoverInterrupted");
+      spy.mockImplementation(async (...args) => {
+        await change(root);
+        return recover(...args);
+      });
+      const run = await engine.start(plan.id, { approvedByPerson: true });
+      const result = await engine.wait(run.id);
+      expect(result.status).toBe("failed");
+      expect(result.error).toContain("checkout changed");
+      expect(calls).toBe(0);
+      // The refused workspace is not the run's, so a reconciled resume
+      // checks the checkout again instead of running in it.
+      expect(result.workspace).toBeUndefined();
+      spy.mockRestore();
+      await expect(engine.resume(run.id, true)).rejects.toThrow(
+        "Source changed",
+      );
+      expect(calls).toBe(0);
+      if (edited) {
+        // With the file removed the checkout is as planned, but the run's
+        // unrecorded workspace still holds its copy, so the resumed run
+        // stops again before any worker call.
+        await rm(path.join(root, "notes.txt"));
+        const resumed = await engine.wait(
+          (await engine.resume(run.id, true)).id,
+        );
+        expect(resumed.status).toBe("failed");
+        expect(resumed.error).toContain("checkout changed");
+        expect(calls).toBe(0);
+      }
+    }
+  });
+  it("records a decision call's debit as an estimate unless it is the charge the provider reported", async () => {
+    const { root, config } = await fixture();
+    config.policy.maxCostUsd = 1;
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    const engine = await GraphEngine.open(root);
+    engines.push(engine);
+    const settled = async (
+      ownerId: string,
+      reportedCostUsd: number | null,
+      chargedUsd: number,
+    ) => {
+      const budget = (
+        engine as unknown as {
+          decisionBudget(ownerId: string): {
+            reserve(input: {
+              callId: string;
+              provider: string;
+              amountUsd: number;
+            }): Promise<void>;
+            settle(usage: Record<string, unknown>): Promise<void>;
+          };
+        }
+      ).decisionBudget(ownerId);
+      await budget.reserve({
+        callId: `decision-${ownerId}`,
+        provider: "jev",
+        amountUsd: 0.01,
+      });
+      await budget.settle({
+        callId: `decision-${ownerId}`,
+        provider: "jev",
+        model: "fixture",
+        questionCount: 1,
+        inputTokens: 10,
+        outputTokens: 10,
+        reportedCostUsd,
+        estimatedCostUsd: 0.01,
+        chargedUsd,
+        reservedUsd: 0.01,
+        priceVersion: "reviewed",
+        costUnknown: false,
+        outcome: "completed",
+      });
+      return engine.store.usage(ownerId);
+    };
+    // A reviewed per-request price above the reported charge is debited,
+    // and that debit is not what the provider measured.
+    expect(await settled("conservative", 0.004, 0.01)).toMatchObject({
+      costUsd: 0.01,
+      estimated: true,
+    });
+    expect(await settled("unreported", null, 0.01)).toMatchObject({
+      estimated: true,
+    });
+    expect(await settled("measured", 0.01, 0.01)).toMatchObject({
+      costUsd: 0.01,
+      estimated: false,
+    });
   });
   it("reserves resumed runs transactionally across independent clients", async () => {
     const { root, data, config } = await fixture();
@@ -2255,6 +2529,7 @@ describe("code review gate", () => {
         worker: async () => {
           throw new Error("worker unavailable");
         },
+        verify: unreachedVerify,
       });
       engines.push(plain);
       const plan = await plain.createPlan({

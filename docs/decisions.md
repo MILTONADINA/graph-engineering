@@ -227,7 +227,10 @@ of zero cost: under a numeric cap Jev needs a positive reviewed price, so
 `maxCostUsd: 0` admits no Jev call. An ambiguous dispatched failure retains the
 conservative reservation; it is not refunded on an assumption that the service
 did not bill. Accounting persistence failure or a reported charge above the
-reservation prevents using the answer or escalating further.
+reservation prevents using the answer or escalating further. The engine's
+ledger marks a decision call's debit as estimated unless it equals the charge
+the provider reported: a reviewed price or reservation debited above a lower
+reported charge is a conservative estimate, not a measured cost.
 
 The authenticated local `GET /api/usage` endpoint and dashboard aggregate the
 durable inference-call ledger, not per-run totals. Every call is counted once,

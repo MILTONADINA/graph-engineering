@@ -23,7 +23,8 @@ token count is not known, it stays unknown instead of becoming zero.
   - Test: packages/engine/tests/decision-batch.test.ts :: reserves a reviewed token bound and settles from returned billable usage
   - Test: packages/engine/tests/decision-batch.test.ts :: keeps the baseline and full reservation when token usage is missing
   - Test: packages/engine/tests/decision-batch.test.ts :: rejects token usage above the reviewed reservation
-- AC3: Unknown costs and token counts stay unknown in the ledger and summaries, never zero.
+- AC3: Unknown costs and token counts stay unknown in the ledger and summaries, never zero. A hosted decision call's debit is recorded as an estimate unless it equals the charge the provider reported, so a reviewed price or reservation debited above a lower reported charge never reaches summaries or evaluation labels as a measured cost.
+  - Test: packages/engine/tests/execution.test.ts :: records a decision call's debit as an estimate unless it is the charge the provider reported
   - Test: packages/engine/tests/ledger.test.ts :: keeps unknown cost unknown and rejects inconsistent repeated settlements
   - Test: packages/engine/tests/installed.test.ts :: preserves unknown usage rather than fabricating zeros
   - Test: packages/engine/tests/accounting-summary.test.ts :: preserves unknown pending costs, project isolation, and zero for a genuinely empty ledger

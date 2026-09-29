@@ -607,12 +607,13 @@ describe("command line", () => {
         "qwen",
       );
       expect(plan.code).toBe(0);
-      // A docker that answers only the availability probe; no check can run.
+      // A docker that answers only the availability probe and says the
+      // check image exists, so the run starts; no check can run.
       const bin = await mkdtemp(path.join(tmpdir(), "graph-cli-bin-"));
       directories.push(bin);
       await writeFile(
         path.join(bin, "docker"),
-        '#!/bin/sh\n[ "$1" = info ] && { echo 27.0.0; exit 0; }\nexit 1\n',
+        `#!/bin/sh\n[ "$1" = info ] && { echo 27.0.0; exit 0; }\n[ "$1" = image ] && { echo sha256:${"a".repeat(64)}; exit 0; }\nexit 1\n`,
       );
       await chmod(path.join(bin, "docker"), 0o755);
       const withDocker = graph.with({
