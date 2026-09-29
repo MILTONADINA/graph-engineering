@@ -309,12 +309,30 @@ public class Processor extends AbstractProcessor { static { if(true)throw new Ru
       .mockReturnValueOnce(0)
       .mockReturnValue(JAVA_LIMITS.timeoutMs);
     try {
-      expect((await resolveJavaBindings(files, "snapshot")).resolvedCalls).toBe(
-        0,
-      );
+      const result = await resolveJavaBindings(files, "snapshot");
+      expect(result.resolvedCalls).toBe(0);
+      expect(result.diagnostics).toEqual([
+        "Java analyzer timed out, exceeded output/memory limits, or returned invalid evidence; syntax evidence retained.",
+      ]);
     } finally {
       now.mockRestore();
     }
+  });
+  it("reports a real analyzer timeout as its documented diagnostic and keeps syntax evidence only", async () => {
+    const result = await resolveJavaBindings(
+      await parse(standard),
+      "snapshot",
+      {
+        timeoutMs: 1,
+      },
+    );
+    expect(result).toMatchObject({
+      updates: [],
+      resolvedCalls: 0,
+      diagnostics: [
+        "Java analyzer timed out, exceeded output/memory limits, or returned invalid evidence; syntax evidence retained.",
+      ],
+    });
   });
   it("indexes complete private provenance, enforces exports, and invalidates changed or excluded sources", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "graph-java-index-")),

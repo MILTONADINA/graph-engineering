@@ -234,6 +234,11 @@ describe("Go snapshot boundary", () => {
 });
 
 describe.runIf(!!runtime)("trusted native Go helper transport", () => {
+  // The first analysis in a fork is cold under the fixed 5 s cap; pay for it
+  // here so the transport tests below measure warm runs.
+  beforeAll(async () => {
+    await resolveGoBindings(await parse(standard), "snapshot");
+  }, 60_000);
   it("keeps cached identity immutable and executes only the trusted runtime after comparing caller getters", async () => {
     expect(Object.isFrozen(runtime)).toBe(true);
     expect(Reflect.set(runtime!, "executable", "/untrusted/go-helper")).toBe(
@@ -269,12 +274,26 @@ describe.runIf(!!runtime)("trusted native Go helper transport", () => {
       .mockReturnValueOnce(0)
       .mockReturnValue(6000);
     try {
-      expect((await resolveGoBindings(files, "snapshot")).resolvedCalls).toBe(
-        0,
-      );
+      const result = await resolveGoBindings(files, "snapshot");
+      expect(result.resolvedCalls).toBe(0);
+      expect(result.diagnostics).toEqual([
+        "Go analyzer timed out, exceeded output/memory limits, or returned invalid evidence; syntax evidence retained.",
+      ]);
     } finally {
       now.mockRestore();
     }
+  });
+  it("reports a real analyzer timeout as its documented diagnostic and keeps syntax evidence only", async () => {
+    const result = await resolveGoBindings(await parse(standard), "snapshot", {
+      timeoutMs: 1,
+    });
+    expect(result).toMatchObject({
+      updates: [],
+      resolvedCalls: 0,
+      diagnostics: [
+        "Go analyzer timed out, exceeded output/memory limits, or returned invalid evidence; syntax evidence retained.",
+      ],
+    });
   });
   it("indexes bindings with private config/source provenance, invalidates changed metadata and reapplies policy", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "graph-go-index-"));

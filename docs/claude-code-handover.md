@@ -138,7 +138,14 @@ adversarial review found and removed a defect in its first draft:
 Both passed all nine required checks on their exact tips and after merge.
 The `windows-2025` job once timed out at 60 s in `tests/context.test.ts`
 ("parses all launch languages…") on a commit that did not touch indexing and
-passed on re-run; treat a repeat as a flaky-test lead, not a regression.
+passed on re-run. The cause was cold runtime discovery (Go and C# helper
+builds of up to 60 s each, javac up to 30 s) and the first cold C# analysis
+under its fixed 5 s cap, all inside the one test. A file-level `beforeAll`
+now discovers each runtime and runs one throwaway analysis per available
+analyzer, and the test accepts exactly a language's documented timeout line
+in place of its success line. The analyzer caps are unchanged; per-language
+tests assert the timeout line. Treat a repeat as a flaky-test lead, not a
+regression.
 
 The remaining recorded pilot limit, workers receiving whole files that
 exceed the default context budget, has a proposed design in

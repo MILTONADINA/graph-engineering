@@ -10,9 +10,12 @@ Workers and connected AI clients need accurate, bounded context about a reposito
 
 ## Acceptance criteria
 
-- AC1: Indexing a repository records symbols for all seven supported language families (C#, Go, Java, JavaScript, Python, Rust, TypeScript) and reports calls it could not resolve as unresolved instead of inventing targets.
+- AC1: Indexing a repository records symbols for all seven supported language families (C#, Go, Java, JavaScript, Python, Rust, TypeScript) and reports calls it could not resolve as unresolved instead of inventing targets. A native analyzer that exceeds its fixed time cap reports exactly its documented timeout diagnostic, keeps syntax evidence only and adds no bindings; the cap is a security bound and is not raised for slow runners.
   - Test: packages/engine/tests/context.test.ts :: parses all launch languages and records unresolved call evidence honestly
   - Test: packages/engine/tests/context.test.ts :: preserves syntax error coverage instead of pretending the graph is complete
+  - Test: packages/engine/tests/context-csharp.test.ts :: reports a real analyzer timeout as its documented diagnostic and keeps syntax evidence only
+  - Test: packages/engine/tests/context-go.test.ts :: reports a real analyzer timeout as its documented diagnostic and keeps syntax evidence only
+  - Test: packages/engine/tests/context-java.test.ts :: reports a real analyzer timeout as its documented diagnostic and keeps syntax evidence only
 - AC2: Gitignored files, excluded private paths, secret-bearing files and symlinks that leave the repository never enter the index, and a tightened exclusion policy also applies to retrieval from older snapshots.
   - Test: packages/engine/tests/context.test.ts :: excludes gitignored files, private paths, secrets and external symlinks
   - Test: packages/engine/tests/context.test.ts :: applies tightened exclusion policy even to historical retrieval
