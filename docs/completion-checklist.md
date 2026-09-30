@@ -11,6 +11,40 @@ The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
+## Narrow release checkpoint — 2026-09-30
+
+The current candidate `feat/approval-worker-controls-20260930` separates the
+approval gate, scoped implementation repairs and opt-in installed-worker
+deadlines from the unfinished Dart/generator stack. Fork `dev` remains
+`96cf8b26ae61a8f67be266efd47d6fdcd86c70e6` before merge. No candidate is a
+reviewed merged pin yet. See the current
+[handover](claude-code-handover.md#narrow-approval-and-worker-controls-release)
+for commands, hashes, scope semantics and publication order.
+
+`dag-repair` preserves the selected implementer's declared write scope,
+including exclusions, across resume and tester handback. Tester-created files
+stay protected; intentionally unscoped legacy behavior remains subject to
+policy. Completion-driven installed workers are opt-in and do not clear cost
+caps or relax approval, write, output or safety limits. CLI/MCP and the Claude
+adapter remain independent of the operator's coding client.
+
+Focused checks must be bound to this narrow source, followed by all nine
+required exact-head CI jobs and review before fork-only rebase merge. Prior
+full-stack CI run `36753445086` is terminal failure (seven jobs passed;
+Windows test timeout and independent Dart discovery failed), not evidence of
+a green narrow release. The Windows paired-test split is included here;
+Dart stays separate. Close only included PRs #112/#113 after the merge;
+#114–#117 remain feature work. No private consumer data or live provider calls
+are part of these changes.
+
+Narrow source build:
+`4ed70d6151eabd434a05994bc381d5f7f661a5b05215acac44b27ff02213f120`
+(116 engine files). Dependency/engine builds, 42 distinct focused tests,
+changed-source lint/format and spec-check passed locally. A relative test-data
+root was corrected to absolute before rerunning only the 12 affected failures;
+no runtime patch was needed. Exact-head CI, final review and merge remain
+required before a downstream pin. This is not live provider evidence.
+
 ## Current fork state — 2026-09-24 UTC
 
 Foundation [PR #3](https://github.com/MILTONADINA/graph-engineering/pull/3)

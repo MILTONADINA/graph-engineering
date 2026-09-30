@@ -15,6 +15,92 @@ On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
+### Narrow approval and worker-controls release
+
+This checkpoint supersedes the preparation snapshot below. Network and Git
+access are restored. Fork `dev` is still
+`96cf8b26ae61a8f67be266efd47d6fdcd86c70e6` before this release; do not use
+an unmerged candidate as the reviewed consumer pin. The active release branch
+is `feat/approval-worker-controls-20260930`, based on approval candidate
+`bc966f0`. It deliberately excludes the separate Dart, model-role and
+generator implementation stack. Approval adoption requires no Dart toolchain.
+
+Included contracts:
+
+- Set `policy.requirePlanApproval: true` before planning, even with
+  `publication: "none"`. The owner reviews the full stored plan and uses
+  `plan-approve <id> --yes --expect <planSha256>`; the adapter never approves.
+  `plan-status <id>` is read-only and returns
+  `{ planId, planSha256, approved, approvalMatchesPlan, approval }`, where
+  `approval` is null or `{ planId, planSha256, approvedAt, approvedVia }`.
+  `approvedVia` is `terminal`, `non-interactive`, or null for legacy records,
+  not a verified person identity. Multiple IDs return an array.
+  Hash the full retained plan as
+  `SHA256(JSON.stringify(JSON.parse(rawPlanStdout)))` using the pinned Node
+  runtime, not another language's JSON serializer.
+- `run-receipt <runId>` returns `{ run, events }`. Each accepted gated start
+  or resume records `plan.approval_used` with data
+  `{ planSha256, approvedAt, approvedVia }`; the plan ID is `run.plan.id`.
+  An old receipt is neither fresh approval nor evidence of success.
+- Configure the tester independently with
+  `tester <providerId> --writes <prospective-test-path>`, and implementation
+  `steps[].writes` through `plan --steps`. Initial tests must be genuinely new
+  files (`before: null`). These scopes use existing glob semantics; exact
+  task paths must be declared and inspected before approval.
+- Combined-result `dag-repair` now copies the first selected non-tester
+  worker's `writes`, including exclusions, not the union of sibling scopes.
+  Resume reconstructs that scope; tester handback restores it. Tester repairs
+  remain restricted to exactly their own created files. An intentionally
+  unscoped selected worker remains unscoped within policy. This is not a new
+  plan-global write authorization schema, nor retroactive validation of
+  retained repairs produced by older versions.
+- Optional `policy.installedWorkerTimeoutSeconds`: absent inherits
+  `timeoutSeconds`, an integer `1..86400` sets an installed-worker deadline,
+  and null waits for completion/cancellation without a GE wall-clock cutoff.
+  Installed Claude, Codex and Cursor adapters and eligible DAG steps honor it;
+  API/local workers, templates, verification and discovery remain bounded.
+  Policy changes invalidate existing plans and acknowledged resumes. This is
+  not an inactivity watchdog; hung clients may require `cancel <runId>`.
+  Output/turn bounds, cost-cap refusals, write constraints and safety checks
+  remain in force. No default or checked-in project policy was changed.
+
+CLI/MCP remain tool-neutral. Preserve the installed Claude Code adapter and
+do not require a Codex app, session or service for runtime orchestration.
+No live provider calls or credential changes are part of this release.
+
+The previous combined PR #117 run
+[36753445086](https://github.com/MILTONADINA/graph-engineering/actions/runs/36753445086)
+at `8b586cf` ended with seven jobs passing and two failing. Its Windows
+privacy test exceeded the unchanged 30-second allowance while running four
+fixtures serially; this release splits creation/edit into separate paired
+present/absent tests without removing assertions or increasing the limit.
+The unrelated native Dart discovery failure stays on the feature stack.
+Neither that CI nor the full-stack focused evidence is proof for this narrow
+branch. Its changed source binding needs focused verification, review and
+all nine required exact-head checks before rebase-merge into fork `dev`.
+
+Narrow-branch local evidence: dependency and engine builds passed, with source
+manifest `4ed70d6151eabd434a05994bc381d5f7f661a5b05215acac44b27ff02213f120`
+over 116 engine source files. Forty-two distinct focused cases passed:
+14 policy/DAG/command, 3 installed-adapter, 18 managed approval/repair/privacy,
+3 CLI and 4 read-only status cases. The first managed invocation used an
+incorrect relative temporary data root and failed 12 cases at workspace
+creation; only those failed cases were rerun with an absolute root, with no
+runtime change. The legacy unscoped-repair and tester-protection cases passed
+on this binding. Changed-source lint/format, docs formatting and spec-check
+passed. These are mocked or synthetic local tests, not native client inference
+or full CI. The deadline spec stays `ready` pending final-head CI and review.
+
+Publication sequence: merge this narrow release after its checks and review;
+close only lower PRs #112/#113 actually included, citing the real merge SHA.
+Report that merged SHA, exact checked head, CI run/attempt and build-source
+manifest before consumer enablement. PRs #114–#117 remain independent work
+to rebase and verify later, not requirements for approval-gate adoption.
+The full feature branch and deferred Dart fix are preserved locally. Keep
+all consumer-private names, paths, code, logs and credentials out of GE.
+
+### Earlier preparation snapshot (historical)
+
 **Fork `dev`.** `96cf8b2` (PR #111) at this handoff. PR #112 proposes this
 section, `AGENTS.md` and the design document; it has not merged. Its original
 head passed all nine required CI jobs, but a review thread found that design
