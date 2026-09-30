@@ -1702,7 +1702,8 @@ describe("command line", () => {
       steps,
     );
     expect(plan.code).toBe(0);
-    const shown = await graph("plan-approve", JSON.parse(plan.stdout).id);
+    const planId = JSON.parse(plan.stdout).id;
+    const shown = await graph("plan-approve", planId);
     expect(shown.code).toBe(0);
     const output = JSON.parse(shown.stdout);
     expect(output.steps).toEqual([
@@ -1720,12 +1721,15 @@ describe("command line", () => {
       }),
     ]);
     expect(output).toHaveProperty("routing");
-    expect(output.approved).toBe(false);
-    // The content hash an approval binds, for tools that bind to it; the
-    // stored approval is plan-status's to report, not part of the plan shown.
+    // The plan alone, with the content hash an approval binds, for tools
+    // that bind to it, and the command that approves exactly that content.
+    // Approval state is plan-status's to report, not part of the plan shown.
     expect(output.planSha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(output).not.toHaveProperty("approval");
-    expect(output).not.toHaveProperty("approvalMatchesPlan");
+    expect(output.next).toBe(
+      `Review the plan above, then approve exactly this content with graph-engine plan-approve ${planId} --yes --expect ${output.planSha256}; graph-engine plan-status ${planId} shows whether it is approved`,
+    );
+    for (const state of ["approved", "approval", "approvalMatchesPlan"])
+      expect(output).not.toHaveProperty(state);
   }, 120_000);
 
   it("approves several plans only with --expect giving each plan's current planSha256, and none when one is missing or differs", async () => {
@@ -1763,14 +1767,18 @@ describe("command line", () => {
     expect(shown.code).toBe(0);
     const listed = JSON.parse(shown.stdout) as { planSha256: string }[];
     const hashes = listed.map((plan) => plan.planSha256);
+    const next = `Review the plans above, then approve exactly this content with graph-engine plan-approve ${first} ${second} --yes --expect ${hashes.join(",")}; graph-engine plan-status ${first} ${second} shows whether they are approved`;
     expect(listed).toEqual([
-      expect.objectContaining({
-        planId: first,
-        approved: false,
-        next: `Review the plans above, then run graph-engine plan-approve ${first} ${second} --yes --expect ${hashes.join(",")}`,
-      }),
-      expect.objectContaining({ planId: second, approved: false }),
+      expect.objectContaining({ planId: first, next }),
+      expect.objectContaining({ planId: second, next }),
     ]);
+    for (const plan of listed) expect(plan).not.toHaveProperty("approved");
+    // An unknown plan is named, and nothing is shown or approved.
+    const unknown = await graph("plan-approve", first, "no-such-plan");
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain(
+      "Plan no-such-plan does not exist in this project",
+    );
     // Without --expect, nothing is approved and the current hashes are listed.
     const bare = await graph("plan-approve", first, second, "--yes");
     expect(bare.code).toBe(1);
@@ -1831,6 +1839,46 @@ describe("command line", () => {
     expect(await approvedCount()).toBe(2);
   }, 120_000);
 
+  it("warns, without refusing, when a new policy stops requiring plan approval", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    const file = path.join(root, ".graph/project.json");
+    const { requirePlanApproval: _absent, ...policy } = JSON.parse(
+      await readFile(file, "utf8"),
+    ).policy;
+    // Reviewed policy files kept outside the project.
+    const outside = await mkdtemp(path.join(tmpdir(), "graph-cli-policy-"));
+    directories.push(outside);
+    let files = 0;
+    const replace = async (value: Record<string, unknown>) => {
+      const reviewed = path.join(outside, `policy-${files++}.json`);
+      await writeFile(reviewed, JSON.stringify(value));
+      return graph("policy", "--file", reviewed);
+    };
+    const warning =
+      "warning: the new policy no longer sets requirePlanApproval to true, so plan approval will no longer be enforced";
+    const on = await replace({ ...policy, requirePlanApproval: true });
+    expect(on.code).toBe(0);
+    expect(on.stderr).not.toContain(warning);
+    // Turning it off is applied, and said plainly.
+    const off = await replace({ ...policy, requirePlanApproval: false });
+    expect(off.code).toBe(0);
+    expect(off.stderr).toContain(warning);
+    expect(JSON.parse(off.stdout).requirePlanApproval).toBe(false);
+    // So is dropping the key.
+    await replace({ ...policy, requirePlanApproval: true });
+    const dropped = await replace(policy);
+    expect(dropped.code).toBe(0);
+    expect(dropped.stderr).toContain(warning);
+    expect(JSON.parse(await readFile(file, "utf8")).policy).not.toHaveProperty(
+      "requirePlanApproval",
+    );
+    // A policy that never required approval says nothing about it.
+    const unchanged = await replace({ ...policy, maxTurns: 13 });
+    expect(unchanged.code).toBe(0);
+    expect(unchanged.stderr).not.toContain(warning);
+  }, 120_000);
+
   // The fake docker is a shell script, which Windows cannot run.
   it.skipIf(process.platform === "win32")(
     "refuses graph-engine run of a plan that does not publish until plan-approve --yes when the project requires plan approval, and the run records that non-interactive approval",
@@ -1862,7 +1910,7 @@ describe("command line", () => {
       expect(refused.stderr).toContain(
         `A person reviews it with graph-engine plan-approve ${planId} and approves it with graph-engine plan-approve ${planId} --yes; graph-engine run does not count as approval here`,
       );
-      // plan-status reports the plan unapproved and changes nothing.
+      // plan-status reports the plan unapproved and changes no run data.
       const stored = rows();
       const unapproved = await graph("plan-status", planId);
       expect(unapproved.code).toBe(0);
@@ -1876,12 +1924,16 @@ describe("command line", () => {
       });
       expect(rows()).toEqual(stored);
       const shown = JSON.parse((await graph("plan-approve", planId)).stdout);
-      expect(shown).toMatchObject({
+      expect(shown).toMatchObject({ planId, planSha256: before.planSha256 });
+      expect(shown).not.toHaveProperty("approved");
+      // Approved as its hint says: bound to the content just reviewed.
+      const approved = await graph(
+        "plan-approve",
         planId,
-        planSha256: before.planSha256,
-        approved: false,
-      });
-      const approved = await graph("plan-approve", planId, "--yes");
+        "--yes",
+        "--expect",
+        shown.planSha256,
+      );
       expect(approved.code).toBe(0);
       const approval = JSON.parse(approved.stdout);
       // The command's standard input is not a terminal here.

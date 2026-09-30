@@ -57,8 +57,9 @@ export interface ProjectPolicy {
    * Every plan, including one that does not publish, needs a person's
    * approval (`graph-engine plan-approve <id> --yes`) before a run of it
    * starts or resumes, whoever starts it; `graph-engine run` alone does not
-   * count as that approval. Absent means false. Not in DEFAULT_POLICY, so
-   * setting it changes the policy hash and voids plans made without it.
+   * count as that approval. Absent means false. It is part of the policy
+   * hash and not in DEFAULT_POLICY, so any change to it, turning it on or
+   * off or writing `false` where it was absent, voids every existing plan.
    */
   requirePlanApproval?: boolean;
   maxWorkers: number;
