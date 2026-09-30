@@ -1874,6 +1874,122 @@ describe("proposed decomposition", () => {
 });
 
 describe("scoped steps in managed runs", () => {
+  const firstIsFive: NonNullable<EngineDependencies["verify"]> = async (
+    workspace,
+    checks,
+    _policy,
+    snapshotHash,
+  ) => {
+    const passed = (
+      await readFile(path.join(workspace, "first.js"), "utf8")
+    ).includes("= 5");
+    return checks.map((check) => ({
+      ...check,
+      code: passed ? 0 : 1,
+      stdout: "",
+      stderr: passed ? "" : "expected first to be 5",
+      snapshotHash,
+    }));
+  };
+  const fixFirst = (): WorkerResult => ({
+    ...result("one"),
+    proposal: {
+      summary: "Fix first",
+      requests: [],
+      changes: [{ path: "first.js", before: "= 3", after: "= 5" }],
+    },
+  });
+  const strayRepair = (): WorkerResult => ({
+    ...result("two"),
+    proposal: {
+      summary: "Change another step's output",
+      requests: [],
+      changes: [{ path: "second.js", before: "= 4", after: "= 7" }],
+    },
+  });
+
+  it("keeps a DAG repair within the selected implementer's write scope", async () => {
+    const { root } = await fixture();
+    const repairs: (string | undefined)[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (!input.objective.startsWith("Repair"))
+          return result(input.objective);
+        repairs.push(input.feedback);
+        return repairs.length === 1 ? strayRepair() : fixFirst();
+      }),
+      verify: firstIsFive,
+    });
+    const planned = await plan(engine, [
+      { ...step("one"), writes: ["first.js"] },
+      { ...step("two", ["one"]), writes: ["second.js"] },
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(repairs).toHaveLength(2);
+    expect(repairs[1]).toContain(
+      "This step may only write files matching first.js. Your proposal also changed second.js",
+    );
+    // Another planned worker's allowed file does not widen this repair.
+    expect(
+      await readFile(path.join(run.workspace!, "second.js"), "utf8"),
+    ).toContain("= 4");
+    expect(
+      await readFile(path.join(run.workspace!, "first.js"), "utf8"),
+    ).toContain("= 5");
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "proposal.returned")
+        .map((event) => [event.stepId, event.data.reason]),
+    ).toEqual([["dag-repair", "outside-write-scope"]]);
+  });
+
+  it("preserves a DAG repair's exclusions after an acknowledged resume", async () => {
+    const { root } = await fixture();
+    let interrupted = false;
+    const initial: string[] = [];
+    const repairs: (string | undefined)[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (!input.objective.startsWith("Repair")) {
+          initial.push(input.objective);
+          return result(input.objective);
+        }
+        if (!interrupted) {
+          interrupted = true;
+          throw new Error("Injected interruption before the repair proposal");
+        }
+        repairs.push(input.feedback);
+        return repairs.length === 1 ? strayRepair() : fixFirst();
+      }),
+      verify: firstIsFive,
+    });
+    const planned = await plan(engine, [
+      { ...step("one"), writes: ["*.js", "!second.js"] },
+      { ...step("two", ["one"]), writes: ["second.js"] },
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("Injected interruption");
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    expect(initial).toEqual(["one", "two"]);
+    expect(repairs).toHaveLength(2);
+    expect(repairs[1]).toContain(
+      "This step may only write files matching *.js, !second.js. Your proposal also changed second.js",
+    );
+    expect(
+      await readFile(path.join(resumed.workspace!, "second.js"), "utf8"),
+    ).toContain("= 4");
+    expect(
+      await readFile(path.join(resumed.workspace!, "first.js"), "utf8"),
+    ).toContain("= 5");
+  });
+
   it("never applies a single-step edit outside the step's scope", async () => {
     const { root } = await fixture();
     const feedback: (string | undefined)[] = [];
@@ -2458,6 +2574,96 @@ describe("tester role", () => {
     const types = engine.store.events(run.id).map((event) => event.type);
     expect(types).toContain("dag.repair_dispute");
     expect(types).toContain("dag.repair_handoff");
+  });
+
+  it("restores the implementer's write scope after a tester repair handoff", async () => {
+    const root = await testerFixture(4);
+    const repairs: (string | undefined)[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        if (input.objective.startsWith("Act as the team's tester, before"))
+          return writesWrongTest;
+        if (
+          input.objective.startsWith(
+            "Act as the team's tester. The implementer",
+          )
+        )
+          return {
+            ...result("one"),
+            proposal: {
+              summary: "Fix my expectation",
+              requests: [],
+              changes: [
+                {
+                  path: "tests/FirstTest.java",
+                  before: "13 items",
+                  after: "12 items",
+                },
+              ],
+            },
+          };
+        if (!input.objective.startsWith("Repair")) return result("one");
+        repairs.push(input.feedback);
+        return {
+          ...result("one"),
+          proposal: {
+            summary:
+              repairs.length === 1
+                ? "The test expects 13 items but the basket holds 12"
+                : "Fix the implementation",
+            requests: [],
+            changes:
+              repairs.length === 1
+                ? []
+                : repairs.length === 2
+                  ? [{ path: "second.js", before: "= 2", after: "= 7" }]
+                  : [{ path: "first.js", before: "= 3", after: "= 5" }],
+          },
+        };
+      }),
+      verify: async (workspace, checks, policy, snapshotHash) => {
+        const results = await wrongExpectation(
+          workspace,
+          checks,
+          policy,
+          snapshotHash,
+        );
+        const fixed = (
+          await readFile(path.join(workspace, "first.js"), "utf8")
+        ).includes("= 5");
+        // Fixing the tester's expectation alone still leaves code to repair.
+        return results.map((check) => ({
+          ...check,
+          code: check.code || (fixed ? 0 : 1),
+          stderr: fixed ? check.stderr : "expected first to be 5",
+        }));
+      },
+    });
+    const planned = await plan(engine, [
+      { ...step("one"), writes: ["first.js"] },
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(repairs).toHaveLength(3);
+    expect(repairs[2]).toContain(
+      "This step may only write files matching first.js. Your proposal also changed second.js",
+    );
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "dag.repair_handoff")
+        .map((event) => event.data.role),
+    ).toEqual(["tester", "implementer"]);
+    expect(
+      await readFile(path.join(run.workspace!, "tests/FirstTest.java"), "utf8"),
+    ).toBe("expect 12 items\n");
+    expect(
+      await readFile(path.join(run.workspace!, "first.js"), "utf8"),
+    ).toContain("= 5");
+    expect(
+      await readFile(path.join(run.workspace!, "second.js"), "utf8"),
+    ).toContain("= 2");
   });
 
   it("limits a tester repair to the exact files it wrote, never treating them as globs", async () => {

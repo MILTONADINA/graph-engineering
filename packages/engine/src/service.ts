@@ -2861,6 +2861,9 @@ export class GraphEngine {
             dependsOn: [],
             providerId: worker.providerId,
             ...(worker.effort ? { effort: worker.effort } : {}),
+            // Repair keeps the selected implementer's authority, including
+            // exclusions; it does not inherit other steps' write scopes.
+            ...(worker.writes ? { writes: [...worker.writes] } : {}),
           };
           singleSteps = [{ ...implementerRepair }];
           firstAttempt = 2;
