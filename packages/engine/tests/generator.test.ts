@@ -148,6 +148,34 @@ describe("generator container capture", () => {
     expect(docker.calls.map((argv) => argv[0])).toEqual(["image", "run", "rm"]);
   });
 
+  it("captures no changed paths when a generator leaves existing output unchanged", async () => {
+    const workspace = await fixture();
+    await output(workspace, "out/client.ts", "export const toy = 1;\n");
+    const docker = fakeDocker(async (view) => {
+      expect(await readFile(path.join(view, "out/client.ts"), "utf8")).toBe(
+        "export const toy = 1;\n",
+      );
+    });
+    const result = await generateInContainer(
+      workspace,
+      registration(),
+      DEFAULT_POLICY,
+      "snapshot",
+      undefined,
+      { run: docker.run },
+    );
+    expect(result.proposal.changes).toEqual([]);
+    expect(result.proposal.requests).toEqual([]);
+    expect(result.proposal.summary).toBe(
+      "Generator output captured: 0 file(s)",
+    );
+    expect(result.provenance.outputsHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(await readFile(path.join(workspace, "out/client.ts"), "utf8")).toBe(
+      "export const toy = 1;\n",
+    );
+    expect(docker.calls.map((argv) => argv[0])).toEqual(["image", "run", "rm"]);
+  });
+
   it("includes existing output files even when reads narrows source files", async () => {
     const workspace = await fixture();
     await mkdir(path.join(workspace, "out"));
