@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as childProcess from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { readFile, stat } from "node:fs/promises";
 import { PassThrough } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { DartLsp } from "../src/context/dart-lsp.js";
 import { parseFile } from "../src/context/parser.js";
 import {
+  DART_ENTRYPOINT,
   DART_SECCOMP_SHA256,
   DART_SOURCE_IMAGE,
   canDeleteDartSourceView,
@@ -14,7 +18,7 @@ import {
   validDartHostIdentity,
   validDartImage,
 } from "../src/context/dart.js";
-import type { command } from "../src/util.js";
+import { command } from "../src/util.js";
 
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
@@ -222,7 +226,7 @@ const trustedDartImage = () => ({
       "org.graph-engineering.dart.sdk": "3.13.3",
       "org.graph-engineering.dart.seccomp-sha256": DART_SECCOMP_SHA256,
     },
-    Entrypoint: ["/opt/graph-dart/bin/dartaotruntime"],
+    Entrypoint: [...DART_ENTRYPOINT],
     Env: ["PATH="],
   },
 });
@@ -304,6 +308,26 @@ describe("Dart runtime trust boundary", () => {
       },
     ];
     for (const image of bad) expect(validDartImage(image)).toBe(false);
+  });
+
+  it("requires the exact environment-clearing prefix and fixed AOT target", () => {
+    const trusted = trustedDartImage();
+    for (const entrypoint of [
+      ["/opt/graph-dart/bin/dartaotruntime"],
+      [DART_ENTRYPOINT[0], "--", DART_ENTRYPOINT[3]],
+      [DART_ENTRYPOINT[0], "-i", "HOME=/tmp", DART_ENTRYPOINT[3]],
+      [DART_ENTRYPOINT[0], "-i", "--", "/bin/dart"],
+      [...DART_ENTRYPOINT, "extra"],
+      ["/usr/bin/env", ...DART_ENTRYPOINT.slice(1)],
+    ]) {
+      expect(
+        validDartImage({
+          ...trusted,
+          Config: { ...trusted.Config, Entrypoint: entrypoint },
+        }),
+        JSON.stringify(entrypoint),
+      ).toBe(false);
+    }
   });
 
   it("refuses root and missing host identities", () => {
@@ -425,6 +449,112 @@ describe("Dart runtime trust boundary", () => {
 describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
   "pinned Dart Docker declaration binding",
   () => {
+    it("clears Docker-injected HOME and all other entries at the fixed launch boundary", async () => {
+      // Probe the initialized AOT process, not Config.Env or an entrypoint
+      // override. Both deliberately injected entries must be absent there.
+      const token = randomUUID();
+      const name = `graph-dart-env-${token}`;
+      const client = new DartLsp(
+        "/usr/bin/docker",
+        [
+          "run",
+          "--rm",
+          "-i",
+          "--pull=never",
+          "--platform=linux/amd64",
+          `--name=${name}`,
+          `--label=org.graph-engineering.dart.run=${token}`,
+          "--network=none",
+          "--read-only",
+          "--memory=768m",
+          "--memory-swap=768m",
+          "--pids-limit=128",
+          "--cap-drop=ALL",
+          "--security-opt=no-new-privileges",
+          `--security-opt=seccomp=${fileURLToPath(new URL("../security/dart-analyzer-seccomp.json", import.meta.url))}`,
+          `--user=${process.getuid!()}:${process.getgid!()}`,
+          "--workdir=/work",
+          "--env=GE_DART_ENV_PROBE=discard",
+          "--env=HOME=/must-not-reach-analyzer",
+          "--tmpfs=/graph-cache:rw,noexec,nosuid,nodev,size=64m,mode=1777",
+          "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777",
+          runtime!.imageId,
+          "--old_gen_heap_size=640",
+          "/opt/graph-dart/bin/snapshots/analysis_server_aot.dart.snapshot",
+          "--protocol=lsp",
+          "--suppress-analytics",
+          "--cache=/graph-cache",
+        ],
+        "/",
+        2 * 1024 * 1024,
+        15000,
+        async () => 1024,
+      );
+      try {
+        const initialized = await client.request("initialize", {
+          processId: null,
+          rootUri: "file:///work",
+          capabilities: {
+            general: { positionEncodings: ["utf-16"] },
+            textDocument: { definition: { linkSupport: true } },
+            workspace: {
+              configuration: false,
+              didChangeWatchedFiles: { dynamicRegistration: false },
+            },
+          },
+          initializationOptions: {},
+        });
+        expect(initialized).toHaveProperty("capabilities.definitionProvider");
+        client.notify("initialized", {});
+
+        const inspected = await command(
+          "/usr/bin/docker",
+          [
+            "container",
+            "inspect",
+            "--format",
+            '{{.State.Pid}}|{{.Image}}|{{index .Config.Labels "org.graph-engineering.dart.run"}}|{{.State.Running}}|{{.Path}}',
+            name,
+          ],
+          { cwd: "/", env: {}, timeoutMs: 2000, maxBytes: 2048 },
+        );
+        expect(inspected.code, inspected.stderr).toBe(0);
+        const fields = inspected.stdout.trim().split("|");
+        expect(fields).toHaveLength(5);
+        const pid = Number(fields[0]);
+        expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
+        expect(fields.slice(1)).toEqual([
+          runtime!.imageId,
+          token,
+          "true",
+          DART_ENTRYPOINT[0],
+        ]);
+
+        // env -i execs the absolute AOT path in place. Compare inodes rather
+        // than assuming how the host renders an overlay-root executable path.
+        // Inaccessible /proc is a failed native gate, never a skipped check.
+        const executable = await stat(`/proc/${pid}/exe`);
+        const pinnedAot = await stat(
+          `/proc/${pid}/root/opt/graph-dart/bin/dartaotruntime`,
+        );
+        expect([executable.dev, executable.ino]).toEqual([
+          pinnedAot.dev,
+          pinnedAot.ino,
+        ]);
+        const argv = (await readFile(`/proc/${pid}/cmdline`))
+          .toString("utf8")
+          .split("\0");
+        expect(argv[0]).toBe(DART_ENTRYPOINT[3]);
+        expect((await readFile(`/proc/${pid}/environ`)).byteLength).toBe(0);
+      } finally {
+        client.close();
+        const terminated = await client.terminated();
+        const removed = await confirmDartContainerRemoved(name, token);
+        expect(terminated).toBe(true);
+        expect(removed).toBe(true);
+      }
+    });
+
     it("binds a direct and imported top-level call with all Dart source provenance", async () => {
       const result = await resolveDartBindings(
         await parse(source),

@@ -161,6 +161,7 @@ jobs:
         run: |
           docker pull dart@sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738
           docker buildx build --platform=linux/amd64 --load --pull=false --network=none -f packages/engine/tests/fixtures/dart-runtime/Dockerfile -t graph-dart-analyzer:local packages/engine/tests/fixtures/dart-runtime
+          docker image inspect graph-dart-analyzer:local --format 'Dart image={{.Id}} os={{.Os}} arch={{.Architecture}} env={{json .Config.Env}} entrypoint={{json .Config.Entrypoint}} labels={{json .Config.Labels}}'
           npm test -w @graph-engineering/engine -- --run tests/context-dart-runtime.test.ts
         env:
           GRAPH_ENGINE_DART_DOCKER_TESTS: "1"

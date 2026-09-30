@@ -4,13 +4,16 @@
 # an offline build; neither stage downloads SDK content.
 FROM --platform=linux/amd64 dart@sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738 AS dart_sdk
 
-# Keep only the AOT analysis server's runtime inputs. In particular, do not
-# carry dart, dartdev, pub, compiler snapshots, or repository configuration.
+# Keep the AOT analysis server's runtime inputs and the pinned base's env
+# utility, used only to clear Docker/runc defaults before AOT execution. Do
+# not carry dart, dartdev, pub, compiler snapshots or repository configuration.
 RUN set -eu; \
     test "$(cat /usr/lib/dart/version)" = "3.13.3"; \
     test -f /usr/lib/dart/bin/dartaotruntime; \
     test -f /usr/lib/dart/bin/snapshots/analysis_server_aot.dart.snapshot; \
+    test -f /usr/bin/env; \
     mkdir -p /staged/opt/graph-dart/bin/snapshots; \
+    cp --dereference --preserve=mode /usr/bin/env /staged/opt/graph-dart/bin/env; \
     cp --dereference --preserve=mode /usr/lib/dart/bin/dartaotruntime /staged/opt/graph-dart/bin/dartaotruntime; \
     cp --dereference --preserve=mode /usr/lib/dart/bin/snapshots/analysis_server_aot.dart.snapshot /staged/opt/graph-dart/bin/snapshots/analysis_server_aot.dart.snapshot; \
     cp --dereference --preserve=mode /usr/lib/dart/version /staged/opt/graph-dart/version; \
@@ -34,4 +37,6 @@ LABEL org.graph-engineering.dart.source="dart@sha256:4027705fb598ee07b016e17a067
       org.graph-engineering.dart.seccomp-sha256="acc39fa1d092743ddd053e8ab0557ea989c724ed5fb554665b40cd7132160e44"
 USER 65534:65534
 WORKDIR /work
-ENTRYPOINT ["/opt/graph-dart/bin/dartaotruntime"]
+# runc may add HOME even when Docker's configured environment omits it.
+# This fixed prefix clears every entry before executing the absolute AOT path.
+ENTRYPOINT ["/opt/graph-dart/bin/env", "-i", "--", "/opt/graph-dart/bin/dartaotruntime"]
