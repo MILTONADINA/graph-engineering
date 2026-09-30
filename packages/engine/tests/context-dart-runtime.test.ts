@@ -832,12 +832,12 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
       const limit = 8192;
       let trace = Buffer.alloc(0);
       let stderr = Buffer.alloc(0);
-      const statsLimit = 4096;
-      let statsTrace = Buffer.alloc(0);
-      const recordStats = (entry: object) => {
+      const commandLimit = 4096;
+      let commandTrace = Buffer.alloc(0);
+      const recordCommand = (entry: object) => {
         const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
-        statsTrace = Buffer.from(
-          Buffer.concat([statsTrace, bytes]).subarray(-statsLimit),
+        commandTrace = Buffer.from(
+          Buffer.concat([commandTrace, bytes]).subarray(-commandLimit),
         );
       };
       const record = (message: string) => {
@@ -873,7 +873,9 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
             record(
               method === "initialize"
                 ? `initialize response: ${String(JSON.stringify(response)).slice(0, 4096)}`
-                : `request ${method} completed`,
+                : method === "textDocument/definition"
+                  ? `definition response: ${String(JSON.stringify(response)).slice(0, 2048)}`
+                  : `request ${method} completed`,
             );
             return response;
           },
@@ -907,10 +909,34 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
           throw error;
         }
       });
+      const close = DartLsp.prototype.close;
+      vi.spyOn(DartLsp.prototype, "close").mockImplementation(function (
+        this: DartLsp,
+      ) {
+        record("close called");
+        return close.call(this);
+      });
+      const terminated = DartLsp.prototype.terminated;
+      vi.spyOn(DartLsp.prototype, "terminated").mockImplementation(function (
+        this: DartLsp,
+        timeoutMs,
+      ) {
+        record("terminated entered");
+        return terminated.call(this, timeoutMs).then(
+          (result) => {
+            record(`terminated result: ${result}`);
+            return result;
+          },
+          (error: unknown) => {
+            record(`terminated failed: ${failure(error)}`);
+            throw error;
+          },
+        );
+      });
       const spawn = childProcess.spawn;
       let detachStderr: (() => void) | undefined;
       let syntheticContainerName: string | undefined;
-      const detachStats = new Set<() => void>();
+      const detachCommands = new Set<() => void>();
       const observeSpawn = (...call: Parameters<typeof childProcess.spawn>) => {
         const startedAt = performance.now();
         const child = spawn(...call);
@@ -945,22 +971,57 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
           stream.on("data", capture);
           detachStderr = () => stream.off("data", capture);
         }
+        let operation: string | undefined;
+        if (syntheticContainerName) {
+          const exactArgs = (expected: string[]) =>
+            argv.length === expected.length &&
+            argv.every((arg, index) => arg === expected[index]);
+          if (
+            exactArgs([
+              "stats",
+              "--no-stream",
+              "--format",
+              "{{.MemUsage}}",
+              syntheticContainerName,
+            ])
+          )
+            operation = "stats";
+          else if (
+            exactArgs([
+              "container",
+              "inspect",
+              "--format",
+              '{{ index .Config.Labels "org.graph-engineering.dart.run" }}',
+              syntheticContainerName,
+            ])
+          )
+            operation = "cleanup.inspect-label";
+          else if (
+            exactArgs([
+              "container",
+              "ls",
+              "--all",
+              "--filter",
+              `name=^/${syntheticContainerName}$`,
+              "--format",
+              "{{.Names}}",
+            ])
+          )
+            operation = "cleanup.list-owned";
+          else if (exactArgs(["rm", "--force", syntheticContainerName]))
+            operation = "cleanup.remove-owned";
+        }
         if (
-          syntheticContainerName &&
+          operation &&
           executable === "/usr/bin/docker" &&
-          argv.length === 5 &&
-          argv[0] === "stats" &&
-          argv[1] === "--no-stream" &&
-          argv[2] === "--format" &&
-          argv[3] === "{{.MemUsage}}" &&
-          argv[4] === syntheticContainerName &&
           options.env &&
           Object.keys(options.env).length === 0 &&
           child.stdout &&
           child.stderr
         ) {
-          // Only the actual sample of the captured synthetic container. Do
-          // not inspect another process or alter this command's own timeout.
+          // Only exact stats/cleanup operations for the captured synthetic
+          // container. Never record other processes, arguments or environments,
+          // or change a command's own behavior and timeout.
           const out = child.stdout;
           const err = child.stderr;
           let sampleOut = Buffer.alloc(0);
@@ -979,8 +1040,9 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
           };
           const elapsedMs = () => Math.round(performance.now() - startedAt);
           const onError = () => {
-            recordStats({
-              event: "stats child-process error",
+            recordCommand({
+              operation,
+              event: "child-process error",
               elapsedMs: elapsedMs(),
             });
           };
@@ -988,8 +1050,9 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
             code: number | null,
             signal: NodeJS.Signals | null,
           ) => {
-            recordStats({
-              event: "stats close",
+            recordCommand({
+              operation,
+              event: "close",
               code,
               signal,
               elapsedMs: elapsedMs(),
@@ -1003,13 +1066,13 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
             err.off("data", captureErr);
             child.off("error", onError);
             child.off("close", onClose);
-            detachStats.delete(detach);
+            detachCommands.delete(detach);
           };
           out.on("data", captureOut);
           err.on("data", captureErr);
           child.once("error", onError);
           child.once("close", onClose);
-          detachStats.add(detach);
+          detachCommands.add(detach);
         }
         return child;
       };
@@ -1025,7 +1088,7 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
           `Synthetic Dart binding diagnostics: ${JSON.stringify(result.diagnostics)}`,
           `LSP trace (first ${limit} bytes):\n${trace.toString("utf8")}`,
           `Pinned analyzer stderr (first ${limit} bytes):\n${stderr.toString("utf8")}`,
-          `Synthetic container stats (last ${statsLimit} bytes; stdout/stderr first 512 bytes each):\n${statsTrace.toString("utf8")}`,
+          `Synthetic container stats/cleanup (last ${commandLimit} bytes; stdout/stderr first 512 bytes each):\n${commandTrace.toString("utf8")}`,
         ].join("\n");
         expect(result.analyzedFiles, diagnostic).toBe(2);
         expect(result.resolvedCalls, diagnostic).toBe(2);
@@ -1040,7 +1103,7 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
         ).toBe(true);
       } finally {
         detachStderr?.();
-        for (const detach of detachStats) detach();
+        for (const detach of detachCommands) detach();
       }
     });
 
