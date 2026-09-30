@@ -1,0 +1,48 @@
+name: Dart binding preflight
+
+on:
+  push:
+    branches: ["fix/dart-*"]
+    paths:
+      - ".github/workflows/dart-native.yml"
+      - "packages/engine/src/context/dart*.ts"
+      - "packages/engine/tests/context-dart-runtime.test.ts"
+      - "packages/engine/tests/fixtures/dart-runtime/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dart-binding-${{ github.ref }}
+  cancel-in-progress: true
+
+# Focused native failure diagnosis, not a substitute for any protected check.
+# The normal platform workflow still runs the complete Dart suite and all
+# other required checks on the final PR head.
+jobs:
+  dart-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies with one bounded archive retry
+        run: |
+          # Match the required Linux job's native-archive installation policy.
+          npm ci || { sleep 5; npm ci; }
+      - run: npm run build:dependencies
+      - name: Build the pinned offline analyzer image
+        run: |
+          docker pull dart@sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738
+          docker buildx build --platform=linux/amd64 --load --pull=false --network=none -f packages/engine/tests/fixtures/dart-runtime/Dockerfile -t graph-dart-analyzer:local packages/engine/tests/fixtures/dart-runtime
+          docker image inspect graph-dart-analyzer:local --format 'Dart image={{.Id}} os={{.Os}} arch={{.Architecture}} env={{json .Config.Env}} entrypoint={{json .Config.Entrypoint}} labels={{json .Config.Labels}}'
+      - name: Direct and imported Dart binding regression
+        run: npm test -w @graph-engineering/engine -- --run tests/context-dart-runtime.test.ts -t 'binds a direct and imported top-level call with all Dart source provenance'
+        env:
+          GRAPH_ENGINE_DART_DOCKER_TESTS: "1"
