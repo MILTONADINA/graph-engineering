@@ -179,7 +179,9 @@ regenerating a toy OpenAPI client from `api/toy.yaml` into a tracked
 ### Approach
 
 - **Registration.** An operator registers
-  `{id, image, argv, outputs, reads?, limits}` in `.graph/project.json`.
+  `{id, revision, image, argv, outputs, reads?, limits}` in
+  `.graph/project.json`. `generator-add` assigns a fresh opaque revision on
+  every registration, including a same-ID re-add.
   - The image must be digest-pinned or a local image ID, which is stricter
     than `check-add`.
   - `outputs` are exact relative roots.
@@ -188,8 +190,15 @@ regenerating a toy OpenAPI client from `api/toy.yaml` into a tracked
     generator.
   - Output bounds are part of the registration and can only lower the global
     limits.
-- **Plan binding.** A plan copies the registration, as it copies
-  `verification`, so `plan-approve`'s content hash covers the image and argv.
+- **Plan binding and revocation.** A plan copies the complete registration,
+  including its revision, as it copies `verification`; when plan approval is
+  required, the content hash covers the image and argv. The copy fixes what
+  may run, but does not grant continuing authority. At start, resume, before
+  generator dispatch and before applying its proposal, a live registration
+  with the same ID and revision must still exist and its canonical fields
+  must match the plan's copy. A missing or changed registration refuses
+  pending work; a same-ID re-add cannot revive an old plan. Never substitute
+  a live command into an existing plan. Create a fresh plan after a change.
 - **Running.** The generator gets a view built from the run workspace, as
   `verifyInContainer` does. The container runs with the verification flags
   plus `--read-only --tmpfs /tmp` and `--pull=never`, and is killed on abort.
@@ -263,6 +272,10 @@ Output capture options:
 - **Export rule.** A generator reads private files, so it counts as a local
   role. A cloud client's plan that mixes a generator with a cloud worker is
   therefore refused.
+- **Live revocation.** Check every registration referenced by a plan before
+  reserving work, so a sibling step cannot apply first. Check again at each
+  generator launch and before its output is applied; revocation during a run
+  discards unapplied output. Completed steps remain historical evidence.
 
 ### Spec `specs/runs/generator-steps.md`
 
@@ -270,27 +283,28 @@ Environment-gated tests count for `implemented` only when a CI step runs
 them with the switch set; the Docker tests fit the existing
 `GRAPH_ENGINE_DOCKER_TESTS` step.
 
-| AC  | Criterion                                      | Tests                                                                                                                                  |
-| --- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| AC1 | Registration is CLI-only with a pinned image   | `cli.test.ts`: registers a generator only with a pinned image and exact argv; `mcp.test.ts`: offers no generator registration over MCP |
-| AC2 | The approval covers the registration           | `cli.test.ts`: shows a generator step's image, argv and outputs in plan-approve                                                        |
-| AC3 | The sandbox is offline                         | `generator.test.ts`: runs a generator with no network, no credentials and a read-only root                                             |
-| AC4 | Output goes through the normal proposal checks | `managed-dag-safety.test.ts`: applies a generator's output through write-scope, secret and inventory checks                            |
-| AC5 | Unsafe output is refused                       | `generator.test.ts`: refuses symlinks, special files, deletions, binary output and writes outside its roots                            |
-| AC6 | The one-side rule holds                        | `mcp.test.ts`: counts a generator step as local for a cloud client's plan                                                              |
-| AC7 | Crash and resume behave correctly              | `dag.test.ts`: reruns a pending generator step at its pre-patch state and never reruns a completed one                                 |
-| AC8 | Limits stop a generator                        | `generator.test.ts`: stops a generator at its time, file-count and byte limits                                                         |
+| AC  | Criterion                                      | Tests                                                                                                                                                                                                                                                                                        |
+| --- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC1 | Registration is CLI-only with a pinned image   | `cli.test.ts`: registers a generator only with a pinned image and exact argv; `mcp.test.ts`: offers no generator registration over MCP                                                                                                                                                       |
+| AC2 | Approval, when required, covers registration   | `cli.test.ts`: shows a generator step's image, argv and outputs in plan-approve                                                                                                                                                                                                              |
+| AC3 | The sandbox is offline                         | `generator.test.ts`: runs a generator with no network, no credentials and a read-only root                                                                                                                                                                                                   |
+| AC4 | Output goes through the normal proposal checks | `managed-dag-safety.test.ts`: applies a generator's output through write-scope, secret and inventory checks                                                                                                                                                                                  |
+| AC5 | Unsafe output is refused                       | `generator.test.ts`: refuses symlinks, special files, deletions, binary output and writes outside its roots                                                                                                                                                                                  |
+| AC6 | The one-side rule holds                        | `mcp.test.ts`: counts a generator step as local for a cloud client's plan                                                                                                                                                                                                                    |
+| AC7 | Crash and resume behave correctly              | `dag.test.ts`: reruns a pending generator step at its pre-patch state and never reruns a completed one                                                                                                                                                                                       |
+| AC8 | Limits stop a generator                        | `generator.test.ts`: stops a generator at its time, file-count and byte limits                                                                                                                                                                                                               |
+| AC9 | Live registration changes revoke pending work  | `managed-dag-safety.test.ts`: with approval both on and off, removal or replacement refuses start/resume before reservation and prevents dispatch or output application after start; same-ID re-add does not revive an old plan, while unchanged registration runs the plan's frozen command |
 
 ### Decisions
 
-| Question                                                  | Decision                                                                    |
-| --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| B1. How is output captured?                               | G1, the bind-mounted view with a bounded post-run walk                      |
-| B2. What about generators that write over 50 files?       | Split them across steps, rather than giving generators higher caps          |
-| B3. Are deletions supported?                              | No, they are refused                                                        |
-| B4. How is determinism checked?                           | Record hashes only; don't run twice                                         |
-| B5. Does MCP list generators?                             | No                                                                          |
-| B6. What if the live registration changes after planning? | Run the plan's copy, which the owner approved, rather than refusing the run |
+| Question                                                  | Decision                                                                                                                                                         |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1. How is output captured?                               | G1, the bind-mounted view with a bounded post-run walk                                                                                                           |
+| B2. What about generators that write over 50 files?       | Split them across steps, rather than giving generators higher caps                                                                                               |
+| B3. Are deletions supported?                              | No, they are refused                                                                                                                                             |
+| B4. How is determinism checked?                           | Record hashes only; don't run twice                                                                                                                              |
+| B5. Does MCP list generators?                             | No                                                                                                                                                               |
+| B6. What if the live registration changes after planning? | Refuse pending use of the plan's frozen copy unless the live ID, revision and canonical fields still match; approval, when present, does not override revocation |
 
 ### Order
 
