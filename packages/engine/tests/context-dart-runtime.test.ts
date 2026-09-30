@@ -717,6 +717,158 @@ describe("Dart runtime trust boundary", () => {
   });
 });
 
+describe("Dart auto-removal confirmation", () => {
+  const name = "graph-dart-owned";
+  const token = "owned-token";
+  const inspect = [
+    "container",
+    "inspect",
+    "--format",
+    '{{ index .Config.Labels "org.graph-engineering.dart.run" }}',
+    name,
+  ];
+  const remove = ["rm", "--force", name];
+  const list = [
+    "container",
+    "ls",
+    "--all",
+    "--filter",
+    `name=^/${name}$`,
+    "--format",
+    "{{.Names}}",
+  ];
+  const owned = { code: 0, stdout: `${token}\n`, stderr: "" };
+  const removing = {
+    code: 1,
+    stdout: "",
+    stderr: `Error response from daemon: removal of container ${name} is already in progress\n`,
+  };
+  const absent = { code: 0, stdout: "", stderr: "" };
+  const present = { code: 0, stdout: `${name}\n`, stderr: "" };
+  const unavailable = {
+    code: 1,
+    stdout: "",
+    stderr: "Cannot connect to Docker daemon",
+  };
+  function fixture(responses: Awaited<ReturnType<typeof command>>[]) {
+    const events: Array<string | number> = [];
+    let index = 0;
+    const run = vi
+      .fn<typeof command>()
+      .mockImplementation(async (_executable, argv) => {
+        events.push(argv[0] === "rm" ? "remove" : argv[1]!);
+        const result = responses[index++];
+        if (!result) throw new Error("Unexpected synthetic cleanup command");
+        return result;
+      });
+    const pause = vi.fn(async (ms: number) => {
+      events.push(ms);
+    });
+    const expectCommands = (expected: string[][]) => {
+      expect(run.mock.calls).toEqual(
+        expected.map((argv) => [
+          "/usr/bin/docker",
+          argv,
+          {
+            cwd: "/",
+            env: {},
+            timeoutMs: argv[0] === "rm" ? 3000 : 2000,
+            maxBytes: 2000,
+          },
+        ]),
+      );
+    };
+    return { run, pause, events, expectCommands };
+  }
+
+  it("confirms owned auto-removal only after a settling pause and two empty daemon listings", async () => {
+    const { run, pause, events, expectCommands } = fixture([
+      owned,
+      removing,
+      absent,
+      absent,
+    ]);
+    expect(await confirmDartContainerRemoved(name, token, run, pause)).toBe(
+      true,
+    );
+    expectCommands([inspect, remove, list, list]);
+    expect(pause.mock.calls).toEqual([[250], [250]]);
+    expect(events).toEqual(["inspect", "remove", 250, "ls", 250, "ls"]);
+  });
+
+  it.each([
+    { scenario: "still present", listings: [present], count: 1 },
+    {
+      scenario: "daemon unavailable initially",
+      listings: [unavailable],
+      count: 1,
+    },
+    {
+      scenario: "reappearing after an empty listing",
+      listings: [absent, present],
+      count: 2,
+    },
+    {
+      scenario: "daemon unavailable on confirmation",
+      listings: [absent, unavailable],
+      count: 2,
+    },
+  ])(
+    "refuses auto-removal confirmation when $scenario",
+    async ({ listings, count }) => {
+      const { run, pause, events, expectCommands } = fixture([
+        owned,
+        removing,
+        ...listings,
+      ]);
+      expect(await confirmDartContainerRemoved(name, token, run, pause)).toBe(
+        false,
+      );
+      expectCommands([
+        inspect,
+        remove,
+        ...Array.from({ length: count }, () => list),
+      ]);
+      expect(pause.mock.calls).toEqual(
+        Array.from({ length: count }, () => [250]),
+      );
+      expect(events).toEqual(
+        count === 1
+          ? ["inspect", "remove", 250, "ls"]
+          : ["inspect", "remove", 250, "ls", 250, "ls"],
+      );
+    },
+  );
+
+  it.each([
+    "Error response from daemon: permission denied",
+    "Error response from daemon: removal of container graph-dart-other is already in progress",
+  ])("refuses unrelated removal errors without polling: %s", async (stderr) => {
+    const { run, pause, events, expectCommands } = fixture([
+      owned,
+      { code: 1, stdout: "", stderr },
+    ]);
+    expect(await confirmDartContainerRemoved(name, token, run, pause)).toBe(
+      false,
+    );
+    expectCommands([inspect, remove]);
+    expect(pause).not.toHaveBeenCalled();
+    expect(events).toEqual(["inspect", "remove"]);
+  });
+
+  it("never removes a container whose ownership label differs", async () => {
+    const { run, pause, events, expectCommands } = fixture([
+      { code: 0, stdout: "other-token\n", stderr: "" },
+    ]);
+    expect(await confirmDartContainerRemoved(name, token, run, pause)).toBe(
+      false,
+    );
+    expectCommands([inspect]);
+    expect(pause).not.toHaveBeenCalled();
+    expect(events).toEqual(["inspect"]);
+  });
+});
+
 describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
   "pinned Dart Docker declaration binding",
   () => {
