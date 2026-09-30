@@ -781,6 +781,17 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
 
     const local = await connect({ client: "local", allowRun: true });
     connections.push(local);
+    for (const connection of [readOnly, cloudDefault, local]) {
+      const exposed = await names(connection.client);
+      expect(exposed).not.toContain("generators");
+      expect(
+        exposed.filter((name) =>
+          /generator.*(?:add|remove|register|list)|(?:add|remove|register|list).*generator/i.test(
+            name,
+          ),
+        ),
+      ).toEqual([]);
+    }
     // Feedback reports are a person's choice; no client tool can make one.
     expect(
       (await names(local.client)).some((name) => /feedback|report/.test(name)),
@@ -1146,6 +1157,15 @@ it("refuses a cloud client's plan whose workers, tester and reviewer are not all
   config.policy.allowedHosts = ["api.openai.com"];
   config.policy.exportPaths = ["src/**"];
   config.verification = [{ image: "fixture", argv: ["test"] }];
+  config.generators = [
+    {
+      id: "toy-client",
+      revision: "revision-1",
+      image: `sha256:${"a".repeat(64)}`,
+      argv: ["generate"],
+      outputs: ["src/generated"],
+    },
+  ];
   await writeJson(path.join(root, PROJECT_FILE), config);
   const data = projectDataDir(config.projectId);
   await configureProvider(data, {
@@ -1249,6 +1269,21 @@ it("refuses a cloud client's plan whose workers, tester and reviewer are not all
     });
     expect(templateOnly).toContain("template step api-docs");
     expect(templateOnly).toContain("the reviewer (remote)");
+    const generatorOnly = await refused({
+      objective: "Generate a toy client",
+      acceptance: ["src/generated/client.ts exists"],
+      steps: [
+        {
+          id: "generate",
+          kind: "generator",
+          objective: "Generate the client",
+          dependsOn: [],
+          generatorId: "toy-client",
+        },
+      ],
+    });
+    expect(generatorOnly).toContain("generator step generate");
+    expect(generatorOnly).toContain("the reviewer (remote)");
     await configure({});
     const templateThenCloud = await refused({
       objective: "Document the API",

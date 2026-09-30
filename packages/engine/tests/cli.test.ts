@@ -570,6 +570,147 @@ describe("command line", () => {
     expect((await graph("--version")).stdout.trim()).toBe("0.1.0");
   }, 120_000);
 
+  it("registers only safe pinned generators, preserves argv, and revokes old revisions", async () => {
+    const { root, graph } = await project();
+    await graph("init");
+    const image = `sha256:${"a".repeat(64)}`;
+    const add = () =>
+      graph(
+        "generator-add",
+        "toy-client",
+        image,
+        "--output",
+        "src/generated",
+        "--read",
+        "api/**/*.yaml",
+        "--",
+        "node",
+        "--output",
+        "src/generated",
+        "-C",
+        "toy",
+        "--",
+        "--nocapture",
+      );
+    const first = await add();
+    expect(first.code).toBe(0);
+    const registration = JSON.parse(first.stdout);
+    expect(registration).toMatchObject({
+      id: "toy-client",
+      image,
+      argv: [
+        "node",
+        "--output",
+        "src/generated",
+        "-C",
+        "toy",
+        "--",
+        "--nocapture",
+      ],
+      outputs: ["src/generated"],
+      reads: ["api/**/*.yaml"],
+    });
+    expect(registration.revision).toMatch(/^[a-f0-9-]{36}$/);
+    const second = await add();
+    expect(second.code).toBe(0);
+    const replacement = JSON.parse(second.stdout);
+    expect(replacement.revision).not.toBe(registration.revision);
+    expect(JSON.parse((await graph("generators")).stdout)).toEqual([
+      replacement,
+    ]);
+
+    await writeFile(path.join(root, ".gitignore"), "*.log\n");
+    for (const args of [
+      [
+        "generator-add",
+        "bad",
+        "node:latest",
+        "--output",
+        "src/generated",
+        "--",
+        "node",
+      ],
+      [
+        "generator-add",
+        "bad",
+        image,
+        "--output",
+        ".graph/project.json",
+        "--",
+        "node",
+      ],
+      ["generator-add", "bad", image, "--output", "src/.env", "--", "node"],
+      [
+        "generator-add",
+        "bad",
+        image,
+        "--output",
+        "generated.log",
+        "--",
+        "node",
+      ],
+      ["generator-add", "bad", image, "--output", "src/generated", "node"],
+    ])
+      expect((await graph(...args)).code, args.join(" ")).toBe(1);
+    expect(JSON.parse((await graph("generators")).stdout)).toEqual([
+      replacement,
+    ]);
+    expect((await graph("generator-remove", "toy-client")).code).toBe(0);
+    expect(JSON.parse((await graph("generators")).stdout)).toEqual([]);
+  }, 120_000);
+
+  it("shows the frozen generator registration in plan-approve", async () => {
+    const { graph } = await project();
+    await graph("init");
+    const image = `sha256:${"a".repeat(64)}`;
+    const added = await graph(
+      "generator-add",
+      "toy-client",
+      image,
+      "--output",
+      "src/generated",
+      "--",
+      "generate",
+      "--deterministic",
+    );
+    expect(added.code).toBe(0);
+    const frozen = JSON.parse(added.stdout);
+    const outside = await mkdtemp(
+      path.join(tmpdir(), "graph-generator-steps-"),
+    );
+    directories.push(outside);
+    const stepsFile = path.join(outside, "steps.json");
+    await writeFile(
+      stepsFile,
+      JSON.stringify([
+        {
+          id: "client",
+          kind: "generator",
+          objective: "Regenerate the toy client",
+          dependsOn: [],
+          generatorId: "toy-client",
+        },
+      ]),
+    );
+    const planned = await graph(
+      "plan",
+      "Regenerate client",
+      "--accept",
+      "The client is generated",
+      "--steps",
+      stepsFile,
+    );
+    expect(planned.code).toBe(0);
+    const plan = JSON.parse(planned.stdout);
+    expect(plan.generators).toEqual([frozen]);
+    const shown = await graph("plan-approve", plan.id);
+    expect(shown.code).toBe(0);
+    const approval = JSON.parse(shown.stdout);
+    expect(approval.steps[0].generatorId).toBe("toy-client");
+    expect(approval.generators).toEqual([frozen]);
+    expect(approval.planSha256).toMatch(/^[a-f0-9]{64}$/);
+  }, 120_000);
+
   // The fake docker is a shell script, which Windows cannot run.
   it.skipIf(process.platform === "win32")(
     "exits nonzero when the run it waited for did not succeed",

@@ -7,7 +7,9 @@ import { mkdir, open, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
+  assertGeneratorRegistration,
   assertProjectConfig,
+  type GeneratorRegistration,
   type ProviderConfig,
   type ProjectPolicy,
   type RunStatus,
@@ -48,6 +50,7 @@ import {
   readJson,
   writeJson,
   errorMessage,
+  id as newId,
   localErrorMessage,
 } from "./util.js";
 import {
@@ -55,6 +58,7 @@ import {
   costBudgetRefusal,
   isAllowedPath,
   redact,
+  safePath,
 } from "./policy.js";
 import { parseSourceLocation } from "./context/index.js";
 import { trackedFiles } from "./execution/workspace.js";
@@ -522,6 +526,126 @@ cli
     await writeJson(path.join(root(), PROJECT_FILE), project);
     print(project.verification);
   });
+const appendGeneratorOption = (
+  value: string,
+  previous: string[] | undefined,
+) => [...(previous ?? []), value];
+cli
+  .command("generator-add <generatorId> <image> [argv...]")
+  .description(
+    "Register or replace an offline generator; each add gets a fresh revision and revokes old plans for that ID",
+  )
+  .option(
+    "--output <path>",
+    "Exact relative output root; repeat for more roots",
+    appendGeneratorOption,
+  )
+  .option(
+    "--read <glob>",
+    "Source allowlist glob; repeat for more patterns",
+    appendGeneratorOption,
+  )
+  .option("--timeout-seconds <seconds>", "Narrow the policy timeout", Number)
+  .option("--max-files <count>", "Narrow the 50-file output cap", Number)
+  .option("--max-file-bytes <bytes>", "Narrow the 1 MiB file cap", Number)
+  .option("--max-total-bytes <bytes>", "Narrow the 8 MiB total cap", Number)
+  .action(
+    async (
+      generatorId: string,
+      image: string,
+      argv: string[],
+      options: {
+        output?: string[];
+        read?: string[];
+        timeoutSeconds?: number;
+        maxFiles?: number;
+        maxFileBytes?: number;
+        maxTotalBytes?: number;
+      },
+    ) => {
+      const separator = process.argv.indexOf("--");
+      if (separator < 0)
+        throw new Error(
+          "Separate generator-add options from the exact container command with --",
+        );
+      const commandArgv = process.argv.slice(separator + 1);
+      if (JSON.stringify(argv) !== JSON.stringify(commandArgv))
+        throw new Error(
+          "Put the complete generator command after --, without positional arguments before it",
+        );
+      const project = await loadProject(root());
+      const limits = {
+        ...(options.timeoutSeconds !== undefined
+          ? { timeoutSeconds: options.timeoutSeconds }
+          : {}),
+        ...(options.maxFiles !== undefined
+          ? { maxFiles: options.maxFiles }
+          : {}),
+        ...(options.maxFileBytes !== undefined
+          ? { maxFileBytes: options.maxFileBytes }
+          : {}),
+        ...(options.maxTotalBytes !== undefined
+          ? { maxTotalBytes: options.maxTotalBytes }
+          : {}),
+      };
+      const registration: GeneratorRegistration = {
+        id: generatorId,
+        revision: newId(),
+        image,
+        argv: commandArgv,
+        outputs: options.output ?? [],
+        ...(options.read ? { reads: options.read } : {}),
+        ...(Object.keys(limits).length ? { limits } : {}),
+      };
+      assertGeneratorRegistration(registration);
+      for (const output of registration.outputs) {
+        if (!isAllowedPath(output, project.policy))
+          throw new Error(
+            `Generator output is outside allowed project scope: ${output}`,
+          );
+        await safePath(root(), output, project.policy);
+        const ignored = await runCommand(
+          "git",
+          ["check-ignore", "-q", "--", output],
+          { cwd: root(), timeoutMs: 10_000 },
+        );
+        if (ignored.code === 0)
+          throw new Error(`Generator output root is Git-ignored: ${output}`);
+        if (ignored.code !== 1)
+          throw new Error(
+            "Could not check whether generator output is Git-ignored",
+          );
+      }
+      project.generators = [
+        ...(project.generators ?? []).filter((item) => item.id !== generatorId),
+        registration,
+      ];
+      assertProjectConfig(project);
+      await writeJson(path.join(root(), PROJECT_FILE), project);
+      print(registration);
+    },
+  );
+cli
+  .command("generator-remove <generatorId>")
+  .description("Revoke a generator registration and pending uses of old plans")
+  .action(async (generatorId: string) => {
+    const project = await loadProject(root());
+    const existing = project.generators?.find(
+      (item) => item.id === generatorId,
+    );
+    if (!existing)
+      throw new Error(`Generator ${generatorId} is not registered`);
+    project.generators = project.generators!.filter(
+      (item) => item.id !== generatorId,
+    );
+    assertProjectConfig(project);
+    await writeJson(path.join(root(), PROJECT_FILE), project);
+    print({ removed: generatorId });
+  });
+cli
+  .command("generators")
+  .description("List locally registered generators")
+  .action(async () => print((await loadProject(root())).generators ?? []));
 // The standalone scan and --update-baseline cover committed (tracked) files,
 // so a local scratch file never enters a reviewed baseline. The run gate scans
 // worker-written files separately.
@@ -961,7 +1085,7 @@ cli
   .option("--effort <effort>")
   .option(
     "--steps <json>",
-    "Reviewed dependency DAG steps with per-step providers/templates",
+    "Reviewed dependency DAG steps with workers, templates or registered generators",
   )
   .action(async (objective, options) =>
     withEngine(async (engine) => {
@@ -1013,10 +1137,10 @@ function warnAboutPlan(
   return plan;
 }
 // The approval binds the whole stored plan, so everything that shapes what a
-// run does is shown: a template step's inputs set what it generates and
-// where, as an objective does for a worker step. A projection of the plan
-// alone, with the content hash an approval binds; plan-status reports the
-// stored approval.
+// run does is shown: template inputs and a generator's frozen registration
+// determine what they generate, as an objective does for a worker step. A
+// projection of the plan alone, with the content hash an approval binds;
+// plan-status reports the stored approval.
 function shownPlan(plan: import("@graph-engineering/contracts").ExecutionPlan) {
   return {
     planId: plan.id,
@@ -1031,10 +1155,12 @@ function shownPlan(plan: import("@graph-engineering/contracts").ExecutionPlan) {
       providerId: step.providerId ?? null,
       effort: step.effort ?? null,
       templateId: step.templateId ?? null,
+      generatorId: step.generatorId ?? null,
       inputs: step.inputs ?? null,
       writes: step.writes ?? null,
     })),
     verification: plan.verification,
+    generators: plan.generators ?? [],
     publication: plan.publication,
     routing: plan.routing ?? null,
     ...(plan.exportSide ? { exportSide: plan.exportSide } : {}),

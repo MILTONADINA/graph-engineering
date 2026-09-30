@@ -393,7 +393,9 @@ export function RunsPage({
                         <p>
                           {step.kind === "template"
                             ? step.templateId
-                            : (step.providerId ?? "Policy-selected worker")}
+                            : step.kind === "generator"
+                              ? `Generator ${step.generatorId}`
+                              : (step.providerId ?? "Policy-selected worker")}
                           {step.effort ? ` · ${step.effort} effort` : ""}
                         </p>
                         {step.dependsOn.length > 0 && (
