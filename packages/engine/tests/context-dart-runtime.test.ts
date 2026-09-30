@@ -556,20 +556,137 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
     });
 
     it("binds a direct and imported top-level call with all Dart source provenance", async () => {
-      const result = await resolveDartBindings(
-        await parse(source),
-        "dart-snapshot",
+      // Test-only diagnostics for this fixed synthetic package. Preserve the
+      // real client and keep both trace and stderr bounded and silent on pass.
+      const limit = 8192;
+      let trace = Buffer.alloc(0);
+      let stderr = Buffer.alloc(0);
+      const record = (message: string) => {
+        const bytes = Buffer.from(`${message}\n`);
+        trace = Buffer.concat([
+          trace,
+          bytes.subarray(0, Math.max(0, limit - trace.length)),
+        ]);
+      };
+      const failure = (error: unknown) =>
+        error instanceof Error ? error.message : "non-Error rejection";
+      const request = DartLsp.prototype.request;
+      vi.spyOn(DartLsp.prototype, "request").mockImplementation(function (
+        this: DartLsp,
+        method,
+        params,
+      ) {
+        record(`request ${method}`);
+        return request.call(this, method, params).then(
+          (response) => {
+            if (method === "initialize") {
+              const capabilities = (
+                response as { capabilities?: Record<string, unknown> } | null
+              )?.capabilities;
+              record(
+                `initialize schema inputs: ${JSON.stringify({
+                  capabilitiesType: typeof capabilities,
+                  definitionProvider: capabilities?.definitionProvider,
+                  positionEncoding: capabilities?.positionEncoding,
+                }).slice(0, 1024)}`,
+              );
+            }
+            record(
+              method === "initialize"
+                ? `initialize response: ${String(JSON.stringify(response)).slice(0, 4096)}`
+                : `request ${method} completed`,
+            );
+            return response;
+          },
+          (error: unknown) => {
+            record(`request ${method} failed: ${failure(error)}`);
+            throw error;
+          },
+        );
+      });
+      const ready = DartLsp.prototype.ready;
+      vi.spyOn(DartLsp.prototype, "ready").mockImplementation(function (
+        this: DartLsp,
+      ) {
+        record("ready entered");
+        return ready.call(this).then(
+          () => record("ready completed"),
+          (error: unknown) => {
+            record(`ready failed: ${failure(error)}`);
+            throw error;
+          },
+        );
+      });
+      const check = DartLsp.prototype.check;
+      vi.spyOn(DartLsp.prototype, "check").mockImplementation(function (
+        this: DartLsp,
+      ) {
+        try {
+          return check.call(this);
+        } catch (error) {
+          record(`check failed: ${failure(error)}`);
+          throw error;
+        }
+      });
+      const spawn = childProcess.spawn;
+      let detachStderr: (() => void) | undefined;
+      const observeSpawn = (...call: Parameters<typeof childProcess.spawn>) => {
+        const child = spawn(...call);
+        const [executable, argv, options] = call;
+        if (
+          !detachStderr &&
+          executable === "/usr/bin/docker" &&
+          argv[0] === "run" &&
+          argv.includes(runtime!.imageId) &&
+          argv.includes(
+            "/opt/graph-dart/bin/snapshots/analysis_server_aot.dart.snapshot",
+          ) &&
+          argv.includes("--protocol=lsp") &&
+          argv.includes("--packages=/graph-config/package_config.json") &&
+          options.env &&
+          Object.keys(options.env).length === 0 &&
+          child.stderr
+        ) {
+          record("capturing pinned synthetic analyzer stderr");
+          const stream = child.stderr;
+          const capture = (chunk: Buffer) => {
+            stderr = Buffer.concat([
+              stderr,
+              chunk.subarray(0, Math.max(0, limit - stderr.length)),
+            ]);
+          };
+          stream.on("data", capture);
+          detachStderr = () => stream.off("data", capture);
+        }
+        return child;
+      };
+      vi.spyOn(childProcess, "spawn").mockImplementation(
+        observeSpawn as typeof childProcess.spawn,
       );
-      expect(result.analyzedFiles).toBe(2);
-      expect(result.resolvedCalls).toBe(2);
-      expect(
-        result.updates.every(
-          (edge) =>
-            edge.evidence === "resolved" &&
-            edge.resolution?.engine === "dart-analyzer" &&
-            edge.resolution.sources?.length === 3,
-        ),
-      ).toBe(true);
+      try {
+        const result = await resolveDartBindings(
+          await parse(source),
+          "dart-snapshot",
+        );
+        const diagnostic = [
+          `Synthetic Dart binding diagnostics: ${JSON.stringify(result.diagnostics)}`,
+          `LSP trace (first ${limit} bytes):\n${trace.toString("utf8")}`,
+          `Pinned analyzer stderr (first ${limit} bytes):\n${stderr.toString("utf8")}`,
+        ].join("\n");
+        expect(result.analyzedFiles, diagnostic).toBe(2);
+        expect(result.resolvedCalls, diagnostic).toBe(2);
+        expect(
+          result.updates.every(
+            (edge) =>
+              edge.evidence === "resolved" &&
+              edge.resolution?.engine === "dart-analyzer" &&
+              edge.resolution.sources?.length === 3,
+          ),
+          diagnostic,
+        ).toBe(true);
+      } finally {
+        detachStderr?.();
+      }
     });
 
     it("reports a real bounded analyzer timeout without promoting a partial answer", async () => {
