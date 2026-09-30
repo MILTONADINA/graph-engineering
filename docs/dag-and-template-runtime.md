@@ -19,7 +19,7 @@ a per-step envelope, not a whole-plan timer. With the optional
 Cursor worker can instead use an integer `1..86400` seconds or explicit `null`
 for no fixed wall-clock deadline. Absence preserves the original behavior.
 The service binds the provider kind used to select that envelope and refuses a
-different kind at dispatch. Unknown, API/local and template kinds retain the
+different kind at dispatch. Unknown, API/local, template and generator kinds retain the
 ordinary deadline. The eligible worker's context-request turns share its
 envelope; installed adapter calls use the same deadline selection. This
 includes installed tester steps and implementation/repair calls without
