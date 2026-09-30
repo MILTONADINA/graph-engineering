@@ -4,6 +4,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -15,12 +16,30 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { ContextEngine } from "../src/context/index.js";
+import { SUMMARY_VERSION } from "../src/context/intelligence.js";
 import { parseFile } from "../src/context/parser.js";
-import { pythonRuntime, resolvePythonBindings } from "../src/context/python.js";
-import { goRuntime, resolveGoBindings } from "../src/context/go.js";
-import { javaRuntime, resolveJavaBindings } from "../src/context/java.js";
-import { csharpRuntime, resolveCSharpBindings } from "../src/context/csharp.js";
-import { rustRuntime, resolveRustBindings } from "../src/context/rust.js";
+import { SEMANTIC_VERSION } from "../src/context/semantic.js";
+import {
+  PYTHON_VERSION,
+  pythonRuntime,
+  resolvePythonBindings,
+} from "../src/context/python.js";
+import { GO_VERSION, goRuntime, resolveGoBindings } from "../src/context/go.js";
+import {
+  JAVA_VERSION,
+  javaRuntime,
+  resolveJavaBindings,
+} from "../src/context/java.js";
+import {
+  CSHARP_VERSION,
+  csharpRuntime,
+  resolveCSharpBindings,
+} from "../src/context/csharp.js";
+import {
+  RUST_VERSION,
+  rustRuntime,
+  resolveRustBindings,
+} from "../src/context/rust.js";
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -305,10 +324,12 @@ describe("local context indexing", () => {
       "auth.rs": "fn revoke() { revoke(); }",
       "Auth.java": "class Auth { static void login() { login(); } }",
       "Auth.cs": "class Auth { static void Refresh() { Refresh(); } }",
+      "auth.dart": "void rotate() { rotate(); }",
     });
     const snapshot = await engine.index();
     expect(snapshot.languages).toEqual([
       "csharp",
+      "dart",
       "go",
       "java",
       "javascript",
@@ -367,7 +388,7 @@ describe("local context indexing", () => {
       ),
     ];
     expect(snapshot.coverage.errors).toEqual(expectedRuntimeDiagnostics);
-    expect(snapshot.coverage.parsed).toBe(7);
+    expect(snapshot.coverage.parsed).toBe(8);
     const symbols = await engine.searchSymbols("authenticate", snapshot.id);
     expect(symbols).toHaveLength(1);
     const neighbors = await engine.neighbors(symbols[0]!.id, snapshot.id);
@@ -425,6 +446,72 @@ describe("local context indexing", () => {
     const renamed = await engine.index();
     expect(await engine.searchSymbols("after", renamed.id)).toEqual([]);
     expect(await engine.searchSymbols("renamed", renamed.id)).toHaveLength(1);
+  });
+
+  it("keeps snapshot identity unchanged for repositories without Dart files", async () => {
+    const files: Record<string, string> = {
+      "src/auth.ts":
+        "export function authenticate(token: string) { return verify(token); }\n",
+      "src/app.js": "export function start() { return run(); }\n",
+      "docs/guide.md": "# Guide\n\nHow the service starts.\n",
+      "package.json": '{ "name": "service" }\n',
+    };
+    const { engine, root } = await fixture(files);
+    const sha256 = (text: string) =>
+      createHash("sha256").update(text).digest("hex");
+    const worktreeId = sha256(await realpath(root));
+    // The identity a repository without Dart files had before Dart indexing
+    // existed, key for key. The parser version is spelled out rather than
+    // imported: changing it re-identifies every repository and voids every
+    // plan stored against its snapshots.
+    const identity = (contents: Record<string, string>) =>
+      sha256(
+        JSON.stringify({
+          project: "test-project",
+          worktreeId,
+          branch: "dev",
+          contentHash: sha256(
+            JSON.stringify(
+              Object.keys(contents)
+                .sort()
+                .map((path) => [path, sha256(contents[path]!)]),
+            ),
+          ),
+          parser: "web-tree-sitter:0.25.10/grammars:0.1.13/extractor:4",
+          staticBindings: SEMANTIC_VERSION,
+          pythonBindings: [PYTHON_VERSION, "unavailable"],
+          goBindings: [GO_VERSION, "unavailable"],
+          javaBindings: [JAVA_VERSION, "unavailable"],
+          csharpBindings: [CSHARP_VERSION, "unavailable"],
+          rustBindings: [RUST_VERSION, "unavailable"],
+          summaries: SUMMARY_VERSION,
+          excluded: DEFAULT_POLICY.excludedPaths,
+        }),
+      );
+    const snapshot = await engine.index({ semantic: false });
+    expect(snapshot.id).toBe(identity(files));
+    // Cached syntax for non-Dart files stays valid too; only Dart's carries
+    // its own version.
+    expect((await parseFile("src/auth.ts", "", "id")).parserVersion).toBe(
+      "web-tree-sitter:0.25.10/grammars:0.1.13/extractor:4",
+    );
+    expect(
+      (await parseFile("lib/counter.dart", "", "id")).parserVersion,
+    ).not.toBe("web-tree-sitter:0.25.10/grammars:0.1.13/extractor:4");
+    // A Dart file brings Dart's own syntax version into the identity, so a
+    // snapshot stored before Dart parsing existed is not reused for it.
+    const withDart = {
+      ...files,
+      "lib/counter.dart": "int twice(int value) => value * 2;\n",
+    };
+    await mkdir(join(root, "lib"));
+    await writeFile(
+      join(root, "lib/counter.dart"),
+      withDart["lib/counter.dart"],
+    );
+    const dart = await engine.index({ semantic: false });
+    expect(dart.languages).toContain("dart");
+    expect(dart.id).not.toBe(identity(withDart));
   });
 
   it.runIf(process.platform !== "win32")(
