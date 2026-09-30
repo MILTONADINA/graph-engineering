@@ -53,7 +53,7 @@ describe("Dart syntax indexing", () => {
   it("indexes Dart declarations, imports and selector calls from the toy package", async () => {
     const { snapshot, symbols, edges } = await indexToyCounter();
     expect(snapshot.languages).toEqual(["dart", "text"]);
-    expect(snapshot.coverage).toMatchObject({ parsed: 5, textOnly: 1 });
+    expect(snapshot.coverage).toMatchObject({ parsed: 5, textOnly: 2 });
     const label = (symbol: CodeSymbol) =>
       `${symbol.source.path} ${symbol.kind} ${symbol.name}`;
     const declarations = symbols.filter((symbol) => symbol.kind !== "file");
@@ -220,6 +220,7 @@ describe("Dart syntax indexing", () => {
       imports.map((edge) => `${edge.source.path}: ${edge.target}`).sort(),
     ).toEqual([
       "bin/toy_counter.dart: import 'package:toy_counter/toy_counter.dart' as toy;",
+      "lib/src/counter_format.dart: part of '../toy_counter.dart';",
       "lib/toy_counter.dart: export 'src/labels.dart' show labels;",
       "lib/toy_counter.dart: import 'dart:math' as math;",
       "lib/toy_counter.dart: part 'src/counter_format.dart';",
@@ -469,5 +470,57 @@ describe("Dart syntax indexing", () => {
         to: null,
         evidence: "syntactic",
       });
+  });
+
+  it("links local functions only after declaration within their lexical block", async () => {
+    const cases = [
+      {
+        name: "same block after declaration",
+        code: "void run() { void helper() {} helper(); }",
+        linked: true,
+      },
+      {
+        name: "same block before declaration",
+        code: "void run() { helper(); void helper() {} }",
+        linked: false,
+      },
+      {
+        name: "outside the declaring block",
+        code: "void run(bool b) { if (b) { void helper() {} } helper(); }",
+        linked: false,
+      },
+      {
+        name: "sibling block",
+        code: "void run(bool b) { if (b) { void helper() {} } else { helper(); } }",
+        linked: false,
+      },
+      {
+        name: "nested block after declaration",
+        code: "void run(bool b) { void helper() {} if (b) { helper(); } }",
+        linked: true,
+      },
+      {
+        name: "top-level forward declaration",
+        code: "void run() { helper(); } void helper() {}",
+        linked: true,
+      },
+    ];
+    for (const { name, code, linked } of cases) {
+      const parsed = await parseFile("scope.dart", code, "snapshot");
+      expect(parsed.errors, name).toEqual([]);
+      const calls = parsed.edges.filter(
+        (edge) => edge.kind === "calls" && edge.target === "helper",
+      );
+      expect(calls, name).toHaveLength(1);
+      const declaration = parsed.symbols.find(
+        (symbol) => symbol.name === "helper",
+      );
+      expect(declaration, name).toBeDefined();
+      expect(calls[0], name).toMatchObject(
+        linked
+          ? { to: declaration!.id, evidence: "heuristic" }
+          : { to: null, evidence: "syntactic" },
+      );
+    }
   });
 });
