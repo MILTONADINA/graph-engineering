@@ -696,3 +696,43 @@ describe("step time limits", () => {
     );
   });
 });
+
+describe("generator step validation", () => {
+  const generator: ExecutionStep = {
+    id: "generate-client",
+    kind: "generator",
+    objective: "Regenerate the toy client",
+    dependsOn: [],
+    generatorId: "toy-client",
+    writes: ["src/generated/**"],
+  };
+
+  it("requires a registration ID and rejects fields that could change its command", () => {
+    expect(validateDag([generator]).steps).toEqual([generator]);
+    expect(() =>
+      validateDag([{ ...generator, generatorId: undefined }]),
+    ).toThrow("requires a generatorId");
+    for (const field of [
+      { providerId: "local" },
+      { templateId: "backend.api" },
+      { inputs: { argv: ["different"] } },
+      { effort: "high" },
+    ])
+      expect(() => validateDag([{ ...generator, ...field }])).toThrow(
+        "cannot set providerId, templateId, inputs or effort",
+      );
+    expect(() =>
+      validateDag([{ ...step("worker"), generatorId: "toy-client" }]),
+    ).toThrow("Worker step worker cannot set generatorId");
+    expect(() =>
+      validateDag([
+        {
+          ...generator,
+          kind: "template",
+          generatorId: "toy-client",
+          templateId: "backend.api",
+        },
+      ]),
+    ).toThrow("Template step generate-client cannot set generatorId");
+  });
+});

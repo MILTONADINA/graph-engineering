@@ -266,7 +266,7 @@ export function createMcpServer(
       "run_start",
       {
         description:
-          "Starts a managed run of an existing plan in this project and returns JSON with the run's id and initial status; the run continues in the background and run_status, when exposed, reports its progress. The run works in an isolated git worktree, executes the plan's steps with the workers or templates the plan names (which can call model providers), runs the configured verification commands in a container, and publishes a commit or draft pull request only when the project's publication policy allows it and, for a plan that publishes, only after a person approved that plan with graph-engine plan-approve. When the project policy sets requirePlanApproval, every plan, including one that does not publish, needs that approval of its exact content before it can start, and this tool cannot give it. It fails if the plan is unknown, not approved when approval is required, the project policy or source changed since planning, the concurrency limit is reached, the plan has no verification commands (a plan keeps the commands configured when it was created, so one made before any check was added needs a new plan), Docker is not running, or, for a cloud-backed client, the project policy is offline. Active runs are cancelled when this server's connection closes.",
+          "Starts a managed run of an existing plan in this project and returns JSON with the run's id and initial status; the run continues in the background and run_status, when exposed, reports its progress. The run works in an isolated git worktree, executes worker, template and operator-registered generator steps, runs the configured verification commands in a container, and publishes a commit or draft pull request only when the project's publication policy allows it and, for a plan that publishes, only after a person approved that plan with graph-engine plan-approve. When the project policy sets requirePlanApproval, every plan, including one that does not publish, needs that approval of its exact content before it can start, and this tool cannot give it. It fails if the plan is unknown, not approved when approval is required, the project policy or source changed since planning, a referenced generator was removed or changed, the concurrency limit is reached, the plan has no verification commands (a plan keeps the commands configured when it was created, so one made before any check was added needs a new plan), Docker is not running, or, for a cloud-backed client, the project policy is offline. Active runs are cancelled when this server's connection closes.",
         inputSchema: {
           planId: z
             .string()
@@ -387,7 +387,7 @@ export function createMcpServer(
       "plan_create",
       {
         description:
-          "Creates a plan for a change in this project and returns JSON with its id, steps and routing. A plan needs an objective and at least one explicit acceptance criterion; the engine records the current policy and source, so a later run_start fails if either changed. Without steps the plan is one worker step; steps give a dependency-ordered list of worker or template steps. A cloud-backed client can create plans only while the project's publication policy is none, so a plan it wrote cannot publish private source, and only when the plan's worker steps, the configured tester and the configured reviewer all run on local providers or all run on non-local ones, template steps counting as local, so a local step cannot pass files the export policy keeps from cloud models to a cloud worker or reviewer; a step of such a plan that fails repeatedly escalates only to another provider on the same side. It does not start work; start it with run_start.",
+          "Creates a plan for a change in this project and returns JSON with its id, steps and routing. A plan needs an objective and at least one explicit acceptance criterion; the engine records the current policy and source, so a later run_start fails if either changed. Without steps the plan is one worker step; steps give a dependency-ordered list of worker, template or generator steps. A generator step names an operator-registered generatorId; this tool cannot register or change one. A cloud-backed client can create plans only while the project's publication policy is none, so a plan it wrote cannot publish private source, and only when the plan's worker steps, the configured tester and the configured reviewer all run on local providers or all run on non-local ones, template and generator steps counting as local, so a local step cannot pass files the export policy keeps from cloud models to a cloud worker or reviewer; a step of such a plan that fails repeatedly escalates only to another provider on the same side. It does not start work; start it with run_start.",
         inputSchema: {
           objective: z
             .string()
@@ -411,12 +411,13 @@ export function createMcpServer(
               z
                 .object({
                   id: z.string(),
-                  kind: z.enum(["worker", "template"]),
+                  kind: z.enum(["worker", "template", "generator"]),
                   objective: z.string(),
                   dependsOn: z.array(z.string()),
                   providerId: z.string().optional(),
                   effort: z.string().optional(),
                   templateId: z.string().optional(),
+                  generatorId: z.string().optional(),
                   inputs: z.record(z.unknown()).optional(),
                   writes: z
                     .array(z.string().min(1).max(200))
@@ -459,6 +460,7 @@ export function createMcpServer(
             kind: step.kind,
             dependsOn: step.dependsOn,
             providerId: step.providerId,
+            generatorId: step.generatorId,
           })),
           routing: plan.routing,
         });

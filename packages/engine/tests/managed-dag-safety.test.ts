@@ -15,9 +15,11 @@ import path from "node:path";
 import type {
   ExecutionPlan,
   ExecutionStep,
+  GeneratorRegistration,
   ProjectConfig,
 } from "@graph-engineering/contracts";
 import { GraphEngine, type EngineDependencies } from "../src/service.js";
+import type { GeneratorResult } from "../src/execution/generator.js";
 import {
   configureProvider,
   initializeProject,
@@ -126,6 +128,46 @@ const result = (objective: string): WorkerResult => ({
       objective === "one"
         ? [{ path: "first.js", before: "= 1", after: "= 3" }]
         : [{ path: "second.js", before: "= 2", after: "= 4" }],
+  },
+});
+const generatorRegistration = (): GeneratorRegistration => ({
+  id: "toy-generator",
+  revision: "revision-one",
+  image: `sha256:${"a".repeat(64)}`,
+  argv: ["generate", "--fixture"],
+  outputs: ["first.js", "second.js"],
+});
+const generatorStep = (
+  id = "generate",
+  dependsOn: string[] = [],
+): ExecutionStep => ({
+  id,
+  kind: "generator",
+  objective: "Regenerate a toy source file",
+  dependsOn,
+  generatorId: "toy-generator",
+});
+const generated = (file = "first.js"): GeneratorResult => ({
+  model: "generator-fixture",
+  usage: {
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedTokens: 0,
+    costUsd: 0,
+    estimated: false,
+  },
+  proposal: {
+    summary: "Generated toy source",
+    requests: [],
+    changes: [
+      { path: file, before: file === "first.js" ? "= 1" : "= 2", after: "= 3" },
+    ],
+  },
+  provenance: {
+    imageId: `sha256:${"a".repeat(64)}`,
+    argvHash: "b".repeat(64),
+    inputsHash: "c".repeat(64),
+    outputsHash: "d".repeat(64),
   },
 });
 const passing: NonNullable<EngineDependencies["verify"]> = async (
@@ -3075,6 +3117,290 @@ describe("plan approval required by the project policy", () => {
       "Policy changed since planning; create a new plan",
     );
     expect(refusal).not.toContain("plan-approve");
+  });
+});
+
+describe("generator registration revocation", () => {
+  const writeGenerators = async (
+    root: string,
+    config: ProjectConfig,
+    generators: GeneratorRegistration[],
+  ) => writeJson(path.join(root, PROJECT_FILE), { ...config, generators });
+
+  it.each([false, true])(
+    "refuses removed, replaced and same-ID re-added registrations before start or resume with plan approval %s",
+    async (requirePlanApproval) => {
+      const registration = generatorRegistration();
+      const { root, config } = await fixture((value) => {
+        value.generators = [registration];
+        if (requirePlanApproval) value.policy.requirePlanApproval = true;
+      });
+      const generator = vi.fn(
+        async (_workspace: string, _registration: GeneratorRegistration) =>
+          generated(),
+      );
+      const engine = await open(root, { generator });
+      const planned = await plan(engine, [generatorStep()]);
+      expect(planned.generators).toEqual([registration]);
+      if (requirePlanApproval) engine.store.approvePlan(planned.id);
+
+      for (const changed of [
+        [],
+        [{ ...registration, revision: "revision-two" }],
+        [{ ...registration, argv: ["different-command"] }],
+      ]) {
+        await writeGenerators(root, config, changed);
+        await expect(engine.start(planned.id)).rejects.toThrow(
+          "Generator registration toy-generator changed or was removed",
+        );
+        expect(engine.store.runs()).toEqual([]);
+      }
+      await writeGenerators(root, config, [registration]);
+      // A process interruption before workspace creation leaves every
+      // generator step pending and exercises the resume reservation gate.
+      vi.spyOn(workspaceModule, "createWorkspace").mockRejectedValueOnce(
+        new Error("Simulated interruption"),
+      );
+      const run = await engine.wait((await engine.start(planned.id)).id);
+      expect(run.status).toBe("failed");
+      expect(generator).not.toHaveBeenCalled();
+      for (const changed of [
+        [],
+        [{ ...registration, revision: "revision-three" }],
+        [{ ...registration, outputs: ["first.js"] }],
+      ]) {
+        await writeGenerators(root, config, changed);
+        await expect(engine.resume(run.id, true)).rejects.toThrow(
+          "Generator registration toy-generator changed or was removed",
+        );
+        expect(engine.store.run(run.id).status).toBe("failed");
+        expect(generator).not.toHaveBeenCalled();
+      }
+      await writeGenerators(root, config, [registration]);
+      await engine.resume(run.id, true);
+      const resumed = await engine.wait(run.id);
+      expect(resumed.status).toBe("succeeded");
+      expect(generator).toHaveBeenCalledTimes(1);
+      expect(generator.mock.calls[0]?.[1]).toEqual(registration);
+    },
+  );
+
+  it.each([false, true])(
+    "refuses dispatch after a prior step removes a pending generator with plan approval %s",
+    async (requirePlanApproval) => {
+      const registration = generatorRegistration();
+      const { root, config } = await fixture((value) => {
+        value.generators = [registration];
+        if (requirePlanApproval) value.policy.requirePlanApproval = true;
+      });
+      const generator = vi.fn(async () => generated("second.js"));
+      const engine = await open(root, {
+        generator,
+        worker: async (input) => {
+          await writeGenerators(root, config, []);
+          return result(input.objective);
+        },
+      });
+      const planned = await plan(engine, [
+        step("one"),
+        generatorStep("generate", ["one"]),
+      ]);
+      if (requirePlanApproval) engine.store.approvePlan(planned.id);
+      const run = await engine.wait((await engine.start(planned.id)).id);
+      expect(run.status).toBe("failed");
+      expect(run.error).toContain(
+        "Generator registration toy-generator changed or was removed",
+      );
+      expect(generator).not.toHaveBeenCalled();
+      expect(
+        await readFile(path.join(run.workspace!, "second.js"), "utf8"),
+      ).toContain("= 2");
+    },
+  );
+
+  it.each([false, true])(
+    "discards generated output when registration changes before application with plan approval %s",
+    async (requirePlanApproval) => {
+      const registration = generatorRegistration();
+      const { root, config } = await fixture((value) => {
+        value.generators = [registration];
+        if (requirePlanApproval) value.policy.requirePlanApproval = true;
+      });
+      const engine = await open(root, {
+        generator: async () => {
+          await writeGenerators(root, config, [
+            { ...registration, revision: "revision-two" },
+          ]);
+          return generated();
+        },
+      });
+      const planned = await plan(engine, [generatorStep()]);
+      if (requirePlanApproval) engine.store.approvePlan(planned.id);
+      const run = await engine.wait((await engine.start(planned.id)).id);
+      expect(run.status).toBe("failed");
+      expect(run.error).toContain(
+        "Generator registration toy-generator changed or was removed",
+      );
+      expect(
+        await readFile(path.join(run.workspace!, "first.js"), "utf8"),
+      ).toContain("= 1");
+      expect(
+        engine.store
+          .events(run.id)
+          .some((event) => event.type === "dag.step.completed"),
+      ).toBe(false);
+    },
+  );
+
+  it("blocks the first independent sibling's patch when another generator is revoked", async () => {
+    const registration = generatorRegistration();
+    const { root, config } = await fixture((value) => {
+      value.generators = [registration];
+    });
+    const engine = await open(root, {
+      worker: async (input) => result(input.objective),
+      generator: async () => {
+        await writeGenerators(root, config, []);
+        return generated("second.js");
+      },
+    });
+    const planned = await plan(engine, [step("one"), generatorStep()]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain(
+      "Generator registration toy-generator changed or was removed",
+    );
+    await assertUnchanged(run.workspace!);
+  });
+
+  it("refuses a generator proposal that changes the tester's test", async () => {
+    const registration = {
+      ...generatorRegistration(),
+      outputs: ["sample.test.js"],
+    };
+    const { root } = await fixture((value) => {
+      value.generators = [registration];
+    });
+    const engine = await open(root, {
+      worker: async () => ({
+        ...result("one"),
+        proposal: {
+          summary: "New toy test",
+          requests: [],
+          changes: [
+            {
+              path: "sample.test.js",
+              before: null,
+              after: "export const test = 1;\n",
+            },
+          ],
+        },
+      }),
+      generator: async () => ({
+        ...generated(),
+        proposal: {
+          summary: "Generated toy test",
+          requests: [],
+          changes: [
+            { path: "sample.test.js", before: "test = 1", after: "test = 2" },
+          ],
+        },
+      }),
+    });
+    const planned = await plan(engine, [
+      step("tester"),
+      generatorStep("generate", ["tester"]),
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("The tester wrote sample.test.js");
+    expect(
+      await readFile(path.join(run.workspace!, "sample.test.js"), "utf8"),
+    ).toBe("export const test = 1;\n");
+  });
+
+  it("allows resume after a completed generator was revoked when only worker work remains", async () => {
+    const registration = generatorRegistration();
+    const { root, config } = await fixture((value) => {
+      value.generators = [registration];
+    });
+    let attempts = 0;
+    const generator = vi.fn(async () => generated());
+    const engine = await open(root, {
+      generator,
+      worker: async (input) => {
+        if (++attempts === 1) throw new Error("Simulated worker interruption");
+        return result(input.objective);
+      },
+    });
+    const planned = await plan(engine, [
+      generatorStep(),
+      step("two", ["generate"]),
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(
+      engine.store
+        .events(run.id)
+        .some(
+          (event) =>
+            event.type === "dag.step.completed" && event.stepId === "generate",
+        ),
+    ).toBe(true);
+    await writeGenerators(root, config, []);
+    await engine.resume(run.id, true);
+    expect((await engine.wait(run.id)).status).toBe("succeeded");
+    expect(generator).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles an already-applied generator patch after revocation only with a consistent pending checkpoint", async () => {
+    const registration = generatorRegistration();
+    const { root, config, data } = await fixture((value) => {
+      value.generators = [registration];
+    });
+    const generator = vi.fn(async () => {
+      throw new Error("Simulated generator interruption");
+    });
+    const engine = await open(root, { generator });
+    const planned = await plan(engine, [generatorStep()]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    const checkpointPath = path.join(data, "checkpoints", `${run.id}.json`);
+    const checkpoint = await readJson<DagCheckpoint>(checkpointPath);
+    const source = path.join(run.workspace!, "first.js");
+    await writeFile(
+      source,
+      (await readFile(source, "utf8")).replace("= 1", "= 3"),
+    );
+    const afterHash = await workspaceFingerprint(run.workspace!, config.policy);
+    const pending = {
+      stepId: "generate",
+      proposalHash: "a".repeat(64),
+      beforeHash: checkpoint.workspaceHash,
+      afterHash,
+      paths: ["first.js"],
+    };
+    await writeGenerators(root, config, []);
+    await writeJson(checkpointPath, {
+      ...checkpoint,
+      pending: { ...pending, beforeHash: "f".repeat(64) },
+    });
+    await expect(engine.resume(run.id, true)).rejects.toThrow(
+      "Generator registration toy-generator changed or was removed",
+    );
+    expect(engine.store.run(run.id).status).toBe("failed");
+    await writeJson(checkpointPath, { ...checkpoint, pending });
+    await engine.resume(run.id, true);
+    expect((await engine.wait(run.id)).status).toBe("succeeded");
+    expect(generator).toHaveBeenCalledTimes(1);
+    expect(
+      engine.store
+        .events(run.id)
+        .find(
+          (event) =>
+            event.type === "dag.step.reconciled" && event.stepId === "generate",
+        )?.data,
+    ).toEqual(expect.objectContaining({ outcome: "applied" }));
   });
 });
 

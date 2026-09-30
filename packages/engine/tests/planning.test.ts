@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
-import { requiresSecurityReview, routePlan } from "../src/planning.js";
+import {
+  likelyWorkerTurns,
+  requiresSecurityReview,
+  routePlan,
+} from "../src/planning.js";
 
 describe("security review floor", () => {
   it("recognizes source identifiers and rejects unrelated word fragments", () => {
@@ -64,5 +68,23 @@ describe("bounded routing", () => {
     });
     expect(result.workflow).toBe("refactor");
     expect(result.contextBudgetTokens).toBe(1433);
+  });
+});
+
+describe("turn estimates", () => {
+  it("counts model workers but not generator or template steps", () => {
+    const plan = {
+      steps: [{ kind: "generator" }, { kind: "template" }] as never,
+    };
+    expect(likelyWorkerTurns(plan, { reviewer: false, maxAttempts: 3 })).toBe(
+      0,
+    );
+    expect(likelyWorkerTurns(plan, { reviewer: true, maxAttempts: 3 })).toBe(1);
+    expect(
+      likelyWorkerTurns(
+        { steps: [...plan.steps, { kind: "worker" }] as never },
+        { reviewer: true, maxAttempts: 3 },
+      ),
+    ).toBe(3 + 1 + 2 + 2 * 3);
   });
 });

@@ -27,6 +27,29 @@ restart it unless the owner asks.
 
 **In flight: PR #112 and a prepared local stack for approval, Dart and model roles.**
 
+**Generator follow-on (local, focused-verified; CI pending).**
+`feat/generator-steps-20260930` is based on the prepared model-roles stack in
+this repository's ignored isolated clone. It adds operator-only CLI
+registration, frozen plans with live revocation, a disposable offline Docker
+view, bounded output capture, DAG checkpoint reconciliation, CLI/MCP/HTTP
+step contracts, dashboard labels, a draft spec and a Linux Docker CI case.
+The command and full registration are excluded from generic dashboard
+responses. An adversarial review found and the branch fixed credential-path
+output admission, dashboard response exposure, and a Docker cleanup race.
+Focused pure contract/DAG/planning tests passed (30), a CLI registration test
+passed, generator runtime tests passed (22, with one Docker-gated case skipped
+locally), and engine and dashboard
+build/typecheck passed, repository formatting and lint passed (one pre-existing
+warning), and spec-check passed. The integrated managed-service and HTTP
+tests cannot start here because this sandbox denies their local owner socket;
+the Docker case has not run locally. Neither the nine CI jobs nor a live
+user-supplied image has been verified on this exact branch. A pathological
+generator can still fill the disposable bind-mounted view or create more
+entries than bounded permission-recovery cleanup will traverse; a failed
+cleanup retains a private local view for operator recovery. Do not describe
+the spec as implemented before exact-head CI and review. The other owner
+session only consumes a pinned Graph build and does not edit this repo.
+
 1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
    opt-in `requirePlanApproval` policy. Under it, `start()` and `resume()`
    need a person's stored approval of the plan's exact content for every
@@ -79,18 +102,20 @@ None of the stack was pushed.
    PR #112 if its remote head is unchanged; otherwise inspect and rebase.
    Review the fix and resolve its conversation. Keep the lower PR open for
    the prepared top-of-stack merge.
-2. If `dev` has not moved, push the `ready/*` branches and open one PR per
-   branch into fork `dev` with the PR template. If it has moved, rebase the
-   stack first. Run CI only on the top PR, require nine passing checks on its
-   exact head and resolved review conversations, then rebase-merge the top
-   PR. Close the lower PRs, including #112, with the merge commit, as
-   `AGENTS.md` describes.
+2. If `dev` has not moved, push the `ready/*` branches and the generator
+   feature branch, and open one PR per branch into fork `dev` with the PR
+   template. If it has moved, rebase the stack first. Run CI only on the top
+   PR, including its real Docker generator case; require nine passing checks
+   on its exact head and resolved review conversations, then rebase-merge
+   the top PR. Close the lower PRs, including #112, with the merge commit,
+   as `AGENTS.md` describes. If CI finds a generator failure, fix it on the
+   feature branch and retest the changed path before another broad run.
 3. Tell the owner the merged approval commit. They pin builds of this
    repository elsewhere and will turn on
    `requirePlanApproval` there.
-4. Build the rest of the [Dart and generator design](dart-and-generator-steps-design.md):
-   generator steps with live revocation, then Dart resolved bindings under
-   the spike's constraints.
+4. After the generator PR's exact-head checks pass, implement Dart resolved
+   bindings under the [design's](dart-and-generator-steps-design.md)
+   no-target-code-execution and pinned-runtime constraints.
 5. Update this section as each PR lands.
 
 **Tools.** The owner wants Jev used heavily, together with Laya, for design

@@ -1,11 +1,15 @@
 # Design: Dart/Flutter support and sandboxed generator steps
 
-Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Status at handoff:
+Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Local status:
 
-- Dart syntax indexing (PR 1 below) is built on
-  `feat/dart-syntax-indexing-20260929`, not yet reviewed or merged.
-- Everything else here is still to build, in this order: the `modelRoles`
-  fix, generator steps, then Dart resolved bindings.
+- Dart syntax indexing and its review fixes are prepared in the local stack,
+  not yet pushed or merged.
+- The `modelRoles` fix and generator steps are also built on the local stack.
+  Generator-focused pure tests pass, but integrated socket-based and real
+  Docker CI evidence is pending; its spec remains draft.
+- Dart resolved bindings remain to build after the generator branch is
+  reviewed. The pinned-runtime and no-target-code-execution constraints below
+  still govern that work.
 - The decisions recorded below were settled during design. Follow them
   unless new evidence says otherwise, and record any change in the PR.
 
@@ -202,9 +206,9 @@ regenerating a toy OpenAPI client from `api/toy.yaml` into a tracked
 - **Running.** The generator gets a view built from the run workspace, as
   `verifyInContainer` does. The container runs with the verification flags
   plus `--read-only --tmpfs /tmp` and `--pull=never`, and is killed on abort.
-- **Capture.** Changes under the declared roots are diffed against the input
-  hashes and become an ordinary `WorkerProposal`. The existing `runDag` rules
-  then apply unchanged:
+- **Capture.** Walk the entire bounded view after exit so new paths outside
+  declared roots cannot hide; only changes under those roots may become an
+  ordinary `WorkerProposal`. The existing `runDag` rules then apply unchanged:
   - write scope and collisions;
   - `prepareProposal` secret screening;
   - the pending and after-patch markers, and rollback;
@@ -247,12 +251,15 @@ Output capture options:
 - **Output size.** At most 50 changed files (the checkpoint cap), 1 MiB per
   file and 8 MiB in total. Logs are redacted and kept local.
 - **Symlinks and escapes.**
-  - Only declared roots are walked, using `readdir` and `lstat`; files are
+  - The whole view is walked with bounded `readdir` and `lstat`; files are
     opened `O_NOFOLLOW`.
   - Symlinks, special files, non-UTF-8 or NUL content, mode changes and
     deletions are refused.
   - Outside the roots, input files must be unchanged; new files there are
-    discarded and counted.
+    refused, not silently discarded.
+  - The existing proposal contract cannot replace the content of an existing
+    empty file because its `before` substring must be nonempty. Refuse that
+    case until a separately reviewed proposal extension supports it.
 - **Secrets.** Excluded paths never enter the view. Output content is
   screened, and credential-named output paths are refused.
 - **Protected and ignored paths.** Output under `.graph/`, `node_modules/`
@@ -275,7 +282,11 @@ Output capture options:
 - **Live revocation.** Check every registration referenced by a plan before
   reserving work, so a sibling step cannot apply first. Check again at each
   generator launch and before its output is applied; revocation during a run
-  discards unapplied output. Completed steps remain historical evidence.
+  discards unapplied output. Completed steps remain historical evidence. A
+  pending checkpoint whose full post-patch fingerprint already matches the
+  retained workspace may be reconciled as applied without running the image;
+  validate that checkpoint and its dependency order before exempting it from
+  the live-registration check.
 
 ### Spec `specs/runs/generator-steps.md`
 

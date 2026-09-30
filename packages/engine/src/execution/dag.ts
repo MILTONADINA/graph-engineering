@@ -104,12 +104,13 @@ export class DagReconciliationError extends Error {
 const stepSchema = z
   .object({
     id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/),
-    kind: z.enum(["worker", "template"]),
+    kind: z.enum(["worker", "template", "generator"]),
     objective: z.string().min(1).max(32000),
     dependsOn: z.array(z.string()).max(100),
     providerId: z.string().min(1).optional(),
     effort: z.string().min(1).optional(),
     templateId: z.string().min(1).optional(),
+    generatorId: z.string().min(1).optional(),
     inputs: z.record(z.unknown()).optional(),
     // `!pattern` entries exclude from the positive entries; a list of only
     // exclusions would otherwise read as "everything else".
@@ -157,6 +158,10 @@ const checkpointSchema = z
       .optional(),
   })
   .strict();
+/** Parse a retained checkpoint before using its completed IDs for revocation checks. */
+export function parseDagCheckpoint(value: unknown): DagCheckpoint {
+  return checkpointSchema.parse(value);
+}
 
 /**
  * Whether a step may write a file: its declared `writes` globs (where a
@@ -195,6 +200,23 @@ export function validateDag(input: ExecutionStep[]): ValidatedDag {
       throw new Error(`Worker step ${step.id} requires a providerId`);
     if (step.kind === "template" && !step.templateId)
       throw new Error(`Template step ${step.id} requires a templateId`);
+    if (step.kind !== "generator" && step.generatorId !== undefined)
+      throw new Error(
+        `${step.kind === "worker" ? "Worker" : "Template"} step ${step.id} cannot set generatorId`,
+      );
+    if (step.kind === "generator") {
+      if (!step.generatorId)
+        throw new Error(`Generator step ${step.id} requires a generatorId`);
+      if (
+        step.providerId !== undefined ||
+        step.templateId !== undefined ||
+        step.inputs !== undefined ||
+        step.effort !== undefined
+      )
+        throw new Error(
+          `Generator step ${step.id} cannot set providerId, templateId, inputs or effort`,
+        );
+    }
     if (new Set(step.dependsOn).size !== step.dependsOn.length)
       throw new Error(`Duplicate dependencies for ${step.id}`);
     for (const dependency of step.dependsOn)

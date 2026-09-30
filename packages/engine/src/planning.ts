@@ -165,8 +165,8 @@ export function likelyWorkerTurns(
   plan: Pick<ExecutionPlan, "steps">,
   options: { reviewer: boolean; maxAttempts: number },
 ): number {
-  const workers = plan.steps.filter((step) => step.kind !== "template").length;
-  const steps = Math.max(1, workers);
-  const repairs = Math.max(0, options.maxAttempts - 1);
-  return steps * 3 + (options.reviewer ? 1 + repairs : 0) + repairs * 3;
+  const workers = plan.steps.filter((step) => step.kind === "worker").length;
+  // A plan with no implementer cannot dispatch a repair worker after checks.
+  const repairs = workers ? Math.max(0, options.maxAttempts - 1) : 0;
+  return workers * 3 + (options.reviewer ? 1 + repairs : 0) + repairs * 3;
 }

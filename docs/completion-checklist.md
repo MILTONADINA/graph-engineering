@@ -11,6 +11,22 @@ The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
+## Continuation state — 2026-09-30
+
+The fourteen rows below are a historical checkpoint, not a live assertion
+that external promotion evidence or every managed client is complete. Fork
+`dev` was last read at `96cf8b2`; PR #112 is open with an unresolved generator
+revocation review thread. A B6 design fix and a stacked approval/Dart/model-
+roles implementation are committed only in this repository's ignored local
+clone, not pushed. An additional generator-step feature branch now has
+focused contract/DAG/planning and runtime checks, engine build, formatting,
+lint and spec-check passing locally. Its integrated managed-service tests
+cannot start in this sandbox because the owner socket is denied; its real
+Docker case and exact-head CI remain unrun. See the
+[current agent handover](claude-code-handover.md#start-here--state-on-2026-09-30)
+for exact refs, tested evidence and next actions. Neither fork `main` nor
+Kevin's parent repository was changed by this continuation.
+
 ## Current fork state — 2026-09-24 UTC
 
 Foundation [PR #3](https://github.com/MILTONADINA/graph-engineering/pull/3)
