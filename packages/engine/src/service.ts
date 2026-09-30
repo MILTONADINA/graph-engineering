@@ -2320,12 +2320,27 @@ export class GraphEngine {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           }
         }
+        // Only the explicit installed-worker override needs this extra
+        // binding. Keep default dispatch behavior unchanged. A provider kind
+        // changed before generation may not reuse another kind's envelope.
+        const workerKinds =
+          this.config.policy.installedWorkerTimeoutSeconds === undefined
+            ? undefined
+            : new Map(
+                (await this.providers()).map((provider) => [
+                  provider.id,
+                  provider.kind,
+                ]),
+              );
         await runDag({
           steps: run.plan.steps,
           workspace,
           policy: this.config.policy,
           signal,
           checkpoint,
+          workerProviderKind: workerKinds
+            ? (step) => workerKinds.get(step.providerId!)
+            : undefined,
           // resume() refuses without the operator's reconciliation
           // acknowledgement, so a resumed run may resolve a pending patch.
           reconcilePending: resuming,
@@ -2370,6 +2385,10 @@ export class GraphEngine {
             );
             if (!provider)
               throw new Error("DAG worker is no longer configured");
+            if (workerKinds && provider.kind !== state.workerProviderKind)
+              throw new Error(
+                "DAG worker kind changed after its deadline was selected; create a new plan",
+              );
             assertOnPlanSide(
               run.plan,
               provider,

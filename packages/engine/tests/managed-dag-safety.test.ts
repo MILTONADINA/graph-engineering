@@ -38,6 +38,7 @@ import {
   type WorkerInput,
   type WorkerResult,
 } from "../src/workers/api.js";
+import * as installedWorkers from "../src/workers/installed.js";
 
 const directories: string[] = [],
   engines: GraphEngine[] = [];
@@ -2917,6 +2918,201 @@ describe("tester role", () => {
     await expect(plan(engine, [step("one")])).rejects.toThrow(
       "Tester tester is unavailable: Project policy does not allow provider tester (add it to policy.providers with graph-engine provider-enable tester)",
     );
+  });
+});
+
+describe("installed worker completion policy", () => {
+  const mockInstalledDiscovery = () =>
+    vi.spyOn(installedWorkers, "discoverInstalledWorkers").mockResolvedValue([
+      {
+        kind: "claude",
+        executable: "fixture-not-invoked",
+        installed: true,
+        version: "fixture",
+        available: true,
+        authentication: "native-login",
+        supportsSubscription: true,
+        mode: "proposal-only",
+        reason: null,
+        limits: [],
+      },
+    ]);
+
+  it("voids an approved plan when installed-worker completion policy is added", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.requirePlanApproval = true;
+    });
+    const worker = vi.fn(async (input: WorkerInput) => result(input.objective));
+    const engine = await open(root, { worker });
+    const planned = await plan(engine, [step("one")]);
+    engine.store.approvePlan(planned.id);
+    config.policy.installedWorkerTimeoutSeconds = null;
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await expect(engine.start(planned.id)).rejects.toThrow(
+      "Policy changed since planning; create a new plan",
+    );
+    expect(engine.store.runs()).toEqual([]);
+    expect(worker).not.toHaveBeenCalled();
+  });
+
+  it("voids an acknowledged resume when installed-worker completion policy changes", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.requirePlanApproval = true;
+      value.policy.installedWorkerTimeoutSeconds = null;
+    });
+    const worker = vi.fn(async (input: WorkerInput) => result(input.objective));
+    const engine = await open(root, { worker });
+    const planned = await plan(engine, [step("one")]);
+    engine.store.approvePlan(planned.id);
+    vi.spyOn(workspaceModule, "createWorkspace").mockRejectedValueOnce(
+      new Error("Simulated interruption before workspace creation"),
+    );
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("Simulated interruption");
+    config.policy.installedWorkerTimeoutSeconds = 120;
+    await writeJson(path.join(root, PROJECT_FILE), config);
+    await expect(engine.resume(run.id, true)).rejects.toThrow(
+      "Policy changed; create a fresh plan",
+    );
+    expect(engine.store.run(run.id).status).toBe("failed");
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "plan.approval_used"),
+    ).toHaveLength(1);
+    expect(worker).not.toHaveBeenCalled();
+  });
+
+  it("rejects a changed provider kind before dispatching under an installed-worker deadline", async () => {
+    mockInstalledDiscovery();
+    const { root, data } = await fixture((value) => {
+      value.policy.providers = ["local", "helper"];
+      value.policy.inference = "allowlisted";
+      value.policy.network = "allowlisted";
+      value.policy.exportPaths = ["first.js", "second.js"];
+      value.policy.installedWorkerTimeoutSeconds = null;
+    });
+    await configureProvider(data, {
+      id: "helper",
+      kind: "claude",
+      model: "fixture",
+    });
+    const dispatched: string[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        dispatched.push(`${input.provider.id}:${input.provider.kind}`);
+        // The DAG already bound helper's completion-only envelope. A new
+        // kind must not reuse it when the dependent step reaches dispatch.
+        await configureProvider(data, {
+          id: "helper",
+          kind: "local",
+          model: "fixture",
+        });
+        return result(input.objective);
+      }),
+    });
+    const planned = await plan(engine, [
+      step("one"),
+      step("two", ["one"], "helper"),
+    ]);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain(
+      "DAG worker kind changed after its deadline was selected; create a new plan",
+    );
+    expect(dispatched).toEqual(["local:local"]);
+    expect(
+      await readFile(path.join(run.workspace!, "second.js"), "utf8"),
+    ).toContain("= 2");
+  });
+
+  it("keeps installed tester, implementer and repair completion-driven under the same policy", async () => {
+    mockInstalledDiscovery();
+    const { root, data } = await fixture((value) => {
+      value.policy.providers = ["agent"];
+      value.policy.inference = "allowlisted";
+      value.policy.network = "allowlisted";
+      value.policy.exportPaths = ["first.js", "first.test.js"];
+      value.policy.timeoutSeconds = 1;
+      value.policy.installedWorkerTimeoutSeconds = null;
+      value.tester = { providerId: "agent", writes: ["first.test.js"] };
+    });
+    await configureProvider(data, {
+      id: "agent",
+      kind: "claude",
+      model: "fixture",
+    });
+    const seen: { role: string; timeout: number | null | undefined }[] = [];
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => {
+        const role = input.objective.startsWith("Act as the team's tester")
+          ? "tester"
+          : input.objective.startsWith("Repair")
+            ? "repair"
+            : "implementer";
+        seen.push({
+          role,
+          timeout: input.policy.installedWorkerTimeoutSeconds,
+        });
+        expect(input.provider.kind).toBe("claude");
+        expect(input.signal?.aborted).toBe(false);
+        return role === "tester"
+          ? {
+              ...result("one"),
+              proposal: {
+                summary: "Tests for the acceptance criteria",
+                requests: [],
+                changes: [
+                  {
+                    path: "first.test.js",
+                    before: null,
+                    after: "test('first is 5', () => {});\n",
+                  },
+                ],
+              },
+            }
+          : role === "repair"
+            ? {
+                ...result("one"),
+                proposal: {
+                  summary: "Fix first",
+                  requests: [],
+                  changes: [{ path: "first.js", before: "= 3", after: "= 5" }],
+                },
+              }
+            : result("one");
+      }),
+      verify: passesWhen("first.js", "= 5"),
+    });
+    const planned = await plan(engine, [
+      { ...step("one", [], "agent"), writes: ["first.js"] },
+    ]);
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const deadlines = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((milliseconds) =>
+        milliseconds === 1000
+          ? AbortSignal.abort(new Error("Unexpected ordinary worker deadline"))
+          : realTimeout(milliseconds),
+      );
+    // An accidentally retained ordinary DAG cutoff fails immediately rather
+    // than depending on a slow worker or wall-clock sleeps in this fixture.
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    expect(seen).toEqual([
+      { role: "tester", timeout: null },
+      { role: "implementer", timeout: null },
+      { role: "repair", timeout: null },
+    ]);
+    expect(deadlines).not.toHaveBeenCalledWith(1000);
+    expect(
+      await readFile(path.join(run.workspace!, "first.test.js"), "utf8"),
+    ).toContain("first is 5");
+    expect(
+      await readFile(path.join(run.workspace!, "first.js"), "utf8"),
+    ).toContain("= 5");
   });
 });
 

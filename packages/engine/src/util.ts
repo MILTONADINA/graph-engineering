@@ -64,7 +64,8 @@ export function command(
   options: {
     cwd?: string;
     signal?: AbortSignal;
-    timeoutMs?: number;
+    /** Undefined uses 60 seconds; null explicitly disables the deadline. */
+    timeoutMs?: number | null;
     input?: string;
     env?: NodeJS.ProcessEnv;
     maxBytes?: number;
@@ -74,7 +75,10 @@ export function command(
     // Killing on a timer and accepting before a deadline are separate checks.
     // Include spawn time and reject late exits even when the event loop delivers
     // child completion before an overdue timeout callback.
-    const expiresAt = performance.now() + (options.timeoutMs ?? 60000);
+    const expiresAt =
+      options.timeoutMs === null
+        ? undefined
+        : performance.now() + (options.timeoutMs ?? 60000);
     const environment = subprocessEnvironment(options.env ?? process.env);
     const child = spawn(executable, argv, {
       cwd: options.cwd,
@@ -103,16 +107,16 @@ export function command(
       escalation = setTimeout(() => kill("SIGKILL"), 1000);
       escalation.unref();
     };
-    const timeout = setTimeout(
-      terminate,
-      Math.max(0, expiresAt - performance.now()),
-    );
-    timeout.unref();
+    const timeout =
+      expiresAt === undefined
+        ? undefined
+        : setTimeout(terminate, Math.max(0, expiresAt - performance.now()));
+    timeout?.unref();
     const abort = () => terminate();
     options.signal?.addEventListener("abort", abort, { once: true });
     if (options.signal?.aborted) terminate();
     const clean = () => {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       if (escalation) clearTimeout(escalation);
       options.signal?.removeEventListener("abort", abort);
     };
@@ -137,7 +141,11 @@ export function command(
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
       if (overflow) reject(new Error("Command exceeded output limit"));
-      else if (signal || terminated || performance.now() >= expiresAt)
+      else if (
+        signal ||
+        terminated ||
+        (expiresAt !== undefined && performance.now() >= expiresAt)
+      )
         reject(
           new Error(
             `Command terminated (${signal ?? "timeout or cancellation"})`,

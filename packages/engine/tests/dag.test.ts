@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -21,6 +21,7 @@ import type { WorkerResult } from "../src/workers/api.js";
 
 const roots: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0))
     await rm(root, { recursive: true, force: true });
 });
@@ -681,6 +682,118 @@ describe("step write scopes and timeouts", () => {
 });
 
 describe("step time limits", () => {
+  it("omits only installed worker deadlines in completion-driven mode", async () => {
+    const workspace = await fixture();
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const controller = new AbortController();
+    const kinds = ["claude", "codex", "cursor"] as const;
+    const result = await runDag({
+      workspace,
+      policy: { ...DEFAULT_POLICY, installedWorkerTimeoutSeconds: null },
+      steps: kinds.map((kind, index) =>
+        step(kind, index ? [kinds[index - 1]!] : []),
+      ),
+      signal: controller.signal,
+      workerProviderKind: (current) =>
+        kinds.find((kind) => kind === current.id),
+      saveCheckpoint: async () => {},
+      generate: async (current, state) => {
+        expect(state.workerProviderKind).toBe(current.id);
+        // The scheduler also combines its own cancellation controller.
+        expect(state.signal.aborted).toBe(false);
+        return proposal(`${current.id}.txt`, current.id);
+      },
+    });
+    expect(result.appliedStepIds).toEqual([...kinds]);
+    expect(timeout).not.toHaveBeenCalled();
+  });
+
+  it("keeps completion-driven installed worker steps cancellable", async () => {
+    const workspace = await fixture();
+    const controller = new AbortController();
+    await expect(
+      runDag({
+        workspace,
+        policy: { ...DEFAULT_POLICY, installedWorkerTimeoutSeconds: null },
+        steps: [step("tester")],
+        signal: controller.signal,
+        workerProviderKind: () => "claude",
+        saveCheckpoint: async () => {},
+        generate: async (_current, state) => {
+          const pending = untilAborted(
+            new Promise<WorkerResult>(() => {}),
+            state.signal,
+          );
+          controller.abort(new Error("operator cancelled"));
+          return pending;
+        },
+      }),
+    ).rejects.toThrow("DAG execution cancelled");
+    await expect(access(path.join(workspace, "tester.txt"))).rejects.toThrow();
+  });
+
+  it("keeps API, unknown, template and generator deadlines finite with an installed override", async () => {
+    const workspace = await fixture();
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const lookup = vi.fn((current: ExecutionStep) =>
+      current.id === "api" ? ("openai" as const) : undefined,
+    );
+    await runDag({
+      workspace,
+      policy: { ...DEFAULT_POLICY, installedWorkerTimeoutSeconds: null },
+      steps: [
+        step("api"),
+        step("unknown", ["api"]),
+        {
+          id: "template",
+          kind: "template",
+          objective: "Render",
+          dependsOn: ["unknown"],
+          templateId: "toy",
+        },
+        {
+          id: "generator",
+          kind: "generator",
+          objective: "Generate",
+          dependsOn: ["template"],
+          generatorId: "toy",
+        },
+      ],
+      workerProviderKind: lookup,
+      saveCheckpoint: async () => {},
+      generate: async (current) => proposal(`${current.id}.txt`, current.id),
+    });
+    expect(lookup.mock.calls.map(([current]) => current.id)).toEqual([
+      "api",
+      "unknown",
+    ]);
+    expect(timeout.mock.calls).toEqual(
+      Array.from({ length: 4 }, () => [DEFAULT_POLICY.timeoutSeconds * 1000]),
+    );
+  });
+
+  it("uses the explicit finite installed deadline instead of the ordinary envelope", async () => {
+    const workspace = await fixture();
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    await runDag({
+      workspace,
+      policy: {
+        ...DEFAULT_POLICY,
+        timeoutSeconds: 1,
+        installedWorkerTimeoutSeconds: 3,
+      },
+      steps: [step("one")],
+      workerProviderKind: () => "claude",
+      saveCheckpoint: async () => {},
+      generate: async (current, state) => {
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        state.signal.throwIfAborted();
+        return proposal(`${current.id}.txt`, current.id);
+      },
+    });
+    expect(timeout.mock.calls).toEqual([[3000]]);
+  });
+
   it("stops a step that ignores its signal at the step's time limit", async () => {
     const never = new Promise<string>(() => {});
     await expect(

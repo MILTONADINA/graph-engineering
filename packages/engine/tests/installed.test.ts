@@ -627,6 +627,32 @@ describe("Cursor SDK text-only proposals", () => {
     await expect(access(run.options.cwd)).rejects.toThrow();
   });
 
+  it("passes inherited, finite and unlimited wall-clock settings to Cursor without dropping cancellation or output bounds", async () => {
+    const request = input("cursor");
+    delete request.effort;
+    for (const [seconds, expected] of [
+      [undefined, 600_000],
+      [17, 17_000],
+      [null, null],
+    ] as const) {
+      if (seconds !== undefined)
+        request.policy.installedWorkerTimeoutSeconds = seconds;
+      const controller = new AbortController();
+      request.signal = controller.signal;
+      await invokeInstalledWorker(request);
+      expect(nativeCalls.at(-1).options).toMatchObject({
+        signal: controller.signal,
+        timeoutMs: expected,
+        maxBytes: 2_000_000,
+      });
+      if (seconds === null) {
+        controller.abort();
+        await expect(invokeInstalledWorker(request)).rejects.toThrow();
+        expect(nativeCalls).toHaveLength(3);
+      }
+    }
+  });
+
   it("requires an explicit key and both Cursor hosts before launching", async () => {
     const request = input("cursor");
     delete request.effort;
@@ -847,6 +873,29 @@ describe("native Claude proposals", () => {
     abort.abort();
     await expect(invokeInstalledWorker(request)).rejects.toThrow();
   });
+
+  it("passes finite and unlimited wall-clock settings to Claude while retaining cancellation and output bounds", async () => {
+    const request = input();
+    for (const [seconds, expected] of [
+      [17, 17_000],
+      [null, null],
+    ] as const) {
+      request.policy.installedWorkerTimeoutSeconds = seconds;
+      const controller = new AbortController();
+      request.signal = controller.signal;
+      await invokeInstalledWorker(request);
+      expect(nativeCalls.at(-1).options).toMatchObject({
+        signal: controller.signal,
+        timeoutMs: expected,
+        maxBytes: 2_000_000,
+      });
+      if (seconds === null) {
+        controller.abort();
+        await expect(invokeInstalledWorker(request)).rejects.toThrow();
+        expect(nativeCalls).toHaveLength(2);
+      }
+    }
+  });
 });
 
 describe("Codex restricted-read proposals", () => {
@@ -1021,5 +1070,50 @@ describe("Codex restricted-read proposals", () => {
     await rejected;
     expect(child.kill).toHaveBeenCalled();
     await expect(access(nativeCalls[0].options.cwd)).rejects.toThrow();
+  });
+
+  it("schedules only configured Codex wall-clock watchdogs and still cancels an unlimited stalled turn", async () => {
+    const timers = vi.spyOn(globalThis, "setTimeout");
+    for (const [seconds, expected] of [
+      [undefined, 600_000],
+      [17, 17_000],
+      [null, null],
+    ] as const) {
+      const request = input("codex");
+      if (seconds !== undefined)
+        request.policy.installedWorkerTimeoutSeconds = seconds;
+      const before = timers.mock.calls.length;
+      expect((await invokeInstalledWorker(request)).proposal).toEqual(proposal);
+      const scheduled = timers.mock.calls
+        .slice(before)
+        .map(([, delay]) => delay);
+      if (expected === null) {
+        // Normal disposal still schedules the one-second hard-stop fallback;
+        // null must not create any worker wall-clock watchdog.
+        expect(scheduled).toEqual([1_000]);
+      } else expect(scheduled).toContain(expected);
+    }
+
+    transportMode = "pending";
+    const priorRequests = rpcRequests.length;
+    const priorCalls = nativeCalls.length;
+    const request = input("codex");
+    request.policy.installedWorkerTimeoutSeconds = null;
+    const controller = new AbortController();
+    request.signal = controller.signal;
+    const running = invokeInstalledWorker(request);
+    const rejected = expect(running).rejects.toThrow("cancelled");
+    await vi.waitFor(() =>
+      expect(
+        rpcRequests
+          .slice(priorRequests)
+          .some((rpc) => rpc.method === "turn/start"),
+      ).toBe(true),
+    );
+    expect(nativeCalls).toHaveLength(priorCalls + 1);
+    controller.abort();
+    await rejected;
+    expect(child.kill).toHaveBeenCalled();
+    await expect(access(nativeCalls.at(-1).options.cwd)).rejects.toThrow();
   });
 });
