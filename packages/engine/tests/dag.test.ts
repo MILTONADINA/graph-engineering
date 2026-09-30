@@ -732,7 +732,7 @@ describe("step time limits", () => {
     await expect(access(path.join(workspace, "tester.txt"))).rejects.toThrow();
   });
 
-  it("keeps API, local, unknown and template deadlines finite with an installed override", async () => {
+  it("keeps API, local, unknown, template and generator deadlines finite with an installed override", async () => {
     const workspace = await fixture();
     const timeout = vi.spyOn(AbortSignal, "timeout");
     const lookup = vi.fn((current: ExecutionStep) =>
@@ -756,6 +756,13 @@ describe("step time limits", () => {
           dependsOn: ["unknown"],
           templateId: "toy",
         },
+        {
+          id: "generator",
+          kind: "generator",
+          objective: "Generate",
+          dependsOn: ["template"],
+          generatorId: "toy",
+        },
       ],
       workerProviderKind: lookup,
       saveCheckpoint: async () => {},
@@ -767,7 +774,7 @@ describe("step time limits", () => {
       "unknown",
     ]);
     expect(timeout.mock.calls).toEqual(
-      Array.from({ length: 4 }, () => [DEFAULT_POLICY.timeoutSeconds * 1000]),
+      Array.from({ length: 5 }, () => [DEFAULT_POLICY.timeoutSeconds * 1000]),
     );
   });
 

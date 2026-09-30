@@ -12,10 +12,17 @@ choice of installed-worker wall-clock behavior without removing finite bounds
 from deterministic tools or API workers, widening worker permissions, or making
 Claude Code orchestration depend on a Codex session.
 
-This narrow approval/repair/deadline release has 42 distinct focused local
-cases passing, plus successful dependency and engine builds. Final-head CI and
-merge remain pending; no merged consumer pin or live provider inference is
-claimed here. Local evidence does not promote this spec to implemented.
+The narrow approval/repair/deadline release merged through
+[PR #118](https://github.com/MILTONADINA/graph-engineering/pull/118) at
+`d22d69ad0f08bbc95fa2209d42171234817f780d`. All nine required jobs passed on
+checked head `e25565b09aa974dd657f1b273a570a6cac903d10` in
+[CI run 36759128007](https://github.com/MILTONADINA/graph-engineering/actions/runs/36759128007),
+attempt 1, and scoped source/contract review found no blockers before the
+identical-tree merge. Its 42 focused local cases and dependency/engine builds
+are separate evidence, not live provider inference. AC3 now additionally
+covers the generator kind on the independent feature branch while preserving
+API/local coverage; that expanded focused case passed locally. Keep this expanded spec `ready` until that feature's own
+exact-head CI and review pass; the narrow release's merge is not pending.
 
 ## Acceptance criteria
 
@@ -31,10 +38,10 @@ claimed here. Local evidence does not promote this spec to implemented.
   - Test: packages/engine/tests/util.test.ts :: retains the default deadline when timeoutMs is undefined
   - Test: packages/engine/tests/util.test.ts :: still rejects cancellation and clears its kill timer without a deadline
   - Test: packages/engine/tests/util.test.ts :: still rejects output overflow without a deadline
-- AC3: Eligible installed-worker DAG generation uses the same selection, including tester steps and subsequent implementation/repair calls. Its cancellation remains live. API/local, unknown and template steps retain the ordinary finite envelope; an explicit installed deadline longer than that envelope is not prematurely truncated by it.
+- AC3: Eligible installed-worker DAG generation uses the same selection, including tester steps and subsequent implementation/repair calls. Its cancellation remains live. API/local, unknown, template and generator steps retain the ordinary finite envelope; an explicit installed deadline longer than that envelope is not prematurely truncated by it.
   - Test: packages/engine/tests/dag.test.ts :: omits only installed worker deadlines in completion-driven mode
   - Test: packages/engine/tests/dag.test.ts :: keeps completion-driven installed worker steps cancellable
-  - Test: packages/engine/tests/dag.test.ts :: keeps API, local, unknown and template deadlines finite with an installed override
+  - Test: packages/engine/tests/dag.test.ts :: keeps API, local, unknown, template and generator deadlines finite with an installed override
   - Test: packages/engine/tests/dag.test.ts :: uses the explicit finite installed deadline instead of the ordinary envelope
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: keeps installed tester, implementer and repair completion-driven under the same policy
 - AC4: With an explicit override, the service binds each DAG worker's provider kind when selecting the envelope. A different kind at dispatch is refused before invocation, so another provider cannot reuse an installed-worker envelope with no deadline.
@@ -53,7 +60,7 @@ worker-step deadlines; native clients/providers can retain their own limits.
 Process cancellation/termination, output and turn bounds, export controls,
 schema validation and installed-client capability checks stay in place.
 Worker-slot waits and capability probes remain bounded, as do API requests,
-templates, verification and security scans. The setting does not change any
+templates, generators, verification and security scans. The setting does not change any
 write scope, credential, provider enablement or budget. Installed workers still
 refuse numeric monetary caps because they cannot enforce them. The operator
 applies a complete reviewed policy with `graph-engine policy --file <policy.json>`

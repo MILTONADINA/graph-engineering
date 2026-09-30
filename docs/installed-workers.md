@@ -31,7 +31,7 @@ client-safety checks remain enforced. Only Graph's installed-call and eligible
 worker-step deadlines are removed; native clients and providers can still
 enforce their own limits. Fixed capability/version/authentication probes and
 worker-slot waits keep their existing bounds. API/local inference, templates,
-verification and security scans keep their own finite limits; this field does
+generators, verification and security scans keep their own finite limits; this field does
 not relax them. Installed clients still cannot enforce a numeric monetary cap
 and remain refused under one. No cost, provider, credential or export setting
 is changed by selecting a deadline.
@@ -45,10 +45,17 @@ a new plan and obtain its required approval; reapproving an old plan does not
 repair its obsolete policy binding. The CLI/MCP interface remains tool-neutral:
 Claude Code orchestration requires no running Codex session or service.
 
-This narrow approval/repair/deadline release has 42 distinct focused local
-cases passing, with dependency and engine builds also passing. Its final-head
-CI and merge remain pending; no live inference was performed for this extension.
-See the
+The narrow approval/repair/deadline release merged through
+[PR #118](https://github.com/MILTONADINA/graph-engineering/pull/118) at
+`d22d69ad0f08bbc95fa2209d42171234817f780d`. Its checked head
+`e25565b09aa974dd657f1b273a570a6cac903d10` passed all nine required jobs in
+[CI run 36759128007](https://github.com/MILTONADINA/graph-engineering/actions/runs/36759128007),
+attempt 1, with scoped source/contract review and an identical-tree merge.
+It also had 42 distinct focused local cases and successful dependency/engine
+builds; no live installed-client inference is claimed. The separate generator
+feature now extends the finite-deadline regression alongside API/local,
+unknown and template coverage. That expanded case passed locally but still needs its own
+feature-head CI and review; the merged release is not evidence for it. See the
 [installed-worker deadline spec](../specs/providers/installed-worker-deadlines.md).
 
 ## Claude Code
