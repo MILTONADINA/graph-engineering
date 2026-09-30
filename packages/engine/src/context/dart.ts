@@ -30,12 +30,18 @@ export {
   validateDartDefinition,
 } from "./dart-snapshot.js";
 
-export const DART_VERSION = "snapshot-dart-analyzer:1/sdk:3.13.3";
+export const DART_VERSION = "snapshot-dart-analyzer:2/sdk:3.13.3";
 export const DART_ANALYZER_VERSION = "3.13.3-analysis-server-aot";
 export const DART_SOURCE_IMAGE =
   "dart@sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738";
 export const DART_SECCOMP_SHA256 =
   "acc39fa1d092743ddd053e8ab0557ea989c724ed5fb554665b40cd7132160e44";
+export const DART_ENTRYPOINT = Object.freeze([
+  "/opt/graph-dart/bin/env",
+  "-i",
+  "--",
+  "/opt/graph-dart/bin/dartaotruntime",
+]);
 const IMAGE_TAG = "graph-dart-analyzer:local";
 const DOCKER = "/usr/bin/docker";
 const PROFILE = fileURLToPath(
@@ -95,7 +101,9 @@ type ImageInspect = {
 
 /** Accept only the image metadata produced by the pinned minimal fixture.
  * BuildKit supplies PATH even for FROM scratch, so the fixture sets it to an
- * empty value; no ambient or additional image environment is trusted. */
+ * empty value. Docker/runc add process defaults (including HOME), so the fixed
+ * entrypoint must clear the environment before execing the absolute AOT path.
+ * Image metadata alone does not prove the analyzer's process environment. */
 export function validDartImage(image: unknown): image is ImageInspect {
   if (image === null || typeof image !== "object" || Array.isArray(image))
     return false;
@@ -113,8 +121,8 @@ export function validDartImage(image: unknown): image is ImageInspect {
     labels?.["org.graph-engineering.dart.seccomp-sha256"] ===
       DART_SECCOMP_SHA256 &&
     Array.isArray(entrypoint) &&
-    entrypoint.length === 1 &&
-    entrypoint[0] === "/opt/graph-dart/bin/dartaotruntime" &&
+    entrypoint.length === DART_ENTRYPOINT.length &&
+    entrypoint.every((value, index) => value === DART_ENTRYPOINT[index]) &&
     Array.isArray(environment) &&
     environment.length === 1 &&
     environment[0] === "PATH="
