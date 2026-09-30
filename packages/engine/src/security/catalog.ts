@@ -100,6 +100,8 @@ export const LOCKFILES = [
   "composer.lock",
   "gemfile.lock",
   "packages.lock.json",
+  // Dart and Flutter; OSV-Scanner reads it as the Pub ecosystem.
+  "pubspec.lock",
 ];
 const liveTargets = (profile: ProjectProfile) =>
   profile.authorizedTargets.length

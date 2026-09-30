@@ -134,7 +134,8 @@ worker created, and records `security.scan_completed`.
   failing unrelated work.
 - Dependency scanning needs a downloaded OSV database. Without one, the
   skipped scan is recorded as `security.tool_not_run`, and a run that
-  changed a lockfile fails rather than passing unscanned. When the project
+  changed a lockfile (Dart and Flutter's `pubspec.lock` among them) fails
+  rather than passing unscanned. When the project
   has lockfiles but no database, starting a run records
   `security.database_missing` and `graph-engine run` prints it as a
   warning, before any worker is paid; the run is not refused, since one
@@ -301,6 +302,9 @@ and 1.1.1.1 are unreachable from it; CI runs these in the scanner job.
   flagging it stale after seven days. A lockfile whose ecosystem has no
   downloaded database makes the scan incomplete (so a run stops) with a
   message to run `security-db-update` again; it is never skipped silently.
+  OSV-Scanner reads `pubspec.lock` as the Pub ecosystem, so a database
+  downloaded before a project had one lacks Pub until `security-db-update`
+  runs again.
   Trivy's database is not supported yet.
 - **Dynamic testing** of a running application is lawful and safe only
   against a target the owner is entitled to test. Only the ZAP baseline
