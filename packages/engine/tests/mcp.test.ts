@@ -997,6 +997,136 @@ it("lets a connected client plan, start, follow, list and cancel runs only when 
   }
 });
 
+it("refuses a connected client's run_start and the dashboard's start of a plan that does not publish until a person approves it when the project requires plan approval", async () => {
+  const { checked, writeJson } = await import("../src/util.js");
+  const { configureProvider, PROJECT_FILE } = await import("../src/project.js");
+  const { createServer } = await import("../src/server.js");
+  const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-approval-"));
+  await checked("git", ["init", "-b", "dev"], { cwd: root });
+  await checked("git", ["config", "user.name", "Graph Test"], { cwd: root });
+  await checked("git", ["config", "user.email", "test@example.invalid"], {
+    cwd: root,
+  });
+  await writeFile(
+    path.join(root, "math.cjs"),
+    "exports.add = (a, b) => a - b;\n",
+  );
+  const config = await initializeProject(root);
+  config.policy.providers = ["local"];
+  config.policy.requirePlanApproval = true;
+  config.verification = [{ image: "fixture", argv: ["test"] }];
+  await writeJson(path.join(root, PROJECT_FILE), config);
+  await checked("git", ["add", "."], { cwd: root });
+  await checked("git", ["commit", "-m", "test: fixture"], { cwd: root });
+  const data = projectDataDir(config.projectId);
+  await configureProvider(data, {
+    id: "local",
+    kind: "local",
+    model: "fixture",
+  });
+  const engine = await GraphEngine.open(root, {
+    dockerAvailable: async () => true,
+    worker: async () => ({
+      model: "fixture",
+      proposal: {
+        summary: "Fix addition",
+        requests: [],
+        changes: [{ path: "math.cjs", before: "a - b", after: "a + b" }],
+      },
+      usage: {
+        inputTokens: 1,
+        outputTokens: 1,
+        cachedTokens: 0,
+        costUsd: 0,
+        estimated: false,
+      },
+    }),
+    verify: async (_workspace, checks, _policy, snapshotHash) =>
+      checks.map((check) => ({
+        ...check,
+        code: 0,
+        stdout: "passed",
+        stderr: "",
+        snapshotHash,
+      })),
+  });
+  const server = createMcpServer(engine, { client: "local", allowRun: true });
+  const client = new Client({ name: "approval-test", version: "1.0.0" });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { app } = createServer(engine, "test-token");
+  const json = (value: unknown) =>
+    JSON.parse(
+      (value as { content: { text: string }[] }).content[0]!.text,
+    ) as Record<string, any>;
+  try {
+    const plan = json(
+      await client.callTool({
+        name: "plan_create",
+        arguments: { objective: "Fix addition", acceptance: ["2 + 3 is 5"] },
+      }),
+    );
+    expect(engine.store.plan(plan.id).publication).toBe("none");
+    const refusal = `graph-engine plan-approve ${plan.id} --yes`;
+    const refused = await client.callTool({
+      name: "run_start",
+      arguments: { planId: plan.id },
+    });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused)).toContain(refusal);
+    const dashboard = await app.inject({
+      method: "POST",
+      url: "/api/runs",
+      headers: { host: "localhost", authorization: "Bearer test-token" },
+      payload: { planId: plan.id },
+    });
+    expect(dashboard.statusCode).toBe(400);
+    expect(dashboard.json().error).toContain(refusal);
+    expect(engine.store.runs()).toEqual([]);
+    expect(engine.store.planApproved(plan.id)).toBe(false);
+
+    // A person approves it on the command line (plan-approve --yes).
+    const approval = engine.store.approvePlan(plan.id);
+    const started = json(
+      await client.callTool({
+        name: "run_start",
+        arguments: { planId: plan.id },
+      }),
+    );
+    const run = await engine.wait(started.id);
+    expect(run.status).toBe("succeeded");
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "plan.approval_used")
+        .map((event) => event.data),
+    ).toEqual([
+      {
+        planSha256: approval.planSha256,
+        approvedAt: approval.approvedAt,
+        approvedVia: "non-interactive",
+      },
+    ]);
+    // Approval is never a tool; the start tool says what the policy needs.
+    const tools = (await client.listTools()).tools;
+    expect(tools.some((tool) => /approve|accept/.test(tool.name))).toBe(false);
+    expect(
+      tools.find((tool) => tool.name === "run_start")?.description,
+    ).toContain(
+      "When the project policy sets requirePlanApproval, every plan, including one that does not publish, needs that approval",
+    );
+  } finally {
+    await app.close();
+    await client.close();
+    await server.close();
+    await engine.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(data, { recursive: true, force: true });
+  }
+});
+
 it("refuses a cloud client's plan whose workers, tester and reviewer are not all local or all non-local", async () => {
   const { checked, writeJson } = await import("../src/util.js");
   const { configureProvider, PROJECT_FILE } = await import("../src/project.js");

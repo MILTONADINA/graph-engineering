@@ -53,6 +53,14 @@ export interface ProjectPolicy {
    */
   workingSet?: string[];
   publication: "none" | "commit" | "draft-pr";
+  /**
+   * Every plan, including one that does not publish, needs a person's
+   * approval (`graph-engine plan-approve <id> --yes`) before a run of it
+   * starts or resumes, whoever starts it; `graph-engine run` alone does not
+   * count as that approval. Absent means false. Not in DEFAULT_POLICY, so
+   * setting it changes the policy hash and voids plans made without it.
+   */
+  requirePlanApproval?: boolean;
   maxWorkers: number;
   maxAttempts: number;
   maxContextTokens: number;
@@ -434,6 +442,7 @@ export const policySchema = {
       },
     },
     publication: { enum: ["none", "commit", "draft-pr"] },
+    requirePlanApproval: { type: "boolean" },
     maxWorkers: { type: "integer", minimum: 1, maximum: 8 },
     maxAttempts: { type: "integer", minimum: 1, maximum: 10 },
     maxContextTokens: { type: "integer", minimum: 256, maximum: 1000000 },

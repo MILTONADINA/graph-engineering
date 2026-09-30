@@ -118,6 +118,7 @@ const PHASES: Record<string, string> = {
   plan: "plan",
   decompose: "plan",
   "plan-approve": "plan",
+  "plan-status": "plan",
   run: "run",
   resume: "run",
   "security-scan": "security",

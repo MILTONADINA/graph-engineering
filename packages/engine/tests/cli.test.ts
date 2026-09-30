@@ -218,11 +218,13 @@ async function settled(child: ChildProcess, limitMs = 30_000) {
 // records the check's process ID and every other docker command it is
 // given. A plan made under `publication` commits or opens a PR. With
 // `slowRemove`, removing a check container takes 3 s, so the cleanup that
-// cancelling a run performs is still going on for that long.
+// cancelling a run performs is still going on for that long. With
+// `requirePlanApproval`, the plan is made under a policy that requires a
+// person's approval of every plan.
 async function checkProject(
   check: "hung" | "passing",
   publication: "none" | "commit" = "none",
-  { slowRemove = false } = {},
+  { slowRemove = false, requirePlanApproval = false } = {},
 ) {
   const { root, data, graph } = await project();
   const server = createServer((request, response) => {
@@ -262,10 +264,11 @@ async function checkProject(
     `http://127.0.0.1:${port}/v1`,
   );
   await graph("check-add", "fixture:local", "node", "--test");
-  if (publication !== "none") {
+  if (publication !== "none" || requirePlanApproval) {
     const projectFile = path.join(root, ".graph/project.json");
     const config = JSON.parse(await readFile(projectFile, "utf8"));
     config.policy.publication = publication;
+    if (requirePlanApproval) config.policy.requirePlanApproval = true;
     await writeFile(projectFile, `${JSON.stringify(config, null, 2)}\n`);
   }
   await writeFile(
@@ -321,6 +324,7 @@ async function checkProject(
     PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
   };
   return {
+    root,
     data,
     planId: JSON.parse(plan.stdout).id as string,
     pidFile,
@@ -1717,7 +1721,211 @@ describe("command line", () => {
     ]);
     expect(output).toHaveProperty("routing");
     expect(output.approved).toBe(false);
+    // The content hash an approval binds, for tools that bind to it; the
+    // stored approval is plan-status's to report, not part of the plan shown.
+    expect(output.planSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(output).not.toHaveProperty("approval");
+    expect(output).not.toHaveProperty("approvalMatchesPlan");
   }, 120_000);
+
+  it("approves several plans only with --expect giving each plan's current planSha256, and none when one is missing or differs", async () => {
+    const { graph } = await project();
+    await graph("init");
+    await graph(
+      "provider-add",
+      "qwen",
+      "local",
+      "fixture",
+      "--endpoint",
+      "http://127.0.0.1:1/v1",
+    );
+    const planned = async (objective: string) => {
+      const plan = await graph(
+        "plan",
+        objective,
+        "--accept",
+        "The tests pass",
+        "--provider",
+        "qwen",
+      );
+      expect(plan.code).toBe(0);
+      return JSON.parse(plan.stdout).id as string;
+    };
+    const first = await planned("Fix addition");
+    const second = await planned("Fix subtraction");
+    const approvedCount = async () =>
+      (
+        JSON.parse((await graph("plan-status", first, second)).stdout) as {
+          approved: boolean;
+        }[]
+      ).filter((status) => status.approved).length;
+    const shown = await graph("plan-approve", first, second);
+    expect(shown.code).toBe(0);
+    const listed = JSON.parse(shown.stdout) as { planSha256: string }[];
+    const hashes = listed.map((plan) => plan.planSha256);
+    expect(listed).toEqual([
+      expect.objectContaining({
+        planId: first,
+        approved: false,
+        next: `Review the plans above, then run graph-engine plan-approve ${first} ${second} --yes --expect ${hashes.join(",")}`,
+      }),
+      expect.objectContaining({ planId: second, approved: false }),
+    ]);
+    // Without --expect, nothing is approved and the current hashes are listed.
+    const bare = await graph("plan-approve", first, second, "--yes");
+    expect(bare.code).toBe(1);
+    expect(bare.stderr).toContain(
+      "Approving several plans at once needs --expect with each plan's current planSha256",
+    );
+    expect(bare.stderr).toContain(hashes.join(","));
+    expect(await approvedCount()).toBe(0);
+    // One wrong hash approves neither plan.
+    const wrong = await graph(
+      "plan-approve",
+      first,
+      second,
+      "--yes",
+      "--expect",
+      `${hashes[0]},${"0".repeat(64)}`,
+    );
+    expect(wrong.code).toBe(1);
+    expect(wrong.stderr).toContain(
+      `Plan ${second} does not match the planSha256 --expect gives, so nothing was approved`,
+    );
+    expect(wrong.stderr).toContain(hashes.join(","));
+    expect(await approvedCount()).toBe(0);
+    // So do too few hashes, a repeated plan, and a wrong hash for one plan.
+    for (const args of [
+      [first, second, "--yes", "--expect", hashes[0]!],
+      [first, first, "--yes", "--expect", `${hashes[0]},${hashes[0]}`],
+      [first, "--yes", "--expect", hashes[1]!],
+    ]) {
+      const refused = await graph("plan-approve", ...args);
+      expect(refused.code).toBe(1);
+    }
+    expect(await approvedCount()).toBe(0);
+    // Each plan's current hash, in the order named, approves both at once.
+    const approved = await graph(
+      "plan-approve",
+      first,
+      second,
+      "--yes",
+      "--expect",
+      hashes.join(","),
+    );
+    expect(approved.code).toBe(0);
+    expect(JSON.parse(approved.stdout)).toEqual([
+      expect.objectContaining({
+        planId: first,
+        approved: true,
+        planSha256: hashes[0],
+        approvedVia: "non-interactive",
+      }),
+      expect.objectContaining({
+        planId: second,
+        approved: true,
+        planSha256: hashes[1],
+        approvedVia: "non-interactive",
+      }),
+    ]);
+    expect(await approvedCount()).toBe(2);
+  }, 120_000);
+
+  // The fake docker is a shell script, which Windows cannot run.
+  it.skipIf(process.platform === "win32")(
+    "refuses graph-engine run of a plan that does not publish until plan-approve --yes when the project requires plan approval, and the run records that non-interactive approval",
+    async () => {
+      const { root, data, planId, graph, startRun } = await checkProject(
+        "passing",
+        "none",
+        { requirePlanApproval: true },
+      );
+      const { projectId } = JSON.parse(
+        await readFile(path.join(root, ".graph/project.json"), "utf8"),
+      );
+      // Every row of the run database a plan's status could touch.
+      const rows = () => {
+        const db = new Database(
+          path.join(data, "projects", projectId, "runs.sqlite"),
+          { readonly: true },
+        );
+        try {
+          return ["plans", "plan_approvals", "runs", "run_events"].map(
+            (table) => db.prepare(`SELECT * FROM ${table}`).all(),
+          );
+        } finally {
+          db.close();
+        }
+      };
+      const refused = await settled(startRun(planId), 60_000);
+      expect(refused.exit).toEqual([1, null]);
+      expect(refused.stderr).toContain(
+        `A person reviews it with graph-engine plan-approve ${planId} and approves it with graph-engine plan-approve ${planId} --yes; graph-engine run does not count as approval here`,
+      );
+      // plan-status reports the plan unapproved and changes nothing.
+      const stored = rows();
+      const unapproved = await graph("plan-status", planId);
+      expect(unapproved.code).toBe(0);
+      const before = JSON.parse(unapproved.stdout);
+      expect(before).toEqual({
+        planId,
+        planSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        approved: false,
+        approval: null,
+        approvalMatchesPlan: false,
+      });
+      expect(rows()).toEqual(stored);
+      const shown = JSON.parse((await graph("plan-approve", planId)).stdout);
+      expect(shown).toMatchObject({
+        planId,
+        planSha256: before.planSha256,
+        approved: false,
+      });
+      const approved = await graph("plan-approve", planId, "--yes");
+      expect(approved.code).toBe(0);
+      const approval = JSON.parse(approved.stdout);
+      // The command's standard input is not a terminal here.
+      expect(approval).toMatchObject({
+        planId,
+        approved: true,
+        planSha256: before.planSha256,
+        approvedVia: "non-interactive",
+      });
+      const approvedRows = rows();
+      const status = await graph("plan-status", planId);
+      expect(JSON.parse(status.stdout)).toEqual({
+        planId,
+        planSha256: before.planSha256,
+        approved: true,
+        approval: {
+          planId,
+          approvedAt: approval.approvedAt,
+          planSha256: before.planSha256,
+          approvedVia: "non-interactive",
+        },
+        approvalMatchesPlan: true,
+      });
+      expect(rows()).toEqual(approvedRows);
+      const started = await settled(startRun(planId), 120_000);
+      expect(started.exit).toEqual([0, null]);
+      const run = JSON.parse(started.stdout);
+      expect(run.status).toBe("succeeded");
+      // The run's receipt names the approval it started under.
+      const receipt = JSON.parse((await graph("run-receipt", run.id)).stdout);
+      expect(
+        (receipt.events as { type: string; data: unknown }[])
+          .filter((event) => event.type === "plan.approval_used")
+          .map((event) => event.data),
+      ).toEqual([
+        {
+          planSha256: before.planSha256,
+          approvedAt: approval.approvedAt,
+          approvedVia: "non-interactive",
+        },
+      ]);
+    },
+    300_000,
+  );
 
   it("names memory-accept as how a person accepts a cited knowledge finding", async () => {
     const { graph } = await project();
