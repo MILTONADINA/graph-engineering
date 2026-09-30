@@ -40,8 +40,9 @@ cancelled during `npm run check`, with no recorded test failure or known
 cancellation cause. This session did not cancel or rerun it. The required
 checked-head run and identical-tree merge above remain the release evidence;
 do not describe post-merge CI as green. No live provider inference is claimed.
-Included PRs #112/#113 are closed; PRs #114–#117
-remain separate feature work and were not prerequisites for this release.
+Included PRs #112/#113 are closed; the separate PRs #114–#117 feature stack
+was later delivered through PR #119 and closed with its merge evidence, with
+branches retained. It was not a prerequisite for this release.
 
 Included contracts:
 
@@ -108,17 +109,47 @@ runtime change. The legacy unscoped-repair and tester-protection cases passed
 on this binding. Changed-source lint/format, docs formatting and spec-check
 passed. These local tests are mocked or synthetic, not native client inference.
 They preceded the completed CI and review above; neither evidence set proves
-the later Dart/generator feature head. The deadline spec remains `ready` for
-its newly expanded generator AC3 coverage, which needs the separate feature's
-own CI and review; the narrow release itself is already merged.
+the later Dart/generator feature head. Expanded generator deadline AC3 now
+has its separate feature-release CI and review below; the narrow approval
+release remains independently adoptable.
 
-### Remaining Dart and generator release
+### Dart and generator release
 
-[PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119) contains
-the Dart syntax, model-role, generator and analyzer stack based on the merged
-approval release. It is not a reviewed merged pin. The diagnostic fixes were
-developed on `fix/dart-binding-native-preflight-20260930`; keep that work and the
-unfinished feature release distinct from the completed approval pin above.
+[PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119) merged
+the Dart syntax, model-role, generator and analyzer stack into fork `dev` on
+2026-09-30 at 21:33:03 UTC. The reviewed runtime-release pin is
+`09427fe33a273f8426580b806eafdb5717e702a7`. Its exact checked head,
+`84dcbbe162e4cf90883a5095c2ac912fce74ffd4`, shares Git tree
+`76d24aebb95eeb1d431fc23d0973220846d8b37b` with the merged commit.
+[CI run 36777117238](https://github.com/MILTONADINA/graph-engineering/actions/runs/36777117238),
+attempt 1, passed all nine required jobs on that checked head. Independent
+scoped agent review and main-session review found no blockers; this is not
+an external human approval claim. The source manifest is
+`cb2878c24080100d101056e23b1db9f404d6b00ac37b99c8ede37bb67ea4e07b`
+over 121 engine source files.
+
+| Required job                  | Successful job ID |
+| ----------------------------- | ----------------- |
+| `sidecar`                     | `110097698623`    |
+| `platform (ubuntu-24.04-arm)` | `110097698772`    |
+| `generated-apps`              | `110097698832`    |
+| `sealed-public-intake`        | `110097698875`    |
+| `historical-replays`          | `110097698893`    |
+| `sealed-oracle`               | `110097698919`    |
+| `platform (windows-2025)`     | `110097698934`    |
+| `platform (macos-15)`         | `110097698941`    |
+| `platform (ubuntu-24.04)`     | `110097698965`    |
+
+This is checked-head, identical-tree merge evidence, not a claim about a
+separate post-merge CI run. The runtime pin stays fixed when documentation
+follow-ups merge. The earlier `d22d69a…` pin remains the independent
+approval-only release; consumers do not need Dart or generators to adopt it.
+
+#### Feature validation history (historical)
+
+The diagnostic fixes below were developed on
+`fix/dart-binding-native-preflight-20260930`. Failed or partial historical
+runs are retained to explain the corrections, not substituted for final CI.
 
 The older native Dart CI attempt failed the runtime-discovery guard. The
 explicit empty-`PATH` image-metadata correction has three passing focused
@@ -206,15 +237,16 @@ passed on exact `d7612cd08b5eeabd6a6d7cd374c3924a464c1ce4`; job
 This focused result is not a replacement for all nine final-head checks;
 failed and diagnostic-only preflights are not release evidence.
 
-The feature release still needs all nine required exact-head checks and
-review before fork-only merge. Native
-CI must exercise both Dart binding/provenance and bounded-timeout cases, plus
-the generator isolation/capture case. Dart remains `ready` and generators
-`draft` until their release evidence justifies changing those statuses.
-The expanded mixed deadline regression passed as one focused local case,
-retaining API/local/unknown coverage and confirming finite template/generator
-envelopes under an installed-worker override. Its feature-head CI remains
-pending. The linked [toy Flutter widget](flutter-widget-fixture.md) is a
+#### Release boundaries
+
+The final nine-job CI and scoped review above completed the feature-release
+gate, including native Dart binding/provenance, empty-AOT-environment and
+bounded-timeout cases, and generator isolation/capture. The Dart, generator
+and expanded installed-worker deadline specs are `implemented`. Mixed
+deadline coverage retains API/local/unknown cases and finite template/generator
+envelopes under an installed-worker override. These synthetic fixtures are
+not live-provider inference, production calibration or held-out promotion
+evidence. The linked [toy Flutter widget](flutter-widget-fixture.md) is a
 documentation fixture only; Flutter native CI and end-to-end recipe proof
 remain deferred. See the
 [feature design](dart-and-generator-steps-design.md) for its requirements.

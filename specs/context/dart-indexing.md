@@ -1,7 +1,7 @@
 # Dart syntax indexing
 
 - ID: dart-indexing
-- Status: ready
+- Status: implemented
 - Area: context
 
 ## Problem
@@ -43,9 +43,28 @@ Dart and Flutter repositories need bounded, source-backed context: declarations 
 - AC6: A repository without Dart files keeps the snapshot identity it had before Dart indexing existed, key for key, so its stored snapshots and plans stay valid. A repository with Dart files adds a Dart-only extractor version to its identity, and cached Dart syntax carries that version, so a change to Dart extraction re-parses only Dart files.
   - Test: packages/engine/tests/context.test.ts :: keeps snapshot identity unchanged for repositories without Dart files
 
+## Evidence
+
+[PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119) merged
+into fork `dev` at `09427fe33a273f8426580b806eafdb5717e702a7` on
+2026-09-30 at 21:33:03 UTC. Exact checked head
+`84dcbbe162e4cf90883a5095c2ac912fce74ffd4` passed all nine required jobs in
+[CI run 36777117238](https://github.com/MILTONADINA/graph-engineering/actions/runs/36777117238),
+attempt 1. Linux x64 job `110097698965` passed the native direct/imported
+binding/provenance, empty-AOT-environment and real bounded-timeout cases.
+Independent scoped agent and main-session review found no blockers; no
+external human approval is claimed. Checked and merged commits share tree
+`76d24aebb95eeb1d431fc23d0973220846d8b37b`; the source manifest is
+`cb2878c24080100d101056e23b1db9f404d6b00ac37b99c8ede37bb67ea4e07b`
+over 121 files. Earlier diagnostic failures and partial successes remain
+historical evidence in the [handover](../../docs/claude-code-handover.md#dart-and-generator-release).
+This native synthetic package does not establish full-repository typechecking,
+Flutter execution, live-model quality or held-out promotion evidence. No
+separate post-merge CI success is inferred.
+
 ## Security considerations
 
-Repository content is untrusted. Syntax indexing only parses Dart text with the pinned WebAssembly grammar and downloads nothing. Dart files pass the same gitignore, exclusion, size and credential screening as every other file before they are parsed. The optional analyzer copies only checked Dart source and an engine-owned package config to a private disposable view. It never receives repository `analysis_options.yaml`, package dependencies, plugins or `.dart_tool`; it invokes the AOT analysis snapshot directly, not `dart`, `flutter`, pub or a build runner. A checked profile blocks process creation and the container has no network, a read-only root, bounded memory and a deadline. The profile cannot prevent later same-process exec, so the minimal operator-provisioned image and source-only view are also required. Image labels are not cryptographic attestation against a malicious Docker operator. A Docker failure may retain a private view for operator recovery. Native operation is pending exact-head CI evidence.
+Repository content is untrusted. Syntax indexing only parses Dart text with the pinned WebAssembly grammar and downloads nothing. Dart files pass the same gitignore, exclusion, size and credential screening as every other file before they are parsed. The optional analyzer copies only checked Dart source and an engine-owned package config to a private disposable view. It never receives repository `analysis_options.yaml`, package dependencies, plugins or `.dart_tool`; it invokes the AOT analysis snapshot directly, not `dart`, `flutter`, pub or a build runner. A checked profile blocks process creation and the container has no network, a read-only root, bounded memory and a deadline. The profile cannot prevent later same-process exec, so the minimal operator-provisioned image and source-only view are also required. Image labels are not cryptographic attestation against a malicious Docker operator. A Docker failure may retain a private view for operator recovery. The native evidence above applies only to the pinned isolated runtime and synthetic source fixture.
 
 ## Non-goals
 

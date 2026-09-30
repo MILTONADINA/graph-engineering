@@ -9,7 +9,7 @@
 Operators want to use the models they already have: hosted APIs, local OpenAI-compatible servers, and installed clients such as Claude Code, Codex and Cursor. Each provider must return a structured patch proposal the engine validates, receive only the context it is allowed to see, stay confined away from the repository and ambient tools, and respect timeouts, cancellation and cost reporting without fabricating numbers.
 
 The separate [installed-worker deadline spec](installed-worker-deadlines.md)
-tracks the opt-in timeout extension and its pending exact-head CI. It does not
+records the implemented opt-in timeout extension and its exact-head CI evidence. It does not
 change the default timeout behavior or the evidence status of this baseline.
 
 ## Acceptance criteria

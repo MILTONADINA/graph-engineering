@@ -1,7 +1,7 @@
 # Opt-in installed-worker deadlines
 
 - ID: installed-worker-deadlines
-- Status: ready
+- Status: implemented
 - Area: providers
 
 ## Problem
@@ -20,9 +20,18 @@ checked head `e25565b09aa974dd657f1b273a570a6cac903d10` in
 attempt 1, and scoped source/contract review found no blockers before the
 identical-tree merge. Its 42 focused local cases and dependency/engine builds
 are separate evidence, not live provider inference. AC3 now additionally
-covers the generator kind on the independent feature branch while preserving
-API/local coverage; that expanded focused case passed locally. Keep this expanded spec `ready` until that feature's own
-exact-head CI and review pass; the narrow release's merge is not pending.
+covers the generator kind while preserving API/local coverage. That expansion
+merged through [PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119)
+at `09427fe33a273f8426580b806eafdb5717e702a7` on 2026-09-30 at 21:33:03 UTC.
+All nine required jobs passed on exact checked head
+`84dcbbe162e4cf90883a5095c2ac912fce74ffd4` in
+[CI run 36777117238](https://github.com/MILTONADINA/graph-engineering/actions/runs/36777117238),
+attempt 1, with independent scoped agent and main-session review finding no
+blockers. Checked and merged commits share tree
+`76d24aebb95eeb1d431fc23d0973220846d8b37b`; source manifest
+`cb2878c24080100d101056e23b1db9f404d6b00ac37b99c8ede37bb67ea4e07b`
+covers 121 files. This is not external human approval, live inference, or
+separate post-merge CI evidence.
 
 ## Acceptance criteria
 

@@ -53,9 +53,15 @@ The narrow approval/repair/deadline release merged through
 attempt 1, with scoped source/contract review and an identical-tree merge.
 It also had 42 distinct focused local cases and successful dependency/engine
 builds; no live installed-client inference is claimed. The separate generator
-feature now extends the finite-deadline regression alongside API/local,
-unknown and template coverage. That expanded case passed locally but still needs its own
-feature-head CI and review; the merged release is not evidence for it. See the
+feature extends the finite-deadline regression alongside API/local, unknown
+and template coverage. That extension merged through
+[PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119) at
+`09427fe33a273f8426580b806eafdb5717e702a7`, after checked head
+`84dcbbe162e4cf90883a5095c2ac912fce74ffd4` passed all nine required jobs in
+[CI run 36777117238](https://github.com/MILTONADINA/graph-engineering/actions/runs/36777117238),
+attempt 1, and independent scoped agent/main-session review found no blockers.
+The checked and merged commits share tree
+`76d24aebb95eeb1d431fc23d0973220846d8b37b`; this adds no live-client evidence. See the
 [installed-worker deadline spec](../specs/providers/installed-worker-deadlines.md).
 
 ## Claude Code
