@@ -2264,10 +2264,12 @@ describe("security gate", () => {
   });
 
   // The catalog lists lockfile names in lower case; Cargo.lock, Gemfile.lock
-  // and Pipfile.lock are capitalized on disk.
+  // and Pipfile.lock are capitalized on disk. pubspec.lock is Dart's (the
+  // Pub ecosystem in OSV).
   it.each([
     ["package-lock.json", '{ "lockfileVersion": 3, "packages": {} }\n'],
     ["Cargo.lock", "version = 3\n"],
+    ["pubspec.lock", 'packages: {}\nsdks:\n  dart: ">=3.8.0 <4.0.0"\n'],
     ["Gemfile.lock", "GEM\n  specs:\n"],
     ["Pipfile.lock", '{ "default": {} }\n'],
   ])(

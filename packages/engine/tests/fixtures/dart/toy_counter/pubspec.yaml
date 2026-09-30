@@ -1,0 +1,7 @@
+name: toy_counter
+description: A tiny synthetic package for testing Dart syntax indexing.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.8.0

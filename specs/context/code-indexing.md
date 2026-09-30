@@ -10,7 +10,7 @@ Workers and connected AI clients need accurate, bounded context about a reposito
 
 ## Acceptance criteria
 
-- AC1: Indexing a repository records symbols for all seven supported language families (C#, Go, Java, JavaScript, Python, Rust, TypeScript) and reports calls it could not resolve as unresolved instead of inventing targets. A native analyzer that exceeds its fixed time cap reports exactly its documented timeout diagnostic, keeps syntax evidence only and adds no bindings; the cap is a security bound and is not raised for slow runners.
+- AC1: Indexing a repository records symbols for all eight supported language families (C#, Dart, Go, Java, JavaScript, Python, Rust, TypeScript; Dart at the syntax level only, see [Dart syntax indexing](dart-indexing.md)) and reports calls it could not resolve as unresolved instead of inventing targets. A native analyzer that exceeds its fixed time cap reports exactly its documented timeout diagnostic, keeps syntax evidence only and adds no bindings; the cap is a security bound and is not raised for slow runners.
   - Test: packages/engine/tests/context.test.ts :: parses all launch languages and records unresolved call evidence honestly
   - Test: packages/engine/tests/context.test.ts :: preserves syntax error coverage instead of pretending the graph is complete
   - Test: packages/engine/tests/context-csharp.test.ts :: reports a real analyzer timeout as its documented diagnostic and keeps syntax evidence only

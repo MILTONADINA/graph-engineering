@@ -8,9 +8,13 @@ import type {
   Language,
   SourceReference,
 } from "@graph-engineering/contracts";
+import { DART_SYNTAX_VERSION, extractDart } from "./dart-syntax.js";
 
 export const PARSER_VERSION =
   "web-tree-sitter:0.25.10/grammars:0.1.13/extractor:4";
+// Dart has its own extractor, so its cached syntax carries its own version
+// and changing that version never re-parses files in other languages.
+export const DART_PARSER_VERSION = `${PARSER_VERSION}/${DART_SYNTAX_VERSION}`;
 export const hash = (input: string | Uint8Array) =>
   createHash("sha256").update(input).digest("hex");
 const grammars = new Map<string, Promise<Grammar>>();
@@ -31,7 +35,14 @@ const languages: Record<string, [Language, string]> = {
   ".rs": ["rust", "rust"],
   ".java": ["java", "java"],
   ".cs": ["csharp", "c_sharp"],
+  ".dart": ["dart", "dart"],
 };
+/** The language a path is parsed as, from its extension in any case. */
+export const languageOf = (path: string): Language =>
+  languages[extname(path).toLowerCase()]?.[0] ?? "text";
+/** The version a file's cached syntax must carry to be reused. */
+export const parserVersionFor = (path: string): string =>
+  languageOf(path) === "dart" ? DART_PARSER_VERSION : PARSER_VERSION;
 const declarations = new Set([
   "function_declaration",
   "function_definition",
@@ -103,7 +114,7 @@ export async function parseFile(
   });
   const fileId = hash(`file:${path}`);
   const result: ParsedFile = {
-    parserVersion: PARSER_VERSION,
+    parserVersion: parserVersionFor(path),
     path,
     hash: contentHash,
     text,
@@ -140,6 +151,12 @@ export async function parseFile(
     if (!tree) throw new Error("Parser returned no syntax tree");
     try {
       result.parsed = true;
+      if (tree.rootNode.hasError)
+        result.errors.push(`${path}: syntax errors; graph may be incomplete`);
+      if (language[0] === "dart") {
+        extractDart(tree.rootNode, result, source);
+        return result;
+      }
       const bindings = new Set<string>();
       const owners = new Map<string, string>();
       const functionKinds = new Set([
@@ -159,8 +176,6 @@ export async function parseFile(
           bindings.add(node.text);
         for (const child of node.namedChildren) if (child) identifiers(child);
       };
-      if (tree.rootNode.hasError)
-        result.errors.push(`${path}: syntax errors; graph may be incomplete`);
       const visit = (node: Node, owner: string) => {
         // Reject a name across the whole file if any ordinary binding can shadow
         // it. This loses recall intentionally instead of guessing scope/types.
