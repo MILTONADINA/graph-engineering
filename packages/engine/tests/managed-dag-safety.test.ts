@@ -678,15 +678,17 @@ describe("managed DAG safety boundaries", () => {
     await assertUnchanged(run.workspace!);
   });
 
-  it("answers a DAG cloud worker's patch to a non-exportable path the same way whether or not the file exists, without reading it", async () => {
-    // A creation over second.js, and an edit whose before is in it: without
-    // the refusal the first fails only when the file exists, and the second
-    // applies only when it does.
-    const changes = [
-      { path: "second.js", before: null, after: "x\n" },
+  // A creation over second.js and an edit whose before is in it must each
+  // receive the same refusal whether that file exists or not.
+  it.each([
+    ["creation", { path: "second.js", before: null, after: "x\n" }],
+    [
+      "edit",
       { path: "second.js", before: "PRIVATE_CONTENT_CANARY", after: "x" },
-    ];
-    for (const change of changes) {
+    ],
+  ] as const)(
+    "answers a DAG cloud worker's non-exportable %s patch identically whether the file exists, without reading it",
+    async (_kind, change) => {
       const outcomes: unknown[] = [];
       for (const exists of [true, false]) {
         const { root, data } = await fixture((config) => {
@@ -764,8 +766,8 @@ describe("managed DAG safety boundaries", () => {
       expect((outcomes[0] as { feedback: string[] }).feedback[1]).toContain(
         "You proposed changes to second.js, which this project does not share with your provider, so nothing was read or written.",
       );
-    }
-  });
+    },
+  );
 
   it("stops a DAG worker that repeats an already supplied source without new evidence", async () => {
     const { root } = await fixture((config) => {
