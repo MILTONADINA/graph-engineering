@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import {
@@ -79,6 +80,10 @@ async function fixture(configure?: (config: ProjectConfig) => void) {
   });
   return { root, config, data };
 }
+// The content hash an approval binds, as a tool outside the engine would
+// compute it: SHA-256 of the plan's stored JSON.
+const planSha256 = (plan: ExecutionPlan): string =>
+  createHash("sha256").update(JSON.stringify(plan)).digest("hex");
 const step = (
   id: string,
   dependsOn: string[] = [],
@@ -2713,6 +2718,56 @@ describe("approval of publishing plans", () => {
     await engine.wait(run.id);
   });
 
+  it("records the approval a publishing run starts under, and none for a plan that does not publish, when the project does not require plan approval", async () => {
+    const { root, config } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const publishing = await plan(engine, [step("one")]);
+    const run = await engine.wait(
+      (await engine.start(publishing.id, { approvedByPerson: true })).id,
+    );
+    expect(run.status).toBe("succeeded");
+    const used = engine.store
+      .events(run.id)
+      .filter((event) => event.type === "plan.approval_used")
+      .map((event) => event.data);
+    // Vitest's workers have no terminal on standard input.
+    expect(used).toEqual([
+      {
+        planSha256: planSha256(run.plan),
+        approvedAt: expect.any(String),
+        approvedVia: "non-interactive",
+      },
+    ]);
+    expect(engine.store.planApproval(publishing.id).approval).toEqual({
+      planId: publishing.id,
+      ...used[0],
+    });
+    // A plan that does not publish still starts unapproved, from any
+    // caller, and its run records no approval.
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      policy: { ...config.policy, publication: "none" },
+    });
+    await checked("git", ["commit", "-qam", "test: stop publishing"], {
+      cwd: root,
+    });
+    const local = await plan(engine, [step("one")]);
+    expect(engine.store.planApproved(local.id)).toBe(false);
+    const unapproved = await engine.wait((await engine.start(local.id)).id);
+    expect(unapproved.status).toBe("succeeded");
+    expect(
+      engine.store
+        .events(unapproved.id)
+        .some((event) => event.type === "plan.approval_used"),
+    ).toBe(false);
+    expect(engine.store.planApproved(local.id)).toBe(false);
+  });
+
   it("refuses to resume a publishing run that has no workspace yet while the checkout has local changes", async () => {
     const { root } = await fixture((value) => {
       value.policy.publication = "commit";
@@ -2745,6 +2800,243 @@ describe("approval of publishing plans", () => {
     const resumed = await engine.wait(run.id);
     expect(resumed.error ?? "").toBe("");
     expect(resumed.status).toBe("succeeded");
+  });
+});
+
+describe("plan approval required by the project policy", () => {
+  // A second connection to the engine's run database, standing in for a
+  // stored plan or approval changed outside the engine.
+  function runDatabase(data: string) {
+    const db = new Database(path.join(data, "runs.sqlite"));
+    db.pragma("busy_timeout = 5000");
+    return db;
+  }
+  function alterPlan(data: string, planId: string, objective: string) {
+    const db = runDatabase(data);
+    try {
+      const row = db
+        .prepare("SELECT json FROM plans WHERE id=?")
+        .get(planId) as { json: string };
+      db.prepare("UPDATE plans SET json=? WHERE id=?").run(
+        JSON.stringify({ ...JSON.parse(row.json), objective }),
+        planId,
+      );
+      return row.json;
+    } finally {
+      db.close();
+    }
+  }
+  const approvalUsed = (engine: GraphEngine, runId: string) =>
+    engine.store
+      .events(runId)
+      .filter((event) => event.type === "plan.approval_used")
+      .map((event) => event.data);
+
+  it("refuses to start a plan that does not publish, from any caller, until a person approves it when the project requires plan approval", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.requirePlanApproval = true;
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    expect(planned.publication).toBe("none");
+    const refusal = `graph-engine plan-approve ${planned.id} --yes`;
+    await expect(engine.start(planned.id)).rejects.toThrow(refusal);
+    // The command line's own start is not an approval under this policy.
+    await expect(
+      engine.start(planned.id, { approvedByPerson: true }),
+    ).rejects.toThrow(refusal);
+    expect(engine.store.planApproved(planned.id)).toBe(false);
+    expect(engine.store.runs()).toEqual([]);
+    const approval = engine.store.approvePlan(planned.id);
+    expect(approval).toMatchObject({
+      planId: planned.id,
+      planSha256: planSha256(planned),
+      approvedVia: "non-interactive",
+    });
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.error ?? "").toBe("");
+    expect(run.status).toBe("succeeded");
+    // The run records which approval it started under.
+    expect(approvalUsed(engine, run.id)).toEqual([
+      {
+        planSha256: planSha256(run.plan),
+        approvedAt: approval.approvedAt,
+        approvedVia: "non-interactive",
+      },
+    ]);
+  });
+
+  it("refuses to start a plan whose content changed after it was approved when the project requires plan approval", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.requirePlanApproval = true;
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const approval = engine.store.approvePlan(planned.id);
+    alterPlan(data, planned.id, "Change constants and delete the tests");
+    await expect(engine.start(planned.id)).rejects.toThrow(
+      `plan ${planned.id} changed after it was approved. A person reviews it with graph-engine plan-approve ${planned.id} and approves it with graph-engine plan-approve ${planned.id} --yes`,
+    );
+    expect(engine.store.runs()).toEqual([]);
+    expect(engine.store.planApproval(planned.id)).toMatchObject({
+      approved: false,
+      approval,
+      approvalMatchesPlan: false,
+    });
+    // A person who approves the plan as it now stands can start it.
+    const again = engine.store.approvePlan(planned.id);
+    expect(again.planSha256).not.toBe(approval.planSha256);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(run.plan.objective).toBe("Change constants and delete the tests");
+    expect(approvalUsed(engine, run.id)).toEqual([
+      expect.objectContaining({ planSha256: again.planSha256 }),
+    ]);
+  });
+
+  it("refuses to resume a run once its plan's approval no longer matches the plan the run holds when the project requires plan approval", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.requirePlanApproval = true;
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    engine.store.approvePlan(planned.id);
+    // The run stops before its workspace exists, so it can be resumed.
+    vi.spyOn(workspaceModule, "createWorkspace").mockRejectedValueOnce(
+      new Error("Simulated interruption"),
+    );
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("failed");
+    // The approval is removed.
+    const db = runDatabase(data);
+    db.prepare("DELETE FROM plan_approvals WHERE plan_id=?").run(planned.id);
+    db.close();
+    await expect(engine.resume(run.id, true)).rejects.toThrow(
+      `plan ${planned.id} is not approved. A person reviews it with graph-engine plan-approve ${planned.id} and approves it with graph-engine plan-approve ${planned.id} --yes`,
+    );
+    // The stored plan is altered and approved as it now stands: that
+    // approval is not of the plan this run holds.
+    const original = alterPlan(data, planned.id, "Something else entirely");
+    engine.store.approvePlan(planned.id);
+    await expect(engine.resume(run.id, true)).rejects.toThrow(
+      `the approval of plan ${planned.id} is for other content than the plan this run holds`,
+    );
+    expect(engine.store.run(run.id).status).toBe("failed");
+    // Restored and approved again, the run's own plan resumes.
+    const restore = runDatabase(data);
+    restore
+      .prepare("UPDATE plans SET json=? WHERE id=?")
+      .run(original, planned.id);
+    restore.close();
+    const approval = engine.store.approvePlan(planned.id);
+    await engine.resume(run.id, true);
+    const resumed = await engine.wait(run.id);
+    expect(resumed.error ?? "").toBe("");
+    expect(resumed.status).toBe("succeeded");
+    const events = engine.store.events(run.id).map((event) => event.type);
+    expect(events.slice(events.lastIndexOf("recovery.acknowledged"))[1]).toBe(
+      "plan.approval_used",
+    );
+    expect(approvalUsed(engine, run.id).at(-1)).toEqual({
+      planSha256: planSha256(run.plan),
+      approvedAt: approval.approvedAt,
+      approvedVia: "non-interactive",
+    });
+  });
+
+  it("accepts an approval stored before approvedVia was recorded, and reports its channel as null", async () => {
+    const { root, data } = await fixture((value) => {
+      value.policy.requirePlanApproval = true;
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const legacy = {
+      planId: planned.id,
+      approvedAt: "2026-01-01T00:00:00.000Z",
+      planSha256: planSha256(planned),
+    };
+    const db = runDatabase(data);
+    db.prepare("INSERT INTO plan_approvals VALUES(?,?,?)").run(
+      planned.id,
+      planned.projectId,
+      JSON.stringify(legacy),
+    );
+    db.close();
+    expect(engine.store.planApproved(planned.id)).toBe(true);
+    const run = await engine.wait((await engine.start(planned.id)).id);
+    expect(run.status).toBe("succeeded");
+    expect(approvalUsed(engine, run.id)).toEqual([
+      {
+        planSha256: legacy.planSha256,
+        approvedAt: legacy.approvedAt,
+        approvedVia: null,
+      },
+    ]);
+    expect(engine.store.planApproval(planned.id)).toEqual({
+      planId: planned.id,
+      planSha256: legacy.planSha256,
+      approved: true,
+      approval: { ...legacy, approvedVia: null },
+      approvalMatchesPlan: true,
+    });
+  });
+
+  it("records an approval given with an interactive terminal on standard input as terminal", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.requirePlanApproval = true;
+    });
+    const engine = await open(root, {});
+    const planned = await plan(engine, [step("one")]);
+    // As when a person runs plan-approve --yes in their own terminal.
+    const own = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: true,
+      configurable: true,
+    });
+    try {
+      expect(engine.store.approvePlan(planned.id).approvedVia).toBe("terminal");
+    } finally {
+      if (own) Object.defineProperty(process.stdin, "isTTY", own);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+    }
+    expect(engine.store.planApproval(planned.id).approval?.approvedVia).toBe(
+      "terminal",
+    );
+  });
+
+  it("refuses a plan made before the project required plan approval as planned under another policy, not as unapproved", async () => {
+    const { root, config } = await fixture();
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+    });
+    const planned = await plan(engine, [step("one")]);
+    await writeJson(path.join(root, PROJECT_FILE), {
+      ...config,
+      policy: { ...config.policy, requirePlanApproval: true },
+    });
+    await checked("git", ["commit", "-qam", "test: require approval"], {
+      cwd: root,
+    });
+    const refusal = await engine.start(planned.id).then(
+      () => "started",
+      (error: unknown) => String(error),
+    );
+    expect(refusal).toContain(
+      "Policy changed since planning; create a new plan",
+    );
+    expect(refusal).not.toContain("plan-approve");
   });
 });
 
