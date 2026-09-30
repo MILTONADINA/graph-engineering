@@ -107,7 +107,8 @@ function storedPlan(
   const row = db
     .prepare("SELECT json FROM plans WHERE id=? AND project_id=?")
     .get(planId, projectId) as { json: string } | undefined;
-  if (!row) throw new Error("plans: record not found");
+  // Names the plan, since the approval commands take several IDs.
+  if (!row) throw new Error(`Plan ${planId} does not exist in this project`);
   return JSON.parse(row.json) as ExecutionPlan;
 }
 
@@ -149,8 +150,12 @@ function planStatus(
 }
 
 /**
- * Each plan's approval as stored, read-only, without opening the engine or
- * running crash recovery, so reading it changes nothing and never approves.
+ * Each plan's approval as stored, read through a read-only connection
+ * without opening the engine or running crash recovery, so it never
+ * approves and changes no run data. When no other connection has the
+ * database open, SQLite creates its companion files beside it (an empty
+ * `-wal` file and a `-shm` index) and leaves them there; the database file
+ * itself stays byte for byte as it was.
  */
 export function readPlanStatus(
   dataDir: string,
@@ -547,7 +552,7 @@ export class RunStore {
       .run(plan.id, this.projectId, JSON.stringify(plan));
   }
   plan(id: string): ExecutionPlan {
-    return this.one("plans", id);
+    return storedPlan(this.db, this.projectId, id);
   }
   /** A person's approval of a plan exactly as stored (bound to its hash). */
   approvePlan(planId: string): PlanApproval {

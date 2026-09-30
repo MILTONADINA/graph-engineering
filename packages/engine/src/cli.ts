@@ -491,11 +491,17 @@ cli
   .action(async (options) => {
     const project = await loadProject(root());
     if (options.file) {
+      const required = project.policy.requirePlanApproval === true;
       project.policy = await readJson<ProjectPolicy>(
         path.resolve(options.file),
       );
       assertProjectConfig(project);
       await writeJson(path.join(root(), PROJECT_FILE), project);
+      // Not refused, since the owner may mean it, but said plainly.
+      if (required && project.policy.requirePlanApproval !== true)
+        console.error(
+          "warning: the new policy no longer sets requirePlanApproval to true, so plan approval will no longer be enforced: graph-engine run counts as a person's approval again, and a connected AI client or the dashboard can start a plan that does not publish without any approval. Plans made before this change can no longer run, since the policy changed.",
+        );
     }
     print(project.policy);
   });
@@ -1070,14 +1076,11 @@ cli
         // Without --yes nothing is approved, but a given --expect still has
         // to match, so plans that changed are never shown as approvable.
         if (expected) assertExpectedPlans(planIds, current, expected);
-        const next = one
-          ? `Review the plan above, then run graph-engine plan-approve ${planIds[0]} --yes`
-          : `Review the plans above, then run graph-engine plan-approve ${planIds.join(" ")} --yes --expect ${current.join(",")}`;
-        const listed = shown.map((plan) => ({
-          ...plan,
-          approved: false,
-          next,
-        }));
+        // The plan alone, and the command that approves exactly the content
+        // shown; the stored approval is plan-status's to report.
+        const ids = planIds.join(" ");
+        const next = `Review the ${one ? "plan" : "plans"} above, then approve exactly this content with graph-engine plan-approve ${ids} --yes --expect ${current.join(",")}; graph-engine plan-status ${ids} shows whether ${one ? "it is" : "they are"} approved`;
+        const listed = shown.map((plan) => ({ ...plan, next }));
         return one ? listed[0] : listed;
       }
       // Bound to the content printed here: without --expect (one plan), a
@@ -1094,7 +1097,7 @@ cli
 cli
   .command("plan-status <planIds...>")
   .description(
-    "Read-only: show each plan's planSha256, whether it is approved in exactly its stored form, and its stored approval (when, the planSha256 it binds, and whether the approving command ran in an interactive terminal). Never approves and changes nothing. One plan prints an object, several an array",
+    "Show each plan's planSha256, whether it is approved in exactly its stored form, and its stored approval (when, the planSha256 it binds, and whether the approving command ran in an interactive terminal). Reads without opening the engine and never approves: it changes no run data, though SQLite may create the run database's empty companion files. One plan prints an object, several an array",
   )
   .action(async (planIds: string[]) => {
     const project = await loadProject(root());

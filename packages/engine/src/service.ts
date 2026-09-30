@@ -1079,7 +1079,11 @@ export class GraphEngine {
           );
       }
     } else if (plan.publication !== "none") {
-      if (options.approvedByPerson) approval = this.store.approvePlan(planId);
+      // A stored approval of this exact plan is kept, so starting it from
+      // the command line does not replace how a person approved it (in a
+      // terminal, say) with how this command happened to run.
+      if (options.approvedByPerson)
+        approval = this.approvalOf(plan) ?? this.store.approvePlan(planId);
       else {
         approval = this.approvalOf(plan);
         if (!approval)
