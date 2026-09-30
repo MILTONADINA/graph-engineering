@@ -15,11 +15,17 @@ On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
-**Fork `dev`.** `96cf8b2` (PR #111), plus the PR that added this section and
-`AGENTS.md`. The audit loop has stopped under its stop rule (see the
-2026-09-28 update); don't restart it unless the owner asks.
+**Fork `dev`.** `96cf8b2` (PR #111) at this handoff. PR #112 proposes this
+section, `AGENTS.md` and the design document; it has not merged. Its original
+head passed all nine required CI jobs, but a review thread found that design
+decision B6 would let a removed generator run from an old plan. A follow-up
+change in this branch now requires an unchanged live registration and a fresh
+registration revision (local only); the updated head needs its own CI and the
+review thread must be resolved before merge. The audit loop has stopped under
+its stop rule (see the 2026-09-28 update); don't restart it unless the owner
+asks.
 
-**In flight: two branches on the fork, with no PRs yet.**
+**In flight: PR #112, the approval branch and two local code branches.**
 
 1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
    opt-in `requirePlanApproval` policy. Under it, `start()` and `resume()`
@@ -39,14 +45,30 @@ disagree with this section, this section wins.
      tests, and spec-check clean. CI hasn't run.
 2. `feat/dart-syntax-indexing-20260929` (`8b64236`) adds Dart syntax
    indexing and `pubspec.lock` gating: PR 1 of the
-   [Dart and generator design](dart-and-generator-steps-design.md). Its
-   adversarial review was stopped before it reported, so it is unreviewed.
+   [Dart and generator design](dart-and-generator-steps-design.md). The local
+   review branch `fix/dart-syntax-review-20260930` (`a5df180`, not pushed)
+   fixes four findings: local-function linkage now respects lexical block
+   scope and declaration order; `part of` is indexed; Pub YAML OSV findings
+   map to the exact package key; and the synthetic toy package has a committed
+   `pubspec.lock`. The extractor's Dart-only syntax cache version was bumped.
+   Focused tests passed (21, with 1 skipped), as did engine typecheck, build,
+   changed-file lint and formatting, and Dart's offline `--enforce-lockfile`
+   check. A broader engine suite was stopped after unrelated local-server
+   tests failed or timed out in this sandbox, which blocks loopback sockets;
+   do not claim that suite passed or rerun it unchanged here.
+3. `fix/nonworker-local-role-20260930` (`025f2cd`, not pushed) makes
+   `modelRoles` conservatively count every non-worker step as local, so the
+   planned generator kind cannot be omitted from the cloud export-side
+   check. Its pure focused test passed, as did the engine build, changed-file
+   lint, formatting and diff checks. The generator contract has not landed;
+   the test models that future kind without admitting it in the schema.
 
 **Next, in order.**
 
-1. Review the Dart branch critically and fix what you find.
-2. Rebase the approval branch onto the current `dev`, and the Dart branch
-   onto the approval branch. Then:
+1. Finish PR #112: push its B6 fix, obtain nine checks on that exact head,
+   resolve the review conversation, and merge into fork `dev` only.
+2. Rebase the approval branch onto the current `dev`, and the Dart review
+   branch onto the approval branch. Then:
    - run the checks the changes warrant, and push;
    - open one PR per branch into `dev` with the PR template;
    - cancel CI on the lower PR, merge the top one once its nine checks pass,
@@ -54,12 +76,10 @@ disagree with this section, this section wins.
 3. When the approval PR has merged, tell the owner the merged commit. They
    pin builds of this repository elsewhere and will turn on
    `requirePlanApproval` there.
-4. Build the rest of the
+4. Rebase and PR the prepared `modelRoles` branch, then build the rest of the
    [Dart and generator design](dart-and-generator-steps-design.md), in its
-   order:
-   - the `modelRoles` fix, with its test;
-   - generator steps;
-   - Dart resolved bindings, under the spike's constraints.
+   order: generator steps, then Dart resolved bindings under the spike's
+   constraints.
 5. Update this section as each PR lands.
 
 **Tools.** The owner wants Jev used heavily, together with Laya, for design
@@ -72,6 +92,15 @@ questions.
 - Tools named in the history below that belong to Claude Code (the
   advisor, multi-agent audit workflows and cross-session messages) aren't
   available to other agents.
+
+**Codex session boundary.** The main checkout remains on `dev` with only the
+owner's pre-existing untracked `.serena/`. The main checkout's `.git` is
+read-only, GitHub connector writes require approval that this environment
+cannot grant, and shell DNS cannot reach GitHub. The three follow-up commits
+above therefore exist only in an isolated clone under ignored `.graph/local/`;
+neither has been pushed or merged. No metered Jev call was made. Use a session
+with normal Git write and network access to sync those commits, then inspect
+the live PR and exact-head checks before merging. Do not edit `dev` directly.
 
 ## Continuation update — 2026-09-24
 
