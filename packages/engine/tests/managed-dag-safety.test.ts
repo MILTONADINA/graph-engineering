@@ -84,6 +84,21 @@ async function fixture(configure?: (config: ProjectConfig) => void) {
 // compute it: SHA-256 of the plan's stored JSON.
 const planSha256 = (plan: ExecutionPlan): string =>
   createHash("sha256").update(JSON.stringify(plan)).digest("hex");
+// Runs `action` as if standard input were an interactive terminal, as when a
+// person runs plan-approve --yes in their own terminal.
+function inTerminal<T>(action: () => T): T {
+  const own = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  Object.defineProperty(process.stdin, "isTTY", {
+    value: true,
+    configurable: true,
+  });
+  try {
+    return action();
+  } finally {
+    if (own) Object.defineProperty(process.stdin, "isTTY", own);
+    else delete (process.stdin as { isTTY?: boolean }).isTTY;
+  }
+}
 const step = (
   id: string,
   dependsOn: string[] = [],
@@ -2718,6 +2733,38 @@ describe("approval of publishing plans", () => {
     await engine.wait(run.id);
   });
 
+  it("keeps a person's terminal approval of a publishing plan when graph-engine run starts it, rather than replacing it with the command's own", async () => {
+    const { root } = await fixture((value) => {
+      value.policy.publication = "commit";
+    });
+    const engine = await open(root, {
+      worker: vi.fn(async (input: WorkerInput) => result(input.objective)),
+      verify: passesWhen("first.js", "= 3"),
+    });
+    const planned = await plan(engine, [step("one")]);
+    const approval = inTerminal(() => engine.store.approvePlan(planned.id));
+    expect(approval.approvedVia).toBe("terminal");
+    // graph-engine run, here without a terminal, is an approval too, but
+    // the person's approval of this exact plan stands and is the one used.
+    const run = await engine.wait(
+      (await engine.start(planned.id, { approvedByPerson: true })).id,
+    );
+    expect(run.status).toBe("succeeded");
+    expect(
+      engine.store
+        .events(run.id)
+        .filter((event) => event.type === "plan.approval_used")
+        .map((event) => event.data),
+    ).toEqual([
+      {
+        planSha256: approval.planSha256,
+        approvedAt: approval.approvedAt,
+        approvedVia: "terminal",
+      },
+    ]);
+    expect(engine.store.planApproval(planned.id).approval).toEqual(approval);
+  });
+
   it("records the approval a publishing run starts under, and none for a plan that does not publish, when the project does not require plan approval", async () => {
     const { root, config } = await fixture((value) => {
       value.policy.publication = "commit";
@@ -2999,18 +3046,9 @@ describe("plan approval required by the project policy", () => {
     });
     const engine = await open(root, {});
     const planned = await plan(engine, [step("one")]);
-    // As when a person runs plan-approve --yes in their own terminal.
-    const own = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
-    Object.defineProperty(process.stdin, "isTTY", {
-      value: true,
-      configurable: true,
-    });
-    try {
-      expect(engine.store.approvePlan(planned.id).approvedVia).toBe("terminal");
-    } finally {
-      if (own) Object.defineProperty(process.stdin, "isTTY", own);
-      else delete (process.stdin as { isTTY?: boolean }).isTTY;
-    }
+    expect(
+      inTerminal(() => engine.store.approvePlan(planned.id)).approvedVia,
+    ).toBe("terminal");
     expect(engine.store.planApproval(planned.id).approval?.approvedVia).toBe(
       "terminal",
     );
