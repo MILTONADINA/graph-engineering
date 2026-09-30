@@ -11,6 +11,29 @@
 - Patch application is serialized. Worker filesystem changes, policy changes, stale checkpoints, unresolved source requests, and cancellation stop the run.
 - This is a per-run concurrency bound. The service must also reserve project-wide worker capacity across simultaneous runs.
 
+## Managed-plan write-scope limits
+
+The public planning contract exposes `steps[].writes` as allowlist globs,
+not the scheduler's internal exact `writeScopes` map. A configured tester
+receives `tester.writes` (or its default test globs), independently of worker
+scopes. To predeclare a new test filename, set
+`graph-engine tester <providerId> --writes <path>` before planning and inspect
+the injected tester step in the full plan before approving its hash. A path
+without glob metacharacters is a restrictive literal pattern; arbitrary
+filenames containing glob syntax are not automatically literal. The initial
+tester must create at least one new file, never edit an existing test. Both
+tester and worker initial proposals are checked against their own scopes.
+
+There is a current limitation: the service creates `dag-repair` for combined
+check failures without inheriting the original worker's `writes`. An
+implementation repair can therefore change other project-policy-allowed
+files, except the tester's own files. A repair handed to the tester is limited
+to the exact files that tester created. There is no public, plan-wide exact
+write allowlist spanning initial steps and automatic repairs. Do not treat
+step scopes as that guarantee. `policy.workingSet` is not a replacement: it
+also limits indexing and reads, uses path-root rather than exact-file
+semantics, and retains the documented public-context exceptions.
+
 ## Offline generator steps
 
 A generator step runs an operator-registered, image-pinned argv in a disposable

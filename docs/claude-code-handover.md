@@ -34,20 +34,49 @@ PR passes CI and is merged.
   model roles, `ready/model-roles-20260930`, at `f41af1a`.
 - [PR #116](https://github.com/MILTONADINA/graph-engineering/pull/116): offline
   generators, `feat/generator-steps-20260930`, at `8a30618`.
-- Final top: `feat/dart-analyzer-bindings-20260930`, containing the analyzer
-  and the whole lower stack. Publish its final PR into `dev` and run the
-  required checks there; redundant lower-stack CI runs were canceled.
+- [PR #117](https://github.com/MILTONADINA/graph-engineering/pull/117): final
+  top, `feat/dart-analyzer-bindings-20260930`, containing the analyzer and
+  the whole lower stack. Redundant lower-stack CI runs were canceled.
 
-The requested integration answers were delivered to the other owner session.
-No consumer data entered this repository. No new engine tests were run just
-to recheck unchanged local source; first exact-head CI still has to establish
-native Docker, integrated service/HTTP and clean-install evidence. Before
-merging, inspect the exact top SHA, all nine required checks and unresolved
-review threads. Rebase-merge only the final top, close lower PRs with the
-actual merge commit, and report the merged approval SHA for downstream use.
-The original approval candidate and old `dev` are not substitutes for that
-merged pin. Generator and Dart spec status stays provisional until evidence
-and review justify promotion to implemented.
+The first exact-head run,
+[36720539935](https://github.com/MILTONADINA/graph-engineering/actions/runs/36720539935),
+finished with five required jobs passing and four platform jobs failing at
+the same context-test assertion. The Dart fixture has no root package
+manifest, so snapshot validation rejects it before runtime discovery; its
+expectation incorrectly depended on runtime availability. The corrected
+test now asserts that exact snapshot diagnostic on every platform. Its
+focused local case passed; no runtime checks or security bounds changed.
+The generator approval-display test link was also corrected and spec-check
+passes. Twelve previously socket-blocked generator service/HTTP/CLI cases
+passed after access was restored. Native generator and analyzer stages were
+not reached by the failed platform jobs and still need exact-head CI.
+
+Generic integration answers are available in ordinary session messages; a
+queued-message acknowledgement alone did not prove delivery. No consumer
+data was added by this feature stack. Before merging, inspect the exact top SHA,
+all nine required checks and unresolved review threads. Rebase-merge the
+verified stack into fork `dev`, close lower PRs with the actual merge commit,
+and report the merged approval SHA for downstream use. The original approval
+candidate and old `dev` are not substitutes for that merged pin. Generator
+and Dart spec status stays provisional until evidence and review justify
+promotion to implemented.
+
+**Client compatibility.** CLI and MCP contracts remain tool-neutral. Preserve
+the installed Claude Code worker adapter: an operator using Codex to develop
+Graph must not create a runtime dependency on a Codex session, app or service.
+Consumers can orchestrate a reviewed pinned engine using Claude Code. This is
+a compatibility requirement, not proof of live provider inference, permission
+to alter credentials or budgets, or an exception to installed-client safety
+checks. Approval-gate adoption has no Dart toolchain dependency.
+
+**Scoped tester limitation.** A prospective test filename can be declared
+with `tester <providerId> --writes <path>` before planning and checked in the
+injected tester step before approval. The initial tester creates new files
+only; worker scopes do not implicitly constrain it. Combined-result
+implementation repairs currently do not inherit worker `writes`, so there
+is no task-wide exact write boundary across automatic repairs. Do not omit
+the tester, broaden its approved paths, or describe `workingSet` as an exact
+write-only substitute. See [write-scope limits](dag-and-template-runtime.md#managed-plan-write-scope-limits).
 
 ### Preparation snapshot and earlier local evidence
 

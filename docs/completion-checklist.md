@@ -15,9 +15,16 @@ The owner authorized review and merge of the implementation into
 
 Publication update: access was restored and the complete six-branch stack was
 pushed to the owner's fork. PRs #112–#116 cover the lower stack; #112's B6
-review thread is resolved. The Dart analyzer branch is the final cumulative
-top for exact-head CI and review before merge into `dev`. Redundant lower
-CI was canceled. No merge or new native/integrated result is claimed yet.
+review thread is resolved. PR #117 on the Dart analyzer branch is the final
+cumulative top for exact-head CI and review before merge into `dev`.
+Redundant lower CI was canceled. The first run passed five required jobs;
+all four platform jobs failed the same incorrect Dart fallback expectation.
+That expectation is corrected and its focused case passes locally. Twelve
+generator service/HTTP/CLI cases also passed after local access was restored.
+The native generator/analyzer stages were not reached, and a green exact-head
+run and merge remain pending. CLI/MCP and the installed Claude Code adapter
+must stay independent of any running Codex session. Strict task-wide write
+authority across automatic repairs remains an explicitly documented limit.
 The following paragraph is the earlier local-preparation snapshot; its
 unpushed/access-denied statements no longer describe the publication state.
 

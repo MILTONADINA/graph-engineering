@@ -1,15 +1,15 @@
 # Design: Dart/Flutter support and sandboxed generator steps
 
-Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Local status:
+Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Delivery status:
 
 - Dart syntax indexing, its review fixes, approval and `modelRoles` changes
-  are prepared in the local stack, not yet pushed or merged.
-- Generator steps are committed on that stack. Focused tests pass, but
-  integrated socket-based and real Docker CI evidence is pending; its spec
-  remains draft.
-- Dart resolved bindings are implemented on a further local branch. Pure
+  are published in the fork's PR #112–#117 stack, not yet merged.
+- Generator steps are committed on that stack. Focused tests, including
+  twelve service/HTTP/CLI integration cases, pass. Native Docker CI evidence
+  remains pending; its spec remains draft.
+- Dart resolved bindings are implemented on the final stack branch. Pure
   snapshot and mocked LSP tests pass; the actual pinned Linux Docker image
-  has not been built or run in this sandbox. Its native CI case and exact-head
+  has not been built or run here. Its native CI case and exact-head
   review are required before claiming operational binding. The
   pinned-runtime and no-target-code-execution constraints below govern it.
 - The decisions recorded below were settled during design. Follow them
