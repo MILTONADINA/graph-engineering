@@ -3272,23 +3272,23 @@ const unfinished = (status: RunRecord["status"]) =>
   ["planned", "running", "verifying"].includes(status);
 // The model roles a plan runs with, each marked by whether it runs locally:
 // its worker steps, the tester's among them, with the providers their IDs
-// name now, its template steps, which always run locally, and the given
+// name now, its non-worker steps, which always run locally, and the given
 // reviewer. A provider no longer configured has no
 // role here; a run refuses it when it reaches that step.
-function modelRoles(
+export function modelRoles(
   plan: ExecutionPlan,
   providers: ProviderConfig[],
   reviewerId: string | undefined,
 ): { role: string; local: boolean }[] {
   const roles: { role: string; local: boolean }[] = [];
   for (const step of plan.steps) {
-    // A template step renders on this machine from whatever files it reads,
-    // including ones the export policy keeps from cloud models.
-    if (step.kind === "template") {
-      roles.push({ role: `template step ${step.id}`, local: true });
+    // Non-worker steps execute on this machine. In particular, a template or
+    // future generator may read files the export policy keeps from cloud
+    // models; treating an unfamiliar non-worker kind as local fails closed.
+    if (step.kind !== "worker") {
+      roles.push({ role: `${step.kind} step ${step.id}`, local: true });
       continue;
     }
-    if (step.kind !== "worker") continue;
     const worker = providers.find(
       (candidate) => candidate.id === step.providerId,
     );
