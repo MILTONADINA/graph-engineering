@@ -16,6 +16,7 @@ import {
   confirmDartContainerRemoved,
   dartRuntime,
   resolveDartBindings,
+  sampleContainerRss,
   validDartHostIdentity,
   validDartImage,
 } from "../src/context/dart.js";
@@ -24,7 +25,26 @@ import { command } from "../src/util.js";
 vi.mock("node:child_process", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:child_process")>()),
 }));
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+function fakeStatsCommand() {
+  const child = Object.assign(new EventEmitter(), {
+    pid: undefined,
+    exitCode: null,
+    signalCode: null,
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(() => true),
+  });
+  const spawn = vi
+    .spyOn(childProcess, "spawn")
+    .mockImplementation((() => child) as unknown as typeof childProcess.spawn);
+  return { child, spawn };
+}
 
 function fakeLsp(
   sampleRssKiB: () => Promise<number | null> = async () => 1024,
@@ -195,6 +215,100 @@ describe("Dart LSP protocol boundary", () => {
     try {
       const pending = client.request("initialize", {});
       await expect(pending).rejects.toThrow("memory limit");
+    } finally {
+      client.close();
+    }
+  });
+});
+
+describe("Dart memory sampling deadline", () => {
+  it("accepts a Docker stats sample completing after 1500 ms through the real command helper", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const { child, spawn } = fakeStatsCommand();
+    const pending = sampleContainerRss("graph-dart-fixture");
+    const assertion = expect(pending).resolves.toBe(64 * 1024);
+    setTimeout(() => {
+      child.stdout.emit("data", Buffer.from("64MiB / 768MiB\n"));
+      child.emit("close", 0, null);
+    }, 1500);
+    elapsed = 1500;
+    await Promise.all([assertion, vi.advanceTimersByTimeAsync(1500)]);
+    expect(spawn).toHaveBeenCalledWith(
+      "/usr/bin/docker",
+      [
+        "stats",
+        "--no-stream",
+        "--format",
+        "{{.MemUsage}}",
+        "graph-dart-fixture",
+      ],
+      expect.objectContaining({ cwd: "/", env: {} }),
+    );
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects a Docker stats sample exceeding 3000 ms even when it later exits successfully", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const { child } = fakeStatsCommand();
+    const pending = sampleContainerRss("graph-dart-fixture");
+    const assertion = expect(pending).rejects.toThrow("Command terminated");
+    let killsBeforeDeadline = -1;
+    let killsAtDeadline: unknown[][] = [];
+    await Promise.all([
+      assertion,
+      (async () => {
+        elapsed = 2999;
+        await vi.advanceTimersByTimeAsync(2999);
+        killsBeforeDeadline = child.kill.mock.calls.length;
+        elapsed = 3000;
+        await vi.advanceTimersByTimeAsync(1);
+        killsAtDeadline = child.kill.mock.calls.map((args) => [...args]);
+        elapsed = 3100;
+        await vi.advanceTimersByTimeAsync(100);
+        child.stdout.emit("data", Buffer.from("64MiB / 768MiB\n"));
+        child.emit("close", 0, null);
+      })(),
+    ]);
+    expect(killsBeforeDeadline).toBe(0);
+    expect(killsAtDeadline).toEqual([["SIGTERM"]]);
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the independent analyzer deadline while an RSS sample never resolves", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const sample = vi.fn(() => new Promise<number | null>(() => {}));
+    const { client, child } = fakeLsp(sample);
+    try {
+      const pending = client.request("initialize", {});
+      const assertion = expect(pending).rejects.toThrow(
+        "Dart analysis deadline exceeded",
+      );
+      let killsBeforeDeadline = -1;
+      await Promise.all([
+        assertion,
+        (async () => {
+          elapsed = 100;
+          await vi.advanceTimersByTimeAsync(100);
+          elapsed = 999;
+          await vi.advanceTimersByTimeAsync(899);
+          killsBeforeDeadline = child.kill.mock.calls.length;
+          elapsed = 1000;
+          await vi.advanceTimersByTimeAsync(1);
+        })(),
+      ]);
+      expect(sample).toHaveBeenCalledTimes(1);
+      expect(killsBeforeDeadline).toBe(0);
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       client.close();
     }
