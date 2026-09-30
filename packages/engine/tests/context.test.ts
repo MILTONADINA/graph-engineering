@@ -40,7 +40,6 @@ import {
   rustRuntime,
   resolveRustBindings,
 } from "../src/context/rust.js";
-import { dartRuntime } from "../src/context/dart.js";
 
 const exec = promisify(execFile);
 const directories: string[] = [];
@@ -387,13 +386,10 @@ describe("local context indexing", () => {
         "Rust analyzer failed, exceeded protocol/time/memory limits, or returned invalid evidence; syntax evidence retained.",
         "Pinned isolated rust-analyzer unavailable; Rust syntax evidence retained.",
       ),
-      ...((await dartRuntime())
-        ? [
-            "Dart snapshot identity, limits, syntax, package context or unsupported constructs prevent declaration binding; syntax evidence retained.",
-          ]
-        : [
-            "Pinned isolated Dart analyzer unavailable; Dart syntax evidence retained.",
-          ]),
+      // This fixture deliberately has no root pubspec.yaml. Snapshot
+      // validation rejects its package context before runtime discovery,
+      // regardless of whether the isolated analyzer has been provisioned.
+      "Dart snapshot identity, limits, syntax, package context or unsupported constructs prevent declaration binding; syntax evidence retained.",
     ];
     expect(snapshot.coverage.errors).toEqual(expectedRuntimeDiagnostics);
     expect(snapshot.coverage.parsed).toBe(8);
