@@ -48,6 +48,7 @@ function fakeStatsCommand() {
 
 function fakeLsp(
   sampleRssKiB: () => Promise<number | null> = async () => 1024,
+  timeoutMs = 1000,
 ) {
   const writes: string[] = [];
   const child = Object.assign(new EventEmitter(), {
@@ -72,7 +73,7 @@ function fakeLsp(
     ["run", "sha256:trusted"],
     "/owned",
     4096,
-    1000,
+    timeoutMs,
     sampleRssKiB,
   );
   const send = (value: unknown, split = false) => {
@@ -312,6 +313,161 @@ describe("Dart memory sampling deadline", () => {
     } finally {
       client.close();
     }
+  });
+});
+
+describe("Dart memory sampling startup grace", () => {
+  it.each([
+    ["empty startup sentinel", "0B / 0B\n", null],
+    ["genuine zero RSS", "0B / 768MiB\n", 0],
+    ["non-sentinel trailing text", "0B / 0B\nunexpected\n", 0],
+  ] as const)(
+    "distinguishes %s through the real command helper",
+    async (_name, output, expected) => {
+      const { child } = fakeStatsCommand();
+      const pending = sampleContainerRss("graph-dart-fixture");
+      const assertion = expect(pending).resolves.toBe(expected);
+      child.stdout.emit("data", Buffer.from(output));
+      child.emit("close", 0, null);
+      await assertion;
+      expect(child.kill).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects malformed Docker stats output instead of treating it as startup", async () => {
+    const { child } = fakeStatsCommand();
+    const pending = sampleContainerRss("graph-dart-fixture");
+    const assertion = expect(pending).rejects.toThrow(
+      "Invalid Dart memory sample",
+    );
+    child.stdout.emit("data", Buffer.from("not a stats sample\n"));
+    child.emit("close", 0, null);
+    await assertion;
+  });
+
+  it("rejects genuine zero RSS immediately even during startup grace", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const sample = vi.fn(async () => 0);
+    const { client, child } = fakeLsp(sample, 5000);
+    try {
+      const pending = client.request("initialize", {});
+      const assertion = expect(pending).rejects.toThrow(
+        "Dart analyzer memory monitor failed",
+      );
+      elapsed = 100;
+      await Promise.all([assertion, vi.advanceTimersByTimeAsync(100)]);
+      expect(sample).toHaveBeenCalledTimes(1);
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      client.close();
+    }
+  });
+
+  it("rejects persistent missing RSS exactly at the existing 3000 ms startup boundary", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const sample = vi.fn(async () => null);
+    const { client, child } = fakeLsp(sample, 5000);
+    try {
+      const pending = client.request("initialize", {});
+      const assertion = expect(pending).rejects.toThrow(
+        "Dart analyzer memory monitor failed",
+      );
+      let killsBeforeBoundary = -1;
+      await Promise.all([
+        assertion,
+        (async () => {
+          for (let tick = 100; tick <= 2900; tick += 100) {
+            elapsed = tick;
+            await vi.advanceTimersByTimeAsync(100);
+          }
+          killsBeforeBoundary = child.kill.mock.calls.length;
+          elapsed = 3000;
+          await vi.advanceTimersByTimeAsync(100);
+        })(),
+      ]);
+      expect(killsBeforeBoundary).toBe(0);
+      expect(sample).toHaveBeenCalledTimes(30);
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      client.close();
+    }
+  });
+
+  it("rejects a missing RSS sample that only resolves after startup grace", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    let finishSample!: (value: number | null) => void;
+    const sample = vi.fn(
+      () =>
+        new Promise<number | null>((resolve) => {
+          finishSample = resolve;
+        }),
+    );
+    const { client, child } = fakeLsp(sample, 5000);
+    try {
+      const pending = client.request("initialize", {});
+      const assertion = expect(pending).rejects.toThrow(
+        "Dart analyzer memory monitor failed",
+      );
+      let killsBeforeSample = -1;
+      await Promise.all([
+        assertion,
+        (async () => {
+          for (let tick = 100; tick <= 3100; tick += 100) {
+            elapsed = tick;
+            await vi.advanceTimersByTimeAsync(100);
+          }
+          killsBeforeSample = child.kill.mock.calls.length;
+          finishSample(null);
+        })(),
+      ]);
+      expect(killsBeforeSample).toBe(0);
+      expect(sample).toHaveBeenCalledTimes(1);
+      expect(child.kill).toHaveBeenCalledTimes(1);
+      expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      client.close();
+    }
+  });
+
+  it("continues analysis when transient missing RSS becomes positive within startup grace", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let elapsed = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => elapsed);
+    const sample = vi
+      .fn<() => Promise<number | null>>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(64 * 1024);
+    const { client, child, send } = fakeLsp(sample, 5000);
+    try {
+      const pending = client.request("initialize", {});
+      const assertion = expect(pending).resolves.toEqual({ capabilities: {} });
+      await Promise.all([
+        assertion,
+        (async () => {
+          for (let tick = 100; tick <= 3100; tick += 100) {
+            elapsed = tick;
+            await vi.advanceTimersByTimeAsync(100);
+          }
+          client.check();
+          send({ jsonrpc: "2.0", id: 1, result: { capabilities: {} } });
+        })(),
+      ]);
+      expect(sample).toHaveBeenCalledTimes(31);
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally {
+      client.close();
+    }
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

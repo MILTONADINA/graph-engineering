@@ -294,6 +294,11 @@ export async function sampleContainerRss(name: string): Promise<number | null> {
     if (/No such container|not found/i.test(result.stderr)) return null;
     throw new Error("Dart memory sampling failed");
   }
+  // Docker returns an empty stats object for a created but not-yet-running
+  // container, formatted as this exact sentinel. It is not a healthy zero
+  // sample: the LSP monitor accepts null only during its existing startup
+  // grace and still fails closed if no valid sample becomes available.
+  if (/^\s*0B\s*\/\s*0B\s*$/.test(result.stdout)) return null;
   const match =
     /^\s*([0-9]+(?:\.[0-9]+)?)\s*(B|KiB|MiB|GiB|kB|MB|GB)\s*\//.exec(
       result.stdout,
