@@ -25,7 +25,11 @@ cannot start in this sandbox because the owner socket is denied. A further
 Dart analyzer branch has pure and mocked LSP tests passing (23; two native
 Docker cases skipped), engine typecheck/build, formatting, lint and spec-check
 passing, but its derived image has not been built or run here. Both native
-Docker cases and exact-head CI remain unrun. See the
+Docker cases and exact-head CI remain unrun. The isolated clone's missing
+nested CLI dependencies have now been restored from this same repository,
+with versions checked against the unchanged lockfile and no install scripts
+or downloads; `build:dependencies` passes. This does not replace clean-install
+or native CI evidence. See the
 [current agent handover](claude-code-handover.md#start-here--state-on-2026-09-30)
 for exact refs, tested evidence and next actions. Neither fork `main` nor
 Kevin's parent repository was changed by this continuation.

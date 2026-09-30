@@ -77,10 +77,14 @@ the branch fixed provenance, root-in-container, process-group kill and
 late-create view-deletion issues; it found no remaining concrete URI/span or
 cleanup bypass. `Location` answers provide weaker evidence than
 `LocationLink`, and unmarked generated code cannot be detected reliably.
-The isolated clone's `node_modules` lacks `@clack/prompts`, so its full
-`build:dependencies` stops in `create-graph-app` before Dart code; the
-contracts were built directly and the engine built successfully against the
-existing local dependency tree. Fresh `npm ci`/full CI is still required.
+The isolated clone initially lacked `create-graph-app`'s nested dependencies,
+so `build:dependencies` stopped before Dart code. That local prerequisite is
+now repaired: the existing nested dependency tree from this same repository
+was copied after confirming every installed version matches the unchanged
+root lockfile and that the copied tree contains no symlinks. No download or
+install script ran. `npm run build:dependencies` now passes. This is not a
+fresh-install proof; clean `npm ci` and full CI are still required. Existing
+passing engine tests were not rerun for this dependency-tree restoration.
 Do not mark the Dart spec implemented or claim native binding until CI.
 
 1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
@@ -129,6 +133,36 @@ test-line wrap; the other later changes are documentation, so behavior tests
 were not rerun.
 None of the stack was pushed.
 
+**Approval-gate integration and recovery.** The merged baseline remains
+`96cf8b26ae61a8f67be266efd47d6fdcd86c70e6`; it does **not** contain
+`requirePlanApproval`. The reviewed local approval candidate is
+`efefdae252de7de9947808827c2ef1cf54bdd551`. It branches directly from the
+baseline, so PR #112 and Dart are not code dependencies of the gate, even
+though the prepared combined stack places the docs changes below it. Do not
+present the local candidate as a merged or exact-head CI-verified pin.
+
+With the gate available, set `policy.requirePlanApproval: true` before
+planning. `plan-approve <id>` displays the plan without approving it;
+`plan-approve <id> --yes --expect <planSha256>` records approval of those
+exact bytes. Batch approval requires comma-separated expected hashes in plan
+ID order. `plan-status <id...>` returns one status object for one ID or an
+array for several, with `planId`, `planSha256`, `approved`, `approval` and
+`approvalMatchesPlan`. A non-null approval contains `planId`, `planSha256`,
+`approvedAt` and `approvedVia` (`terminal`, `non-interactive`, or `null` for
+legacy records). Status reads do not start the engine or run recovery;
+SQLite may create empty WAL/SHM sidecars. Non-interactive approval is not proof
+of human identity. See the [plan-approval spec](../specs/integration/plan-approval.md).
+
+Graph does not back up the original raw Git index and has no raw-index restore
+command. Its workspace fingerprint binds allowed paths, source bytes and
+executable bits, not index stat-cache bytes. Ordinary isolated worktree
+indexes are not backups of the original index. For interrupted runs, inspect
+`run-receipt <run-id>` and the retained workspace before
+`resume <run-id> --reconciled`; reconciliation does not bypass checkpoint
+hashes. A pending patch must match its recorded before-state or after-state.
+An external guard that hashes the raw index needs its own backup/rebaseline
+policy; equivalent source bytes alone do not prove equivalent staging.
+
 **Next, in order.**
 
 1. Confirm the live fork `dev` and PR #112 head. Push the local B6 fix to
@@ -156,7 +190,8 @@ questions.
 
 - On the owner's Mac, a private helper under `.graph/local/tools/` asks
   both.
-- The owner selected a **$4 total cap for this Codex session only**. No
+- The owner selected a numeric cap for this Codex session, recorded only in
+  the private continuation note. No
   metered call was made and no provider price was reviewed. A future session
   needs its own operator-set cap and reviewed price before a paid call; this
   is not an open-source product default. Send design text only.
@@ -855,9 +890,10 @@ instructions. Preserve the distinction between a **product goal**, an
    and paid providers, account-specific reviewed prices, usage limits and
    spending caps. Do not hardcode this owner's Jev cap or price in the project.
    The current default external-API cap is $0. This owner's available paid
-   decision provider is Jev, with a private local key pointer, but no numeric
-   cap was supplied for this session: continue local/code-side work; abstain
-   from metered Jev calls. Jev is the only metered API credential the owner has
+   decision provider is Jev, with a private local key pointer. The current
+   session cap is recorded privately; account-specific pricing has not been
+   reviewed, so continue local/code-side work without metered Jev calls.
+   Jev is the only metered API credential the owner has
    identified for this project; the owner has Claude Code, Codex and Cursor
    subscriptions, but has not supplied paid
    OpenAI/Anthropic/Cursor API keys. Other providers are a later operator
