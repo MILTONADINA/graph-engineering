@@ -15,6 +15,47 @@ On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
+### Publication update — 2026-09-30
+
+Network and filesystem access were restored after the local preparation
+described below. All six prepared branches were pushed to the owner's fork;
+no branch on either `main` or Kevin's repository was changed. Fork `dev`
+remains `96cf8b26ae61a8f67be266efd47d6fdcd86c70e6` until the final stack
+PR passes CI and is merged.
+
+- [PR #112](https://github.com/MILTONADINA/graph-engineering/pull/112): shared
+  instructions and design, now at `0ab3b51`. Its B6 live-revocation fix was
+  published, the body updated and the substantive review thread resolved.
+- [PR #113](https://github.com/MILTONADINA/graph-engineering/pull/113): approval
+  gate, `ready/approval-20260930`, at `bc966f0`.
+- [PR #114](https://github.com/MILTONADINA/graph-engineering/pull/114): Dart
+  syntax and Pub scanning, `ready/dart-20260930`, at `dea6c90`.
+- [PR #115](https://github.com/MILTONADINA/graph-engineering/pull/115): local
+  model roles, `ready/model-roles-20260930`, at `f41af1a`.
+- [PR #116](https://github.com/MILTONADINA/graph-engineering/pull/116): offline
+  generators, `feat/generator-steps-20260930`, at `8a30618`.
+- Final top: `feat/dart-analyzer-bindings-20260930`, containing the analyzer
+  and the whole lower stack. Publish its final PR into `dev` and run the
+  required checks there; redundant lower-stack CI runs were canceled.
+
+The requested integration answers were delivered to the other owner session.
+No consumer data entered this repository. No new engine tests were run just
+to recheck unchanged local source; first exact-head CI still has to establish
+native Docker, integrated service/HTTP and clean-install evidence. Before
+merging, inspect the exact top SHA, all nine required checks and unresolved
+review threads. Rebase-merge only the final top, close lower PRs with the
+actual merge commit, and report the merged approval SHA for downstream use.
+The original approval candidate and old `dev` are not substitutes for that
+merged pin. Generator and Dart spec status stays provisional until evidence
+and review justify promotion to implemented.
+
+### Preparation snapshot and earlier local evidence
+
+The remainder of this Start here section records the earlier restricted
+session. Statements below about unpushed branches and unavailable access are
+historical; the publication update above supersedes them. Its test results
+retain their stated scope and are not evidence of a later full CI run.
+
 **Fork `dev`.** `96cf8b2` (PR #111) at this handoff. PR #112 proposes this
 section, `AGENTS.md` and the design document; it has not merged. Its original
 head passed all nine required CI jobs, but a review thread found that design

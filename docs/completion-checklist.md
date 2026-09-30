@@ -13,6 +13,14 @@ The owner authorized review and merge of the implementation into
 
 ## Continuation state — 2026-09-30
 
+Publication update: access was restored and the complete six-branch stack was
+pushed to the owner's fork. PRs #112–#116 cover the lower stack; #112's B6
+review thread is resolved. The Dart analyzer branch is the final cumulative
+top for exact-head CI and review before merge into `dev`. Redundant lower
+CI was canceled. No merge or new native/integrated result is claimed yet.
+The following paragraph is the earlier local-preparation snapshot; its
+unpushed/access-denied statements no longer describe the publication state.
+
 The fourteen rows below are a historical checkpoint, not a live assertion
 that external promotion evidence or every managed client is complete. Fork
 `dev` was last read at `96cf8b2`; PR #112 is open with an unresolved generator
