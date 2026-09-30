@@ -20,12 +20,12 @@ section, `AGENTS.md` and the design document; it has not merged. Its original
 head passed all nine required CI jobs, but a review thread found that design
 decision B6 would let a removed generator run from an old plan. A follow-up
 change in this branch now requires an unchanged live registration and a fresh
-registration revision (local only); the updated head needs its own CI and the
-review thread must be resolved before merge. The audit loop has stopped under
-its stop rule (see the 2026-09-28 update); don't restart it unless the owner
-asks.
+registration revision (local only); the completed stack needs CI on its exact
+top head, and the review thread must be resolved before any merge. The audit
+loop has stopped under its stop rule (see the 2026-09-28 update); don't
+restart it unless the owner asks.
 
-**In flight: PR #112, the approval branch and two local code branches.**
+**In flight: PR #112 and a prepared local stack for approval, Dart and model roles.**
 
 1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
    opt-in `requirePlanApproval` policy. Under it, `start()` and `resume()`
@@ -46,7 +46,7 @@ asks.
 2. `feat/dart-syntax-indexing-20260929` (`8b64236`) adds Dart syntax
    indexing and `pubspec.lock` gating: PR 1 of the
    [Dart and generator design](dart-and-generator-steps-design.md). The local
-   review branch `fix/dart-syntax-review-20260930` (`a5df180`, not pushed)
+   review branch `fix/dart-syntax-review-20260930` (`7d5a4db`, not pushed)
    fixes four findings: local-function linkage now respects lexical block
    scope and declaration order; `part of` is indexed; Pub YAML OSV findings
    map to the exact package key; and the synthetic toy package has a committed
@@ -63,23 +63,34 @@ asks.
    lint, formatting and diff checks. The generator contract has not landed;
    the test models that future kind without admitting it in the schema.
 
+The local `ready/approval-20260930` → `ready/dart-20260930` →
+`ready/model-roles-20260930` branches are stacked on the updated PR #112
+branch. Cherry-picks had no conflicts. On the combined tree, four focused
+engine suites passed (26 tests, 1 skipped) and the engine built. Repository-wide
+lint had zero errors and one pre-existing warning; format checking passes on
+the final stack. The code and tests differ from the tested tree only by a
+test-line wrap; the other later changes are documentation, so behavior tests
+were not rerun.
+None of the stack was pushed.
+
 **Next, in order.**
 
-1. Finish PR #112: push its B6 fix, obtain nine checks on that exact head,
-   resolve the review conversation, and merge into fork `dev` only.
-2. Rebase the approval branch onto the current `dev`, and the Dart review
-   branch onto the approval branch. Then:
-   - run the checks the changes warrant, and push;
-   - open one PR per branch into `dev` with the PR template;
-   - cancel CI on the lower PR, merge the top one once its nine checks pass,
-     and close the lower PR with a comment, as `AGENTS.md` describes.
-3. When the approval PR has merged, tell the owner the merged commit. They
-   pin builds of this repository elsewhere and will turn on
+1. Confirm the live fork `dev` and PR #112 head. Push the local B6 fix to
+   PR #112 if its remote head is unchanged; otherwise inspect and rebase.
+   Review the fix and resolve its conversation. Keep the lower PR open for
+   the prepared top-of-stack merge.
+2. If `dev` has not moved, push the `ready/*` branches and open one PR per
+   branch into fork `dev` with the PR template. If it has moved, rebase the
+   stack first. Run CI only on the top PR, require nine passing checks on its
+   exact head and resolved review conversations, then rebase-merge the top
+   PR. Close the lower PRs, including #112, with the merge commit, as
+   `AGENTS.md` describes.
+3. Tell the owner the merged approval commit. They pin builds of this
+   repository elsewhere and will turn on
    `requirePlanApproval` there.
-4. Rebase and PR the prepared `modelRoles` branch, then build the rest of the
-   [Dart and generator design](dart-and-generator-steps-design.md), in its
-   order: generator steps, then Dart resolved bindings under the spike's
-   constraints.
+4. Build the rest of the [Dart and generator design](dart-and-generator-steps-design.md):
+   generator steps with live revocation, then Dart resolved bindings under
+   the spike's constraints.
 5. Update this section as each PR lands.
 
 **Tools.** The owner wants Jev used heavily, together with Laya, for design
@@ -96,9 +107,9 @@ questions.
 **Codex session boundary.** The main checkout remains on `dev` with only the
 owner's pre-existing untracked `.serena/`. The main checkout's `.git` is
 read-only, GitHub connector writes require approval that this environment
-cannot grant, and shell DNS cannot reach GitHub. The three follow-up commits
-above therefore exist only in an isolated clone under ignored `.graph/local/`;
-neither has been pushed or merged. No metered Jev call was made. Use a session
+cannot grant, and shell DNS cannot reach GitHub. The prepared commits and
+stack therefore exist only in an isolated clone under ignored `.graph/local/`;
+none has been pushed or merged. No metered Jev call was made. Use a session
 with normal Git write and network access to sync those commits, then inspect
 the live PR and exact-head checks before merging. Do not edit `dev` directly.
 
