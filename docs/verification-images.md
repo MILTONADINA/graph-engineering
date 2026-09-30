@@ -112,6 +112,11 @@ and the rest of the cache stays read-only.
 
 A starting point until exercised end to end.
 
+The documentation-only [toy widget fixture](flutter-widget-fixture.md) supplies
+synthetic package, widget and test snippets. Prepare and review a real lockfile
+with the selected SDK before using this recipe; no Flutter run is claimed by
+the fixture or these instructions.
+
 ```dockerfile
 # Pin the tag's digest: `docker buildx imagetools inspect debian:trixie-slim` prints it.
 FROM debian:trixie-slim@sha256:<digest>

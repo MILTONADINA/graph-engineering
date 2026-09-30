@@ -1,17 +1,50 @@
 # Design: Dart/Flutter support and sandboxed generator steps
 
-Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Local status:
+Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Current delivery status:
 
-- Dart syntax indexing, its review fixes, approval and `modelRoles` changes
-  are prepared in the local stack, not yet pushed or merged.
-- Generator steps are committed on that stack. Focused tests pass, but
-  integrated socket-based and real Docker CI evidence is pending; its spec
-  remains draft.
-- Dart resolved bindings are implemented on a further local branch. Pure
-  snapshot and mocked LSP tests pass; the actual pinned Linux Docker image
-  has not been built or run in this sandbox. Its native CI case and exact-head
-  review are required before claiming operational binding. The
-  pinned-runtime and no-target-code-execution constraints below govern it.
+- The independent approval/worker-controls release merged through
+  [PR #118](https://github.com/MILTONADINA/graph-engineering/pull/118) into
+  fork `dev` at `d22d69ad0f08bbc95fa2209d42171234817f780d` after all nine
+  exact-head checks and scoped source/contract review passed. It contains no
+  Dart or generator implementation, and approval adoption requires neither.
+  Included PRs #112/#113 are closed.
+  The separate automatic post-merge
+  [run 36762274094](https://github.com/MILTONADINA/graph-engineering/actions/runs/36762274094)
+  (attempt 1 on `d22d69a`) ended cancelled, with eight jobs passing and Linux
+  x64 cancelled during `npm run check`; no test failure or cancellation cause
+  was recorded, and this session did not cancel or rerun it. This is not green
+  post-merge evidence; the nine-job checked-head run and identical-tree merge
+  recorded in the handover remain the approval-release evidence.
+- The remaining Dart syntax, model-role, generator and analyzer changes from
+  PRs #114–#117 are now on the separate
+  `feat/dart-generator-release-20260930` branch, cherry-picked onto that merged
+  base at preparation head `33561ed`. Current follow-up edits are unmerged;
+  the feature head needs its own source-bound checks and review. The expanded
+  mixed finite-deadline case has passed locally, retaining API/local/unknown
+  coverage alongside template and generator envelopes; its final-head CI is
+  still pending.
+- Generator pure and service integration tests have earlier local evidence,
+  but that does not establish a green rebased release. Its native Docker
+  isolation/capture case must run on the final head; the spec remains `draft`.
+- The old Dart native CI attempt failed runtime discovery. Three focused
+  cases for the explicit empty-`PATH` metadata correction and a metadata-only
+  BuildKit probe now pass; neither executes the actual analyzer. Follow-up
+  commit `fb3eebf` copies `env` from that existing pinned base without a new download
+  or custom compiler and validates the exact `[env, -i, --, <absolute-AOT-runtime>]`
+  entrypoint with fixed executable paths. The Dart resolver identity advances
+  to version 2; the SDK remains 3.13.3. Four focused image/prefix guard cases
+  passed. The engine build completed with source manifest
+  `7ffa8987bab1b51828a0e09ccf99bf3bc89e4567334e272d724fae66ee7b1f81`
+  over 121 files; scoped runtime-port review found no blockers. The live AOT
+  environment regression has not run. A mechanics probe in an existing public
+  Node image showed empty `process.env`, not native Dart operation.
+  Dart remains `ready`, and native binding is still unverified.
+  Both native binding/provenance and real bounded-timeout cases, plus all
+  required exact-head checks and review, are needed before release. The
+  pinned-runtime, fixed resource bounds and no-target-code-execution
+  constraints below continue to govern it.
+- Flutter's synthetic widget fixture and verification recipe remain
+  documentation-only, without native CI or end-to-end execution claims.
 - The decisions recorded below were settled during design. Follow them
   unless new evidence says otherwise, and record any change in the PR.
 
@@ -64,7 +97,8 @@ Use the Dart SDK's own analysis server over LSP, mirroring the Rust adapter.
 
 - **Pinned toolchain.** A minimal analyzer image is built from the exact
   official Dart 3.13.3 Linux x64 image digest. It retains the AOT runtime,
-  analyzer snapshot, `version`, SDK `lib/` source and needed runtime libraries,
+  analyzer snapshot, `version`, SDK `lib/` source, needed runtime libraries,
+  and the pinned base's `env` utility for the fixed environment-clearing prefix,
   but not `bin/dart`, project executables, pub tools or `*.dill`. The derived
   image ID binds all retained bytes; the runtime inspects it, records that ID
   in the Dart-only snapshot identity and runs by ID, not by a mutable tag.
@@ -107,7 +141,14 @@ The design must follow what it found:
   the Flutter wrapper; a package-manager `dart` can be a shell wrapper that
   rewrites cache stamps. The command is
   `dartaotruntime --old_gen_heap_size=640 <sdk>/bin/snapshots/analysis_server_aot.dart.snapshot --protocol=lsp --suppress-analytics --cache=<run>/cache --packages=<run>/package_config.json`.
-  - Run it with an empty environment and no `HOME`.
+  - Run it with an empty environment and no `HOME`. The fixed image entrypoint
+    is `/opt/graph-dart/bin/env -i -- /opt/graph-dart/bin/dartaotruntime`.
+    Empty Docker CLI/image environment alone is insufficient because runc
+    can add `HOME` before the entrypoint runs. The prefix clears these defaults
+    before AOT execution; it adds no shell, compiler or downloaded dependency.
+    Image validation requires this exact prefix/target and only `PATH=` in
+    image metadata. Native CI separately exercises post-runc environment
+    clearing; image inspection is not process-environment evidence.
   - Never pass `--diagnostic-port`.
 - **Block process creation and deny the network.** A trimmed SDK is
   portable to Linux and Docker. The analyzer container uses a checked
@@ -155,19 +196,25 @@ recipes to `verification-images.md`:
 - label the recipe a starting point until it has been exercised end to end,
   as the doc already does for its non-Maven recipes.
 
+The [synthetic Flutter widget fixture](flutter-widget-fixture.md) contains
+documentation-only package, widget and test snippets. An operator must generate
+and review its real lockfile with a selected SDK before exercising the recipe;
+neither the fixture nor this design claims native Flutter execution.
+
 ### Files
 
-| File                                                                      | Change                                                                                          |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `packages/contracts/src/index.ts`                                         | `Language` gains `"dart"`; `resolution.engine` gains `"dart-analyzer"`                          |
-| `packages/engine/src/context/parser.ts`                                   | `.dart` mapping; route Dart to its extractor; a Dart-only cache version                         |
-| `packages/engine/src/context/dart-syntax.ts` (new)                        | Signature/body pairing, selector calls, imports, shadowing                                      |
-| `packages/engine/src/context/index.ts`                                    | Dart identity keys only when `.dart` files exist; `resolveDartBindings` in PR 2                 |
-| `packages/engine/src/context/dart.ts`, `dart-snapshot.ts` (new, PR 2)     | Runtime, preparation and validation, reusing a transport factored out of `rust-lsp.ts`          |
-| `packages/engine/src/mcp.ts`                                              | The `symbol_search` language list                                                               |
-| `packages/engine/tests/fixtures/` Dart and Flutter runtime fixtures (new) | A toy `toy_counter` package (`lib/`, `bin/`, `test/`, a committed `pubspec.lock`), a toy widget |
-| `.github/workflows/ci.yml`                                                | A new _step_ in the Linux x64 job (job names are pinned; step names are not)                    |
-| `docs/platform.md`, `context-lifecycle.md`, `verification-images.md`      | Documentation; `specs/context/code-indexing.md` AC1 ("seven" families becomes eight)            |
+| File                                                                                 | Change                                                                                                           |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts/src/index.ts`                                                    | `Language` gains `"dart"`; `resolution.engine` gains `"dart-analyzer"`                                           |
+| `packages/engine/src/context/parser.ts`                                              | `.dart` mapping; route Dart to its extractor; a Dart-only cache version                                          |
+| `packages/engine/src/context/dart-syntax.ts` (new)                                   | Signature/body pairing, selector calls, imports, shadowing                                                       |
+| `packages/engine/src/context/index.ts`                                               | Dart identity keys only when `.dart` files exist; `resolveDartBindings` in PR 2                                  |
+| `packages/engine/src/context/dart.ts`, `dart-snapshot.ts`, `dart-lsp.ts` (new, PR 2) | Runtime, preparation and validation, with a new bounded Dart LSP transport; the Rust transport is not refactored |
+| `packages/engine/src/mcp.ts`                                                         | The `symbol_search` language list                                                                                |
+| `packages/engine/tests/fixtures/dart/`                                               | A toy `toy_counter` package (`lib/`, `bin/`, `test/`, a committed `pubspec.lock`)                                |
+| `docs/flutter-widget-fixture.md`                                                     | Documentation-only toy Flutter package, widget and test; no fabricated lockfile or native execution evidence     |
+| `.github/workflows/ci.yml`                                                           | A new _step_ in the Linux x64 job (job names are pinned; step names are not)                                     |
+| `docs/platform.md`, `context-lifecycle.md`, `verification-images.md`                 | Documentation; `specs/context/code-indexing.md` AC1 ("seven" families becomes eight)                             |
 
 ### Spec `specs/context/dart-indexing.md`
 
@@ -185,12 +232,12 @@ The tests land in the same PR as the criteria they cover, because
 
 ### Decisions
 
-| Question                                          | Decision                                                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| A1. How does Dart enter the snapshot identity?    | Keys only when Dart files exist (built on the Dart branch), rather than bumping `PARSER_VERSION`  |
-| A2. Where does the analyzer runtime come from?    | The hash-pinned, locally built Linux x64 Docker image only; no host path or mutable tag execution |
-| A3. Should the Flutter fixture run in CI?         | Deferred; the fixture and verification recipes remain documentation, not native CI evidence       |
-| A4. Should the security scan gate `pubspec.lock`? | Now: the Dart branch adds it to the scanner's lockfiles                                           |
+| Question                                          | Decision                                                                                                                            |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| A1. How does Dart enter the snapshot identity?    | Keys only when Dart files exist (built on the Dart branch), rather than bumping `PARSER_VERSION`                                    |
+| A2. Where does the analyzer runtime come from?    | The hash-pinned, locally built Linux x64 Docker image only; no host path or mutable tag execution                                   |
+| A3. Should the Flutter fixture run in CI?         | Deferred; the [toy widget fixture](flutter-widget-fixture.md) and verification recipes remain documentation, not native CI evidence |
+| A4. Should the security scan gate `pubspec.lock`? | Now: the Dart branch adds it to the scanner's lockfiles                                                                             |
 
 ## Upgrade B: `generator` steps
 
