@@ -113,6 +113,29 @@ asks.
 
 **In flight: PR #112, the approval branch and two local code branches.**
 
+**Generator follow-on (local, focused-verified; CI pending).**
+`feat/generator-steps-20260930` is based on the prepared model-roles stack in
+this repository's ignored isolated clone. It adds operator-only CLI
+registration, frozen plans with live revocation, a disposable offline Docker
+view, bounded output capture, DAG checkpoint reconciliation, CLI/MCP/HTTP
+step contracts, dashboard labels, a draft spec and a Linux Docker CI case.
+The command and full registration are excluded from generic dashboard
+responses. An adversarial review found and the branch fixed credential-path
+output admission, dashboard response exposure, and a Docker cleanup race.
+Focused pure contract/DAG/planning tests passed (30), a CLI registration test
+passed, generator runtime tests passed (22, with one Docker-gated case skipped
+locally), and engine and dashboard
+build/typecheck passed, repository formatting and lint passed (one pre-existing
+warning), and spec-check passed. The integrated managed-service and HTTP
+tests cannot start here because this sandbox denies their local owner socket;
+the Docker case has not run locally. Neither the nine CI jobs nor a live
+user-supplied image has been verified on this exact branch. A pathological
+generator can still fill the disposable bind-mounted view or create more
+entries than bounded permission-recovery cleanup will traverse; a failed
+cleanup retains a private local view for operator recovery. Do not describe
+the spec as implemented before exact-head CI and review. The other owner
+session only consumes a pinned Graph build and does not edit this repo.
+
 1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
    opt-in `requirePlanApproval` policy. Under it, `start()` and `resume()`
    need a person's stored approval of the plan's exact content for every

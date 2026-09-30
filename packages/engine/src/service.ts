@@ -14,6 +14,7 @@ import type {
   ContextPacket,
   ExecutionPlan,
   ExecutionStep,
+  GeneratorRegistration,
   ProjectConfig,
   ProjectPolicy,
   ProviderConfig,
@@ -21,6 +22,10 @@ import type {
   RunOutcome,
   RunRecord,
   Usage,
+} from "@graph-engineering/contracts";
+import {
+  assertGeneratorRegistration,
+  sameGeneratorRegistration,
 } from "@graph-engineering/contracts";
 import { ContextEngine } from "./context/index.js";
 import { loadProject, loadProviders, projectDataDir } from "./project.js";
@@ -77,6 +82,10 @@ import {
   verifyInContainer,
   type VerificationResult,
 } from "./execution/docker.js";
+import {
+  generateInContainer,
+  type GeneratorResult,
+} from "./execution/generator.js";
 import { publishRun } from "./execution/publish.js";
 import {
   invokeReviewWorker,
@@ -137,6 +146,7 @@ import {
 import {
   applyRepair,
   checkpointPaths,
+  parseDagCheckpoint,
   runDag,
   validateDag,
   untilAborted,
@@ -159,6 +169,7 @@ import {
 
 export interface EngineDependencies {
   worker?: (input: WorkerInput, workspace: string) => Promise<WorkerResult>;
+  generator?: typeof generateInContainer;
   verify?: typeof verifyInContainer;
   dockerAvailable?: typeof dockerAvailable;
   /** Reviews a verified change; defaults to the configured reviewer's API. */
@@ -751,6 +762,176 @@ export class GraphEngine {
     this.context.updatePolicy(config.policy);
     return this.config;
   }
+  private frozenGenerators(steps: ExecutionStep[]): GeneratorRegistration[] {
+    const ids = [
+      ...new Set(
+        steps
+          .filter((step) => step.kind === "generator")
+          .map((step) => step.generatorId!),
+      ),
+    ];
+    return ids.map((generatorId) => {
+      const matches = (this.config.generators ?? []).filter(
+        (registration) => registration.id === generatorId,
+      );
+      if (matches.length !== 1)
+        throw new Error(
+          `Generator ${generatorId} is not registered exactly once; register it before planning`,
+        );
+      return structuredClone(matches[0]!);
+    });
+  }
+  private plannedGenerators(plan: ExecutionPlan): GeneratorRegistration[] {
+    const ids = new Set(
+      plan.steps
+        .filter((step) => step.kind === "generator")
+        .map((step) => step.generatorId),
+    );
+    const frozen = plan.generators ?? [];
+    if (
+      ids.has(undefined) ||
+      frozen.length !== ids.size ||
+      new Set(frozen.map((registration) => registration.id)).size !==
+        frozen.length
+    )
+      throw new Error("Plan has an incomplete generator registration binding");
+    for (const registration of frozen) {
+      assertGeneratorRegistration(registration);
+      if (!ids.has(registration.id))
+        throw new Error("Plan has an unexpected generator registration");
+    }
+    return frozen;
+  }
+  /** A frozen command never survives removal, replacement, or same-ID re-add. */
+  private assertLiveGenerators(
+    plan: ExecutionPlan,
+    pendingStepIds?: ReadonlySet<string>,
+  ): void {
+    const frozen = this.plannedGenerators(plan);
+    const live = this.config.generators ?? [];
+    for (const step of plan.steps) {
+      if (
+        step.kind !== "generator" ||
+        (pendingStepIds && !pendingStepIds.has(step.id))
+      )
+        continue;
+      const expected = frozen.find(
+        (registration) => registration.id === step.generatorId,
+      )!;
+      const matches = live.filter(
+        (registration) => registration.id === step.generatorId,
+      );
+      if (
+        matches.length !== 1 ||
+        !sameGeneratorRegistration(expected, matches[0]!)
+      )
+        throw new Error(
+          `Generator registration ${step.generatorId} changed or was removed; create a fresh plan`,
+        );
+    }
+  }
+  private pendingGeneratorSteps(
+    plan: ExecutionPlan,
+    checkpoint?: DagCheckpoint,
+  ): Set<string> {
+    const completed = new Set(checkpoint?.completed.map((item) => item.id));
+    return new Set(
+      plan.steps
+        .filter((step) => step.kind === "generator" && !completed.has(step.id))
+        .map((step) => step.id),
+    );
+  }
+  private async pendingGeneratorStepsForResume(
+    run: RunRecord,
+  ): Promise<Set<string>> {
+    const all = this.pendingGeneratorSteps(run.plan);
+    if (!all.size || !run.workspace) return all;
+    let checkpoint: DagCheckpoint;
+    try {
+      checkpoint = parseDagCheckpoint(
+        await readJson(
+          path.join(this.dataDir, "checkpoints", `${run.id}.json`),
+        ),
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return all;
+      throw error;
+    }
+    // An unrecognized checkpoint cannot waive a live registration check.
+    const dag = validateDag(run.plan.steps);
+    const expectedPlanHash = hash({
+      steps: dag.steps,
+      policy: this.config.policy,
+      writeScopes: {},
+    });
+    if (checkpoint.planHash !== expectedPlanHash) return all;
+    const completed = new Set<string>();
+    for (const item of checkpoint.completed) {
+      if (
+        completed.has(item.id) ||
+        !dag.ancestors.has(item.id) ||
+        [...dag.ancestors.get(item.id)!].some(
+          (dependency) => !completed.has(dependency),
+        ) ||
+        item.paths.some((file) => !isAllowedPath(file, this.config.policy))
+      )
+        return all;
+      completed.add(item.id);
+    }
+    if (
+      checkpoint.repairPaths?.length &&
+      (completed.size < dag.steps.length ||
+        checkpoint.repairPaths.some(
+          (file) => !isAllowedPath(file, this.config.policy),
+        ))
+    )
+      return all;
+    const pending = checkpoint.pending;
+    if (
+      pending &&
+      (pending.beforeHash !== checkpoint.workspaceHash ||
+        (pending.stepId === DAG_REPAIR_STEP
+          ? completed.size !== dag.steps.length
+          : !dag.ancestors.has(pending.stepId) ||
+            completed.has(pending.stepId) ||
+            [...dag.ancestors.get(pending.stepId)!].some(
+              (dependency) => !completed.has(dependency),
+            )) ||
+        pending.paths.some((file) => !isAllowedPath(file, this.config.policy)))
+    )
+      return all;
+    const actualHash = await workspaceFingerprint(
+      run.workspace,
+      this.config.policy,
+    );
+    if (
+      actualHash !== checkpoint.workspaceHash &&
+      actualHash !== pending?.afterHash
+    )
+      return all;
+    const stillPending = this.pendingGeneratorSteps(run.plan, checkpoint);
+    // runDag resolves a pending marker at its pre-patch hash as unapplied,
+    // even when beforeHash and afterHash coincide. Only a distinct, verified
+    // post-patch state can become a historical completion without dispatch.
+    if (
+      pending?.afterHash &&
+      actualHash !== pending.beforeHash &&
+      actualHash === pending.afterHash &&
+      stillPending.has(pending.stepId)
+    ) {
+      try {
+        await assertVerificationPaths(
+          run.workspace,
+          [...checkpointPaths(checkpoint), ...pending.paths],
+          this.config.policy,
+        );
+      } catch {
+        return all;
+      }
+      stillPending.delete(pending.stepId);
+    }
+    return stillPending;
+  }
   /**
    * Plans a feature from its spec: the objective comes from the spec's title,
    * problem, security considerations and non-goals, and the acceptance
@@ -807,10 +988,14 @@ export class GraphEngine {
     const planId = id();
     if (input.steps) {
       const validated = validateDag(input.steps).steps;
-      if (validated.every((step) => step.kind === "template")) {
+      if (validated.every((step) => step.kind !== "worker")) {
         for (const step of validated)
-          if (!templateRuntimeCapability(step.templateId!).executable)
+          if (
+            step.kind === "template" &&
+            !templateRuntimeCapability(step.templateId!).executable
+          )
             throw new Error(`Template ${step.templateId} is not executable`);
+        const generators = this.frozenGenerators(validated);
         const plan: ExecutionPlan = {
           version: "1.0.0",
           id: planId,
@@ -821,6 +1006,7 @@ export class GraphEngine {
           objective: input.objective,
           acceptance: input.acceptance,
           steps: validated,
+          ...(generators.length ? { generators } : {}),
           verification: structuredClone(this.config.verification),
           publication: this.config.policy.publication,
           ...(input.spec ? { spec: input.spec } : {}),
@@ -912,6 +1098,23 @@ export class GraphEngine {
     });
     routing.records.forEach((record) => this.store.decision(record));
     assertProvider(provider, this.config.policy, routing.effort);
+    const steps = await this.withTester(
+      input.steps
+        ? validateDag(input.steps).steps
+        : [
+            {
+              id: "implement",
+              kind: "worker",
+              objective: `${input.objective}\n\nWorkflow: ${WORKFLOWS[routing.workflow]}`,
+              dependsOn: [],
+              providerId: provider.id,
+              effort: routing.effort,
+            },
+          ],
+      input.acceptance,
+      input.spec,
+    );
+    const generators = this.frozenGenerators(steps);
     const plan: ExecutionPlan = {
       version: "1.0.0",
       id: planId,
@@ -921,22 +1124,8 @@ export class GraphEngine {
       createdAt: now(),
       objective: input.objective,
       acceptance: input.acceptance,
-      steps: await this.withTester(
-        input.steps
-          ? validateDag(input.steps).steps
-          : [
-              {
-                id: "implement",
-                kind: "worker",
-                objective: `${input.objective}\n\nWorkflow: ${WORKFLOWS[routing.workflow]}`,
-                dependsOn: [],
-                providerId: provider.id,
-                effort: routing.effort,
-              },
-            ],
-        input.acceptance,
-        input.spec,
-      ),
+      steps,
+      ...(generators.length ? { generators } : {}),
       routing: {
         workflow: routing.workflow,
         contextBudgetTokens: routing.contextBudgetTokens,
@@ -958,7 +1147,10 @@ export class GraphEngine {
         if (!worker)
           throw new Error(`Step ${step.id} uses an unavailable worker`);
         assertProvider(worker, this.config.policy, step.effort);
-      } else if (!templateRuntimeCapability(step.templateId!).executable)
+      } else if (
+        step.kind === "template" &&
+        !templateRuntimeCapability(step.templateId!).executable
+      )
         throw new Error(`Template ${step.templateId} is not executable`);
     }
     if (input.cloudAuthored) {
@@ -1094,6 +1286,7 @@ export class GraphEngine {
     }
     if (policyChanged)
       throw new Error("Policy changed since planning; create a new plan");
+    this.assertLiveGenerators(plan);
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
     this.assertPlanVerification(plan);
@@ -1109,8 +1302,13 @@ export class GraphEngine {
       throw new Error("Source changed since planning; create a fresh plan");
     await this.assertCleanForPublication(plan.publication);
     await this.assertVerificationImages(plan, "start the run");
+    await this.assertGeneratorImages(plan, "start the run");
     // A run whose process died stops counting against the concurrency limit.
     await this.store.recoverInterrupted();
+    await this.refresh();
+    if (plan.policyHash !== hash(this.config.policy))
+      throw new Error("Policy changed since planning; create a new plan");
+    this.assertLiveGenerators(plan);
     this.assertOpen("started");
     const run: RunRecord = {
       id: id(),
@@ -1337,6 +1535,41 @@ export class GraphEngine {
         );
     }
   }
+  private async assertGeneratorImages(
+    plan: ExecutionPlan,
+    then: string,
+    pendingStepIds?: ReadonlySet<string>,
+  ): Promise<void> {
+    if (this.deps.generator) return;
+    const pendingIds = new Set(
+      plan.steps
+        .filter(
+          (step) =>
+            step.kind === "generator" &&
+            (!pendingStepIds || pendingStepIds.has(step.id)),
+        )
+        .map((step) => step.generatorId),
+    );
+    for (const image of new Set(
+      this.plannedGenerators(plan)
+        .filter((registration) => pendingIds.has(registration.id))
+        .map((registration) => registration.image),
+    )) {
+      const result = await command(
+        "docker",
+        ["image", "inspect", "--format", "{{.Id}}", image],
+        { timeoutMs: 10000 },
+      );
+      if (
+        result.code !== 0 ||
+        !/^sha256:[a-f0-9]{64}$/.test(result.stdout.trim())
+      )
+        throw new LocalDetailError(
+          `A generator image is not on this machine, so no generator could run. Provision it locally, then ${then}; the plan is still valid`,
+          `Generator image ${image} is not on this machine; provision it locally, then ${then}`,
+        );
+    }
+  }
   // A project with a committed security baseline scans every run; check the
   // scanner before any worker spend rather than after verification.
   private async assertSecurityScanner(checkout = this.root, revision = "HEAD") {
@@ -1480,6 +1713,9 @@ export class GraphEngine {
     await this.refresh();
     if (hash(this.config.policy) !== run.plan.policyHash)
       throw new Error("Policy changed; create a fresh plan");
+    const pendingGeneratorStepIds =
+      await this.pendingGeneratorStepsForResume(run);
+    this.assertLiveGenerators(run.plan, pendingGeneratorStepIds);
     // Under the policy the plan this run holds must still be approved as it
     // is: an approval removed, or replaced by one of other content, since
     // the run started does not let it go on.
@@ -1516,9 +1752,18 @@ export class GraphEngine {
       run.plan,
       `resume it with graph-engine resume ${runId} --reconciled`,
     );
+    await this.assertGeneratorImages(
+      run.plan,
+      `resume it with graph-engine resume ${runId} --reconciled`,
+      pendingGeneratorStepIds,
+    );
     // As in start, a run whose process died stops counting against the
     // concurrency limit.
     await this.store.recoverInterrupted();
+    await this.refresh();
+    if (hash(this.config.policy) !== run.plan.policyHash)
+      throw new Error("Policy changed; create a fresh plan");
+    this.assertLiveGenerators(run.plan, pendingGeneratorStepIds);
     this.assertOpen("resumed");
     const reserved = this.store.reserveResume(
       runId,
@@ -2304,7 +2549,7 @@ export class GraphEngine {
       let firstAttempt = 1;
       if (
         run.plan.steps.length > 1 ||
-        run.plan.steps.some((step) => step.kind === "template")
+        run.plan.steps.some((step) => step.kind !== "worker")
       ) {
         const checkpointPath = path.join(
           this.dataDir,
@@ -2320,6 +2565,7 @@ export class GraphEngine {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           }
         }
+        dagCheckpoint = checkpoint;
         // Only the explicit installed-worker override needs this extra
         // binding. Keep default dispatch behavior unchanged. A provider kind
         // changed before generation may not reuse another kind's envelope.
@@ -2355,12 +2601,49 @@ export class GraphEngine {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
               throw new Error("Policy changed before DAG patch application");
+            // The wave-level call must include sibling generators: a revoked
+            // sibling cannot let an earlier independent step apply first.
+            this.assertLiveGenerators(
+              run.plan,
+              this.pendingGeneratorSteps(run.plan, dagCheckpoint),
+            );
           },
           onEvent: recordDagEvent,
           generate: async (step, state) => {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
               throw new Error("Policy changed during DAG execution");
+            if (step.kind === "generator") {
+              this.assertLiveGenerators(run.plan, new Set([step.id]));
+              const registration = this.plannedGenerators(run.plan).find(
+                (value) => value.id === step.generatorId,
+              )!;
+              const result: GeneratorResult = await (
+                this.deps.generator ?? generateInContainer
+              )(
+                workspace,
+                registration,
+                this.config.policy,
+                state.snapshotHash,
+                state.signal,
+              );
+              const testerFeedback = testFirstFeedback(
+                step,
+                result.proposal,
+                testerWrittenFiles(),
+              );
+              if (testerFeedback)
+                throw new Error(
+                  `Generator ${step.generatorId}: ${testerFeedback}`,
+                );
+              this.store.event(
+                run.id,
+                "generator.generated",
+                { ...result.provenance },
+                step.id,
+              );
+              return result;
+            }
             if (step.kind === "template") {
               const { targetDirectory, ...inputs } = step.inputs ?? {};
               if (

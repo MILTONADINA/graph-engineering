@@ -3,8 +3,13 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import type { FastifyInstance } from "fastify";
+import type {
+  ExecutionPlan,
+  GeneratorRegistration,
+  RunRecord,
+} from "@graph-engineering/contracts";
 import { GraphEngine } from "../src/service.js";
-import { initializeProject } from "../src/project.js";
+import { initializeProject, PROJECT_FILE } from "../src/project.js";
 import { createServer } from "../src/server.js";
 
 const TOKEN = "test-token";
@@ -134,6 +139,98 @@ async function expectEveryApiRouteGuarded(app: FastifyInstance) {
 }
 
 describe("dashboard API access token", () => {
+  it("does not list generator commands through generic dashboard responses", async () => {
+    const { app, engine } = await open();
+    const registration: GeneratorRegistration = {
+      id: "toy-client",
+      revision: "revision-one",
+      image: `sha256:${"a".repeat(64)}`,
+      argv: ["fixture-private-command"],
+      outputs: ["out"],
+    };
+    await writeFile(
+      path.join(engine.root, PROJECT_FILE),
+      JSON.stringify({ ...engine.config, generators: [registration] }),
+    );
+    const project = await app.inject({ url: "/api/project", headers: authed });
+    expect(project.statusCode).toBe(200);
+    expect(project.json().config.generators).toBeUndefined();
+
+    const plan: ExecutionPlan = {
+      version: "1.0.0",
+      id: "plan-one",
+      projectId: engine.config.projectId,
+      snapshotId: "snapshot-one",
+      policyHash: "policy-one",
+      createdAt: new Date().toISOString(),
+      objective: "Generate the toy client",
+      acceptance: ["Client exists"],
+      steps: [
+        {
+          id: "client",
+          kind: "generator",
+          objective: "Generate the toy client",
+          dependsOn: [],
+          generatorId: registration.id,
+        },
+      ],
+      generators: [registration],
+      verification: [],
+      publication: "none",
+    };
+    const run: RunRecord = {
+      id: "run-one",
+      plan,
+      status: "planned",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        costUsd: 0,
+        estimated: false,
+      },
+    };
+    vi.spyOn(engine, "createPlan").mockResolvedValue(plan);
+    vi.spyOn(engine, "planWarnings").mockReturnValue([]);
+    vi.spyOn(engine.store, "runs").mockReturnValue([run]);
+    vi.spyOn(engine.store, "run").mockReturnValue(run);
+    vi.spyOn(engine.store, "events").mockReturnValue([]);
+    vi.spyOn(engine, "start").mockResolvedValue(run);
+    vi.spyOn(engine, "cancel").mockResolvedValue(run);
+    vi.spyOn(engine, "resume").mockResolvedValue(run);
+
+    const requests = [
+      {
+        method: "POST" as const,
+        url: "/api/plans",
+        payload: { objective: "Generate", acceptance: ["Done"] },
+      },
+      { method: "GET" as const, url: "/api/runs" },
+      { method: "GET" as const, url: "/api/runs/run-one" },
+      {
+        method: "POST" as const,
+        url: "/api/runs",
+        payload: { planId: plan.id },
+      },
+      { method: "POST" as const, url: "/api/runs/run-one/cancel" },
+      {
+        method: "POST" as const,
+        url: "/api/runs/run-one/resume",
+        payload: { reconciled: true },
+      },
+    ];
+    for (const request of requests) {
+      const response = await app.inject({ ...request, headers: authed });
+      expect(response.statusCode, request.url).toBe(200);
+      expect(response.body, request.url).not.toContain(
+        "fixture-private-command",
+      );
+      expect(response.body, request.url).not.toContain('"generators"');
+    }
+  });
+
   it("rejects every registered API route without the token, however the path is spelled", async () => {
     const { app } = await open();
     await expectEveryApiRouteGuarded(app);

@@ -1,6 +1,6 @@
 # Dependency scheduling and executable templates
 
-`execution/dag.ts` validates up to 100 uniquely identified steps, explicit dependencies, worker provider IDs, and template IDs. Orphans, cycles, duplicate dependencies, and invalid step contracts fail before dispatch.
+`execution/dag.ts` validates up to 100 uniquely identified steps, explicit dependencies, worker provider IDs, template IDs and registered generator IDs. Orphans, cycles, duplicate dependencies, and invalid step contracts fail before dispatch.
 
 `runDag` accepts the steps, managed workspace, project policy, a durable `saveCheckpoint` callback, and a read-only `generate(step, { snapshotHash, signal })` callback returning a `WorkerResult`. The service selects each step's provider/effort and resolves missing-context requests inside that callback. The scheduler never launches a shell or provider itself.
 
@@ -65,6 +65,28 @@ versions. `policy.workingSet` is not an exact write-only substitute: it also
 limits indexing and reads, uses path-root rather than exact-file semantics,
 and retains the documented public-context exceptions. The scope follow-up's
 focused narrow-release cases pass locally; final-head CI remains pending.
+
+## Offline generator steps
+
+A generator step runs an operator-registered, image-pinned argv in a disposable
+Docker view of the run workspace. It is not a host command, an MCP-registered
+tool or a model worker. An operator manages registrations with the
+`generator-add`, `generator-remove` and `generators` CLI commands; a plan
+freezes the complete registration and exposes it to `plan-approve`. Every add
+or replacement gets a fresh revision. A plan's pending generator work is
+refused if that revision or any canonical registration field no longer
+matches the live project configuration, even when plan approval is off.
+
+The container has no network, a read-only root, a writable temporary view and
+bounded time, processes, memory, CPU and output. The engine checks the entire
+view after exit, refuses unsafe or undeclared changes, then turns allowed text
+changes into an ordinary proposal. Write scopes, secrets, tester-file
+protection, checkpoint recovery, required checks, security and review still
+apply. A generator cannot edit an existing empty file until the proposal
+format supports that case. A cloud-authored plan counts a generator as a local
+role and cannot mix it with non-local model roles. See the
+[generator spec](../specs/runs/generator-steps.md) for exact criteria and
+evidence limits.
 
 ## Resume and crash handling
 

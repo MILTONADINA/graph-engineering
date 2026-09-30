@@ -114,6 +114,8 @@ export interface ProjectConfig {
   name: string;
   policy: ProjectPolicy;
   verification: { argv: string[]; image: string }[];
+  /** Commands only a local operator can register for generator plan steps. */
+  generators?: GeneratorRegistration[];
   github?: { repository: string; baseBranch: string; remote: string };
   /** A reviewer worker that must approve a run before it completes. */
   review?: { providerId: string };
@@ -154,6 +156,29 @@ export interface LiveTarget {
 /** A digest-pinned registry image, or a local image ID. */
 export const PINNED_IMAGE =
   /^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?\/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[a-f0-9]{64}$|^sha256:[a-f0-9]{64}$/;
+export const GENERATOR_MAX_FILES = 50;
+export const GENERATOR_MAX_FILE_BYTES = 1_048_576;
+export const GENERATOR_MAX_TOTAL_BYTES = 8_388_608;
+/** Optional per-generator ceilings. Each narrows the engine's ceiling. */
+export interface GeneratorLimits {
+  timeoutSeconds?: number;
+  maxFiles?: number;
+  maxFileBytes?: number;
+  maxTotalBytes?: number;
+}
+/** The complete operator registration copied into a plan when it is created. */
+export interface GeneratorRegistration {
+  id: string;
+  /** A fresh opaque value on every add, including replacement under one ID. */
+  revision: string;
+  image: string;
+  argv: string[];
+  /** Exact repository-relative files or directory roots, never globs. */
+  outputs: string[];
+  /** Optional allowlist globs for source files in the offline view. */
+  reads?: string[];
+  limits?: GeneratorLimits;
+}
 export interface ProviderConfig {
   id: string;
   kind: ProviderKind;
@@ -282,12 +307,13 @@ export interface MemoryRecord {
 }
 export interface ExecutionStep {
   id: string;
-  kind: "worker" | "template";
+  kind: "worker" | "template" | "generator";
   objective: string;
   dependsOn: string[];
   providerId?: string;
   effort?: string;
   templateId?: string;
+  generatorId?: string;
   inputs?: Record<string, unknown>;
   /**
    * Glob patterns (like exportPaths) limiting the files this step may write,
@@ -308,6 +334,8 @@ export interface ExecutionPlan {
   acceptance: string[];
   steps: ExecutionStep[];
   verification: ProjectConfig["verification"];
+  /** Frozen registrations for its generator steps; absent on older plans. */
+  generators?: GeneratorRegistration[];
   publication: ProjectPolicy["publication"];
   routing?: {
     workflow: string;
@@ -421,6 +449,82 @@ const nonempty = { type: "string", minLength: 1 };
 const strings = { type: "array", items: nonempty, uniqueItems: true };
 // An allowlist glob: `!pattern` excludes; `!` alone and `!!` are refused.
 const globEntry = { type: "string", minLength: 1, pattern: "^(?!!$)(?!!!)" };
+const generatorRoot = {
+  type: "string",
+  minLength: 1,
+  maxLength: 1000,
+  // One exact relative path spelling; no glob, traversal, drive or separator aliases.
+  pattern:
+    "^(?!/)(?!.*//)(?!.*/$)(?!(?:.*/)?\\.{1,2}(?:/|$))[^*?\\[\\]{}!\\\\:\\u0000-\\u001f]+$",
+};
+export const generatorSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  type: "object",
+  additionalProperties: false,
+  required: ["id", "revision", "image", "argv", "outputs"],
+  properties: {
+    id: {
+      type: "string",
+      pattern: "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$",
+    },
+    revision: {
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+      pattern: "^[A-Za-z0-9_-]+$",
+    },
+    image: { type: "string", pattern: PINNED_IMAGE.source },
+    argv: {
+      type: "array",
+      minItems: 1,
+      maxItems: 100,
+      items: {
+        type: "string",
+        minLength: 1,
+        maxLength: 4096,
+        pattern: "^[^\\u0000]*$",
+      },
+    },
+    outputs: {
+      type: "array",
+      minItems: 1,
+      maxItems: GENERATOR_MAX_FILES,
+      uniqueItems: true,
+      items: generatorRoot,
+    },
+    reads: {
+      type: "array",
+      minItems: 1,
+      maxItems: 50,
+      uniqueItems: true,
+      items: { ...globEntry, maxLength: 200 },
+      contains: { type: "string", pattern: "^[^!]" },
+    },
+    limits: {
+      type: "object",
+      additionalProperties: false,
+      minProperties: 1,
+      properties: {
+        timeoutSeconds: { type: "integer", minimum: 1, maximum: 86400 },
+        maxFiles: {
+          type: "integer",
+          minimum: 1,
+          maximum: GENERATOR_MAX_FILES,
+        },
+        maxFileBytes: {
+          type: "integer",
+          minimum: 1,
+          maximum: GENERATOR_MAX_FILE_BYTES,
+        },
+        maxTotalBytes: {
+          type: "integer",
+          minimum: 1,
+          maximum: GENERATOR_MAX_TOTAL_BYTES,
+        },
+      },
+    },
+  },
+};
 export const policySchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   type: "object",
@@ -492,6 +596,11 @@ export const projectSchema = {
           image: nonempty,
         },
       },
+    },
+    generators: {
+      type: "array",
+      maxItems: 100,
+      items: generatorSchema,
     },
     github: {
       type: "object",
@@ -582,6 +691,104 @@ const Ajv = Ajv2020 as unknown as typeof import("ajv").default;
 const ajv = new Ajv({ allErrors: true, strict: false, strictNumbers: true });
 (addFormats as unknown as (a: typeof ajv) => void)(ajv);
 const validateProject = ajv.compile(projectSchema);
+const validateGenerator = ajv.compile(generatorSchema);
+/** Credential-shaped paths may not be declared or emitted as generator output. */
+export function isGeneratorCredentialPath(relative: string): boolean {
+  const parts = relative.toLowerCase().split("/");
+  return (
+    parts.some((segment) =>
+      /^(?:\.env(?:\..*)?|\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.npmrc|\.netrc|\.pypirc|\.git-credentials|\.gitconfig|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|.*\.(?:pem|key|p12|pfx)|(?:credentials?|secrets?|passwords?|api[-_]?keys?|access[-_]?tokens?|private[-_]?keys?)(?:[._-].*)?)$/.test(
+        segment,
+      ),
+    ) ||
+    relative.toLowerCase().startsWith(".config/gh/") ||
+    relative.toLowerCase().includes("/.config/gh/") ||
+    relative.toLowerCase().startsWith(".config/gcloud/") ||
+    relative.toLowerCase().includes("/.config/gcloud/")
+  );
+}
+function validGeneratorOutputRoot(root: string): boolean {
+  return (
+    !isGeneratorCredentialPath(root) &&
+    !root
+      .split("/")
+      .some(
+        (segment) =>
+          segment === "." ||
+          segment === ".." ||
+          /[. ]$/.test(segment) ||
+          /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(segment) ||
+          [".graph", ".git", "node_modules"].includes(segment.toLowerCase()),
+      ) &&
+    root === root.normalize("NFC")
+  );
+}
+function validGeneratorReadGlob(entry: string): boolean {
+  const glob = entry.startsWith("!") ? entry.slice(1) : entry;
+  return (
+    !!glob &&
+    !glob.startsWith("/") &&
+    !glob.includes("\\") &&
+    !glob.includes(":") &&
+    !/[\u0000-\u001f]/.test(glob) &&
+    !glob.split("/").some((part) => part === "." || part === "..")
+  );
+}
+/** Validate a registration even when it came from a stored plan. */
+export function assertGeneratorRegistration(
+  value: unknown,
+): asserts value is GeneratorRegistration {
+  if (!validateGenerator(value))
+    throw new Error(
+      `Invalid generator registration: ${ajv.errorsText(validateGenerator.errors)}`,
+    );
+  const registration = value as unknown as GeneratorRegistration;
+  if (registration.outputs.some((root) => !validGeneratorOutputRoot(root)))
+    throw new Error(
+      "Invalid generator registration: output roots must be safe exact relative paths",
+    );
+  const roots = registration.outputs.map((root) => root.toLowerCase());
+  if (
+    roots.some((root, index) =>
+      roots.some(
+        (other, otherIndex) =>
+          otherIndex !== index &&
+          (root === other || root.startsWith(`${other}/`)),
+      ),
+    )
+  )
+    throw new Error("Invalid generator registration: output roots overlap");
+  if (registration.reads?.some((glob) => !validGeneratorReadGlob(glob)))
+    throw new Error(
+      "Invalid generator registration: read globs must be safe relative patterns",
+    );
+}
+/** Compare all canonical fields, including the revision and optional-field presence. */
+export function sameGeneratorRegistration(
+  left: GeneratorRegistration,
+  right: GeneratorRegistration,
+): boolean {
+  const canonical = (value: GeneratorRegistration) =>
+    JSON.stringify([
+      value.id,
+      value.revision,
+      value.image,
+      value.argv,
+      value.outputs,
+      Object.hasOwn(value, "reads"),
+      value.reads ?? null,
+      Object.hasOwn(value, "limits"),
+      value.limits
+        ? [
+            value.limits.timeoutSeconds ?? null,
+            value.limits.maxFiles ?? null,
+            value.limits.maxFileBytes ?? null,
+            value.limits.maxTotalBytes ?? null,
+          ]
+        : null,
+    ]);
+  return canonical(left) === canonical(right);
+}
 export function assertProjectConfig(
   value: unknown,
 ): asserts value is ProjectConfig {
@@ -597,4 +804,24 @@ export function assertProjectConfig(
     throw new Error(
       `Invalid project configuration: live target ${repeated} is declared twice`,
     );
+  const project = value as unknown as ProjectConfig;
+  const generators = project.generators ?? [];
+  const generatorIds = generators.map((generator) => generator.id);
+  const duplicateGenerator = generatorIds.find(
+    (id, index) => generatorIds.indexOf(id) !== index,
+  );
+  if (duplicateGenerator)
+    throw new Error(
+      `Invalid project configuration: generator ${duplicateGenerator} is declared twice`,
+    );
+  for (const generator of generators) {
+    assertGeneratorRegistration(generator);
+    if (
+      generator.limits?.timeoutSeconds !== undefined &&
+      generator.limits.timeoutSeconds > project.policy.timeoutSeconds
+    )
+      throw new Error(
+        `Invalid project configuration: generator ${generator.id} timeout exceeds policy.timeoutSeconds`,
+      );
+  }
 }

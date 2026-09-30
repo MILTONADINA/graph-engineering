@@ -5,6 +5,11 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import type {
+  ExecutionPlan,
+  ProjectConfig,
+  RunRecord,
+} from "@graph-engineering/contracts";
 import type { GraphEngine } from "./service.js";
 import { dockerAvailable } from "./execution/docker.js";
 import { listTemplates } from "./templates.js";
@@ -16,6 +21,24 @@ import { discoverInstalledWorkers } from "./workers/installed.js";
 // route config. Every other matched route requires the local access token,
 // so a route added later is protected unless it opts in explicitly.
 const PUBLIC_ASSET = "publicAsset";
+
+// Registration management and listing are CLI-only. Generic dashboard
+// responses need plan IDs and run state, never the frozen executable command.
+function withoutGeneratorRegistrations<T extends { generators?: unknown }>(
+  value: T,
+): Omit<T, "generators"> {
+  const { generators: _generators, ...visible } = value;
+  return visible;
+}
+function dashboardConfig(config: ProjectConfig) {
+  return withoutGeneratorRegistrations(config);
+}
+function dashboardPlan(plan: ExecutionPlan) {
+  return withoutGeneratorRegistrations(plan);
+}
+function dashboardRun(run: RunRecord) {
+  return { ...run, plan: dashboardPlan(run.plan) };
+}
 
 function isPublicRoute(config: unknown): boolean {
   return (
@@ -75,7 +98,7 @@ export function createServer(
   });
   app.get("/api/health", async () => ({ ok: true }));
   app.get("/api/project", async () => ({
-    config: await engine.refresh(),
+    config: dashboardConfig(await engine.refresh()),
     root: engine.root,
     capabilities: {
       docker: await dockerAvailable(),
@@ -180,7 +203,7 @@ export function createServer(
   app.get("/api/insights", async () =>
     summarizeOutcomes(engine.store.outcomes(), engine.store.decisions()),
   );
-  app.get("/api/runs", async () => engine.store.runs());
+  app.get("/api/runs", async () => engine.store.runs().map(dashboardRun));
   // The project board: what each run is doing, its gates, and who acts next.
   app.get("/api/overview", async () => {
     await engine.refresh();
@@ -202,7 +225,10 @@ export function createServer(
   });
   app.get("/api/runs/:id", async (request) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
-    return { run: engine.store.run(id), events: engine.store.events(id) };
+    return {
+      run: dashboardRun(engine.store.run(id)),
+      events: engine.store.events(id),
+    };
   });
   app.post("/api/plans", async (request) => {
     const plan = await engine.createPlan(
@@ -217,12 +243,13 @@ export function createServer(
               z
                 .object({
                   id: z.string(),
-                  kind: z.enum(["worker", "template"]),
+                  kind: z.enum(["worker", "template", "generator"]),
                   objective: z.string(),
                   dependsOn: z.array(z.string()),
                   providerId: z.string().optional(),
                   effort: z.string().optional(),
                   templateId: z.string().optional(),
+                  generatorId: z.string().optional(),
                   inputs: z.record(z.unknown()).optional(),
                   writes: z
                     .array(z.string().min(1).max(200))
@@ -241,25 +268,32 @@ export function createServer(
     );
     // Additive: the dashboard shows it beside the plan.
     const warnings = engine.planWarnings(plan);
-    return warnings.length ? { ...plan, warnings } : plan;
+    const visible = dashboardPlan(plan);
+    return warnings.length ? { ...visible, warnings } : visible;
   });
   // Starting here is never a person's approval: a plan that publishes, or
   // any plan under requirePlanApproval, needs graph-engine plan-approve
   // first, which is offered only on the command line.
-  app.post("/api/runs", (request) =>
-    engine.start(
-      z.object({ planId: z.string() }).strict().parse(request.body).planId,
+  app.post("/api/runs", async (request) =>
+    dashboardRun(
+      await engine.start(
+        z.object({ planId: z.string() }).strict().parse(request.body).planId,
+      ),
     ),
   );
   app.post("/api/runs/:id/cancel", async (request) =>
-    engine.cancel(z.object({ id: z.string() }).parse(request.params).id),
+    dashboardRun(
+      await engine.cancel(
+        z.object({ id: z.string() }).parse(request.params).id,
+      ),
+    ),
   );
-  app.post("/api/runs/:id/resume", (request) => {
+  app.post("/api/runs/:id/resume", async (request) => {
     const { id } = z.object({ id: z.string() }).parse(request.params);
     const { reconciled } = z
       .object({ reconciled: z.boolean().default(false) })
       .parse(request.body ?? {});
-    return engine.resume(id, reconciled);
+    return dashboardRun(await engine.resume(id, reconciled));
   });
   // An event stream stays open until its client leaves, and closing the
   // server waits for every open request, so an open stream would keep
