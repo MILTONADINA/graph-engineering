@@ -372,8 +372,21 @@ export async function confirmDartContainerRemoved(
       timeoutMs: 3000,
       maxBytes: 2000,
     });
-    if (removed.code !== 0 && !/No such container/i.test(removed.stderr))
+    // The --rm container may have started removing itself after inspection.
+    // This response is not proof of absence: allow a bounded settling pause,
+    // then require the same two successful empty listings as normal removal.
+    const alreadyRemoving =
+      removed.code !== 0 &&
+      removed.stderr.includes(
+        `removal of container ${name} is already in progress`,
+      );
+    if (
+      removed.code !== 0 &&
+      !/No such container/i.test(removed.stderr) &&
+      !alreadyRemoving
+    )
       return false;
+    if (alreadyRemoving) await pause(250);
     return await absent();
   } catch {
     return false;
