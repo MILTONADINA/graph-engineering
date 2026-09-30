@@ -4,6 +4,53 @@ Installed clients return structured patch proposals. Graph Engineering applies a
 
 `discoverInstalledWorkers()` reports installed versions, availability, authentication, execution mode, and limitations. It runs version/help probes and generates temporary protocol schemas; it never logs in, installs a client, or requests model inference. Availability does not mean authentication or live inference was tested.
 
+## Execution deadlines
+
+The optional project policy field `installedWorkerTimeoutSeconds` applies to
+the installed Claude Code, Codex and Cursor proposal adapters:
+
+| Value              | Installed-worker behavior                                                                                            |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Absent             | Inherit the existing `policy.timeoutSeconds` deadline.                                                               |
+| Integer `1..86400` | Use that many seconds as the installed-worker wall-clock limit.                                                      |
+| `null`             | No fixed installed-worker wall-clock deadline; wait for terminal completion, cancellation or another existing guard. |
+
+The default policy is unchanged. The same selection controls the managed DAG
+generation envelope for eligible installed-worker steps, including a configured
+tester, and installed implementation/repair calls. A DAG generation envelope
+covers that step's context-request turns; the adapter also bounds each native
+invocation when a finite limit is selected. These are not a whole-run deadline.
+When an explicit override is in use, a worker whose provider kind changes after
+the DAG selected its deadline is refused before dispatch.
+
+This is **not an inactivity timeout**. Output does not reset a timer, and a
+silent or hung client can remain pending in `null` mode. The operator can stop
+the managed run with `graph-engine cancel <runId>`. Cancellation, process
+termination/cleanup, output bounds, turn limits, proposal validation and
+client-safety checks remain enforced. Only Graph's installed-call and eligible
+worker-step deadlines are removed; native clients and providers can still
+enforce their own limits. Fixed capability/version/authentication probes and
+worker-slot waits keep their existing bounds. API/local inference, templates,
+verification and security scans keep their own finite limits; this field does
+not relax them. Installed clients still cannot enforce a numeric monetary cap
+and remain refused under one. No cost, provider, credential or export setting
+is changed by selecting a deadline.
+
+To opt in, an operator adds the field to a complete reviewed policy document
+and applies it with `graph-engine policy --file <policy.json>` before creating
+a fresh plan. Do not pass a partial policy or change the checked-in policy just
+to enable a client. Adding, removing or changing the field changes the policy
+hash, so old plans cannot start and their runs cannot resume. Create and review
+a new plan and obtain its required approval; reapproving an old plan does not
+repair its obsolete policy binding. The CLI/MCP interface remains tool-neutral:
+Claude Code orchestration requires no running Codex session or service.
+
+This narrow approval/repair/deadline release has 42 distinct focused local
+cases passing, with dependency and engine builds also passing. Its final-head
+CI and merge remain pending; no live inference was performed for this extension.
+See the
+[installed-worker deadline spec](../specs/providers/installed-worker-deadlines.md).
+
 ## Claude Code
 
 The adapter requires the inspected 2.1.278+ CLI family and its advertised control flags. It has two explicit authentication modes: a provider with `apiKeyEnv` uses API-key-based bare mode; a provider without it uses the existing claude.ai Pro/Max subscription only after a fail-closed local preflight. Both modes use an empty built-in toolset, disabled MCP/skills, isolated settings, disabled session persistence, and a JSON proposal schema. Tasks are sent through stdin, never process arguments. Subscription mode does not inherit an API key or permit endpoint overrides; its reported dollar cost is `null`, not a fabricated `$0`.

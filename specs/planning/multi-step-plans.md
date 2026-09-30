@@ -38,13 +38,16 @@ Larger changes are made of steps, some independent and some depending on others.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rejects unaffordable parallel calls before dispatch and preserves the budget on resume
 - AC7: A policy change while steps are generating in parallel stops the plan without applying either sibling's patch.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: rejects a policy change during parallel generation, retaining usage but applying neither patch
-- AC8: A step may declare the files it may write (globs, where a `!` entry excludes from the others and never widens them); an edit outside them is returned to the worker as feedback and never applied, in single-step and multi-step plans, and each step has its own time limit.
+- AC8: A step may declare the files it may write (globs, where a `!` entry excludes from the others and never widens them); an edit outside them is returned to the worker as feedback and never applied, in single-step and multi-step plans. Each step has its own time limit by default; the opt-in installed-worker deadline extension is specified separately. A combined-result `dag-repair` copies the first selected non-tester worker's `writes`, including exclusions, rather than unioning other workers' scopes; an unscoped selected worker remains unscoped within project policy. This scope is reconstructed on resume and restored after a tester repair handback. The rule does not retroactively revalidate retained repairs made by older versions or establish a global literal write-allowlist schema.
   - Test: packages/engine/tests/dag.test.ts :: refuses a step's write outside its declared globs and accepts one inside
   - Test: packages/engine/tests/dag.test.ts :: treats a negated writes entry as an exclusion that never widens the step's scope
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns an out-of-scope edit to the worker as feedback
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: never applies a single-step edit outside the step's scope
   - Test: packages/engine/tests/dag.test.ts :: gives each step its own timeout rather than one for the whole plan
   - Test: packages/engine/tests/dag.test.ts :: stops a step that ignores its signal at the step's time limit
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: keeps a DAG repair within the selected implementer's write scope
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: preserves a DAG repair's exclusions after an acknowledged resume
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: restores the implementer's write scope after a tester repair handoff
 
 - AC9: A step's patch that cannot apply (a before that does not match exactly once, or a new file whose name is taken) goes back to its worker as feedback with a reason code instead of failing the plan; a tester is told to use a new file name.
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: returns a DAG patch that cannot apply to the worker instead of failing the plan
