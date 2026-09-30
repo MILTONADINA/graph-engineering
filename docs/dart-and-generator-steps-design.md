@@ -2,14 +2,16 @@
 
 Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Local status:
 
-- Dart syntax indexing and its review fixes are prepared in the local stack,
-  not yet pushed or merged.
-- The `modelRoles` fix and generator steps are also built on the local stack.
-  Generator-focused pure tests pass, but integrated socket-based and real
-  Docker CI evidence is pending; its spec remains draft.
-- Dart resolved bindings remain to build after the generator branch is
-  reviewed. The pinned-runtime and no-target-code-execution constraints below
-  still govern that work.
+- Dart syntax indexing, its review fixes, approval and `modelRoles` changes
+  are prepared in the local stack, not yet pushed or merged.
+- Generator steps are committed on that stack. Focused tests pass, but
+  integrated socket-based and real Docker CI evidence is pending; its spec
+  remains draft.
+- Dart resolved bindings are implemented on a further local branch. Pure
+  snapshot and mocked LSP tests pass; the actual pinned Linux Docker image
+  has not been built or run in this sandbox. Its native CI case and exact-head
+  review are required before claiming operational binding. The
+  pinned-runtime and no-target-code-execution constraints below govern it.
 - The decisions recorded below were settled during design. Follow them
   unless new evidence says otherwise, and record any change in the PR.
 
@@ -60,14 +62,22 @@ All fixtures and examples must stay synthetic toy projects.
 
 Use the Dart SDK's own analysis server over LSP, mirroring the Rust adapter.
 
-- **Pinned toolchain.** A digest-pinned official `dart` image is copied to
-  `/opt/graph-dart` in a Linux fixture. Identity is the SHA-256 of
-  `bin/dartaotruntime`, `bin/snapshots/analysis_server_aot.dart.snapshot`
-  and `version`.
+- **Pinned toolchain.** A minimal analyzer image is built from the exact
+  official Dart 3.13.3 Linux x64 image digest. It retains the AOT runtime,
+  analyzer snapshot, `version`, SDK `lib/` source and needed runtime libraries,
+  but not `bin/dart`, project executables, pub tools or `*.dill`. The derived
+  image ID binds all retained bytes; the runtime inspects it, records that ID
+  in the Dart-only snapshot identity and runs by ID, not by a mutable tag.
+  The reviewed build/installation is the trust root; labels alone are not
+  cryptographic attestation against a malicious local Docker operator.
 - **What gets resolved.** Only unique top-level functions, static methods,
   constructors and prefixed-import calls. Everything else stays syntax-only.
-  Edges carry `resolution.engine: "dart-analyzer"`, with every analyzed Dart
-  file as provenance.
+  Edges carry `resolution.engine: "dart-analyzer"`, with the validated root
+  manifest and every analyzed Dart file as provenance. A `Location` answer
+  proves only an exact eligible target name; a `LocationLink` also has to
+  match the query origin and an eligible declaration range. Recognized
+  generated-code suffixes/headers are excluded, but unmarked generated code
+  cannot be identified reliably.
 - **Starting bounds, to calibrate:** 250 files, 4 MiB, 100,000 nodes, 2,000
   queries, 2 MiB output, 15 s, a sampled 768 MiB memory watchdog,
   `--network=none --read-only`.
@@ -100,10 +110,20 @@ The design must follow what it found:
   - Run it with an empty environment and no `HOME`.
   - Never pass `--diagnostic-port`.
 - **Block process creation and deny the network.** A trimmed SDK is
-  portable to Linux and Docker. It keeps only `bin/dartaotruntime`, the
-  snapshot, `lib/` without `*.dill` files and `version`, and has no
-  `bin/dart`. On macOS, `sandbox-exec` with `(deny process-fork)` also
-  worked.
+  portable to Linux and Docker. The analyzer container uses a checked
+  restrictive seccomp profile that denies `fork`/`vfork`, permits `clone`
+  only for threads and returns ENOSYS for `clone3`, plus offline networking,
+  a read-only root and bounded memory/PIDs. If that profile or image is
+  unavailable, retain syntax evidence only. Docker seccomp permits the
+  initial `execve` and cannot by itself rule out later same-process exec;
+  the minimal image, sanitized source-only view, and absence of repository
+  package/plugin configuration provide the no-target-code boundary. The
+  read-only Mac spike's `sandbox-exec` finding is not a production fallback.
+- **Package scope.** Initially promote only an unambiguous single root
+  `pubspec.yaml` package name. Do not materialize that manifest; write an
+  engine-owned package config outside the Dart source view. A monorepo with
+  nested package manifests stays syntax-only until a reviewed multi-root
+  mapping exists, rather than guessing which `package:` import owns a file.
 - **Readiness.** The server is ready at the first `$/analyzerStatus` with
   `isAnalyzing: false` that follows the first `true`.
   - Open a sliding window of about 8 files before querying; that took one
@@ -154,23 +174,23 @@ recipes to `verification-images.md`:
 The tests land in the same PR as the criteria they cover, because
 `spec-check` refuses a link to a missing test whatever the status.
 
-| AC  | Criterion                                                                       | Test                                                                                                                                   |
-| --- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| AC1 | Symbols, imports and calls from the toy package; unproven calls stay unresolved | `context-dart.test.ts`: indexes Dart declarations, imports and selector calls from the toy package                                     |
-| AC2 | Grammar gaps are reported as incomplete coverage                                | `context-dart.test.ts`: reports Dart syntax the pinned grammar cannot parse as incomplete coverage                                     |
-| AC3 | Repository configuration is never materialized                                  | `context-dart.test.ts`: never materializes repository pubspec or analysis options and refuses language-version overrides               |
-| AC4 | Only the allowed subset is bound                                                | `context-dart.test.ts`: binds top-level, static, constructor and prefixed-import calls but not instance, extension or dynamic dispatch |
-| AC5 | Timeouts are reported honestly                                                  | `context-dart.test.ts`: reports a real analyzer timeout as its documented diagnostic and keeps syntax evidence only                    |
-| AC6 | Non-Dart repositories keep their snapshot IDs                                   | `context.test.ts`: keeps snapshot identity unchanged for repositories without Dart files                                               |
+| AC  | Criterion                                                                       | Test                                                                                                                                                                                                                                                                                          |
+| --- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AC1 | Symbols, imports and calls from the toy package; unproven calls stay unresolved | `context-dart.test.ts`: indexes Dart declarations, imports and selector calls from the toy package                                                                                                                                                                                            |
+| AC2 | Grammar gaps are reported as incomplete coverage                                | `context-dart.test.ts`: reports Dart syntax the pinned grammar cannot parse as incomplete coverage                                                                                                                                                                                            |
+| AC3 | Source-only preparation and pinned-runtime identity                             | `context-dart-snapshot.test.ts`: prepares only bounded Dart source, with eligible calls and declarations; rejects source aliases, executable configuration and untrusted metadata; `context-dart-runtime.test.ts`: does not accept a caller-provided runtime or execute any host Dart wrapper |
+| AC4 | Only exact unique declaration targets are promoted                              | `context-dart-snapshot.test.ts`: maps UTF-16 query positions and accepts only exact unique local targets; native top-level binding test is CI-gated                                                                                                                                           |
+| AC5 | Failure and cleanup remain fail-closed                                          | `context-dart-runtime.test.ts`: treats stdout end as failure even when the analyzer exits successfully; retains the source view when Docker cannot prove the owned container is absent; native real timeout test is CI-gated                                                                  |
+| AC6 | Non-Dart repositories keep their snapshot IDs                                   | `context.test.ts`: keeps snapshot identity unchanged for repositories without Dart files                                                                                                                                                                                                      |
 
 ### Decisions
 
-| Question                                          | Decision                                                                                                   |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| A1. How does Dart enter the snapshot identity?    | Keys only when Dart files exist (built on the Dart branch), rather than bumping `PARSER_VERSION`           |
-| A2. Where does the analyzer runtime come from?    | Recommended: the hash-pinned Linux fixture only, not host paths trusted by version string. Confirm in PR 2 |
-| A3. Should the Flutter fixture run in CI?         | Recommended: an opt-in environment switch only, because of the SDK's size. Confirm in PR 2                 |
-| A4. Should the security scan gate `pubspec.lock`? | Now: the Dart branch adds it to the scanner's lockfiles                                                    |
+| Question                                          | Decision                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| A1. How does Dart enter the snapshot identity?    | Keys only when Dart files exist (built on the Dart branch), rather than bumping `PARSER_VERSION`  |
+| A2. Where does the analyzer runtime come from?    | The hash-pinned, locally built Linux x64 Docker image only; no host path or mutable tag execution |
+| A3. Should the Flutter fixture run in CI?         | Deferred; the fixture and verification recipes remain documentation, not native CI evidence       |
+| A4. Should the security scan gate `pubspec.lock`? | Now: the Dart branch adds it to the scanner's lockfiles                                           |
 
 ## Upgrade B: `generator` steps
 

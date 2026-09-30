@@ -113,9 +113,9 @@ asks.
 
 **In flight: PR #112, the approval branch and two local code branches.**
 
-**Generator follow-on (local, focused-verified; CI pending).**
+**Generator follow-on (committed locally, focused-verified; CI pending).**
 `feat/generator-steps-20260930` is based on the prepared model-roles stack in
-this repository's ignored isolated clone. It adds operator-only CLI
+this repository's ignored isolated clone at `8a30618`. It adds operator-only CLI
 registration, frozen plans with live revocation, a disposable offline Docker
 view, bounded output capture, DAG checkpoint reconciliation, CLI/MCP/HTTP
 step contracts, dashboard labels, a draft spec and a Linux Docker CI case.
@@ -135,6 +135,39 @@ entries than bounded permission-recovery cleanup will traverse; a failed
 cleanup retains a private local view for operator recovery. Do not describe
 the spec as implemented before exact-head CI and review. The other owner
 session only consumes a pinned Graph build and does not edit this repo.
+
+**Dart resolved bindings (local feature branch, native CI pending).**
+`feat/dart-analyzer-bindings-20260930` extends the generator commit. It adds
+the bounded source preparer, a checked seccomp profile, a minimal image built
+from the exact Dart 3.13.3 Linux x64 image manifest, a Docker-only AOT LSP
+adapter, Dart-only snapshot identity and provenance, strict declaration-target
+validation, a native CI case, and tests/docs. It does not invoke host Dart or
+materialize repository analyzer/package configuration. The validated root
+`pubspec.yaml` contributes only the package name and a source reference;
+no manifest or dependencies enter the analyzer view. Missing/nested manifests
+fall back to syntax. A run before valid analyzer initialization retains its
+private view even if Docker briefly reports no container; after initialization,
+the client must terminate and the owned container must be confirmed removed
+before the view is deleted. Root/missing host UID is refused. This is not
+proof against a malicious Docker daemon or an analyzer exploit.
+
+The branch's focused Dart suites passed **23 tests with two native cases
+skipped on this Mac**; engine typecheck/build, repository formatting, lint
+(one pre-existing warning), and built CLI spec-check passed. Pure tests cover
+the source boundary and exact target selection; mocked tests cover LSP
+framing, readiness, errors, RSS and cleanup. The actual derived image and
+native declaration/timeout cases could not run here because Docker is not
+available to this sandbox; they must pass on the exact Linux CI head. The
+macOS Flutter Dart SDK is not this runtime. An adversarial review found and
+the branch fixed provenance, root-in-container, process-group kill and
+late-create view-deletion issues; it found no remaining concrete URI/span or
+cleanup bypass. `Location` answers provide weaker evidence than
+`LocationLink`, and unmarked generated code cannot be detected reliably.
+The isolated clone's `node_modules` lacks `@clack/prompts`, so its full
+`build:dependencies` stops in `create-graph-app` before Dart code; the
+contracts were built directly and the engine built successfully against the
+existing local dependency tree. Fresh `npm ci`/full CI is still required.
+Do not mark the Dart spec implemented or claim native binding until CI.
 
 1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
    opt-in `requirePlanApproval` policy. Under it, `start()` and `resume()`
@@ -196,8 +229,10 @@ questions.
 
 - On the owner's Mac, a private helper under `.graph/local/tools/` asks
   both.
-- A metered Jev call needs a numeric cap that the owner chooses for your
-  session, so ask for it first. Send design text only.
+- The owner selected a **$4 total cap for this Codex session only**. No
+  metered call was made and no provider price was reviewed. A future session
+  needs its own operator-set cap and reviewed price before a paid call; this
+  is not an open-source product default. Send design text only.
 - Tools named in the history below that belong to Claude Code (the
   advisor, multi-agent audit workflows and cross-session messages) aren't
   available to other agents.
@@ -216,7 +251,7 @@ the live PR and exact-head checks before merging. Do not edit `dev` directly.
 After the initial handover, the owner explicitly asked work to continue and
 approved pursuing the remaining code-side integrations. Jev's spending limit
 is **a per-user setting**, not a budget to bake into this intended open-source project;
-the owner has not set a limit for metered calls in this session. This does not
+as of this 2026-09-24 update, the owner had not set a limit for that session. This does not
 block local development, tests, or implementing configurable provider support.
 It does mean no metered Jev call should be launched in this session. Approval
 to build the held-out workflow does not itself create independently controlled

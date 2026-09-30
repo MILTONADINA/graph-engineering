@@ -94,6 +94,7 @@ import {
   resolveCSharpBindings,
 } from "./csharp.js";
 import { RUST_VERSION, rustRuntime, resolveRustBindings } from "./rust.js";
+import { DART_VERSION, dartRuntime, resolveDartBindings } from "./dart.js";
 import {
   attachReviewedAssertions,
   parseReviewedAssertions,
@@ -596,7 +597,8 @@ export class ContextEngine {
       : null;
     // Only a repository that has Dart files gets the Dart key, so every other
     // repository keeps the snapshot identity (and stored plans) it had.
-    const dart = files.some((file) => languageOf(file.path) === "dart");
+    const hasDart = files.some((file) => languageOf(file.path) === "dart");
+    const dart = hasDart ? await dartRuntime() : null;
     const id = hash(
       JSON.stringify({
         project: this.projectId,
@@ -614,7 +616,12 @@ export class ContextEngine {
         javaBindings: [JAVA_VERSION, java?.identity ?? "unavailable"],
         csharpBindings: [CSHARP_VERSION, csharp?.identity ?? "unavailable"],
         rustBindings: [RUST_VERSION, rust?.identity ?? "unavailable"],
-        ...(dart ? { dartSyntax: DART_SYNTAX_VERSION } : {}),
+        ...(hasDart
+          ? {
+              dartSyntax: DART_SYNTAX_VERSION,
+              dartBindings: [DART_VERSION, dart?.identity ?? "unavailable"],
+            }
+          : {}),
         summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
@@ -711,6 +718,7 @@ export class ContextEngine {
       resolveJavaBindings(parsedFiles, id, { runtime: java }),
       resolveCSharpBindings(parsedFiles, id, { runtime: csharp }),
       resolveRustBindings(parsedFiles, id, { runtime: rust }),
+      resolveDartBindings(parsedFiles, id, { runtime: dart }),
     ]);
     snapshot.coverage.errors.push(
       ...bindings.flatMap((result) => result.diagnostics),
@@ -1386,7 +1394,7 @@ export class ContextEngine {
           graph:
             retrieval === "lexical"
               ? "Graph expansion intentionally disabled by lexical retrieval mode."
-              : "Syntax declarations, imports and calls with bounded snapshot-only JS/TS, Python, Go, Java, C# and Rust declaration bindings where resolution metadata is present and a trusted runtime is available. Static bindings are not runtime proofs or full-program typechecks; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Expansion limited to 1 hop, 5 seed files.",
+              : "Syntax declarations, imports and calls with bounded snapshot-only JS/TS, Python, Go, Java, C#, Rust and Dart declaration bindings where resolution metadata is present and a trusted runtime is available. Static bindings are not runtime proofs or full-program typechecks; unsupported, ambiguous or resource-limited cases retain syntactic/heuristic evidence. Expansion limited to 1 hop, 5 seed files.",
           warnings,
         },
       };
