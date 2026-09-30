@@ -18,11 +18,14 @@ that external promotion evidence or every managed client is complete. Fork
 `dev` was last read at `96cf8b2`; PR #112 is open with an unresolved generator
 revocation review thread. A B6 design fix and a stacked approval/Dart/model-
 roles implementation are committed only in this repository's ignored local
-clone, not pushed. An additional generator-step feature branch now has
+clone, not pushed. The generator-step branch is committed at `8a30618` with
 focused contract/DAG/planning and runtime checks, engine build, formatting,
 lint and spec-check passing locally. Its integrated managed-service tests
-cannot start in this sandbox because the owner socket is denied; its real
-Docker case and exact-head CI remain unrun. See the
+cannot start in this sandbox because the owner socket is denied. A further
+Dart analyzer branch has pure and mocked LSP tests passing (23; two native
+Docker cases skipped), engine typecheck/build, formatting, lint and spec-check
+passing, but its derived image has not been built or run here. Both native
+Docker cases and exact-head CI remain unrun. See the
 [current agent handover](claude-code-handover.md#start-here--state-on-2026-09-30)
 for exact refs, tested evidence and next actions. Neither fork `main` nor
 Kevin's parent repository was changed by this continuation.

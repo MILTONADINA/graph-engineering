@@ -228,7 +228,8 @@ export interface GraphEdge {
       | "go-types"
       | "javac"
       | "roslyn"
-      | "rust-analyzer";
+      | "rust-analyzer"
+      | "dart-analyzer";
     version: string;
     /** Additional indexed evidence: configuration, package metadata, or intermediate import/re-export sources. */
     sources?: SourceReference[];

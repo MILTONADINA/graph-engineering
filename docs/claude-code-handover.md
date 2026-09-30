@@ -27,9 +27,9 @@ restart it unless the owner asks.
 
 **In flight: PR #112 and a prepared local stack for approval, Dart and model roles.**
 
-**Generator follow-on (local, focused-verified; CI pending).**
+**Generator follow-on (committed locally, focused-verified; CI pending).**
 `feat/generator-steps-20260930` is based on the prepared model-roles stack in
-this repository's ignored isolated clone. It adds operator-only CLI
+this repository's ignored isolated clone at `8a30618`. It adds operator-only CLI
 registration, frozen plans with live revocation, a disposable offline Docker
 view, bounded output capture, DAG checkpoint reconciliation, CLI/MCP/HTTP
 step contracts, dashboard labels, a draft spec and a Linux Docker CI case.
@@ -49,6 +49,39 @@ entries than bounded permission-recovery cleanup will traverse; a failed
 cleanup retains a private local view for operator recovery. Do not describe
 the spec as implemented before exact-head CI and review. The other owner
 session only consumes a pinned Graph build and does not edit this repo.
+
+**Dart resolved bindings (local feature branch, native CI pending).**
+`feat/dart-analyzer-bindings-20260930` extends the generator commit. It adds
+the bounded source preparer, a checked seccomp profile, a minimal image built
+from the exact Dart 3.13.3 Linux x64 image manifest, a Docker-only AOT LSP
+adapter, Dart-only snapshot identity and provenance, strict declaration-target
+validation, a native CI case, and tests/docs. It does not invoke host Dart or
+materialize repository analyzer/package configuration. The validated root
+`pubspec.yaml` contributes only the package name and a source reference;
+no manifest or dependencies enter the analyzer view. Missing/nested manifests
+fall back to syntax. A run before valid analyzer initialization retains its
+private view even if Docker briefly reports no container; after initialization,
+the client must terminate and the owned container must be confirmed removed
+before the view is deleted. Root/missing host UID is refused. This is not
+proof against a malicious Docker daemon or an analyzer exploit.
+
+The branch's focused Dart suites passed **23 tests with two native cases
+skipped on this Mac**; engine typecheck/build, repository formatting, lint
+(one pre-existing warning), and built CLI spec-check passed. Pure tests cover
+the source boundary and exact target selection; mocked tests cover LSP
+framing, readiness, errors, RSS and cleanup. The actual derived image and
+native declaration/timeout cases could not run here because Docker is not
+available to this sandbox; they must pass on the exact Linux CI head. The
+macOS Flutter Dart SDK is not this runtime. An adversarial review found and
+the branch fixed provenance, root-in-container, process-group kill and
+late-create view-deletion issues; it found no remaining concrete URI/span or
+cleanup bypass. `Location` answers provide weaker evidence than
+`LocationLink`, and unmarked generated code cannot be detected reliably.
+The isolated clone's `node_modules` lacks `@clack/prompts`, so its full
+`build:dependencies` stops in `create-graph-app` before Dart code; the
+contracts were built directly and the engine built successfully against the
+existing local dependency tree. Fresh `npm ci`/full CI is still required.
+Do not mark the Dart spec implemented or claim native binding until CI.
 
 1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
    opt-in `requirePlanApproval` policy. Under it, `start()` and `resume()`
@@ -100,31 +133,33 @@ None of the stack was pushed.
 
 1. Confirm the live fork `dev` and PR #112 head. Push the local B6 fix to
    PR #112 if its remote head is unchanged; otherwise inspect and rebase.
-   Review the fix and resolve its conversation. Keep the lower PR open for
-   the prepared top-of-stack merge.
-2. If `dev` has not moved, push the `ready/*` branches and the generator
-   feature branch, and open one PR per branch into fork `dev` with the PR
+   Update its public body, which still describes A2/A3 as open, to match the
+   reviewed design and B6 fix. Review the fix and resolve its conversation.
+   Keep the lower PR open for the prepared top-of-stack merge.
+2. If `dev` has not moved, push the `ready/*` branches, generator branch and
+   Dart branch, and open one PR per branch into fork `dev` with the PR
    template. If it has moved, rebase the stack first. Run CI only on the top
-   PR, including its real Docker generator case; require nine passing checks
-   on its exact head and resolved review conversations, then rebase-merge
-   the top PR. Close the lower PRs, including #112, with the merge commit,
-   as `AGENTS.md` describes. If CI finds a generator failure, fix it on the
-   feature branch and retest the changed path before another broad run.
+   PR, including its real Docker generator and Dart cases; require nine
+   passing checks on its exact head and resolved review conversations, then
+   rebase-merge the top PR. Close the lower PRs, including #112, with the
+   merge commit, as `AGENTS.md` describes. If CI finds a failure, fix it on
+   the feature branch and establish focused evidence before another broad run.
 3. Tell the owner the merged approval commit. They pin builds of this
    repository elsewhere and will turn on
    `requirePlanApproval` there.
-4. After the generator PR's exact-head checks pass, implement Dart resolved
-   bindings under the [design's](dart-and-generator-steps-design.md)
-   no-target-code-execution and pinned-runtime constraints.
-5. Update this section as each PR lands.
+4. Update this section as each PR lands. Keep the generator spec draft and
+   Dart spec ready, not implemented, until their native/integrated evidence
+   and review are complete.
 
 **Tools.** The owner wants Jev used heavily, together with Laya, for design
 questions.
 
 - On the owner's Mac, a private helper under `.graph/local/tools/` asks
   both.
-- A metered Jev call needs a numeric cap that the owner chooses for your
-  session, so ask for it first. Send design text only.
+- The owner selected a **$4 total cap for this Codex session only**. No
+  metered call was made and no provider price was reviewed. A future session
+  needs its own operator-set cap and reviewed price before a paid call; this
+  is not an open-source product default. Send design text only.
 - Tools named in the history below that belong to Claude Code (the
   advisor, multi-agent audit workflows and cross-session messages) aren't
   available to other agents.
@@ -133,8 +168,9 @@ questions.
 owner's pre-existing untracked `.serena/`. The main checkout's `.git` is
 read-only, GitHub connector writes require approval that this environment
 cannot grant, and shell DNS cannot reach GitHub. The prepared commits and
-stack therefore exist only in an isolated clone under ignored `.graph/local/`;
-none has been pushed or merged. No metered Jev call was made. Use a session
+stack therefore exist only in the isolated clone
+`.graph/local/codex-current-gssq15/`; none has been pushed or merged. No
+metered Jev call was made. Use a session
 with normal Git write and network access to sync those commits, then inspect
 the live PR and exact-head checks before merging. Do not edit `dev` directly.
 
@@ -143,7 +179,7 @@ the live PR and exact-head checks before merging. Do not edit `dev` directly.
 After the initial handover, the owner explicitly asked work to continue and
 approved pursuing the remaining code-side integrations. Jev's spending limit
 is **a per-user setting**, not a budget to bake into this intended open-source project;
-the owner has not set a limit for metered calls in this session. This does not
+as of this 2026-09-24 update, the owner had not set a limit for that session. This does not
 block local development, tests, or implementing configurable provider support.
 It does mean no metered Jev call should be launched in this session. Approval
 to build the held-out workflow does not itself create independently controlled
