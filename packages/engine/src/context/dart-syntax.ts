@@ -15,7 +15,7 @@ import type { ParsedFile } from "./parser.js";
  * Versions the Dart extraction alone. A change re-parses only Dart files and
  * changes the identity only of snapshots that contain one.
  */
-export const DART_SYNTAX_VERSION = "dart-syntax:1";
+export const DART_SYNTAX_VERSION = "dart-syntax:2";
 
 const hash = (input: string) =>
   createHash("sha256").update(input).digest("hex");
@@ -46,6 +46,7 @@ const DIRECTIVES = new Set([
   "library_import",
   "library_export",
   "part_directive",
+  "part_of_directive",
 ]);
 // Nodes that continue a selector chain after its primary.
 const CHAIN = new Set([
@@ -82,6 +83,12 @@ export function extractDart(
   const bareCalls = new Set<string>();
   // Top-level and local functions: the only link targets.
   const functions = new Set<string>();
+  // A local function is visible only from its declaration onward inside the
+  // block that contains it (including that block's nested statements).
+  const localScopes = new Map<
+    string,
+    { declarationStart: number; blockEnd: number }
+  >();
   const lines = (start: Node, end: Node) =>
     source(start.startPosition.row + 1, end.endPosition.row + 1);
   const named = (node: Node) =>
@@ -290,12 +297,20 @@ export function extractDart(
       owner,
       body?.startIndex,
     );
-    if (
-      signature === node &&
-      signature.type === "function_signature" &&
-      (parent.type === "program" || parent.type === "lambda_expression")
-    )
-      functions.add(id);
+    if (signature === node && signature.type === "function_signature") {
+      if (parent.type === "program") functions.add(id);
+      if (parent.type === "lambda_expression") {
+        let block = parent.parent;
+        while (block && block.type !== "block") block = block.parent;
+        if (block) {
+          functions.add(id);
+          localScopes.set(id, {
+            declarationStart: node.startIndex,
+            blockEnd: block.endIndex,
+          });
+        }
+      }
+    }
     return { id, signature };
   };
 
@@ -428,13 +443,24 @@ export function extractDart(
     );
     if (candidates.length !== 1 || !functions.has(candidates[0]!.id)) continue;
     const candidate = candidates[0]!;
-    // Lexical ancestor visibility only, as in the generic extractor.
+    // Preserve the generic extractor's owner check, then enforce Dart's
+    // block and declaration-order scope for local functions. A wrong link is
+    // worse than an unresolved call that later analyzer binding can repair.
     const lineage = new Set([fileId]);
     let current: string | undefined = edge.from;
     while (current && !lineage.has(current)) {
       lineage.add(current);
       current = owners.get(current);
     }
+    const localScope = localScopes.get(candidate.id);
+    const callStart = result.spans.edges[edge.id]?.start;
+    if (
+      localScope &&
+      (callStart === undefined ||
+        callStart < localScope.declarationStart ||
+        callStart >= localScope.blockEnd)
+    )
+      continue;
     if (lineage.has(owners.get(candidate.id) ?? "")) {
       edge.to = candidate.id;
       edge.evidence = "heuristic"; // lexical candidate, NOT a runtime call-graph proof

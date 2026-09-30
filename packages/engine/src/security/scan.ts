@@ -324,6 +324,16 @@ export function parseCheckov(
   );
 }
 
+function pubPackageIndex(text: string[], name: string): number {
+  let inPackages = false;
+  for (const [index, line] of text.entries()) {
+    const trimmed = line.trimEnd();
+    if (/^[^\s#]/.test(trimmed)) inPackages = trimmed === "packages:";
+    if (inPackages && trimmed === `  ${name}:`) return index;
+  }
+  return -1;
+}
+
 /**
  * OSV-Scanner JSON: one finding per vulnerable package and advisory, at the
  * lockfile line that names the package when one does.
@@ -351,13 +361,15 @@ export function parseOsv(
       const name = entry.package?.name ?? "";
       const version = entry.package?.version ?? "";
       // The lockfile entry that names the package, when there is one.
-      const index = name
-        ? text.findIndex(
-            (line) =>
-              line.includes(`"node_modules/${name}"`) ||
-              line.includes(`"${name}"`),
-          )
-        : -1;
+      const index = !name
+        ? -1
+        : file === "pubspec.lock" || file.endsWith("/pubspec.lock")
+          ? pubPackageIndex(text, name)
+          : text.findIndex(
+              (line) =>
+                line.includes(`"node_modules/${name}"`) ||
+                line.includes(`"${name}"`),
+            );
       for (const vulnerability of entry.vulnerabilities ?? [])
         findings.push({
           tool: "osv-scanner",
