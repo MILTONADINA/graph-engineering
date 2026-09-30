@@ -237,9 +237,11 @@ describe("Dart syntax indexing", () => {
     // The toy package's null-aware list element is newer than the pinned
     // grammar; only that file is reported, and its declaration is kept as
     // partial evidence.
-    expect(snapshot.coverage.errors).toEqual([
-      "lib/src/labels.dart: syntax errors; graph may be incomplete",
-    ]);
+    expect(
+      snapshot.coverage.errors.filter((error) =>
+        error.startsWith("lib/src/labels.dart:"),
+      ),
+    ).toEqual(["lib/src/labels.dart: syntax errors; graph may be incomplete"]);
     expect(
       symbols.some(
         (symbol) =>

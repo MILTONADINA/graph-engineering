@@ -156,6 +156,14 @@ jobs:
           node packages/engine/tests/fixtures/rust-runtime/provision.mjs x64 "$RUST_FIXTURE_TOOLS"
           docker buildx build --load --pull=false --network=none --build-context rust_tool="$RUST_FIXTURE_TOOLS" -f packages/engine/tests/fixtures/rust-runtime/Dockerfile -t graph-rust-native-test:local .
           docker run --rm --network=none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=256m --memory=1g --cpus=2 --pids-limit=128 --cap-drop=ALL --security-opt=no-new-privileges graph-rust-native-test:local
+      - name: Snapshot-only Dart analyzer bindings
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          docker pull dart@sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738
+          docker buildx build --platform=linux/amd64 --load --pull=false --network=none -f packages/engine/tests/fixtures/dart-runtime/Dockerfile -t graph-dart-analyzer:local packages/engine/tests/fixtures/dart-runtime
+          npm test -w @graph-engineering/engine -- --run tests/context-dart-runtime.test.ts
+        env:
+          GRAPH_ENGINE_DART_DOCKER_TESTS: "1"
       - name: Generated backend template integration
         if: runner.os == 'Linux' && runner.arch == 'X64'
         run: |

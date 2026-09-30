@@ -12,7 +12,7 @@ All APIs below are methods on `ContextEngine`, except static `restoreBackup`. Co
 
 `reviewMemories(snapshotId?)` records and returns review flags for changed/missing/excluded source evidence, missing provenance, invalid supersession, exact inconsistencies in explicitly reviewed typed assertions, and opposing free-text wording. Lexical flags are heuristics; structured flags compare declared subject/predicate/scope, types, exclusivity, and temporal overlap—not general semantic truth. See [explicit memory assertions](memory-assertions.md) for the separate review/accept/share workflow and limits. At most 2,000 memory records are reviewed per call; larger projects fail explicitly rather than silently omitting records. Review flags never accept, delete, or supersede a memory. Invalid imported supersession does not choose a winner. Stale or conflicting required constraints remain mandatory context until a human resolves them.
 
-Tree-sitter parsing covers the eight supported language families, Dart at the syntax level only ([Dart syntax indexing](#dart-syntax-indexing)). A pinned TypeScript 5.9.3 compiler additionally binds direct TS/JS calls and constructors through named/default/namespace imports, unambiguous re-exports, and immutable identifier aliases. These edges carry `resolution: {kind: "static", engine: "typescript", version: "5.9.3"}`. Relative imports, indexed project aliases, and declared in-repository workspace packages are supported within the boundaries below. An isolated in-memory compiler host sees only indexed, hash-validated source and inert JSON/JSONC configuration: it never loads configuration from disk, executes plugins, discovers `node_modules`, or fetches network source. Compiler-proven declaration bindings are **not runtime dispatch proofs**. Remaining lexical candidates stay explicitly heuristic; arbitrary object methods, dynamic imports/dispatch, overloaded or reassigned callables, ambiguous re-exports, syntax-error trees, and implicit cross-file script globals are not statically resolved. Python, Go, Java and C# have separate bounded compiler-backed passes below. Rust uses a separately pinned LSP declaration-binding adapter, not a full compiler check. Dart has no binding pass yet.
+Tree-sitter parsing covers the eight supported language families, including Dart ([Dart syntax and optional analyzer bindings](#dart-syntax-and-optional-analyzer-bindings)). A pinned TypeScript 5.9.3 compiler additionally binds direct TS/JS calls and constructors through named/default/namespace imports, unambiguous re-exports, and immutable identifier aliases. These edges carry `resolution: {kind: "static", engine: "typescript", version: "5.9.3"}`. Relative imports, indexed project aliases, and declared in-repository workspace packages are supported within the boundaries below. An isolated in-memory compiler host sees only indexed, hash-validated source and inert JSON/JSONC configuration: it never loads configuration from disk, executes plugins, discovers `node_modules`, or fetches network source. Compiler-proven declaration bindings are **not runtime dispatch proofs**. Remaining lexical candidates stay explicitly heuristic; arbitrary object methods, dynamic imports/dispatch, overloaded or reassigned callables, ambiguous re-exports, syntax-error trees, and implicit cross-file script globals are not statically resolved. Python, Go, Java and C# have separate bounded compiler-backed passes below. Rust and Dart use separately pinned LSP declaration-binding adapters, not full compiler checks; unavailable runtimes retain syntax evidence only.
 
 Alias resolution uses each importing file's nearest indexed `tsconfig.json`/`jsconfig.json` (also `.jsonc`), bounded relative `extends`, `baseUrl`, and exact/single-star `paths`. Exact aliases precede wildcard aliases; multiple distinct indexed targets are treated as ambiguous. Package lookup requires a unique self package or an indexed workspace declaration (`workspaces` array or `workspaces.packages`), with exact or single-segment-star workspace patterns. It supports root/subpath/single-star `exports`, leading `types` conditions, unique condition-independent string targets, and legacy `types`/`typings`/`main` when exports are absent. Exports encapsulation, explicit null targets, duplicate package names, traversal, duplicate JSON keys, stale hashes, and missing/excluded targets fail closed. Conditional branches that depend on an unknown environment are not guessed. Mapping edges include exact configuration/package references in `resolution.sources`; tightening local exclusions downgrades historical bindings, and cloud traversal drops bindings whose mapping evidence is not exportable.
 
@@ -104,7 +104,7 @@ Static TS/JS binding limits are 1,000 files, 8 MiB source, 250,000 AST nodes, a 
 
 `getContext({..., retrieval})` accepts `lexical`, `graph`, or `hybrid` (default). Lexical skips model inference and graph expansion; graph uses lexical seeds and bounded neighbors; hybrid adds semantic search when provisioned and lazily repairs missing snapshot vectors. An exact repository file path named in the query, including a root-level manifest such as `package.json`, now prioritizes bounded chunks from that file only if it exists in the selected indexed snapshot and passes current exclusions; it does not read arbitrary paths or bypass the token budget or later cloud-export filter. This was added after a real task named `packages/engine/src/policy.ts` but a broad fuzzy packet omitted the scanner source. `index({semantic: false})` explicitly performs indexing without loading/invoking embeddings; `index()` preserves semantic indexing by default. Full current-file hashing remains mandatory in both modes. The first hybrid request after a lexical-only index can be slow while uncached vectors are computed. All modes preserve mandatory requirements/constraints and enforce the byte-based conservative token budget.
 
-### Dart syntax indexing
+### Dart syntax and optional analyzer bindings
 
 Dart is indexed at the syntax level only, with the `tree-sitter-dart` grammar
 already pinned in `tree-sitter-wasms`. The generic extractor would misread
@@ -129,8 +129,32 @@ error links no calls.
 Cached Dart syntax carries a Dart-only extractor version, and that version
 enters the snapshot identity only when the repository has Dart files, so every
 other repository keeps its snapshot IDs and the plans stored against them.
-Resolved Dart bindings need a sandboxed Dart analyzer, which indexing does not
-run yet.
+
+An optional Linux x64 Docker runtime built from the pinned Dart 3.13.3 image
+attempts bounded LSP declaration navigation. It receives only hash-checked
+indexed `.dart` text in a disposable source view, an engine-owned package
+config, and a checked seccomp profile; repository `pubspec.yaml`, analyzer
+options, plugins, `.dart_tool`, dependencies and build hooks are never
+materialized. The root manifest supplies only a validated package name and
+is included in binding provenance. Nested manifests or a missing root
+manifest disable binding. The derived image ID and profile digest participate
+in Dart-only snapshot identity. This is an operator-provisioned trust root,
+not a cryptographic attestation of a malicious Docker daemon.
+
+Only a unique, exact source-backed analyzer target that is a top-level
+function, class static method or constructor is promoted; instance, extension,
+dynamic and files recognized as generated by suffix or header remain
+syntax-only. Unmarked generated code cannot be identified reliably and may
+be promoted under the ordinary source rules. LSP `Location` responses
+prove only an exact target name range; `LocationLink` responses must also
+match the query origin and an eligible target range. Neither proves runtime
+dispatch. Limits are 250 Dart files, 4 MiB text, 100,000 syntax nodes, 2,000
+queries, 2 MiB protocol output, a 15-second deadline and a 768-MiB container
+limit with sampled RSS. Unavailable/untrusted runtimes, malformed answers,
+timeouts and incomplete cleanup promote no native bindings and emit coverage
+diagnostics. This branch's mock and pure tests do not replace its opt-in
+native Docker CI test; until that passes on the exact PR head, native binding
+is not verified.
 
 ## Watch, migrations, retention, and backups
 
