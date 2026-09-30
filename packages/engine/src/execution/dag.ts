@@ -1,11 +1,13 @@
 import type {
   ExecutionStep,
   ProjectPolicy,
+  ProviderKind,
   Usage,
 } from "@graph-engineering/contracts";
 import path from "node:path";
 import { z } from "zod";
 import { hash, now } from "../util.js";
+import { workerTimeoutMs } from "../workers/deadline.js";
 import {
   globAllowlist,
   isAllowedPath,
@@ -68,6 +70,8 @@ export interface DagOptions {
   policy: ProjectPolicy;
   maxParallel?: number;
   writeScopes?: Record<string, string[]>;
+  /** Trusted dispatch binding; unknown kinds retain the ordinary deadline. */
+  workerProviderKind?: (step: ExecutionStep) => ProviderKind | undefined;
   signal?: AbortSignal;
   checkpoint?: DagCheckpoint;
   /**
@@ -82,7 +86,11 @@ export interface DagOptions {
   /** Read/proposal only: a worker is never allowed to edit the workspace. */
   generate: (
     step: ExecutionStep,
-    state: { snapshotHash: string; signal: AbortSignal },
+    state: {
+      snapshotHash: string;
+      signal: AbortSignal;
+      workerProviderKind?: ProviderKind;
+    },
   ) => Promise<WorkerResult>;
   /** Recheck live authorization before wave validation and each serialized write. */
   beforeApply?: (step: ExecutionStep) => Promise<void>;
@@ -432,12 +440,18 @@ export async function runDag(options: DagOptions): Promise<DagResult> {
         });
         // Each step's generation has its own policy timeout, so a long plan
         // is not bounded by a single step's allowance.
+        const workerProviderKind =
+          step.kind === "worker"
+            ? options.workerProviderKind?.(step)
+            : undefined;
+        const timeoutMs = workerTimeoutMs(policy, workerProviderKind);
         return options.generate(structuredClone(step), {
           snapshotHash: before,
-          signal: AbortSignal.any([
-            signal,
-            AbortSignal.timeout(policy.timeoutSeconds * 1000),
-          ]),
+          workerProviderKind,
+          signal:
+            timeoutMs === null
+              ? signal
+              : AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
         });
       }),
     );

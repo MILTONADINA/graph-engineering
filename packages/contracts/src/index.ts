@@ -68,6 +68,13 @@ export interface ProjectPolicy {
   maxOutputTokens: number;
   maxTurns: number;
   timeoutSeconds: number;
+  /**
+   * Installed coding workers only: absent inherits timeoutSeconds; null
+   * waits for terminal completion or cancellation; a number sets their
+   * wall-clock limit. Other tools retain timeoutSeconds. Explicitly setting
+   * or changing this field changes the policy hash and requires a new plan.
+   */
+  installedWorkerTimeoutSeconds?: number | null;
   maxCostUsd: number | null;
   decisionMode: "shadow" | "promoted";
   promotedCategories: string[];
@@ -450,6 +457,12 @@ export const policySchema = {
     maxOutputTokens: { type: "integer", minimum: 64, maximum: 128000 },
     maxTurns: { type: "integer", minimum: 1, maximum: 100 },
     timeoutSeconds: { type: "integer", minimum: 1, maximum: 86400 },
+    installedWorkerTimeoutSeconds: {
+      anyOf: [
+        { type: "null" },
+        { type: "integer", minimum: 1, maximum: 86400 },
+      ],
+    },
     maxCostUsd: {
       anyOf: [{ type: "null" }, { type: "number", minimum: 0 }],
     },

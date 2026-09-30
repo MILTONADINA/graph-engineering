@@ -111,6 +111,59 @@ describe("bounded command transport", () => {
     ).rejects.toThrow("timeout or cancellation");
   });
 
+  it("waits for terminal success beyond the default deadline when timeoutMs is null", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const pending = command(
+      process.execPath,
+      ["-e", "process.stdout.write('complete')"],
+      { timeoutMs: null },
+    );
+    // No default or immediate deadline may be installed. The child really
+    // completes; only the parent's elapsed time is advanced past 60 seconds.
+    expect(vi.getTimerCount()).toBe(0);
+    clock.mockReturnValue(60001);
+    await expect(pending).resolves.toEqual({
+      code: 0,
+      stdout: "complete",
+      stderr: "",
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retains the default deadline when timeoutMs is undefined", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const clock = vi.spyOn(performance, "now").mockReturnValue(0);
+    const pending = command(process.execPath, ["-e", "process.exitCode = 0"]);
+    expect(vi.getTimerCount()).toBe(1);
+    clock.mockReturnValue(60001);
+    await expect(pending).rejects.toThrow("timeout or cancellation");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("still rejects cancellation and clears its kill timer without a deadline", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const controller = new AbortController();
+    const pending = command(process.execPath, ["-e", "process.exitCode = 0"], {
+      timeoutMs: null,
+      signal: controller.signal,
+    });
+    controller.abort();
+    // Cancellation still arms TERM-to-KILL escalation even with no deadline.
+    expect(vi.getTimerCount()).toBe(1);
+    await expect(pending).rejects.toThrow("Command terminated");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("still rejects output overflow without a deadline", async () => {
+    await expect(
+      command(process.execPath, ["-e", "process.stdout.write('oversized')"], {
+        timeoutMs: null,
+        maxBytes: 1,
+      }),
+    ).rejects.toThrow("output limit");
+  });
+
   it("still rejects output overflow independently of exit status", async () => {
     await expect(
       command(process.execPath, ["-e", "process.stdout.write('oversized')"], {
