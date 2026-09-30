@@ -3,6 +3,7 @@ import * as childProcess from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { readFile, stat } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { DartLsp } from "../src/context/dart-lsp.js";
@@ -561,6 +562,14 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
       const limit = 8192;
       let trace = Buffer.alloc(0);
       let stderr = Buffer.alloc(0);
+      const statsLimit = 4096;
+      let statsTrace = Buffer.alloc(0);
+      const recordStats = (entry: object) => {
+        const bytes = Buffer.from(`${JSON.stringify(entry)}\n`);
+        statsTrace = Buffer.from(
+          Buffer.concat([statsTrace, bytes]).subarray(-statsLimit),
+        );
+      };
       const record = (message: string) => {
         const bytes = Buffer.from(`${message}\n`);
         trace = Buffer.concat([
@@ -630,11 +639,18 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
       });
       const spawn = childProcess.spawn;
       let detachStderr: (() => void) | undefined;
+      let syntheticContainerName: string | undefined;
+      const detachStats = new Set<() => void>();
       const observeSpawn = (...call: Parameters<typeof childProcess.spawn>) => {
+        const startedAt = performance.now();
         const child = spawn(...call);
         const [executable, argv, options] = call;
+        const name = argv
+          .find((arg) => /^--name=graph-dart-[0-9a-f-]{36}$/.test(arg))
+          ?.slice("--name=".length);
         if (
           !detachStderr &&
+          name &&
           executable === "/usr/bin/docker" &&
           argv[0] === "run" &&
           argv.includes(runtime!.imageId) &&
@@ -647,6 +663,7 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
           Object.keys(options.env).length === 0 &&
           child.stderr
         ) {
+          syntheticContainerName = name;
           record("capturing pinned synthetic analyzer stderr");
           const stream = child.stderr;
           const capture = (chunk: Buffer) => {
@@ -657,6 +674,72 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
           };
           stream.on("data", capture);
           detachStderr = () => stream.off("data", capture);
+        }
+        if (
+          syntheticContainerName &&
+          executable === "/usr/bin/docker" &&
+          argv.length === 5 &&
+          argv[0] === "stats" &&
+          argv[1] === "--no-stream" &&
+          argv[2] === "--format" &&
+          argv[3] === "{{.MemUsage}}" &&
+          argv[4] === syntheticContainerName &&
+          options.env &&
+          Object.keys(options.env).length === 0 &&
+          child.stdout &&
+          child.stderr
+        ) {
+          // Only the actual sample of the captured synthetic container. Do
+          // not inspect another process or alter this command's own timeout.
+          const out = child.stdout;
+          const err = child.stderr;
+          let sampleOut = Buffer.alloc(0);
+          let sampleErr = Buffer.alloc(0);
+          const captureOut = (chunk: Buffer) => {
+            sampleOut = Buffer.concat([
+              sampleOut,
+              chunk.subarray(0, Math.max(0, 512 - sampleOut.length)),
+            ]);
+          };
+          const captureErr = (chunk: Buffer) => {
+            sampleErr = Buffer.concat([
+              sampleErr,
+              chunk.subarray(0, Math.max(0, 512 - sampleErr.length)),
+            ]);
+          };
+          const elapsedMs = () => Math.round(performance.now() - startedAt);
+          const onError = () => {
+            recordStats({
+              event: "stats child-process error",
+              elapsedMs: elapsedMs(),
+            });
+          };
+          const onClose = (
+            code: number | null,
+            signal: NodeJS.Signals | null,
+          ) => {
+            recordStats({
+              event: "stats close",
+              code,
+              signal,
+              elapsedMs: elapsedMs(),
+              stdout: sampleOut.toString("utf8"),
+              stderr: sampleErr.toString("utf8"),
+            });
+            detach();
+          };
+          const detach = () => {
+            out.off("data", captureOut);
+            err.off("data", captureErr);
+            child.off("error", onError);
+            child.off("close", onClose);
+            detachStats.delete(detach);
+          };
+          out.on("data", captureOut);
+          err.on("data", captureErr);
+          child.once("error", onError);
+          child.once("close", onClose);
+          detachStats.add(detach);
         }
         return child;
       };
@@ -672,6 +755,7 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
           `Synthetic Dart binding diagnostics: ${JSON.stringify(result.diagnostics)}`,
           `LSP trace (first ${limit} bytes):\n${trace.toString("utf8")}`,
           `Pinned analyzer stderr (first ${limit} bytes):\n${stderr.toString("utf8")}`,
+          `Synthetic container stats (last ${statsLimit} bytes; stdout/stderr first 512 bytes each):\n${statsTrace.toString("utf8")}`,
         ].join("\n");
         expect(result.analyzedFiles, diagnostic).toBe(2);
         expect(result.resolvedCalls, diagnostic).toBe(2);
@@ -686,6 +770,7 @@ describe.runIf(process.env.GRAPH_ENGINE_DART_DOCKER_TESTS === "1" && !!runtime)(
         ).toBe(true);
       } finally {
         detachStderr?.();
+        for (const detach of detachStats) detach();
       }
     });
 
