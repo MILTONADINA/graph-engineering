@@ -54,21 +54,78 @@ root was corrected to absolute before rerunning only the 12 affected failures;
 no runtime patch was needed. Those local checks preceded the completed narrow
 CI/review/merge and remain distinct from live provider evidence.
 
-The separate `feat/dart-generator-release-20260930` branch starts from this
-merged pin, with the remaining feature stack cherry-picked at preparation
-head `33561ed`. Its follow-up edits still need their own final-head CI and
-review. The Dart image's explicit empty-`PATH` metadata fix has three passing
-focused cases and a passing metadata-only BuildKit probe, not actual native
-analyzer proof. Follow-up commit `fb3eebf` copies `env` from the existing pinned
+[PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119) contains
+the independent Dart/model-role/generator/analyzer stack on the merged approval
+pin. Its first exact-head run
+[36768502119](https://github.com/MILTONADINA/graph-engineering/actions/runs/36768502119),
+attempt 1 at `04f49778d76b354f5d24a46c61649154f878625c`, ended with eight
+jobs passing and Linux x64 job `110068618463` failing in Dart bindings. The
+native exact empty-AOT-environment and real bounded-timeout cases passed;
+direct/imported binding expected two analyzed files and received zero. The
+feature release is not green or merged.
+
+Follow-up commit `fb3eebf` copies `env` from the existing pinned
 base and requires its exact environment-clearing entrypoint before the absolute
-AOT runtime; the Dart resolver identity is version 2 (SDK still 3.13.3).
+AOT runtime; that commit used Dart resolver identity version 2 (SDK 3.13.3).
 No new download or custom compiler is involved. Four focused image/prefix
 guard cases passed, and the engine build completed with source manifest
 `7ffa8987bab1b51828a0e09ccf99bf3bc89e4567334e272d724fae66ee7b1f81`
-over 121 files. The live AOT environment regression remains unrun. An existing
-public Node-image probe showed empty `process.env`, not successful native Dart
-execution. Scoped runtime-port review found no blockers; the dropped generator
-approval-display spec binding was restored.
+over 121 files. These local results and earlier metadata/Node mechanics probes
+remain distinct from the native CI results above. Scoped runtime-port review
+found no blockers; the dropped generator approval-display spec binding was
+restored. Synthetic-only diagnostics and a separate focused preflight were
+added at `455da45` on `fix/dart-binding-native-preflight-20260930`.
+[Focused run 36772700675](https://github.com/MILTONADINA/graph-engineering/actions/runs/36772700675)
+failed during initialization with `Dart analyzer memory monitor failed`.
+Second test-only diagnostic head `59cc6c7` passed its one selected native
+binding case in
+[run 36773291042](https://github.com/MILTONADINA/graph-engineering/actions/runs/36773291042),
+without a runtime change; that intermittent pass does not establish a fix.
+
+The first correction changed the internal Docker stats command allowance
+from 1.2 to 3 seconds for its documented two-sample, one-second interval.
+The independent 15-second analyzer deadline, 768-MiB container limit and
+2-MiB output limit remain unchanged. Resolver identity version 3 invalidates
+only Dart snapshot caches. Three focused fake-clock regressions passed:
+1500-ms stats completion through the real command helper, rejection after
+the 3000-ms sampling deadline, and the independent analyzer deadline while
+an RSS sample never resolves. Its engine build, lint and format passed, with
+historical source manifest
+`6062a227f64505088f5c727e78fa1ddd9bf06650d0600de4d61f457269c3622b`
+over 121 files.
+
+Native preflight at `209d5426ad9e39338f6feb2fb266385c790aa9b5` in
+[run 36774307816](https://github.com/MILTONADINA/graph-engineering/actions/runs/36774307816)
+passed initialization but failed readiness after a missing-container sample
+and then successful Docker output `0B / 0B`; neither sample timed out. The
+startup correction recognizes only that anchored empty-stats sentinel as
+`null` under the existing three-second startup grace. It does not accept
+genuine zero RSS, malformed output or null samples past the grace, nor extend
+any analyzer/container/output bound. Transient null followed by positive RSS
+may continue. Eight additional local startup cases passed, distinct from the
+three earlier timing regressions. Its build, lint and format passed with
+historical source manifest
+`bfbb3aae905c39009abce526001dd9d68bc55f7dd923490ea67ad20645aa38b6`
+over 121 files.
+
+Diagnostic head `b877322c7c7081ddf17197ff53ddb1f1039b2106` in
+[run 36775946203](https://github.com/MILTONADINA/graph-engineering/actions/runs/36775946203)
+completed definition responses and confirmed LSP termination, but the owned
+container's already-in-progress removal caused cleanup failure. Pushed fix
+`d7612cd08b5eeabd6a6d7cd374c3924a464c1ce4` handles only the same-name response
+with one 250-ms settling pause, then requires the existing two successful
+empty daemon listings separated by 250 ms. Wrong ownership, other errors,
+unavailable listings and reappearance still fail closed; no authority or
+analyzer bound is relaxed. Eight new cleanup regressions passed, distinct
+from the earlier three timing and eight startup cases. Current engine build,
+lint, format and scoped source/test review passed with manifest
+`cb2878c24080100d101056e23b1db9f404d6b00ac37b99c8ede37bb67ea4e07b`
+over 121 files. No assertion was relaxed. Corrected-head native preflight
+[36776596177](https://github.com/MILTONADINA/graph-engineering/actions/runs/36776596177)
+passed on exact `d7612cd08b5eeabd6a6d7cd374c3924a464c1ce4`; job
+`110095953506` verified the direct/imported binding case. Final-head nine-check
+CI and review remain required before feature merge; this focused result does
+not substitute for them.
 Dart remains `ready`; generators remain `draft`. The expanded mixed
 API/local/unknown/template/generator finite-deadline case passed locally;
 its final-head CI remains pending. Native Dart binding/timeout and generator isolation/capture checks

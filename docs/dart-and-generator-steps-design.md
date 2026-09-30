@@ -16,16 +16,18 @@ Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Current delivery status:
   post-merge evidence; the nine-job checked-head run and identical-tree merge
   recorded in the handover remain the approval-release evidence.
 - The remaining Dart syntax, model-role, generator and analyzer changes from
-  PRs #114–#117 are now on the separate
-  `feat/dart-generator-release-20260930` branch, cherry-picked onto that merged
-  base at preparation head `33561ed`. Current follow-up edits are unmerged;
-  the feature head needs its own source-bound checks and review. The expanded
+  PRs #114–#117 are on [PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119).
+  Its head `04f49778d76b354f5d24a46c61649154f878625c` is unmerged;
+  [run 36768502119](https://github.com/MILTONADINA/graph-engineering/actions/runs/36768502119)
+  passed eight jobs but failed Linux x64 at native Dart binding. The feature
+  still needs its own green final-head checks and review. The expanded
   mixed finite-deadline case has passed locally, retaining API/local/unknown
   coverage alongside template and generator envelopes; its final-head CI is
   still pending.
-- Generator pure and service integration tests have earlier local evidence,
-  but that does not establish a green rebased release. Its native Docker
-  isolation/capture case must run on the final head; the spec remains `draft`.
+- Generator pure and service integration tests have earlier local evidence.
+  The native Docker isolation/capture step passed in run 36768502119 before
+  the later Dart failure; that does not establish a green release. It must
+  also pass on the final head; the spec remains `draft`.
 - The old Dart native CI attempt failed runtime discovery. Three focused
   cases for the explicit empty-`PATH` metadata correction and a metadata-only
   BuildKit probe now pass; neither executes the actual analyzer. Follow-up
@@ -36,9 +38,39 @@ Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Current delivery status:
   passed. The engine build completed with source manifest
   `7ffa8987bab1b51828a0e09ccf99bf3bc89e4567334e272d724fae66ee7b1f81`
   over 121 files; scoped runtime-port review found no blockers. The live AOT
-  environment regression has not run. A mechanics probe in an existing public
-  Node image showed empty `process.env`, not native Dart operation.
-  Dart remains `ready`, and native binding is still unverified.
+  empty-environment and bounded-timeout cases passed in run 36768502119,
+  but direct/imported binding returned zero analyzed files. Focused diagnostic
+  [run 36772700675](https://github.com/MILTONADINA/graph-engineering/actions/runs/36772700675)
+  then identified a memory-monitor failure before initialization. A second
+  diagnostic-only run, 36773291042, passed binding without a runtime change;
+  this showed the failure was intermittent, not that it was fixed. The CLI's
+  documented two-sample operation makes the old 1.2-second sampling allowance
+  fragile. The correction gives each stats command three seconds while keeping
+  the analyzer's independent 15-second deadline, hard 768-MiB cgroup cap,
+  malformed-sample rejection and output limits unchanged. Resolver identity 3
+  invalidates only Dart-bearing snapshot caches. Three focused fake-clock
+  regressions pass through the real command helper or LSP deadline. Native
+  [run 36774307816](https://github.com/MILTONADINA/graph-engineering/actions/runs/36774307816)
+  then caught the exact startup race: Docker reported a missing container,
+  followed by `0B / 0B`, without either sample exhausting its deadline.
+  The follow-up maps only that anchored empty-stats sentinel to the existing
+  startup-only missing-sample grace. It never treats it as healthy zero RSS;
+  genuine zero, malformed output and missing samples at or after three seconds
+  still fail closed. Eight focused startup regressions pass.
+  A subsequent diagnostic run, 36775946203, showed valid definitions and
+  client termination but a correctly labelled container already being
+  auto-removed. The cleanup correction handles only the same-name
+  removal-in-progress response with one 250-ms settling pause, then still
+  requires two successful empty daemon listings separated by 250 ms. Eight
+  additional regressions cover successful confirmation and refusal on wrong
+  ownership, unrelated errors, present/reappearing containers and unavailable
+  daemon responses. The current build manifest is
+  `cb2878c24080100d101056e23b1db9f404d6b00ac37b99c8ede37bb67ea4e07b`
+  over 121 files. The combined corrections passed the direct/imported native
+  binding regression on `d7612cd08b5eeabd6a6d7cd374c3924a464c1ce4` in
+  [run 36776596177](https://github.com/MILTONADINA/graph-engineering/actions/runs/36776596177),
+  job `110095953506`. Final nine-check CI and review still gate release;
+  Dart stays `ready` until that evidence is complete.
   Both native binding/provenance and real bounded-timeout cases, plus all
   required exact-head checks and review, are needed before release. The
   pinned-runtime, fixed resource bounds and no-target-code-execution
@@ -311,8 +343,12 @@ Output capture options:
 - **Command injection.** argv is an array handed to `docker run` with no
   host shell, and plans carry no parameters. Neither a plan author, a cloud
   client nor a planner can alter the command.
-- **Network and environment.** `--network=none`. The only environment is
-  `HOME=/tmp` and `CI=true`.
+- **Network and environment.** `--network=none`. GE adds only `HOME=/tmp`
+  and `CI=true` to the container environment and does not forward host
+  credential variables. It does not strip environment entries supplied by the
+  registered image or Docker defaults. The operator-reviewed image and local
+  Docker daemon remain trust roots; this is not the Dart analyzer's separate
+  empty-process-environment contract.
 - **Resources.** `--memory`, `--cpus` and `--pids-limit`, plus the step's own
   policy timeout.
 - **Output size.** At most 50 changed files (the checkpoint cap), 1 MiB per
@@ -361,17 +397,21 @@ Environment-gated tests count for `implemented` only when a CI step runs
 them with the switch set; the Docker tests fit the existing
 `GRAPH_ENGINE_DOCKER_TESTS` step.
 
-| AC  | Criterion                                      | Tests                                                                                                                                                                                                                                                                                        |
-| --- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AC1 | Registration is CLI-only with a pinned image   | `cli.test.ts`: registers a generator only with a pinned image and exact argv; `mcp.test.ts`: offers no generator registration over MCP                                                                                                                                                       |
-| AC2 | Approval, when required, covers registration   | `cli.test.ts`: shows a generator step's image, argv and outputs in plan-approve                                                                                                                                                                                                              |
-| AC3 | The sandbox is offline                         | `generator.test.ts`: runs a generator with no network, no credentials and a read-only root                                                                                                                                                                                                   |
-| AC4 | Output goes through the normal proposal checks | `managed-dag-safety.test.ts`: applies a generator's output through write-scope, secret and inventory checks                                                                                                                                                                                  |
-| AC5 | Unsafe output is refused                       | `generator.test.ts`: refuses symlinks, special files, deletions, binary output and writes outside its roots                                                                                                                                                                                  |
-| AC6 | The one-side rule holds                        | `mcp.test.ts`: counts a generator step as local for a cloud client's plan                                                                                                                                                                                                                    |
-| AC7 | Crash and resume behave correctly              | `dag.test.ts`: reruns a pending generator step at its pre-patch state and never reruns a completed one                                                                                                                                                                                       |
-| AC8 | Limits stop a generator                        | `generator.test.ts`: stops a generator at its time, file-count and byte limits                                                                                                                                                                                                               |
-| AC9 | Live registration changes revoke pending work  | `managed-dag-safety.test.ts`: with approval both on and off, removal or replacement refuses start/resume before reservation and prevents dispatch or output application after start; same-ID re-add does not revive an old plan, while unchanged registration runs the plan's frozen command |
+The [generator spec](../specs/runs/generator-steps.md#acceptance-criteria)
+owns the full criteria and exact executable test bindings. This summary uses
+the same AC numbers; it does not substitute planned test names for evidence.
+
+| AC  | Criterion summary                                                                                                       |
+| --- | ----------------------------------------------------------------------------------------------------------------------- |
+| AC1 | Operator-only CLI registration, pinned image, exact argv, safe roots and fresh revisions                                |
+| AC2 | Complete frozen registration shown for approval and bound by the plan hash; no worker required for generator-only plans |
+| AC3 | Disposable offline, read-only-root container with a writable view, no forwarded credentials and bounded execution       |
+| AC4 | Whole-view capture refuses unsafe paths/content, unsupported edits, excess output and changes to tester-created files   |
+| AC5 | Safe output passes the ordinary proposal, scope, checkpoint, verification, security and review gates                    |
+| AC6 | Generators count as local roles under the cloud-authored plan's one-side rule                                           |
+| AC7 | Reconciled pre-patch work reruns; completed or matching post-patch work does not; no-op output changes no paths         |
+| AC8 | Container and output limits remain within project policy ceilings                                                       |
+| AC9 | Live registration changes revoke pending dispatch/application; only validated historical output is exempt               |
 
 ### Decisions
 

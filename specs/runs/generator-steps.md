@@ -94,13 +94,15 @@ worker's patch.
 
 The local implementation's focused pure tests pass. The earlier owner-socket
 blocker was lifted, and 12 previously blocked managed-service, HTTP and CLI
-cases passed in the private continuation. The first exact-head CI attempt
-stopped on a Dart diagnostic assertion before reaching the native Docker
-stage; the opt-in generator Docker test therefore has not run in CI. It counts
-as native execution evidence only when CI runs it with
-`GRAPH_ENGINE_DOCKER_TESTS=1`, and it was skipped locally. Synthetic fixtures
-and mocks alone do not show that a specific user-supplied generator image is
-safe or correct. Keep this spec draft until exact-head CI and review.
+cases passed in the private continuation. The opt-in native generator case
+was skipped locally but ran in the successful Docker execution integration
+step of [CI run 36768502119](https://github.com/MILTONADINA/graph-engineering/actions/runs/36768502119)
+(attempt 1, Linux x64 job 110068618463, step 27) on feature head
+`04f49778d76b354f5d24a46c61649154f878625c`, with
+`GRAPH_ENGINE_DOCKER_TESTS=1`. That job later failed the separate native Dart
+binding case; the overall feature release is not green or merged. This toy
+image evidence does not show that an arbitrary user-supplied generator image
+is safe or correct. Keep this spec draft until final exact-head CI and review.
 
 ## Security considerations
 
