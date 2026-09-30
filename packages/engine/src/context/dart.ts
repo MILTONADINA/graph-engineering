@@ -93,6 +93,34 @@ type ImageInspect = {
   };
 };
 
+/** Accept only the image metadata produced by the pinned minimal fixture.
+ * BuildKit supplies PATH even for FROM scratch, so the fixture sets it to an
+ * empty value; no ambient or additional image environment is trusted. */
+export function validDartImage(image: unknown): image is ImageInspect {
+  if (image === null || typeof image !== "object" || Array.isArray(image))
+    return false;
+  const inspected = image as ImageInspect;
+  const labels = inspected.Config?.Labels;
+  const environment = inspected.Config?.Env;
+  const entrypoint = inspected.Config?.Entrypoint;
+  return (
+    typeof inspected.Id === "string" &&
+    /^sha256:[a-f0-9]{64}$/.test(inspected.Id) &&
+    inspected.Os === "linux" &&
+    inspected.Architecture === "amd64" &&
+    labels?.["org.graph-engineering.dart.source"] === DART_SOURCE_IMAGE &&
+    labels?.["org.graph-engineering.dart.sdk"] === "3.13.3" &&
+    labels?.["org.graph-engineering.dart.seccomp-sha256"] ===
+      DART_SECCOMP_SHA256 &&
+    Array.isArray(entrypoint) &&
+    entrypoint.length === 1 &&
+    entrypoint[0] === "/opt/graph-dart/bin/dartaotruntime" &&
+    Array.isArray(environment) &&
+    environment.length === 1 &&
+    environment[0] === "PATH="
+  );
+}
+
 async function checkedProfile(): Promise<Buffer | null> {
   try {
     const info = await lstat(PROFILE);
@@ -121,22 +149,7 @@ async function inspectImage(reference: string): Promise<ImageInspect | null> {
     if (result.code !== 0) return null;
     const values = JSON.parse(result.stdout) as unknown;
     if (!Array.isArray(values) || values.length !== 1) return null;
-    const image = values[0] as ImageInspect;
-    const labels = image?.Config?.Labels;
-    if (
-      !/^sha256:[a-f0-9]{64}$/.test(image?.Id ?? "") ||
-      image.Os !== "linux" ||
-      image.Architecture !== "amd64" ||
-      labels?.["org.graph-engineering.dart.source"] !== DART_SOURCE_IMAGE ||
-      labels?.["org.graph-engineering.dart.sdk"] !== "3.13.3" ||
-      labels?.["org.graph-engineering.dart.seccomp-sha256"] !==
-        DART_SECCOMP_SHA256 ||
-      JSON.stringify(image.Config?.Entrypoint) !==
-        JSON.stringify(["/opt/graph-dart/bin/dartaotruntime"]) ||
-      (image.Config?.Env && image.Config.Env.length !== 0)
-    )
-      return null;
-    return image;
+    return validDartImage(values[0]) ? values[0] : null;
   } catch {
     return null;
   }

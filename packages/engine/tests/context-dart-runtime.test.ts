@@ -5,11 +5,14 @@ import { PassThrough } from "node:stream";
 import { DartLsp } from "../src/context/dart-lsp.js";
 import { parseFile } from "../src/context/parser.js";
 import {
+  DART_SECCOMP_SHA256,
+  DART_SOURCE_IMAGE,
   canDeleteDartSourceView,
   confirmDartContainerRemoved,
   dartRuntime,
   resolveDartBindings,
   validDartHostIdentity,
+  validDartImage,
 } from "../src/context/dart.js";
 import type { command } from "../src/util.js";
 
@@ -209,7 +212,100 @@ const source = {
   "lib/b.dart": "import 'a.dart';\nint use() => target();\n",
 };
 
+const trustedDartImage = () => ({
+  Id: `sha256:${"a".repeat(64)}`,
+  Os: "linux",
+  Architecture: "amd64",
+  Config: {
+    Labels: {
+      "org.graph-engineering.dart.source": DART_SOURCE_IMAGE,
+      "org.graph-engineering.dart.sdk": "3.13.3",
+      "org.graph-engineering.dart.seccomp-sha256": DART_SECCOMP_SHA256,
+    },
+    Entrypoint: ["/opt/graph-dart/bin/dartaotruntime"],
+    Env: ["PATH="],
+  },
+});
+
 describe("Dart runtime trust boundary", () => {
+  it("accepts the pinned image metadata with only an empty PATH", () => {
+    expect(validDartImage(trustedDartImage())).toBe(true);
+  });
+
+  it("rejects missing, default, nonempty, and ambient image environment", () => {
+    const trusted = trustedDartImage();
+    for (const environment of [
+      undefined,
+      null,
+      [],
+      ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],
+      ["PATH=/usr/bin"],
+      ["PATH=", "HOME=/tmp"],
+      ["HOME=/tmp", "PATH="],
+    ]) {
+      expect(
+        validDartImage({
+          ...trusted,
+          Config: { ...trusted.Config, Env: environment },
+        }),
+        JSON.stringify(environment),
+      ).toBe(false);
+    }
+  });
+
+  it("rejects wrong image ID, platform, labels, and entrypoint", () => {
+    const trusted = trustedDartImage();
+    const bad = [
+      null,
+      {},
+      { ...trusted, Id: "sha256:invalid" },
+      { ...trusted, Os: "darwin" },
+      { ...trusted, Architecture: "arm64" },
+      {
+        ...trusted,
+        Config: {
+          ...trusted.Config,
+          Labels: {
+            ...trusted.Config.Labels,
+            "org.graph-engineering.dart.source": "dart:latest",
+          },
+        },
+      },
+      {
+        ...trusted,
+        Config: {
+          ...trusted.Config,
+          Labels: {
+            ...trusted.Config.Labels,
+            "org.graph-engineering.dart.sdk": "3.13.2",
+          },
+        },
+      },
+      {
+        ...trusted,
+        Config: {
+          ...trusted.Config,
+          Labels: {
+            ...trusted.Config.Labels,
+            "org.graph-engineering.dart.seccomp-sha256": "wrong",
+          },
+        },
+      },
+      {
+        ...trusted,
+        Config: { ...trusted.Config, Entrypoint: ["/bin/dart"] },
+      },
+      {
+        ...trusted,
+        Config: {
+          ...trusted.Config,
+          Entrypoint: ["/opt/graph-dart/bin/dartaotruntime", "extra"],
+        },
+      },
+    ];
+    for (const image of bad) expect(validDartImage(image)).toBe(false);
+  });
+
   it("refuses root and missing host identities", () => {
     expect(validDartHostIdentity(1001, 1001)).toBe(true);
     expect(validDartHostIdentity(0, 0)).toBe(false);

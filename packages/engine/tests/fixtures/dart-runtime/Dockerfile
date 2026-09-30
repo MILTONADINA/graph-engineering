@@ -22,8 +22,11 @@ RUN set -eu; \
 # The pinned official Dart image stages its amd64 loader, glibc and related
 # runtime shared libraries under /runtime. The COPY fails if that stage is
 # absent. Scratch brings no shell, package manager, pub,
-# Flutter wrapper, inherited environment, or host SDK into the analyzer.
+# Flutter wrapper, inherited stage environment, or host SDK into the analyzer.
 FROM scratch
+# BuildKit adds a default PATH to even a scratch stage. Empty it explicitly;
+# runtime image validation requires precisely this one empty environment entry.
+ENV PATH=""
 COPY --from=dart_sdk /runtime/ /
 COPY --from=dart_sdk /staged/opt/graph-dart/ /opt/graph-dart/
 LABEL org.graph-engineering.dart.source="dart@sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738" \
