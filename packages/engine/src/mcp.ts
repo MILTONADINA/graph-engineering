@@ -266,7 +266,7 @@ export function createMcpServer(
       "run_start",
       {
         description:
-          "Starts a managed run of an existing plan in this project and returns JSON with the run's id and initial status; the run continues in the background and run_status, when exposed, reports its progress. The run works in an isolated git worktree, executes the plan's steps with the workers or templates the plan names (which can call model providers), runs the configured verification commands in a container, and publishes a commit or draft pull request only when the project's publication policy allows it and, for a plan that publishes, only after a person approved that plan with graph-engine plan-approve. It fails if the plan is unknown, the project policy or source changed since planning, the concurrency limit is reached, the plan has no verification commands (a plan keeps the commands configured when it was created, so one made before any check was added needs a new plan), Docker is not running, or, for a cloud-backed client, the project policy is offline. Active runs are cancelled when this server's connection closes.",
+          "Starts a managed run of an existing plan in this project and returns JSON with the run's id and initial status; the run continues in the background and run_status, when exposed, reports its progress. The run works in an isolated git worktree, executes the plan's steps with the workers or templates the plan names (which can call model providers), runs the configured verification commands in a container, and publishes a commit or draft pull request only when the project's publication policy allows it and, for a plan that publishes, only after a person approved that plan with graph-engine plan-approve. When the project policy sets requirePlanApproval, every plan, including one that does not publish, needs that approval of its exact content before it can start, and this tool cannot give it. It fails if the plan is unknown, not approved when approval is required, the project policy or source changed since planning, the concurrency limit is reached, the plan has no verification commands (a plan keeps the commands configured when it was created, so one made before any check was added needs a new plan), Docker is not running, or, for a cloud-backed client, the project policy is offline. Active runs are cancelled when this server's connection closes.",
         inputSchema: {
           planId: z
             .string()
@@ -277,7 +277,8 @@ export function createMcpServer(
       },
       async ({ planId }) => {
         await allowed();
-        // A plan that publishes needs a person's approval; start enforces it.
+        // A plan that publishes, or any plan under requirePlanApproval,
+        // needs a person's approval; start enforces it.
         const run = await engine.start(planId).catch((error: unknown) => {
           // Detail such as local file names reaches only a client whose
           // model runs on this machine.

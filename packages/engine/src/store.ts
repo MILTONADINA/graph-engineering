@@ -12,7 +12,8 @@ import type {
 } from "@graph-engineering/contracts";
 import { hash, id, now } from "./util.js";
 
-const hashPlan = (plan: ExecutionPlan): string => hash(plan);
+/** The SHA-256 of a plan's stored content, which an approval binds. */
+export const planSha256 = (plan: ExecutionPlan): string => hash(plan);
 import { redact } from "./policy.js";
 import {
   summarizeInferenceCalls,
@@ -43,6 +44,134 @@ function legacyOwnerState(pid: number | undefined): "dead" | "unknown" {
 }
 
 const RUN_SCHEMA_VERSION = 4;
+
+/**
+ * A person's approval of a plan, bound to the SHA-256 of its stored content.
+ * `approvedVia` records whether the approving command's standard input was
+ * an interactive terminal; it is null on an approval stored before it was
+ * recorded. Neither kind is refused: an agent running commands in the
+ * owner's own shell acts as the owner there. It shows how the command ran,
+ * which is evidence of who ran it, not proof.
+ */
+export interface PlanApproval {
+  planId: string;
+  approvedAt: string;
+  planSha256: string;
+  approvedVia: "terminal" | "non-interactive" | null;
+}
+
+/** A plan's stored approval and whether it still matches the plan. */
+export interface PlanStatus {
+  planId: string;
+  planSha256: string;
+  /** Whether the plan is approved in exactly its stored form. */
+  approved: boolean;
+  approval: PlanApproval | null;
+  /** False when there is no approval or it was given for other content. */
+  approvalMatchesPlan: boolean;
+}
+
+/**
+ * Refuses unless `expected` gives each plan's current planSha256, one per
+ * plan in the order the plans are named, listing the current hashes so a
+ * person can review the plans again. Nothing is approved on a refusal.
+ */
+export function assertExpectedPlans(
+  planIds: readonly string[],
+  current: readonly string[],
+  expected: readonly string[],
+): void {
+  const counted = expected.length === planIds.length;
+  const changed = planIds.filter(
+    (_planId, index) => current[index] !== expected[index],
+  );
+  if (counted && !changed.length) return;
+  throw new Error(
+    `${
+      counted
+        ? `${changed.length === 1 ? "Plan" : "Plans"} ${changed.join(", ")} ${changed.length === 1 ? "does" : "do"} not match the planSha256 --expect gives`
+        : `--expect gives ${expected.length} planSha256 for ${planIds.length} ${planIds.length === 1 ? "plan" : "plans"}`
+    }, so nothing was approved. Review the plans again with graph-engine plan-approve ${planIds.join(" ")}. Their current planSha256, in the order named: ${current.join(",")}`,
+  );
+}
+
+// Read at approval time, as the command line's feedback prompt reads it.
+const approvalChannel = (): "terminal" | "non-interactive" =>
+  process.stdin.isTTY ? "terminal" : "non-interactive";
+
+function storedPlan(
+  db: Database.Database,
+  projectId: string,
+  planId: string,
+): ExecutionPlan {
+  const row = db
+    .prepare("SELECT json FROM plans WHERE id=? AND project_id=?")
+    .get(planId, projectId) as { json: string } | undefined;
+  if (!row) throw new Error("plans: record not found");
+  return JSON.parse(row.json) as ExecutionPlan;
+}
+
+function storedApproval(
+  db: Database.Database,
+  projectId: string,
+  planId: string,
+): PlanApproval | null {
+  const row = db
+    .prepare("SELECT json FROM plan_approvals WHERE plan_id=? AND project_id=?")
+    .get(planId, projectId) as { json: string } | undefined;
+  if (!row) return null;
+  const stored = JSON.parse(row.json) as Omit<PlanApproval, "approvedVia"> & {
+    approvedVia?: PlanApproval["approvedVia"];
+  };
+  return {
+    planId: stored.planId,
+    approvedAt: stored.approvedAt,
+    planSha256: stored.planSha256,
+    approvedVia: stored.approvedVia ?? null,
+  };
+}
+
+function planStatus(
+  db: Database.Database,
+  projectId: string,
+  planId: string,
+): PlanStatus {
+  const current = planSha256(storedPlan(db, projectId, planId));
+  const approval = storedApproval(db, projectId, planId);
+  const matches = approval?.planSha256 === current;
+  return {
+    planId,
+    planSha256: current,
+    approved: matches,
+    approval,
+    approvalMatchesPlan: matches,
+  };
+}
+
+/**
+ * Each plan's approval as stored, read-only, without opening the engine or
+ * running crash recovery, so reading it changes nothing and never approves.
+ */
+export function readPlanStatus(
+  dataDir: string,
+  projectId: string,
+  planIds: readonly string[],
+): PlanStatus[] {
+  const file = path.join(dataDir, "runs.sqlite");
+  if (!existsSync(file))
+    throw new Error("This project has no run database, so it has no plans");
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    const version = db.pragma("user_version", { simple: true }) as number;
+    if (version > RUN_SCHEMA_VERSION)
+      throw new Error("Run database is newer than this engine");
+    return db.transaction(() =>
+      planIds.map((planId) => planStatus(db, projectId, planId)),
+    )();
+  } finally {
+    db.close();
+  }
+}
 
 // Event fields the engine reads back for its own logic: the files a patch or
 // step wrote (paths the policy already confined to the workspace), snapshot
@@ -421,33 +550,55 @@ export class RunStore {
     return this.one("plans", id);
   }
   /** A person's approval of a plan exactly as stored (bound to its hash). */
-  approvePlan(planId: string): {
-    planId: string;
-    approvedAt: string;
-    planSha256: string;
-  } {
-    const approval = {
-      planId,
-      approvedAt: now(),
-      planSha256: hashPlan(this.plan(planId)),
-    };
-    this.db
-      .prepare("INSERT OR REPLACE INTO plan_approvals VALUES(?,?,?)")
-      .run(planId, this.projectId, JSON.stringify(approval));
-    return approval;
+  approvePlan(planId: string): PlanApproval {
+    return this.approvePlans([planId])[0]!;
+  }
+  /**
+   * Approves plans exactly as stored, each bound to its hash, in one
+   * transaction. With `expected` (one SHA-256 per plan, in order), nothing
+   * is approved unless every plan's current hash is the one given for it,
+   * so an approval covers only the content a person reviewed.
+   */
+  approvePlans(
+    planIds: readonly string[],
+    expected?: readonly string[],
+  ): PlanApproval[] {
+    return this.db
+      .transaction(() => {
+        const current = planIds.map((planId) => planSha256(this.plan(planId)));
+        if (expected) assertExpectedPlans(planIds, current, expected);
+        const approvedAt = now();
+        const approvedVia = approvalChannel();
+        return planIds.map((planId, index) => {
+          const approval: PlanApproval = {
+            planId,
+            approvedAt,
+            planSha256: current[index]!,
+            approvedVia,
+          };
+          this.db
+            .prepare("INSERT OR REPLACE INTO plan_approvals VALUES(?,?,?)")
+            .run(planId, this.projectId, JSON.stringify(approval));
+          return approval;
+        });
+      })
+      .immediate();
   }
   /** Whether a person approved this plan in exactly its stored form. */
   planApproved(planId: string): boolean {
-    const row = this.db
-      .prepare(
-        "SELECT json FROM plan_approvals WHERE plan_id=? AND project_id=?",
-      )
-      .get(planId, this.projectId) as { json: string } | undefined;
+    const approval = storedApproval(this.db, this.projectId, planId);
     return (
-      row !== undefined &&
-      (JSON.parse(row.json) as { planSha256: string }).planSha256 ===
-        hashPlan(this.plan(planId))
+      approval !== null && approval.planSha256 === planSha256(this.plan(planId))
     );
+  }
+  /**
+   * A plan's stored approval (null when it has none), the hash of its
+   * current content, and whether the approval still matches that content.
+   */
+  planApproval(planId: string): PlanStatus {
+    return this.db.transaction(() =>
+      planStatus(this.db, this.projectId, planId),
+    )();
   }
   saveRun(run: RunRecord): void {
     this.db

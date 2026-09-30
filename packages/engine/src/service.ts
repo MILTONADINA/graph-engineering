@@ -24,7 +24,7 @@ import type {
 } from "@graph-engineering/contracts";
 import { ContextEngine } from "./context/index.js";
 import { loadProject, loadProviders, projectDataDir } from "./project.js";
-import { RunStore } from "./store.js";
+import { planSha256, RunStore, type PlanApproval } from "./store.js";
 import {
   assertMandatoryExport,
   assertProvider,
@@ -1043,9 +1043,22 @@ export class GraphEngine {
       );
   }
   /**
+   * The stored approval of exactly this plan content: the plan a run will
+   * start with, or the one a run holds when it resumes. Undefined when the
+   * plan has no approval, or its approval was given for other content.
+   */
+  private approvalOf(plan: ExecutionPlan): PlanApproval | undefined {
+    const { approval } = this.store.planApproval(plan.id);
+    return approval?.planSha256 === planSha256(plan) ? approval : undefined;
+  }
+  /**
    * Starts a run. A plan that publishes (commit or draft PR) needs a person's
    * approval first; the CLI's `run` counts as that person's approval and
    * records it, while MCP and dashboard API callers need `plan-approve`.
+   * Under `policy.requirePlanApproval` every plan needs a stored approval of
+   * its exact content, whoever starts it, and `approvedByPerson` does not
+   * count. The approval a run starts under is recorded as its
+   * `plan.approval_used` event.
    */
   async start(
     planId: string,
@@ -1053,14 +1066,29 @@ export class GraphEngine {
   ): Promise<RunRecord> {
     await this.refresh();
     const plan = this.store.plan(planId);
-    if (plan.publication !== "none") {
-      if (options.approvedByPerson) this.store.approvePlan(planId);
-      else if (!this.store.planApproved(planId))
-        throw new Error(
-          `This plan publishes (${plan.publication}); a person must approve it first with graph-engine plan-approve ${planId} --yes`,
-        );
+    const policyChanged = plan.policyHash !== hash(this.config.policy);
+    let approval: PlanApproval | undefined;
+    if (this.config.policy.requirePlanApproval) {
+      // A plan made under another policy can never start, so it is refused
+      // as changed below rather than sent to a person for approval.
+      if (!policyChanged) {
+        approval = this.approvalOf(plan);
+        if (!approval)
+          throw new Error(
+            `This project requires a person to approve every plan before a run of it starts (requirePlanApproval), and plan ${planId} ${this.store.planApproval(planId).approval ? "changed after it was approved" : "is not approved"}. A person reviews it with graph-engine plan-approve ${planId} and approves it with graph-engine plan-approve ${planId} --yes; graph-engine run does not count as approval here`,
+          );
+      }
+    } else if (plan.publication !== "none") {
+      if (options.approvedByPerson) approval = this.store.approvePlan(planId);
+      else {
+        approval = this.approvalOf(plan);
+        if (!approval)
+          throw new Error(
+            `This plan publishes (${plan.publication}); a person must approve it first with graph-engine plan-approve ${planId} --yes`,
+          );
+      }
     }
-    if (plan.policyHash !== hash(this.config.policy))
+    if (policyChanged)
       throw new Error("Policy changed since planning; create a new plan");
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
@@ -1089,11 +1117,23 @@ export class GraphEngine {
       usage: this.store.usage(plan.id),
     };
     this.store.reserve(run, this.config.policy.maxWorkers);
+    if (approval) this.recordApprovalUsed(run.id, approval);
     // Recorded before any worker is paid; `graph-engine run` prints it.
     if (missingDatabase)
       this.store.event(run.id, "security.database_missing", missingDatabase);
     this.launch(run);
     return this.store.run(run.id);
+  }
+  // Which approval authorized this start or resume, so `inspect` and
+  // `run-receipt` show it: the content hash it binds, when it was given, and
+  // whether its command ran in an interactive terminal (null for an approval
+  // stored before that was recorded).
+  private recordApprovalUsed(runId: string, approval: PlanApproval): void {
+    this.store.event(runId, "plan.approval_used", {
+      planSha256: approval.planSha256,
+      approvedAt: approval.approvedAt,
+      approvedVia: approval.approvedVia,
+    });
   }
   // A run that publishes copies the checkout into its workspace and commits
   // every change there, so the checkout must be clean when the workspace is
@@ -1436,6 +1476,16 @@ export class GraphEngine {
     await this.refresh();
     if (hash(this.config.policy) !== run.plan.policyHash)
       throw new Error("Policy changed; create a fresh plan");
+    // Under the policy the plan this run holds must still be approved as it
+    // is: an approval removed, or replaced by one of other content, since
+    // the run started does not let it go on.
+    const approval = this.config.policy.requirePlanApproval
+      ? this.approvalOf(run.plan)
+      : undefined;
+    if (this.config.policy.requirePlanApproval && !approval)
+      throw new Error(
+        `This project requires a person to approve every plan before a run of it starts or resumes (requirePlanApproval), and ${this.store.planApproval(run.plan.id).approval ? `the approval of plan ${run.plan.id} is for other content than the plan this run holds` : `plan ${run.plan.id} is not approved`}. A person reviews it with graph-engine plan-approve ${run.plan.id} and approves it with graph-engine plan-approve ${run.plan.id} --yes; only an approval of the exact plan this run holds counts`,
+      );
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
     this.assertPlanVerification(run.plan);
@@ -1471,6 +1521,7 @@ export class GraphEngine {
       this.config.policy.maxWorkers,
     );
     this.store.event(runId, "recovery.acknowledged", {});
+    if (approval) this.recordApprovalUsed(runId, approval);
     this.launch(reserved, true);
     return this.store.run(runId);
   }

@@ -243,6 +243,9 @@ export function createServer(
     const warnings = engine.planWarnings(plan);
     return warnings.length ? { ...plan, warnings } : plan;
   });
+  // Starting here is never a person's approval: a plan that publishes, or
+  // any plan under requirePlanApproval, needs graph-engine plan-approve
+  // first, which is offered only on the command line.
   app.post("/api/runs", (request) =>
     engine.start(
       z.object({ planId: z.string() }).strict().parse(request.body).planId,

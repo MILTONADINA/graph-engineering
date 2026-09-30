@@ -93,7 +93,12 @@ import {
 import { PromotionAnchorRefusalError } from "./promotion-refusal-codes.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
 import { backupProject, restoreProject } from "./operations.js";
-import { readRunReceipt } from "./store.js";
+import {
+  assertExpectedPlans,
+  planSha256,
+  readPlanStatus,
+  readRunReceipt,
+} from "./store.js";
 import {
   exportEvaluationDraft,
   importEvaluationLabels,
@@ -1001,48 +1006,105 @@ function warnAboutPlan(
   for (const warning of engine.planWarnings(plan)) console.error(warning);
   return plan;
 }
+// The approval binds the whole stored plan, so everything that shapes what a
+// run does is shown: a template step's inputs set what it generates and
+// where, as an objective does for a worker step. A projection of the plan
+// alone, with the content hash an approval binds; plan-status reports the
+// stored approval.
+function shownPlan(plan: import("@graph-engineering/contracts").ExecutionPlan) {
+  return {
+    planId: plan.id,
+    planSha256: planSha256(plan),
+    objective: plan.objective,
+    acceptance: plan.acceptance,
+    steps: plan.steps.map((step) => ({
+      id: step.id,
+      kind: step.kind,
+      objective: step.objective,
+      dependsOn: step.dependsOn,
+      providerId: step.providerId ?? null,
+      effort: step.effort ?? null,
+      templateId: step.templateId ?? null,
+      inputs: step.inputs ?? null,
+      writes: step.writes ?? null,
+    })),
+    verification: plan.verification,
+    publication: plan.publication,
+    routing: plan.routing ?? null,
+    ...(plan.exportSide ? { exportSide: plan.exportSide } : {}),
+    spec: plan.spec ?? null,
+  };
+}
+// Each --expect entry is one plan's planSha256, in the order the plans are
+// named; the option may list them comma-separated or be repeated.
+const expectedHashes = (value: string, previous: string[] | undefined) => [
+  ...(previous ?? []),
+  ...value.split(",").map((entry) => entry.trim()),
+];
 cli
-  .command("plan-approve <planId>")
+  .command("plan-approve <planIds...>")
   .description(
-    "Show a plan in full; with --yes, approve it as it stands (bound to its content) so a connected AI client or the dashboard may start it even when it publishes",
+    "Show plans in full; with --yes, approve them as they stand (each bound to its content, its planSha256), so a connected AI client or the dashboard may start one that publishes, and anyone may start any plan when the project requires plan approval. One plan prints an object, several an array. Approving several at once needs --expect with each plan's current planSha256",
   )
-  .option("--yes", "Approve the plan shown")
-  .action((planId, options) =>
+  .option("--yes", "Approve the plans shown")
+  .option(
+    "--expect <planSha256s>",
+    "Each plan's planSha256 as shown, comma-separated in the order the plans are named; nothing is approved, or shown, unless every one matches. Required with --yes for several plans",
+    expectedHashes,
+  )
+  .action((planIds: string[], options) =>
     withEngine(async (engine) => {
-      const plan = engine.store.plan(planId);
-      // The approval binds the whole stored plan, so everything that shapes
-      // what a run does is shown: a template step's inputs set what it
-      // generates and where, as an objective does for a worker step.
-      const shown = {
-        planId,
-        objective: plan.objective,
-        acceptance: plan.acceptance,
-        steps: plan.steps.map((step) => ({
-          id: step.id,
-          kind: step.kind,
-          objective: step.objective,
-          dependsOn: step.dependsOn,
-          providerId: step.providerId ?? null,
-          effort: step.effort ?? null,
-          templateId: step.templateId ?? null,
-          inputs: step.inputs ?? null,
-          writes: step.writes ?? null,
-        })),
-        verification: plan.verification,
-        publication: plan.publication,
-        routing: plan.routing ?? null,
-        ...(plan.exportSide ? { exportSide: plan.exportSide } : {}),
-        spec: plan.spec ?? null,
-      };
-      if (!options.yes)
-        return {
-          ...shown,
+      if (new Set(planIds).size !== planIds.length)
+        throw new Error("Name each plan once");
+      const expected = options.expect as string[] | undefined;
+      const shown = planIds.map((planId) =>
+        shownPlan(engine.store.plan(planId)),
+      );
+      const current = shown.map((plan) => plan.planSha256);
+      if (options.yes && planIds.length > 1 && !expected)
+        throw new Error(
+          `Approving several plans at once needs --expect with each plan's current planSha256, in the order the plans are named, so the approval covers exactly the plans a person reviewed; nothing was approved. Review them with graph-engine plan-approve ${planIds.join(" ")}. Their current planSha256, in the order named: ${current.join(",")}`,
+        );
+      const one = planIds.length === 1;
+      if (!options.yes) {
+        // Without --yes nothing is approved, but a given --expect still has
+        // to match, so plans that changed are never shown as approvable.
+        if (expected) assertExpectedPlans(planIds, current, expected);
+        const next = one
+          ? `Review the plan above, then run graph-engine plan-approve ${planIds[0]} --yes`
+          : `Review the plans above, then run graph-engine plan-approve ${planIds.join(" ")} --yes --expect ${current.join(",")}`;
+        const listed = shown.map((plan) => ({
+          ...plan,
           approved: false,
-          next: `Review the plan above, then run graph-engine plan-approve ${planId} --yes`,
-        };
-      return { ...shown, approved: true, ...engine.store.approvePlan(planId) };
+          next,
+        }));
+        return one ? listed[0] : listed;
+      }
+      // Bound to the content printed here: without --expect (one plan), a
+      // plan that changed since it was read for display is not approved.
+      const approvals = engine.store.approvePlans(planIds, expected ?? current);
+      const approved = shown.map((plan, index) => ({
+        ...plan,
+        approved: true,
+        ...approvals[index],
+      }));
+      return one ? approved[0] : approved;
     }),
   );
+cli
+  .command("plan-status <planIds...>")
+  .description(
+    "Read-only: show each plan's planSha256, whether it is approved in exactly its stored form, and its stored approval (when, the planSha256 it binds, and whether the approving command ran in an interactive terminal). Never approves and changes nothing. One plan prints an object, several an array",
+  )
+  .action(async (planIds: string[]) => {
+    const project = await loadProject(root());
+    const statuses = readPlanStatus(
+      projectDataDir(project.projectId),
+      project.projectId,
+      planIds,
+    );
+    print(planIds.length === 1 ? statuses[0] : statuses);
+  });
 cli
   .command("spec-new <area> <id>")
   .description(
