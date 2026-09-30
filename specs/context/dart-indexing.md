@@ -27,6 +27,19 @@ Dart and Flutter repositories need bounded, source-backed context: declarations 
   - Test: packages/engine/tests/context-dart-runtime.test.ts :: treats stdout end as failure even when the analyzer exits successfully
   - Test: packages/engine/tests/context-dart-runtime.test.ts :: retains the source view when Docker cannot prove the owned container is absent
   - Test: packages/engine/tests/context-dart-runtime.test.ts :: reports a real bounded analyzer timeout without promoting a partial answer
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: accepts a Docker stats sample completing after 1500 ms through the real command helper
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: rejects a Docker stats sample exceeding 3000 ms even when it later exits successfully
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: keeps the independent analyzer deadline while an RSS sample never resolves
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: distinguishes %s through the real command helper
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: rejects malformed Docker stats output instead of treating it as startup
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: rejects genuine zero RSS immediately even during startup grace
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: rejects persistent missing RSS exactly at the existing 3000 ms startup boundary
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: rejects a missing RSS sample that only resolves after startup grace
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: continues analysis when transient missing RSS becomes positive within startup grace
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: confirms owned auto-removal only after a settling pause and two empty daemon listings
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: refuses auto-removal confirmation when $scenario
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: refuses unrelated removal errors without polling: %s
+  - Test: packages/engine/tests/context-dart-runtime.test.ts :: never removes a container whose ownership label differs
 - AC6: A repository without Dart files keeps the snapshot identity it had before Dart indexing existed, key for key, so its stored snapshots and plans stay valid. A repository with Dart files adds a Dart-only extractor version to its identity, and cached Dart syntax carries that version, so a change to Dart extraction re-parses only Dart files.
   - Test: packages/engine/tests/context.test.ts :: keeps snapshot identity unchanged for repositories without Dart files
 
