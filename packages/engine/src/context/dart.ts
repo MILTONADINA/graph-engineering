@@ -30,7 +30,7 @@ export {
   validateDartDefinition,
 } from "./dart-snapshot.js";
 
-export const DART_VERSION = "snapshot-dart-analyzer:2/sdk:3.13.3";
+export const DART_VERSION = "snapshot-dart-analyzer:3/sdk:3.13.3";
 export const DART_ANALYZER_VERSION = "3.13.3-analysis-server-aot";
 export const DART_SOURCE_IMAGE =
   "dart@sha256:4027705fb598ee07b016e17a06786e56c399f95308a54f7171fcc60871eb1738";
@@ -280,11 +280,15 @@ function dockerArgs(
   ];
 }
 
-async function sampleContainerRss(name: string): Promise<number | null> {
+/** Docker's non-streaming stats request collects two samples one second
+ * apart. Give that fixed command a bounded allowance including transport;
+ * the LSP client's independent analysis deadline and hard cgroup cap remain
+ * unchanged. Exported for transport regressions, not as a CLI/MCP tool. */
+export async function sampleContainerRss(name: string): Promise<number | null> {
   const result = await command(
     DOCKER,
     ["stats", "--no-stream", "--format", "{{.MemUsage}}", name],
-    { cwd: "/", env: {}, timeoutMs: 1200, maxBytes: 2000 },
+    { cwd: "/", env: {}, timeoutMs: 3000, maxBytes: 2000 },
   );
   if (result.code !== 0) {
     if (/No such container|not found/i.test(result.stderr)) return null;
