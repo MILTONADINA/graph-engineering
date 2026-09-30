@@ -732,31 +732,29 @@ describe("step time limits", () => {
     await expect(access(path.join(workspace, "tester.txt"))).rejects.toThrow();
   });
 
-  it("keeps API, unknown, template and generator deadlines finite with an installed override", async () => {
+  it("keeps API, local, unknown and template deadlines finite with an installed override", async () => {
     const workspace = await fixture();
     const timeout = vi.spyOn(AbortSignal, "timeout");
     const lookup = vi.fn((current: ExecutionStep) =>
-      current.id === "api" ? ("openai" as const) : undefined,
+      current.id === "api"
+        ? ("openai" as const)
+        : current.id === "local"
+          ? ("local" as const)
+          : undefined,
     );
     await runDag({
       workspace,
       policy: { ...DEFAULT_POLICY, installedWorkerTimeoutSeconds: null },
       steps: [
         step("api"),
-        step("unknown", ["api"]),
+        step("local", ["api"]),
+        step("unknown", ["local"]),
         {
           id: "template",
           kind: "template",
           objective: "Render",
           dependsOn: ["unknown"],
           templateId: "toy",
-        },
-        {
-          id: "generator",
-          kind: "generator",
-          objective: "Generate",
-          dependsOn: ["template"],
-          generatorId: "toy",
         },
       ],
       workerProviderKind: lookup,
@@ -765,6 +763,7 @@ describe("step time limits", () => {
     });
     expect(lookup.mock.calls.map(([current]) => current.id)).toEqual([
       "api",
+      "local",
       "unknown",
     ]);
     expect(timeout.mock.calls).toEqual(
