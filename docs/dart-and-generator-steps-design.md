@@ -15,20 +15,24 @@ Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Current delivery status:
   was recorded, and this session did not cancel or rerun it. This is not green
   post-merge evidence; the nine-job checked-head run and identical-tree merge
   recorded in the handover remain the approval-release evidence.
-- The remaining Dart syntax, model-role, generator and analyzer changes from
-  PRs #114–#117 are on [PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119).
-  Its head `04f49778d76b354f5d24a46c61649154f878625c` is unmerged;
-  [run 36768502119](https://github.com/MILTONADINA/graph-engineering/actions/runs/36768502119)
-  passed eight jobs but failed Linux x64 at native Dart binding. The feature
-  still needs its own green final-head checks and review. The expanded
-  mixed finite-deadline case has passed locally, retaining API/local/unknown
-  coverage alongside template and generator envelopes; its final-head CI is
-  still pending.
-- Generator pure and service integration tests have earlier local evidence.
-  The native Docker isolation/capture step passed in run 36768502119 before
-  the later Dart failure; that does not establish a green release. It must
-  also pass on the final head; the spec remains `draft`.
-- The old Dart native CI attempt failed runtime discovery. Three focused
+- The Dart syntax, model-role, generator and analyzer changes from PRs
+  #114–#117 merged through [PR #119](https://github.com/MILTONADINA/graph-engineering/pull/119)
+  into fork `dev` at `09427fe33a273f8426580b806eafdb5717e702a7` on
+  2026-09-30 at 21:33:03 UTC. Exact checked head
+  `84dcbbe162e4cf90883a5095c2ac912fce74ffd4` and the merged commit share tree
+  `76d24aebb95eeb1d431fc23d0973220846d8b37b`.
+  [CI run 36777117238](https://github.com/MILTONADINA/graph-engineering/actions/runs/36777117238),
+  attempt 1, passed all nine required jobs, including native Dart and generator
+  integration checks in Linux x64 job `110097698965`. Independent scoped
+  agent review and main-session review found no blockers; no external human
+  approval or separate post-merge CI success is claimed. Dart, generator and
+  expanded deadline specs are `implemented`. Mixed finite-deadline coverage
+  preserves API/local/unknown cases alongside template and generator envelopes.
+- Historical generator evidence: native Docker isolation/capture passed in
+  run 36768502119 before the later Dart failure on
+  `04f49778d76b354f5d24a46c61649154f878625c`. That run was not green and is
+  not the release evidence; final-head CI above supersedes it.
+- Historical Dart validation: the old native CI attempt failed runtime discovery. Three focused
   cases for the explicit empty-`PATH` metadata correction and a metadata-only
   BuildKit probe now pass; neither executes the actual analyzer. Follow-up
   commit `fb3eebf` copies `env` from that existing pinned base without a new download
@@ -69,14 +73,16 @@ Designed on 2026-09-30 against fork `dev` at `96cf8b2`. Current delivery status:
   over 121 files. The combined corrections passed the direct/imported native
   binding regression on `d7612cd08b5eeabd6a6d7cd374c3924a464c1ce4` in
   [run 36776596177](https://github.com/MILTONADINA/graph-engineering/actions/runs/36776596177),
-  job `110095953506`. Final nine-check CI and review still gate release;
-  Dart stays `ready` until that evidence is complete.
-  Both native binding/provenance and real bounded-timeout cases, plus all
-  required exact-head checks and review, are needed before release. The
+  job `110095953506`. That focused evidence preceded the completed final
+  nine-check CI and review above, including native binding/provenance,
+  empty-AOT-environment and real bounded-timeout cases. The
   pinned-runtime, fixed resource bounds and no-target-code-execution
   constraints below continue to govern it.
 - Flutter's synthetic widget fixture and verification recipe remain
   documentation-only, without native CI or end-to-end execution claims.
+  Native synthetic fixtures are not live-provider inference, production
+  calibration or held-out promotion evidence. The runtime-release pin above
+  remains fixed across documentation-only follow-ups.
 - The decisions recorded below were settled during design. Follow them
   unless new evidence says otherwise, and record any change in the PR.
 
