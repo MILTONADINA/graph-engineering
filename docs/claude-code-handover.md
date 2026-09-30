@@ -1,11 +1,77 @@
-# Claude Code handover — 2026-09-28
+# Agent handover — 2026-09-30
 
 This is a continuation brief for the **Graph Engineering repository in this
 workspace only**. It records the owner's requirements, the implemented state,
-the evidence limits, and the next actions for Claude Code. Read it with the
-linked primary documents. It does not grant permission beyond the recorded
-fork-only workflow, authorize metered calls without a session cap, activate
-autonomous decision promotion, or touch another project.
+the evidence limits, and the next actions for the coding agent working here,
+whether Codex or Claude Code; [`AGENTS.md`](../AGENTS.md) holds the rules
+both follow. Read it with the linked primary documents. It does not grant
+permission beyond the recorded fork-only workflow, authorize metered calls
+without a session cap, activate autonomous decision promotion, or touch
+another project.
+
+## Start here — state on 2026-09-30
+
+On 2026-09-30 the owner moved this work from Claude Code to Codex. The
+sections after this one are the history up to that point. Where they
+disagree with this section, this section wins.
+
+**Fork `dev`.** `96cf8b2` (PR #111), plus the PR that added this section and
+`AGENTS.md`. The audit loop has stopped under its stop rule (see the
+2026-09-28 update); don't restart it unless the owner asks.
+
+**In flight: two branches on the fork, with no PRs yet.**
+
+1. `feat/require-plan-approval-20260929` (`686e4fb`, `efefdae`) adds an
+   opt-in `requirePlanApproval` policy. Under it, `start()` and `resume()`
+   need a person's stored approval of the plan's exact content for every
+   plan, including one that doesn't publish. The CLI's own `run` no longer
+   counts as that approval.
+   - Approvals record how they were given (`terminal` or `non-interactive`),
+     and runs record `plan.approval_used` before they start.
+   - `plan-approve <planIds...>` shows each plan with its `planSha256`, and
+     approving several needs `--yes --expect <sha>,...`. A new read-only
+     `plan-status` shows approval state.
+   - Changing the setting voids existing plans, and `policy --file` warns
+     when it turns the gate off. MCP and HTTP get no approval surface.
+   - The spec is `specs/integration/plan-approval.md`, AC1–AC8. An
+     adversarial review found no bypass, and `efefdae` fixes its findings.
+   - Local checks passed: 1,143 engine tests, 58 script tests, 14 dashboard
+     tests, and spec-check clean. CI hasn't run.
+2. `feat/dart-syntax-indexing-20260929` (`8b64236`) adds Dart syntax
+   indexing and `pubspec.lock` gating: PR 1 of the
+   [Dart and generator design](dart-and-generator-steps-design.md). Its
+   adversarial review was stopped before it reported, so it is unreviewed.
+
+**Next, in order.**
+
+1. Review the Dart branch critically and fix what you find.
+2. Rebase the approval branch onto the current `dev`, and the Dart branch
+   onto the approval branch. Then:
+   - run the checks the changes warrant, and push;
+   - open one PR per branch into `dev` with the PR template;
+   - cancel CI on the lower PR, merge the top one once its nine checks pass,
+     and close the lower PR with a comment, as `AGENTS.md` describes.
+3. When the approval PR has merged, tell the owner the merged commit. They
+   pin builds of this repository elsewhere and will turn on
+   `requirePlanApproval` there.
+4. Build the rest of the
+   [Dart and generator design](dart-and-generator-steps-design.md), in its
+   order:
+   - the `modelRoles` fix, with its test;
+   - generator steps;
+   - Dart resolved bindings, under the spike's constraints.
+5. Update this section as each PR lands.
+
+**Tools.** The owner wants Jev used heavily, together with Laya, for design
+questions.
+
+- On the owner's Mac, a private helper under `.graph/local/tools/` asks
+  both.
+- A metered Jev call needs a numeric cap that the owner chooses for your
+  session, so ask for it first. Send design text only.
+- Tools named in the history below that belong to Claude Code (the
+  advisor, multi-agent audit workflows and cross-session messages) aren't
+  available to other agents.
 
 ## Continuation update — 2026-09-24
 
@@ -981,7 +1047,7 @@ model. In particular:
   subscriptions have their own account usage, outside the engine's ledger and
   budget.
 
-## Git and test discipline for Claude Code
+## Git and test discipline for coding agents
 
 1. Inspect `pwd`, `git status --short --branch`, `git log -1`, `git remote -v`,
    the live fork `dev` tip and open PRs. Start new work from the live fork
@@ -997,8 +1063,8 @@ model. In particular:
    protected branches, no AI co-author trailers, no unrelated project
    identifiers in commits, tracked docs, PRs or public artifacts, and no
    cross-repository edits.
-3. Follow the owner's working preference supplied in conversation (there is
-   no tracked `AGENTS.md` in this repository at this handover):
+3. Follow the owner's working preference, supplied in conversation, on top
+   of the rules in `AGENTS.md`:
 
    > Do not loop on status checks or rerun work that already passed. Track a
    > live process by its existing handle, wait for its terminal result, and
@@ -1042,11 +1108,11 @@ a Markdown formatting/link check, not the full engine suite.
 
 The remaining work separates into three authorities:
 
-| Who can act                | What can be done now                                                                                                                                                                                                                                                                                              | What still needs outside evidence                                                                                          |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Claude on the owner's fork | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                                                                                                                                       | Claude cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
-| Owner/operator             | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes; hold every promotion key role (approver, issuer, labeler), choose and label held-out work, and settle the step-8 question for PR-5; agree with Kevin on the project license. | No per-user cap, repository-wide license or external service is implicitly selected by the current defaults.               |
-| Kevin (parent repository)  | Inspect integrated fork `dev` and later coordinate any upstream sync. Kevin holds no promotion role.                                                                                                                                                                                                              | Author self-review or synthetic signed fixtures cannot substitute for the owner's signed evidence.                         |
+| Who can act                          | What can be done now                                                                                                                                                                                                                                                                                              | What still needs outside evidence                                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| The coding agent on the owner's fork | Finish bounded code-side trust interfaces, fail-closed adapters, adversarial tests, docs, local pilots, and PRs into `dev`.                                                                                                                                                                                       | The agent cannot self-create independent unseen tasks, reviews, signer custody, trustworthy bills or pre-run witness history. |
+| Owner/operator                       | Choose provider pricing and a numeric session cap when actually running metered Jev; provide human acceptance of real-task outcomes; hold every promotion key role (approver, issuer, labeler), choose and label held-out work, and settle the step-8 question for PR-5; agree with Kevin on the project license. | No per-user cap, repository-wide license or external service is implicitly selected by the current defaults.                  |
+| Kevin (parent repository)            | Inspect integrated fork `dev` and later coordinate any upstream sync. Kevin holds no promotion role.                                                                                                                                                                                                              | Author self-review or synthetic signed fixtures cannot substitute for the owner's signed evidence.                            |
 
 At any agent transition, start with a fresh status inspection and the linked
 primary documents, then continue with bounded code-side work under the stated

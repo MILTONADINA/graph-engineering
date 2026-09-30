@@ -51,10 +51,11 @@ Start with [working as an AI agile team](agile-team.md), then the
 
 ## Project history and local setup
 
-| Document                                        | What it records                               |
-| ----------------------------------------------- | --------------------------------------------- |
-| [Claude Code handover](claude-code-handover.md) | Owner requirements, state and next work       |
-| [Full wiring roadmap](full-wiring-roadmap.md)   | Capability status against the agile-team goal |
-| [Completion checklist](completion-checklist.md) | The detailed chronological history            |
-| [Local validation](local-validation.md)         | Measured local runs and pilots                |
-| [Mac runbook](mac-local-runbook.md)             | This development machine's setup              |
+| Document                                                        | What it records                                      |
+| --------------------------------------------------------------- | ---------------------------------------------------- |
+| [Agent handover](claude-code-handover.md)                       | Owner requirements, state and next work              |
+| [Dart and generator design](dart-and-generator-steps-design.md) | The next upgrades: Dart analysis and generator steps |
+| [Full wiring roadmap](full-wiring-roadmap.md)                   | Capability status against the agile-team goal        |
+| [Completion checklist](completion-checklist.md)                 | The detailed chronological history                   |
+| [Local validation](local-validation.md)                         | Measured local runs and pilots                       |
+| [Mac runbook](mac-local-runbook.md)                             | This development machine's setup                     |
