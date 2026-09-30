@@ -69,14 +69,22 @@ a compatibility requirement, not proof of live provider inference, permission
 to alter credentials or budgets, or an exception to installed-client safety
 checks. Approval-gate adoption has no Dart toolchain dependency.
 
-**Scoped tester limitation.** A prospective test filename can be declared
-with `tester <providerId> --writes <path>` before planning and checked in the
-injected tester step before approval. The initial tester creates new files
-only; worker scopes do not implicitly constrain it. Combined-result
-implementation repairs currently do not inherit worker `writes`, so there
-is no task-wide exact write boundary across automatic repairs. Do not omit
-the tester, broaden its approved paths, or describe `workingSet` as an exact
-write-only substitute. See [write-scope limits](dag-and-template-runtime.md#managed-plan-write-scope-limits).
+**Scoped tester and repair authority.** A prospective, not-yet-existing test
+filename can be declared with `tester <providerId> --writes <path>` before
+planning and checked in the injected tester step before approval. The initial
+tester creates new files only; worker scopes do not implicitly constrain it.
+For combined-result repairs, `dag-repair` copies the first selected non-tester
+worker's `writes`, including exclusions, rather than taking the union of all
+workers' scopes. An unscoped selected worker stays unscoped within project
+policy. The scope is reconstructed on resume and restored after a tester
+repair handback; the tester repair itself remains limited to exactly the files
+the tester created. Three focused repair-scope regressions and the engine build
+passed locally; native and exact-head CI remain pending. This is not a global
+literal write-allowlist schema or retroactive revalidation of retained repairs
+made by older versions. Do not omit the tester, broaden its approved paths,
+or describe `workingSet` as an exact write-only substitute. CLI/MCP remain
+tool-neutral and the installed Claude Code adapter is unchanged. See
+[write-scope limits](dag-and-template-runtime.md#managed-plan-write-scope-limits).
 
 ### Preparation snapshot and earlier local evidence
 

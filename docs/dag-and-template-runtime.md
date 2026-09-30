@@ -24,15 +24,19 @@ filenames containing glob syntax are not automatically literal. The initial
 tester must create at least one new file, never edit an existing test. Both
 tester and worker initial proposals are checked against their own scopes.
 
-There is a current limitation: the service creates `dag-repair` for combined
-check failures without inheriting the original worker's `writes`. An
-implementation repair can therefore change other project-policy-allowed
-files, except the tester's own files. A repair handed to the tester is limited
-to the exact files that tester created. There is no public, plan-wide exact
-write allowlist spanning initial steps and automatic repairs. Do not treat
-step scopes as that guarantee. `policy.workingSet` is not a replacement: it
-also limits indexing and reads, uses path-root rather than exact-file
-semantics, and retains the documented public-context exceptions.
+For combined check failures, `dag-repair` copies `writes` from the first
+selected non-tester worker, including any `!` exclusions. It does not take the
+union of other workers' scopes. Its out-of-scope proposals are returned as
+feedback before application; when the selected worker has no `writes`, the
+repair remains unscoped within project policy as before. A resumed repair
+reconstructs that same selected-worker scope. If an implementer disputes a
+test, the tester's repair is limited to the exact files that tester created,
+and a subsequent handback restores the implementer's copied scope. This does
+not create a public, plan-wide literal write-allowlist schema, nor does it
+retroactively revalidate or authorize retained repairs made by older engine
+versions. `policy.workingSet` is not an exact write-only substitute: it also
+limits indexing and reads, uses path-root rather than exact-file semantics,
+and retains the documented public-context exceptions.
 
 ## Offline generator steps
 
@@ -70,7 +74,11 @@ The scheduler does not claim tests passed. The service must verify the resulting
 
 ## Repairing failed combined checks
 
-When the combined result of a multi-step plan fails verification, the service repairs it the way a single-step run retries: a `dag-repair` worker step (a reserved step ID) gets the combined workspace, fresh context, the check failures as feedback (generic feedback for cloud workers) and an objective that includes the plan's objective, using the provider and effort of the plan's first worker step. Repair attempts run from attempt 2 up to `policy.maxAttempts`, sharing the run's turn budget and recovery controller; the controller escalates a failing repair only to another provider the plan already uses. Each repair patch is applied with a step's crash discipline (`applyRepair`). It is validated first, so a patch that does not apply goes back to the worker with nothing recorded. The scheduler then saves a pending marker under the reserved `dag-repair` ID with the pre-patch fingerprint, adds the post-patch fingerprint once the patch is on disk, checks that every file the plan and its repairs wrote still reaches the verification inventory, and on completion moves the checkpoint to the post-patch fingerprint and records the repair's files in its `repairPaths`. A write that fails partway (for example a full disk), or a repair that creates a Git-ignored file or changes ignore rules so an earlier step's output disappears, is rolled back and recorded as `dag.step.rolled_back`, so the run stops at its pre-repair state and resuming it repairs again. A crash while the marker is pending is reconciled on an acknowledged resume like a step's: at the pre-patch fingerprint the repair runs again, and at the post-patch fingerprint it is recorded as applied, its files counted as the run's. A run stopped during repair (for example by a verifier failure) resumes into verification and further repair rather than reconciliation: when verification of the unchanged combined result fails, repair continues without checking and reviewing that snapshot a second time. Publication still requires every check to pass on the exact verified snapshot. A plan with only template steps, or a policy with `maxAttempts: 1`, stops as before and asks for a repair plan.
+When the combined result of a multi-step plan fails verification, the service repairs it the way a single-step run retries: a `dag-repair` worker step (a reserved step ID) gets the combined workspace, fresh context, the check failures as feedback (generic feedback for cloud workers) and an objective that includes the plan's objective, using the provider, effort and copied write scope of the plan's first non-tester worker step. Repair attempts run from attempt 2 up to `policy.maxAttempts`, sharing the run's turn budget and recovery controller; the controller escalates a failing repair only to another provider the plan already uses. Each repair patch is applied with a step's crash discipline (`applyRepair`). It is validated first, so a patch that does not apply goes back to the worker with nothing recorded. The scheduler then saves a pending marker under the reserved `dag-repair` ID with the pre-patch fingerprint, adds the post-patch fingerprint once the patch is on disk, checks that every file the plan and its repairs wrote still reaches the verification inventory, and on completion moves the checkpoint to the post-patch fingerprint and records the repair's files in its `repairPaths`. A write that fails partway (for example a full disk), or a repair that creates a Git-ignored file or changes ignore rules so an earlier step's output disappears, is rolled back and recorded as `dag.step.rolled_back`, so the run stops at its pre-repair state and resuming it repairs again. A crash while the marker is pending is reconciled on an acknowledged resume like a step's: at the pre-patch fingerprint the repair runs again, and at the post-patch fingerprint it is recorded as applied, its files counted as the run's. A run stopped during repair (for example by a verifier failure) resumes into verification and further repair rather than reconciliation: when verification of the unchanged combined result fails, repair continues without checking and reviewing that snapshot a second time. Publication still requires every check to pass on the exact verified snapshot. A plan with only template steps, or a policy with `maxAttempts: 1`, stops as before and asks for a repair plan.
+
+The existing recovery controller may escalate the repair provider, but that
+does not widen the selected first worker's copied write scope. Tester repair
+uses its own exact created-file boundary instead.
 
 Every completed proposal path must remain in the Git-based verification inventory.
 A new ignored file, or a later `.gitignore` edit hiding an earlier generated file,

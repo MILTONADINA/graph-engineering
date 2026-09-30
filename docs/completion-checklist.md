@@ -23,8 +23,15 @@ That expectation is corrected and its focused case passes locally. Twelve
 generator service/HTTP/CLI cases also passed after local access was restored.
 The native generator/analyzer stages were not reached, and a green exact-head
 run and merge remain pending. CLI/MCP and the installed Claude Code adapter
-must stay independent of any running Codex session. Strict task-wide write
-authority across automatic repairs remains an explicitly documented limit.
+must stay independent of any running Codex session. A focused repair-scope
+fix now carries the first selected non-tester worker's `writes`, including
+exclusions, into `dag-repair`, not a union of workers' scopes; an unscoped
+worker stays unscoped within project policy. Resume reconstructs that scope,
+tester handback restores it, and a tester repair can change only the exact
+files the tester created. Three focused regressions and the engine build
+passed locally. This does not add a global literal write-allowlist schema or
+retroactively revalidate retained repairs made by older versions; exact-head
+CI remains pending.
 The following paragraph is the earlier local-preparation snapshot; its
 unpushed/access-denied statements no longer describe the publication state.
 
