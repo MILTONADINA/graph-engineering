@@ -17,13 +17,31 @@ disagree with this section, this section wins.
 
 ### Narrow approval and worker-controls release
 
-This checkpoint supersedes the preparation snapshot below. Network and Git
-access are restored. Fork `dev` is still
-`96cf8b26ae61a8f67be266efd47d6fdcd86c70e6` before this release; do not use
-an unmerged candidate as the reviewed consumer pin. The active release branch
-is `feat/approval-worker-controls-20260930`, based on approval candidate
-`bc966f0`. It deliberately excludes the separate Dart, model-role and
-generator implementation stack. Approval adoption requires no Dart toolchain.
+This checkpoint supersedes the preparation snapshot below.
+[PR #118](https://github.com/MILTONADINA/graph-engineering/pull/118) was
+rebase-merged into fork `dev` on 2026-09-30 at 18:57:27 UTC. The reviewed
+merged approval-release pin is
+`d22d69ad0f08bbc95fa2209d42171234817f780d`, not an unmerged feature head.
+It deliberately excludes the separate Dart, model-role and generator
+implementation stack. Approval adoption requires no Dart toolchain.
+
+The exact checked head was `e25565b09aa974dd657f1b273a570a6cac903d10`;
+it and the merged commit have the same Git tree,
+`cd9a497d0370642f7b5f92063bdd0317441f9bd2`.
+[CI run 36759128007](https://github.com/MILTONADINA/graph-engineering/actions/runs/36759128007),
+attempt 1, passed all nine required jobs on that checked head. Independent
+scoped source and contract review found no blockers; no new external human
+approval is claimed. The engine source manifest is
+`4ed70d6151eabd434a05994bc381d5f7f661a5b05215acac44b27ff02213f120`
+over 116 files. The separate automatic post-merge
+[run 36762274094](https://github.com/MILTONADINA/graph-engineering/actions/runs/36762274094),
+attempt 1 on `d22d69a`, ended cancelled: eight jobs passed and Linux x64 was
+cancelled during `npm run check`, with no recorded test failure or known
+cancellation cause. This session did not cancel or rerun it. The required
+checked-head run and identical-tree merge above remain the release evidence;
+do not describe post-merge CI as green. No live provider inference is claimed.
+Included PRs #112/#113 are closed; PRs #114–#117
+remain separate feature work and were not prerequisites for this release.
 
 Included contracts:
 
@@ -75,9 +93,9 @@ privacy test exceeded the unchanged 30-second allowance while running four
 fixtures serially; this release splits creation/edit into separate paired
 present/absent tests without removing assertions or increasing the limit.
 The unrelated native Dart discovery failure stays on the feature stack.
-Neither that CI nor the full-stack focused evidence is proof for this narrow
-branch. Its changed source binding needs focused verification, review and
-all nine required exact-head checks before rebase-merge into fork `dev`.
+Neither that CI nor the full-stack focused evidence was proof for the narrow
+branch. Its own successful exact-head CI and reviewed identical-tree merge
+are recorded above; the older failure is historical evidence only.
 
 Narrow-branch local evidence: dependency and engine builds passed, with source
 manifest `4ed70d6151eabd434a05994bc381d5f7f661a5b05215acac44b27ff02213f120`
@@ -88,16 +106,56 @@ incorrect relative temporary data root and failed 12 cases at workspace
 creation; only those failed cases were rerun with an absolute root, with no
 runtime change. The legacy unscoped-repair and tester-protection cases passed
 on this binding. Changed-source lint/format, docs formatting and spec-check
-passed. These are mocked or synthetic local tests, not native client inference
-or full CI. The deadline spec stays `ready` pending final-head CI and review.
+passed. These local tests are mocked or synthetic, not native client inference.
+They preceded the completed CI and review above; neither evidence set proves
+the later Dart/generator feature head. The deadline spec remains `ready` for
+its newly expanded generator AC3 coverage, which needs the separate feature's
+own CI and review; the narrow release itself is already merged.
 
-Publication sequence: merge this narrow release after its checks and review;
-close only lower PRs #112/#113 actually included, citing the real merge SHA.
-Report that merged SHA, exact checked head, CI run/attempt and build-source
-manifest before consumer enablement. PRs #114–#117 remain independent work
-to rebase and verify later, not requirements for approval-gate adoption.
-The full feature branch and deferred Dart fix are preserved locally. Keep
-all consumer-private names, paths, code, logs and credentials out of GE.
+### Remaining Dart and generator release
+
+The active feature branch is `feat/dart-generator-release-20260930`, based on
+the merged approval release. Its preparation head `33561ed` cherry-picks the
+Dart syntax, model-role, generator and analyzer work onto that base. Current
+follow-up edits are not a reviewed merged pin. Keep the completed approval
+release distinct from this feature stack and its own pending verification.
+
+The older native Dart CI attempt failed the runtime-discovery guard. The
+explicit empty-`PATH` image-metadata correction has three passing focused
+local cases and a passing metadata-only BuildKit probe. That probe did not
+run the analyzer. Follow-up commit `fb3eebf` copies `env` from the existing
+pinned Dart base, without another download or a custom compiler. Runtime
+validation requires exactly `[env, -i, --, <absolute-AOT-runtime>]`, with both
+executable paths fixed; the Dart resolver identity advances to
+`snapshot-dart-analyzer:2/sdk:3.13.3`. This clears Docker/runc process defaults
+before launching AOT, rather than relying only on empty image metadata.
+
+Four focused image and exact-prefix guard cases now pass against resolver
+identity 2. The engine build completed with source manifest
+`7ffa8987bab1b51828a0e09ccf99bf3bc89e4567334e272d724fae66ee7b1f81`
+over 121 files. Scoped runtime-port review found no blockers, and the missing
+generator approval-display spec binding was restored. The live AOT environment
+regression has not run. A local mechanics probe using an already present
+public Node image demonstrated empty `process.env`; that is not native Dart
+proof. Actual native binding remains unverified, and the fixed analyzer bounds
+must not be raised to obtain a pass.
+
+The feature release still needs its own source-bound focused evidence,
+all nine required exact-head checks, and review before fork-only merge. Native
+CI must exercise both Dart binding/provenance and bounded-timeout cases, plus
+the generator isolation/capture case. Dart remains `ready` and generators
+`draft` until their release evidence justifies changing those statuses.
+The expanded mixed deadline regression passed as one focused local case,
+retaining API/local/unknown coverage and confirming finite template/generator
+envelopes under an installed-worker override. Its feature-head CI remains
+pending. The linked [toy Flutter widget](flutter-widget-fixture.md) is a
+documentation fixture only; Flutter native CI and end-to-end recipe proof
+remain deferred. See the
+[feature design](dart-and-generator-steps-design.md) for its requirements.
+
+No upstream sync, credentials, provider budget, checked-in policy or private
+project is changed by this continuation. Keep all consumer-private names,
+paths, code, logs and credentials out of GE.
 
 ### Earlier preparation snapshot (historical)
 
