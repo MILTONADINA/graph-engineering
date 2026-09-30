@@ -84,6 +84,80 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 Check: `graph-engine check-add my-project-verify:local python -m pytest`
 
+### Dart
+
+A starting point until exercised end to end.
+
+```dockerfile
+# Pin the tag's digest: `docker buildx imagetools inspect dart:3.13` prints it.
+FROM dart:3.13@sha256:<digest>
+ENV PUB_CACHE=/opt/pub-cache
+COPY . /warm
+RUN cd /warm && dart pub get --enforce-lockfile && { dart test || true; } \
+ && cd / && rm -rf /warm && chmod -R a+rX /opt/pub-cache \
+ && mkdir -p /opt/pub-cache/active_roots && chmod -R a+rwX /opt/pub-cache/active_roots
+```
+
+Check: `graph-engine check-add my-project-verify:local sh -c "cp -R . /tmp/src && cd /tmp/src && dart pub get --offline --enforce-lockfile && dart test"`
+
+pub writes `.dart_tool/` next to the source, so the check works on a copy,
+and `--enforce-lockfile` fails rather than resolve anything but the
+committed `pubspec.lock`. pub also records every package it resolves under
+`$PUB_CACHE/active_roots`: with that directory read-only,
+`dart pub get --offline --enforce-lockfile` resolves and still exits 66
+(seen with Dart 3.13.3), so that one directory is writable by every user
+and the rest of the cache stays read-only.
+
+### Flutter
+
+A starting point until exercised end to end.
+
+```dockerfile
+# Pin the tag's digest: `docker buildx imagetools inspect debian:trixie-slim` prints it.
+FROM debian:trixie-slim@sha256:<digest>
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git unzip xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+ARG FLUTTER_ARCHIVE
+ARG FLUTTER_SHA256
+ARG CHECK_UID
+RUN curl -fsSL -o /tmp/flutter.tar.xz "https://storage.googleapis.com/flutter_infra_release/releases/${FLUTTER_ARCHIVE}" \
+ && echo "${FLUTTER_SHA256}  /tmp/flutter.tar.xz" | sha256sum -c - \
+ && tar -xJf /tmp/flutter.tar.xz -C /opt && rm /tmp/flutter.tar.xz
+ENV PATH=/opt/flutter/bin:$PATH PUB_CACHE=/opt/pub-cache FLUTTER_SUPPRESS_ANALYTICS=true
+RUN git config --system --add safe.directory /opt/flutter && dart --disable-analytics
+COPY . /warm
+RUN cd /warm && flutter pub get --enforce-lockfile && { flutter test || true; } \
+ && cd / && rm -rf /warm && chmod -R a+rX /opt/pub-cache \
+ && mkdir -p /opt/pub-cache/active_roots && chmod -R a+rwX /opt/pub-cache/active_roots \
+ && chown -R "$CHECK_UID" /opt/flutter
+```
+
+Build it with a release's `archive` path and `sha256` from the SDK's
+published
+[`releases_linux.json`](https://storage.googleapis.com/flutter_infra_release/releases/releases_linux.json)
+(pick one whose `dart_sdk_arch` matches the machine Docker runs on) and
+with the user ID the check runs as:
+
+```sh
+docker build -t my-project-verify:local -f verify.Dockerfile \
+  --build-arg FLUTTER_ARCHIVE=stable/linux/flutter_linux_<version>-stable.tar.xz \
+  --build-arg FLUTTER_SHA256=<sha256> --build-arg CHECK_UID="$(id -u)" .
+```
+
+Check: `graph-engine check-add my-project-verify:local sh -c "cp -R . /tmp/src && cd /tmp/src && flutter pub get --offline --enforce-lockfile && flutter test --no-pub"`
+
+The Flutter tool writes into its own SDK directory, so the SDK belongs to
+the check's user ID. `safe.directory` lets Git read the SDK's checkout
+whoever owns it, which the build's root user needs as well.
+`FLUTTER_SUPPRESS_ANALYTICS` turns the Flutter tool's analytics off for
+every user, including the check's user, whose `HOME` is an empty `/tmp`;
+`dart --disable-analytics` records the Dart tool's choice only in the
+building user's home, and the check itself has no network. As with Dart,
+the check works on a copy because pub writes `.dart_tool/`, `--no-pub`
+keeps `flutter test` from running pub again, and pub needs
+`$PUB_CACHE/active_roots` writable.
+
 ## When a check fails for the wrong reason
 
 - **"offline mode" or "could not resolve"**: a dependency or plugin is

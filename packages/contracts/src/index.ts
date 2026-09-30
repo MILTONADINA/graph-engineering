@@ -10,6 +10,7 @@ export type Language =
   | "rust"
   | "java"
   | "csharp"
+  | "dart"
   | "text";
 export type MemoryKind =
   "observation" | "decision" | "requirement" | "constraint" | "solution";

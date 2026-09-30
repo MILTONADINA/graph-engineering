@@ -64,10 +64,13 @@ import {
 import {
   chunkFile,
   hash,
+  languageOf,
   PARSER_VERSION,
   parseFile,
+  parserVersionFor,
   type ParsedFile,
 } from "./parser.js";
+import { DART_SYNTAX_VERSION } from "./dart-syntax.js";
 import {
   containsSecret,
   inWorkingSet,
@@ -591,6 +594,9 @@ export class ContextEngine {
     const rust = files.some((file) => file.path.endsWith(".rs"))
       ? await rustRuntime()
       : null;
+    // Only a repository that has Dart files gets the Dart key, so every other
+    // repository keeps the snapshot identity (and stored plans) it had.
+    const dart = files.some((file) => languageOf(file.path) === "dart");
     const id = hash(
       JSON.stringify({
         project: this.projectId,
@@ -608,6 +614,7 @@ export class ContextEngine {
         javaBindings: [JAVA_VERSION, java?.identity ?? "unavailable"],
         csharpBindings: [CSHARP_VERSION, csharp?.identity ?? "unavailable"],
         rustBindings: [RUST_VERSION, rust?.identity ?? "unavailable"],
+        ...(dart ? { dartSyntax: DART_SYNTAX_VERSION } : {}),
         summaries: SUMMARY_VERSION,
         excluded: this.policy.excludedPaths,
       }),
@@ -645,7 +652,10 @@ export class ContextEngine {
         [file.path, file.hash],
       );
       let parsed: ParsedFile;
-      if (cached && json<ParsedFile>(cached).parserVersion === PARSER_VERSION) {
+      if (
+        cached &&
+        json<ParsedFile>(cached).parserVersion === parserVersionFor(file.path)
+      ) {
         parsed = json<ParsedFile>(cached);
         for (const symbol of parsed.symbols) symbol.source.snapshotId = id;
         for (const edge of parsed.edges) edge.source.snapshotId = id;
