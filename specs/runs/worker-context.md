@@ -37,7 +37,7 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/policy-export.test.ts :: leaves out of cloud worker packets an exportable file whose name looks like a credential
   - Test: packages/engine/tests/requested-sources.test.ts :: gives cloud workers patch details only for exportable paths
   - Test: packages/engine/tests/execution.test.ts :: answers a cloud worker's patch to a non-exportable or credential-named path the same way whether or not the file exists, without reading it
-  - Test: packages/engine/tests/managed-dag-safety.test.ts :: answers a DAG cloud worker's patch to a non-exportable path the same way whether or not the file exists, without reading it
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: answers a DAG cloud worker's non-exportable %s patch identically whether the file exists, without reading it
 - AC7: A request for a directory or a missing file is answered with the files the worker may read under the nearest directory, from Git's file list (never ignored, build, protected, excluded or, for a cloud worker, unexportable or credential-named files), without revealing the private workspace path.
   - Test: packages/engine/tests/execution.test.ts :: answers a directory or missing source request with the files the worker may read
   - Test: packages/engine/tests/execution.test.ts :: stops a worker that keeps requesting the same missing source
@@ -49,7 +49,7 @@ Workers often need to change large files that do not fit in their context budget
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: applies a DAG proposal that repeats a request but also proposes changes
   - Test: packages/engine/tests/managed-dag-safety.test.ts :: exports only allowed source, answers a private source request with feedback once and stops a repeat
   - Test: packages/engine/tests/execution.test.ts :: answers a cloud worker's patch to a non-exportable or credential-named path the same way whether or not the file exists, without reading it
-  - Test: packages/engine/tests/managed-dag-safety.test.ts :: answers a DAG cloud worker's patch to a non-exportable path the same way whether or not the file exists, without reading it
+  - Test: packages/engine/tests/managed-dag-safety.test.ts :: answers a DAG cloud worker's non-exportable %s patch identically whether the file exists, without reading it
 - AC9: When a tight budget cannot fit every requested file, new evidence and earlier requests win, and the worker is told which files were left out.
   - Test: packages/engine/tests/requested-sources.test.ts :: keeps the first requested file when a tight budget cannot fit them all, and says what was left out
 - AC10: A failing check's feedback includes both its standard output and its error output.
