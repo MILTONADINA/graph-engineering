@@ -14,10 +14,12 @@ docker build -t my-project-verify:local -f verify.Dockerfile .
 graph-engine check-add my-project-verify:local <the check command>
 ```
 
-Everything after the image is stored as the check's command exactly as
-typed, including its own options and `--` (`make -C sub test`,
-`mvn -B -V verify`, `npm test -- --run`). Put graph-engine's own options,
-such as `-C <project>`, before `check-add`. Add checks before you plan: a
+An optional initial `--` after the image separates registration options from
+the command and is removed. The command and every argument after it are stored
+exactly as typed, including command-owned options and later `--` arguments
+(`make -C sub test`, `mvn -B -V verify`, `npm test -- --run`). Put global
+graph-engine options, such as `-C <project>`, before `check-add`; put the
+registration metadata options described below before the image. Add checks before you plan: a
 plan keeps the checks configured when it was created, so a plan made before
 any `check-add` cannot run, and you create a new plan once checks exist.
 
@@ -36,8 +38,9 @@ graph-engine check-add --id unit --optional toy-verify:local npm test
 graph-engine check-add --id integration --optional toy-verify:local npm run integration
 ```
 
-Put `--id` and `--optional` **before the image**. Everything after the image
-remains the command's arguments, including flags with the same names. IDs are
+Put `--id` and `--optional` **after `check-add`, before the image**. After the
+optional initial `--` separator, the command's arguments remain unchanged,
+including later `--` arguments and flags with those same names. IDs are
 case-sensitive, unique, and 1–80 characters: an ASCII letter or digit followed
 by letters, digits, `_` or `-`. They are operator-assigned names, not array
 positions, file paths or commands. `optional: true` requires an ID; an omitted
