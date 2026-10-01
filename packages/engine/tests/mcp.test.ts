@@ -2,7 +2,7 @@ import { it, expect, vi } from "vitest";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1435,10 +1435,10 @@ it("tells a cloud client how many checkout files Git skips checking, never their
 });
 
 it("tells a cloud client a verification image is missing, never its name", async () => {
-  const { checked, writeJson } = await import("../src/util.js");
+  const util = await import("../src/util.js");
+  const { checked, writeJson } = util;
   const { configureProvider, PROJECT_FILE } = await import("../src/project.js");
   const root = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-image-"));
-  const bin = await mkdtemp(path.join(os.tmpdir(), "graph-mcp-image-bin-"));
   await checked("git", ["init", "-b", "dev"], { cwd: root });
   await checked("git", ["config", "user.name", "Graph Test"], { cwd: root });
   await checked("git", ["config", "user.email", "test@example.invalid"], {
@@ -1466,16 +1466,27 @@ it("tells a cloud client a verification image is missing, never its name", async
     kind: "local",
     model: "fixture",
   });
-  // A docker with no images at all.
-  await writeFile(
-    path.join(bin, "docker"),
-    '#!/bin/sh\necho "Error: No such image" >&2\nexit 1\n',
-  );
-  await chmod(path.join(bin, "docker"), 0o755);
-  vi.stubEnv("PATH", `${bin}${path.delimiter}${process.env.PATH ?? ""}`);
   const engine = await GraphEngine.open(root, {
     dockerAvailable: async () => true,
   });
+  // Control the missing-image result at the command boundary on every OS.
+  // An extensionless Unix shell shim in PATH does not reliably replace the
+  // host Docker on Windows. Git and every non-Docker command remain real.
+  const inspectImage = vi.fn(
+    async (argv: string[], options: Parameters<typeof util.command>[2]) => {
+      expect(argv).toEqual(["image", "inspect", "--format", "{{.Id}}", image]);
+      expect(options).toEqual({ timeoutMs: 10000 });
+      return { code: 1, stdout: "", stderr: `Error: No such image: ${image}` };
+    },
+  );
+  const actualCommand = util.command;
+  const command = vi
+    .spyOn(util, "command")
+    .mockImplementation((executable, argv, options) =>
+      executable === "docker"
+        ? inspectImage(argv, options)
+        : actualCommand(executable, argv, options),
+    );
   const connections: { client: Client; server: { close(): Promise<void> } }[] =
     [];
   const runStart = async (kind: "local" | "cloud", planId: string) => {
@@ -1505,16 +1516,16 @@ it("tells a cloud client a verification image is missing, never its name", async
     const local = await runStart("local", plan.id);
     expect(local.isError).toBe(true);
     expect(JSON.stringify(local)).toContain(`docker pull ${image}`);
+    expect(inspectImage).toHaveBeenCalledTimes(2);
     expect(engine.store.runs()).toHaveLength(0);
   } finally {
-    vi.unstubAllEnvs();
+    command.mockRestore();
     for (const { client, server } of connections) {
       await client.close();
       await server.close();
     }
     await engine.close();
     await rm(root, { recursive: true, force: true });
-    await rm(bin, { recursive: true, force: true });
     await rm(data, { recursive: true, force: true });
   }
 });
