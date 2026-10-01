@@ -1,0 +1,41 @@
+name: MCP fixture preflight
+
+on:
+  push:
+    branches: ["fix/mcp-image-*"]
+    paths:
+      - ".github/workflows/mcp-native.yml"
+      - "packages/engine/tests/mcp.test.ts"
+      - "packages/engine/src/mcp.ts"
+      - "packages/engine/src/service.ts"
+      - "packages/engine/src/util.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-fixture-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-mcp-image-fixture:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:dependencies
+      # Focused platform proof before the full protected PR suite. This
+      # controls only the image-inspection command, not engine/MCP handling;
+      # it neither claims native Docker execution nor replaces required CI.
+      - name: Missing verification image stays private through MCP
+        run: npm test -w @graph-engineering/engine -- tests/mcp.test.ts -t "^tells a cloud client a verification image is missing, never its name$"
+        env:
+          GRAPH_ENGINE_DATA_DIR: ${{ runner.temp }}/graph-mcp-preflight-data
