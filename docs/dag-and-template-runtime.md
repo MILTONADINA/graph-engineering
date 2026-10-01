@@ -28,8 +28,11 @@ changing their write authority.
 `null` is not an idle/progress timeout: cancellation and existing output, turn
 and safety guards still apply, but a hung installed client needs operator
 cancellation. Native clients/providers can retain their own limits. Slot
-acquisition, capability probes, verification and security scans remain bounded
-independently. The field is part of the policy hash, so changing it requires a
+acquisition, capability probes and security scans remain bounded independently.
+Verification keeps its ordinary deadline unless its separate
+[`verificationTimeoutSeconds`](verification-images.md#execution-deadlines)
+override is explicitly configured; the installed-worker field never changes it.
+The field is part of the policy hash, so changing it requires a
 fresh plan and its required approval, not a resume of an old policy-bound run.
 Defaults and monetary caps are unchanged. See
 [operator setup and limits](installed-workers.md#execution-deadlines) and the

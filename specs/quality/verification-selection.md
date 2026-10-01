@@ -12,9 +12,14 @@ model must not invent replacement commands, omit mandatory gates, or silently
 reuse approval after catalogue drift. Selection must be explicit, stable and
 bound to the existing approved plan without changing the project catalogue.
 
-This follow-on is separate from installed-worker identity. Implementation and
-focused local verification are complete; required CI and release remain pending.
-The feature PR's final verification record establishes those release gates.
+This follow-on is separate from installed-worker identity. It was released in
+[PR #123](https://github.com/MILTONADINA/graph-engineering/pull/123) at
+`104accacf0c4389699bfab3f32140095e13654fa`. Required CI run `36820953784`,
+attempt 1, passed all nine jobs on checked head
+`37ffe9ca190dab56864efa99b60110c262225edd`; checked and merged commits share
+tree `edd348f0ea2a5d5db62857ed8876633459ded732`. Scoped source review found
+no blockers. The PR verification record has full build/job identities and
+limitations; this is not a claim of live inference or consumer acceptance.
 Local Laya's design-only recommendation was
 `explicit_names` (reported score 0.6335), consistent with using operator-assigned
 IDs rather than inferred positions. That recommendation is not authority to

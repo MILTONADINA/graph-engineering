@@ -76,6 +76,13 @@ export async function verifyInContainer(
   snapshotHash: string,
   signal?: AbortSignal,
 ): Promise<VerificationResult[]> {
+  // A managed run can refresh the shared policy object while a check awaits.
+  // Freeze this invocation's reviewed deadline before any filesystem/probe
+  // await, so later checks cannot silently acquire a different timeout.
+  const timeoutMs =
+    policy.verificationTimeoutSeconds === null
+      ? null
+      : (policy.verificationTimeoutSeconds ?? policy.timeoutSeconds) * 1000;
   if (checks.length === 0)
     throw new Error(
       "No verification commands configured; acceptance cannot be established",
@@ -151,7 +158,12 @@ export async function verifyInContainer(
             imageId,
             ...check.argv,
           ],
-          { signal, timeoutMs: policy.timeoutSeconds * 1000 },
+          {
+            signal,
+            // Null is an explicit completion-driven choice, not a missing
+            // value. Probes and cleanup above/below stay independently bounded.
+            timeoutMs,
+          },
         );
         results.push({
           ...result,

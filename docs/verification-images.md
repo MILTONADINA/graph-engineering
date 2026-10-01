@@ -25,9 +25,10 @@ any `check-add` cannot run, and you create a new plan once checks exist.
 
 ## Selecting optional checks for one plan
 
-Per-plan selection is a separate follow-on to installed-worker identity. Its
-implementation has focused local verification; do not treat these instructions
-as evidence of a reviewed merged release until the feature PR records that outcome.
+Per-plan selection was released in
+[PR #123](https://github.com/MILTONADINA/graph-engineering/pull/123) at
+`104accacf0c4389699bfab3f32140095e13654fa`; its verification record contains
+the exact checked head, matching merged tree and all nine passing CI jobs.
 
 Checks are mandatory by default. An operator can assign stable catalogue IDs
 and explicitly mark a check optional when registering it:
@@ -132,6 +133,64 @@ See the [verification-selection spec](../specs/quality/verification-selection.md
 for acceptance criteria and verification status. Container provisioning and
 check execution keep the same requirements below; selection does not download
 dependencies or permit network access during verification.
+
+## Execution deadlines
+
+The optional policy field `verificationTimeoutSeconds` controls the built-in
+container verification command, independently of installed-worker deadlines:
+
+| Value              | Each verification command                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Absent             | Inherit `policy.timeoutSeconds`, preserving existing bounded behavior.                                      |
+| Integer `1..86400` | Use that many seconds as its wall-clock limit.                                                              |
+| `null`             | Wait for terminal completion, explicit cancellation or another existing guard; no fixed execution deadline. |
+
+This field is not added to the default policy. An operator may add it to a
+**complete reviewed policy document** and apply that document before planning:
+
+```sh
+graph-engine policy --file reviewed-policy.json
+graph-engine plan "Update toy module" --accept "The module meets its contract"
+graph-engine plan-status <planId>
+graph-engine plan-approve <planId> --yes --expect <stored-plan-SHA>
+graph-engine run <planId>
+```
+
+The reviewed document contains `"verificationTimeoutSeconds": null` only when
+that mode is intended; preserve its other fields. Do not pass a partial policy
+or change a budget, approval or export rule merely to select a deadline. The
+existing CLI, MCP and HTTP run interfaces use the same operator-configured
+policy; they provide no per-run override to weaken it. Adding, removing or
+changing the field changes the policy hash and requires a fresh plan and any
+required approval. Reapproving or resuming an old plan does not rewrite its
+policy binding.
+
+The resolved timeout is captured before asynchronous verification work and
+applies separately to each selected command, not to the whole run. `null`
+reaches the normal built-in verifier; no replacement hook is needed. It is
+neither an inactivity watchdog nor a guarantee that a command is healthy.
+Output does not reset a finite timer. A hung check can wait until an operator
+uses `graph-engine cancel <runId>`; tools inside the container may also enforce
+their own limits.
+
+Every selected check must still finish successfully before verification passes.
+Nonzero exits, output overflow, cancellation, changed inputs and uncertain
+execution cannot authorize success or publication. Container isolation,
+network denial, resource bounds, output limits, image inspection and cleanup
+timeouts remain in force. Native worker, API/local inference, generator,
+reviewer and security-scan deadlines are unchanged by this field.
+
+Cancellation requests terminate the process and attempt container cleanup;
+cleanup is best-effort, not proof that a container is absent. Dead-owner runs
+require explicit reconciliation, not reattachment to an old check. Inspect the
+retained workspace and execution state before an acknowledged resume; do not
+infer a successful check from an interrupted run. Resume keeps the existing
+approval, policy, snapshot and required-check guards.
+
+See the [verification-deadline spec](../specs/quality/verification-deadlines.md)
+for evidence and release status. This new opt-in is separate from the already
+released check selector; its feature PR must record required CI and merge
+before a consumer adopts it.
 
 ## The reliable recipe: run the real check while building
 

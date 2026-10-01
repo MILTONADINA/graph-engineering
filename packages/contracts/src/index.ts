@@ -82,6 +82,13 @@ export interface ProjectPolicy {
    * or changing this field changes the policy hash and requires a new plan.
    */
   installedWorkerTimeoutSeconds?: number | null;
+  /**
+   * Built-in verification container runs only, independently for each check:
+   * absent inherits timeoutSeconds; null waits for terminal completion or
+   * cancellation; an integer sets the wall-clock limit. Image probes and
+   * cleanup retain fixed bounds. Changing this field requires a fresh plan.
+   */
+  verificationTimeoutSeconds?: number | null;
   maxCostUsd: number | null;
   decisionMode: "shadow" | "promoted";
   promotedCategories: string[];
@@ -687,6 +694,12 @@ export const policySchema = {
     maxTurns: { type: "integer", minimum: 1, maximum: 100 },
     timeoutSeconds: { type: "integer", minimum: 1, maximum: 86400 },
     installedWorkerTimeoutSeconds: {
+      anyOf: [
+        { type: "null" },
+        { type: "integer", minimum: 1, maximum: 86400 },
+      ],
+    },
+    verificationTimeoutSeconds: {
       anyOf: [
         { type: "null" },
         { type: "integer", minimum: 1, maximum: 86400 },

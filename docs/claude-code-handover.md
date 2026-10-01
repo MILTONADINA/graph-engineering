@@ -15,17 +15,49 @@ On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
-### Per-plan verification selection — implementation checkpoint
+### Completion-driven verification — implementation checkpoint
+
+The separate `feat/completion-driven-verification` follow-on adds optional
+`policy.verificationTimeoutSeconds` for built-in verification only. Absence
+inherits `timeoutSeconds`; an integer `1..86400` selects a per-check limit;
+explicit `null` removes that execution deadline while keeping cancellation,
+output/resource limits and required-check gates. It does not change the
+installed-worker setting or the default policy. Policy changes require a
+fresh plan and any required approval. See
+[verification deadlines](verification-images.md#execution-deadlines) and its
+[spec](../specs/quality/verification-deadlines.md).
+
+This is not part of the released selector pin below. Implementation, 21 new
+focused cases, 12 affected compatibility cases, dependency/engine builds,
+typecheck and scoped independent reviews are complete. Build source manifest:
+`7b55e94f000d6406d684dd4ba9e49355bd26bd760e57edcbfbe19442d1d31cee`
+over 123 files. Shared-policy drift was addressed by capturing the effective
+deadline synchronously before any verifier awaits; regression evidence covers it.
+The focused checks are synthetic/mocked, not live Docker or provider execution.
+Exact-head CI and a normal fork-dev PR merge remain release gates. The feature
+PR's final verification record will establish the
+checked head, merged SHA/tree, build identity and all required checks. Do not
+adopt an unmerged head. Cancellation cleanup remains best-effort; this feature
+does not reattach dead-owner checks or prove orphan-container cleanup. No
+checked-in policy, provider, budget, export or consumer repository is changed.
+
+### Per-plan verification selection — released
 
 The separate `feat/plan-verification-selection` follow-on adds operator-owned
-check IDs and explicit optional-check selection. It is not part of the identity
-release below. Implementation, focused synthetic evidence and scoped source
-review are complete; CI and merge remain pending. Its complete contract is in
+check IDs and explicit optional-check selection. It released through
+[PR #123](https://github.com/MILTONADINA/graph-engineering/pull/123) at
+`104accacf0c4389699bfab3f32140095e13654fa` on 2026-10-01 at 06:11:04 UTC.
+Exact checked head `37ffe9ca190dab56864efa99b60110c262225edd` and merged
+commit share tree `edd348f0ea2a5d5db62857ed8876633459ded732`.
+[CI run 36820953784](https://github.com/MILTONADINA/graph-engineering/actions/runs/36820953784),
+attempt 1, passed all nine required jobs. The source manifest is
+`b3857f3ecdcd469b05bf53280ca429cb1c1e5eb268498647cfe57b9fddc9119f`
+over 123 files. Scoped source reviews found no blockers. The PR records every
+job ID and evidence limits; no separate post-merge CI success or live inference
+is claimed. The exact pin and contract were delivered for consumer-owned
+adoption, which remains distinct from this GE release. Its complete contract is in
 [verification images](verification-images.md) and
-[the selection spec](../specs/quality/verification-selection.md). Until its own
-required CI, review and merge finish, do not use an unmerged head as a consumer
-pin. The feature PR's final verification record supplies its eventual checked
-head, merged SHA/tree and source-build/CI identities.
+[the selection spec](../specs/quality/verification-selection.md).
 
 Catalogue entries retain `image` and exact `argv`, with optional `id` and
 `optional` fields. Missing or false `optional` means mandatory. Explicit plan
