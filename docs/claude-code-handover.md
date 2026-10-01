@@ -15,6 +15,55 @@ On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
+### Installed-worker identity — implementation checkpoint
+
+The follow-on `feat/installed-worker-identity` branch adds opt-in reviewed
+native executable identity. This is separate from the already released
+approval/repair controls below. Implementation and scoped local review are
+complete; the branch still needs its required exact-head CI and PR merge.
+Do not treat an unmerged feature head as an approved consumer pin. The feature
+PR's final verification section is the authority for its eventual merged SHA,
+source-build manifest and checked-head/merge-tree evidence.
+
+The complete interface and limits are in
+[installed workers](installed-workers.md#reviewed-executable-identity-opt-in)
+and its [spec](../specs/providers/installed-worker-identity.md):
+
+- `executable-identity <kind>` inspects without executing or granting trust.
+  `provider-identity <id> --executable <canonical-path> --sha256 <reviewed-hash>`
+  explicitly stores the operator's reviewed pin. `--clear` never refreshes an
+  existing plan or grants approval.
+- Optional `policy.requireInstalledWorkerIdentity` requires native identities
+  for installed workers. It is absent from `DEFAULT_POLICY`; no checked-in
+  policy changes. Explicit provider pins are enforced independently of that
+  flag. Intentionally unpinned declared siblings remain legacy-compatible when
+  the flag is off; strict mode refuses them. Recovery cannot enroll an unbound
+  installed fallback into an identity-reviewed plan.
+- Full plans retain `installedWorkers: [{ providerId,
+providerProfileSha256, identity: { realpath, sha256 } }]`. The existing
+  full-plan SHA and approval bind these fields. `plan-status` keeps its
+  existing read-only schema, and changed pins/profiles require a fresh plan
+  and any required approval.
+- Probe/start/resume/dispatch checks reject executable, PATH or profile drift
+  and use the approved absolute native executable. Local receipts retain
+  `worker.identity_used` with `planSha256`, `providerId`,
+  `providerProfileSha256`, validated `identity` and discovered `version` at
+  dispatch. This is dispatch evidence, not proof of successful inference.
+  Generic HTTP/SSE/MCP projections do not expose the new host identity fields.
+- Strict support is native Claude/Codex only. Scripts, shims and the Cursor SDK
+  are refused under strict identity; legacy opt-out and independent Cursor MCP
+  use remain supported. Hash checks assume a trusted filesystem and do not
+  attest dynamic libraries/configuration or make pathname launch atomic.
+
+Focused local evidence is synthetic or mocked, not live-provider inference.
+Review corrected mixed pinned/legacy over-enforcement, missing macOS probe
+guards and path-bearing Claude launch errors; targeted regressions cover each.
+The earlier successful CI runs below do not validate this changed source.
+No provider calls, credentials, promotion keys, budgets, exports or consumer
+repositories were changed. CLI/MCP and Claude runtime use remain tool-neutral.
+Area-specific verification selection is a separate proposed follow-on, not
+part of this identity release or a currently supported contract.
+
 ### Narrow approval and worker-controls release
 
 This checkpoint supersedes the preparation snapshot below.

@@ -8,6 +8,8 @@ import { z } from "zod";
 import type {
   ExecutionPlan,
   ProjectConfig,
+  ProviderConfig,
+  RunEvent,
   RunRecord,
 } from "@graph-engineering/contracts";
 import type { GraphEngine } from "./service.js";
@@ -34,10 +36,29 @@ function dashboardConfig(config: ProjectConfig) {
   return withoutGeneratorRegistrations(config);
 }
 function dashboardPlan(plan: ExecutionPlan) {
-  return withoutGeneratorRegistrations(plan);
+  const { installedWorkers: _installedWorkers, ...visible } =
+    withoutGeneratorRegistrations(plan);
+  return visible;
 }
 function dashboardRun(run: RunRecord) {
   return { ...run, plan: dashboardPlan(run.plan) };
+}
+function dashboardProvider(provider: ProviderConfig) {
+  const { installedIdentity: _installedIdentity, ...visible } = provider;
+  return visible;
+}
+// Host executable locations remain in local CLI receipts, not generic
+// dashboard responses or event streams. Do not project future receipt fields.
+function dashboardEvent(event: RunEvent): RunEvent {
+  return event.type === "worker.identity_used"
+    ? {
+        ...event,
+        data: {
+          providerId: event.data.providerId,
+          version: event.data.version,
+        },
+      }
+    : event;
 }
 
 function isPublicRoute(config: unknown): boolean {
@@ -97,15 +118,39 @@ export function createServer(
     });
   });
   app.get("/api/health", async () => ({ ok: true }));
-  app.get("/api/project", async () => ({
-    config: dashboardConfig(await engine.refresh()),
-    root: engine.root,
-    capabilities: {
-      docker: await dockerAvailable(),
-      providers: await engine.providers(),
-      installedWorkers: await discoverInstalledWorkers(),
-    },
-  }));
+  app.get("/api/project", async () => {
+    const config = await engine.refresh();
+    const providers = await engine.providers();
+    const installedWorkers = await discoverInstalledWorkers(
+      providers,
+      config.policy,
+    );
+    return {
+      config: dashboardConfig(config),
+      root: engine.root,
+      capabilities: {
+        docker: await dockerAvailable(),
+        providers: providers.map(dashboardProvider),
+        installedWorkers: installedWorkers.map((capability) => ({
+          kind: capability.kind,
+          // This is a client label, not a launch path. CLI capabilities and
+          // run-receipt retain the operator's full reviewed identity.
+          executable: capability.kind === "cursor" ? "node" : capability.kind,
+          installed: capability.installed,
+          version: capability.version,
+          available: capability.available,
+          authentication: capability.authentication,
+          supportsSubscription: capability.supportsSubscription,
+          mode: capability.mode,
+          reason: capability.reason,
+          limits: capability.limits,
+          ...(capability.providerId
+            ? { providerId: capability.providerId }
+            : {}),
+        })),
+      },
+    };
+  });
   app.get("/api/snapshots", () => engine.context.listSnapshots());
   app.get("/api/snapshots/current", () => engine.context.currentSnapshot());
   app.post("/api/index", async () => {
@@ -227,7 +272,7 @@ export function createServer(
     const { id } = z.object({ id: z.string() }).parse(request.params);
     return {
       run: dashboardRun(engine.store.run(id)),
-      events: engine.store.events(id),
+      events: engine.store.events(id).map(dashboardEvent),
     };
   });
   app.post("/api/plans", async (request) => {
@@ -320,7 +365,7 @@ export function createServer(
     const flush = () => {
       const events = engine.store.events(id);
       for (const event of events.slice(sent))
-        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+        reply.raw.write(`data: ${JSON.stringify(dashboardEvent(event))}\n\n`);
       sent = events.length;
     };
     flush();

@@ -63,6 +63,12 @@ export interface ProjectPolicy {
    * off or writing `false` where it was absent, voids every existing plan.
    */
   requirePlanApproval?: boolean;
+  /**
+   * Require reviewed native executable identities for installed workers.
+   * Absent means false; changing its presence or value changes the policy
+   * hash. Existing plans never refresh executable or provider-profile pins.
+   */
+  requireInstalledWorkerIdentity?: boolean;
   maxWorkers: number;
   maxAttempts: number;
   maxContextTokens: number;
@@ -179,6 +185,17 @@ export interface GeneratorRegistration {
   reads?: string[];
   limits?: GeneratorLimits;
 }
+/** Exact native executable selected by an operator, not a command in PATH. */
+export interface InstalledWorkerIdentity {
+  realpath: string;
+  sha256: string;
+}
+/** Frozen provider profile and executable identity included in plan approval. */
+export interface InstalledWorkerBinding {
+  providerId: string;
+  providerProfileSha256: string;
+  identity: InstalledWorkerIdentity;
+}
 export interface ProviderConfig {
   id: string;
   kind: ProviderKind;
@@ -191,6 +208,8 @@ export interface ProviderConfig {
   outputCostPerMillion?: number;
   maxContextTokens?: number;
   localOptions?: { enableThinking?: boolean; thinkingBudget?: number };
+  /** Opt-in native executable pin, usable only by installed worker kinds. */
+  installedIdentity?: InstalledWorkerIdentity;
 }
 export interface RepositorySnapshot {
   version: typeof SCHEMA_VERSION;
@@ -337,6 +356,8 @@ export interface ExecutionPlan {
   verification: ProjectConfig["verification"];
   /** Frozen registrations for its generator steps; absent on older plans. */
   generators?: GeneratorRegistration[];
+  /** Frozen installed-worker pins; absent on legacy, unpinned plans. */
+  installedWorkers?: InstalledWorkerBinding[];
   publication: ProjectPolicy["publication"];
   routing?: {
     workflow: string;
@@ -448,6 +469,45 @@ export interface DecisionRecord {
 
 const nonempty = { type: "string", minLength: 1 };
 const strings = { type: "array", items: nonempty, uniqueItems: true };
+export const installedWorkerIdentitySchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["realpath", "sha256"],
+  properties: {
+    realpath: {
+      type: "string",
+      minLength: 2,
+      maxLength: 32768,
+      not: { pattern: "[\\u0000-\\u001f\\u007f]" },
+      // Lexical absolute POSIX, drive-qualified Windows, or UNC path.
+      // Filesystem existence, canonical spelling and native format are
+      // checked locally before this identity can be used for execution.
+      pattern:
+        "^(?:/|[A-Za-z]:[\\\\/]|\\\\\\\\[^\\\\/]+[\\\\/][^\\\\/]+[\\\\/])[^\\u0000-\\u001f\\u007f]+$(?![\\s\\S])",
+    },
+    sha256: {
+      type: "string",
+      minLength: 64,
+      maxLength: 64,
+      pattern: "^[a-f0-9]{64}$",
+    },
+  },
+};
+export const installedWorkerBindingSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["providerId", "providerProfileSha256", "identity"],
+  properties: {
+    providerId: { type: "string", pattern: "^[a-zA-Z0-9_-]+$(?![\\s\\S])" },
+    providerProfileSha256: {
+      type: "string",
+      minLength: 64,
+      maxLength: 64,
+      pattern: "^[a-f0-9]{64}$",
+    },
+    identity: installedWorkerIdentitySchema,
+  },
+};
 // An allowlist glob: `!pattern` excludes; `!` alone and `!!` are refused.
 const globEntry = { type: "string", minLength: 1, pattern: "^(?!!$)(?!!!)" };
 const generatorRoot = {
@@ -557,6 +617,7 @@ export const policySchema = {
     },
     publication: { enum: ["none", "commit", "draft-pr"] },
     requirePlanApproval: { type: "boolean" },
+    requireInstalledWorkerIdentity: { type: "boolean" },
     maxWorkers: { type: "integer", minimum: 1, maximum: 8 },
     maxAttempts: { type: "integer", minimum: 1, maximum: 10 },
     maxContextTokens: { type: "integer", minimum: 256, maximum: 1000000 },
@@ -693,6 +754,28 @@ const ajv = new Ajv({ allErrors: true, strict: false, strictNumbers: true });
 (addFormats as unknown as (a: typeof ajv) => void)(ajv);
 const validateProject = ajv.compile(projectSchema);
 const validateGenerator = ajv.compile(generatorSchema);
+const validateInstalledWorkerIdentity = ajv.compile(
+  installedWorkerIdentitySchema,
+);
+const validateInstalledWorkerBinding = ajv.compile(
+  installedWorkerBindingSchema,
+);
+export function assertInstalledWorkerIdentity(
+  value: unknown,
+): asserts value is InstalledWorkerIdentity {
+  if (!validateInstalledWorkerIdentity(value))
+    throw new Error(
+      `Invalid installed worker identity: ${ajv.errorsText(validateInstalledWorkerIdentity.errors)}`,
+    );
+}
+export function assertInstalledWorkerBinding(
+  value: unknown,
+): asserts value is InstalledWorkerBinding {
+  if (!validateInstalledWorkerBinding(value))
+    throw new Error(
+      `Invalid installed worker binding: ${ajv.errorsText(validateInstalledWorkerBinding.errors)}`,
+    );
+}
 /** Credential-shaped paths may not be declared or emitted as generator output. */
 export function isGeneratorCredentialPath(relative: string): boolean {
   const parts = relative.toLowerCase().split("/");

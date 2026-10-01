@@ -11,6 +11,27 @@ The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
+## Active follow-on: reviewed installed-worker identity
+
+The earlier fourteen-item release record does not complete this later
+requirement. The `feat/installed-worker-identity` implementation is tracked
+separately; see the [current handover](claude-code-handover.md#installed-worker-identity--implementation-checkpoint)
+and [identity spec](../specs/providers/installed-worker-identity.md).
+
+- [x] Opt-in native Claude/Codex identity and explicit reviewed provider pins.
+- [x] Full-plan approval binding, drift refusals, absolute execution and local
+      dispatch evidence, while preserving legacy opt-out and private-data guards.
+- [x] Focused synthetic regressions and scoped review, including corrections
+      for mixed-mode compatibility, macOS probes and launch-error privacy.
+- [ ] Required exact-head CI and reviewed PR merge into fork `dev`.
+- [ ] Exact merged pin and CI/build evidence delivered for consumer adoption.
+
+Unchecked release gates must not be inferred from older successful checks.
+The feature PR's final verification record will establish these outcomes;
+its unmerged branch is not an adoption pin. No live-inference or independent
+promotion claim is made. Per-plan area-check selection remains a separate
+proposal, not an implemented dependency silently added to this release.
+
 ## Current release checkpoint — 2026-09-30
 
 [PR #118](https://github.com/MILTONADINA/graph-engineering/pull/118) merged

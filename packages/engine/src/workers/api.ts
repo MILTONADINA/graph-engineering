@@ -4,6 +4,8 @@ import { Readable } from "node:stream";
 import { z } from "zod";
 import type {
   ContextPacket,
+  InstalledWorkerBinding,
+  InstalledWorkerIdentity,
   ProjectPolicy,
   ProviderConfig,
   Usage,
@@ -65,6 +67,13 @@ export interface WorkerInput {
   effort?: string;
   feedback?: string;
   signal?: AbortSignal;
+  /** Local control-plane evidence; never included in model prompts. */
+  installedBinding?: InstalledWorkerBinding;
+  beforeInstalledCommand?: () => Promise<void>;
+  onInstalledDispatch?: (capability: {
+    version: string | null;
+    identity?: InstalledWorkerIdentity;
+  }) => void;
 }
 export interface WorkerResult {
   proposal: WorkerProposal;
