@@ -1,6 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import {
+  MAX_VERIFICATION_SELECTION,
+  VERIFICATION_CHECK_ID_PATTERN,
+} from "@graph-engineering/contracts";
 import type { GraphEngine } from "./service.js";
 import { estimateTokens } from "./context/index.js";
 import {
@@ -387,7 +391,7 @@ export function createMcpServer(
       "plan_create",
       {
         description:
-          "Creates a plan for a change in this project and returns JSON with its id, steps and routing. A plan needs an objective and at least one explicit acceptance criterion; the engine records the current policy and source, so a later run_start fails if either changed. Without steps the plan is one worker step; steps give a dependency-ordered list of worker, template or generator steps. A generator step names an operator-registered generatorId; this tool cannot register or change one. A cloud-backed client can create plans only while the project's publication policy is none, so a plan it wrote cannot publish private source, and only when the plan's worker steps, the configured tester and the configured reviewer all run on local providers or all run on non-local ones, template and generator steps counting as local, so a local step cannot pass files the export policy keeps from cloud models to a cloud worker or reviewer; a step of such a plan that fails repeatedly escalates only to another provider on the same side. It does not start work; start it with run_start.",
+          "Creates a plan for a change in this project and returns JSON with its id, steps and routing. A plan needs an objective and at least one explicit acceptance criterion; the engine records the current policy, source and verification catalogue, so a later run_start fails if any changed. Omitted checkIds keeps every configured check; an explicit set selects registered IDs, must include every mandatory check, and cannot register or replace commands. Without steps the plan is one worker step; steps give a dependency-ordered list of worker, template or generator steps. A generator step names an operator-registered generatorId; this tool cannot register or change one. A cloud-backed client can create plans only while the project's publication policy is none, so a plan it wrote cannot publish private source, and only when the plan's worker steps, the configured tester and the configured reviewer all run on local providers or all run on non-local ones, template and generator steps counting as local, so a local step cannot pass files the export policy keeps from cloud models to a cloud worker or reviewer; a step of such a plan that fails repeatedly escalates only to another provider on the same side. It does not start work; start it with run_start.",
         inputSchema: {
           objective: z
             .string()
@@ -406,6 +410,14 @@ export function createMcpServer(
             .optional()
             .describe("Configured worker provider to use."),
           effort: z.string().optional().describe("Worker effort level."),
+          checkIds: z
+            .array(z.string().regex(new RegExp(VERIFICATION_CHECK_ID_PATTERN)))
+            .min(1)
+            .max(MAX_VERIFICATION_SELECTION)
+            .optional()
+            .describe(
+              "Explicit registered check IDs, including every mandatory check. Requires a fully named catalogue; omitted runs all checks. Cannot register commands or omit mandatory checks.",
+            ),
           steps: z
             .array(
               z

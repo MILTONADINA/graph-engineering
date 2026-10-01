@@ -11,11 +11,29 @@ The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
-## Active follow-on: reviewed installed-worker identity
+## Active follow-on: per-plan verification selection
+
+This is separate from the completed identity release below. See the
+[current handover](claude-code-handover.md#per-plan-verification-selection--implementation-checkpoint)
+and [selection spec](../specs/quality/verification-selection.md).
+
+- [x] Operator-owned named catalogue and explicit optional selections, with
+      mandatory-default and omitted-selector all-check compatibility.
+- [x] Full-plan catalogue/descriptor binding and start/resume/runtime drift
+      refusals without weakening approval, tester or repair boundaries.
+- [x] CLI/MCP/HTTP contract, focused synthetic evidence and scoped review.
+- [ ] Required exact-head CI and reviewed merge into fork `dev`.
+- [ ] Exact merged pin and CI/build evidence delivered for consumer adoption.
+
+The feature PR's final verification record establishes release outcomes. An
+unmerged head is not an adoption pin, and identity-release CI does not validate
+this follow-on. No live-inference or independent-promotion claim is made.
+
+## Completed follow-on: reviewed installed-worker identity
 
 The earlier fourteen-item release record does not complete this later
 requirement. The `feat/installed-worker-identity` implementation is tracked
-separately; see the [current handover](claude-code-handover.md#installed-worker-identity--implementation-checkpoint)
+separately; see the [current handover](claude-code-handover.md#installed-worker-identity--released)
 and [identity spec](../specs/providers/installed-worker-identity.md).
 
 - [x] Opt-in native Claude/Codex identity and explicit reviewed provider pins.
@@ -23,14 +41,15 @@ and [identity spec](../specs/providers/installed-worker-identity.md).
       dispatch evidence, while preserving legacy opt-out and private-data guards.
 - [x] Focused synthetic regressions and scoped review, including corrections
       for mixed-mode compatibility, macOS probes and launch-error privacy.
-- [ ] Required exact-head CI and reviewed PR merge into fork `dev`.
-- [ ] Exact merged pin and CI/build evidence delivered for consumer adoption.
+- [x] Required exact-head CI and reviewed PR merge into fork `dev`.
+- [x] Exact merged pin and CI/build evidence delivered for consumer adoption.
 
-Unchecked release gates must not be inferred from older successful checks.
-The feature PR's final verification record will establish these outcomes;
-its unmerged branch is not an adoption pin. No live-inference or independent
-promotion claim is made. Per-plan area-check selection remains a separate
-proposal, not an implemented dependency silently added to this release.
+[PR #122](https://github.com/MILTONADINA/graph-engineering/pull/122) merged at
+`40cfd318d5c79830ab02b3c84d260061f873b627` after all nine required checks in
+[CI run 36816489588](https://github.com/MILTONADINA/graph-engineering/actions/runs/36816489588),
+attempt 1. Checked head and merge share the same Git tree; the handover and
+PR record the full identities. No live-inference or independent promotion
+claim is made. Per-plan selection remains a separate release requirement.
 
 ## Current release checkpoint — 2026-09-30
 

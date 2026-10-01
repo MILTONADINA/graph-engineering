@@ -21,6 +21,115 @@ such as `-C <project>`, before `check-add`. Add checks before you plan: a
 plan keeps the checks configured when it was created, so a plan made before
 any `check-add` cannot run, and you create a new plan once checks exist.
 
+## Selecting optional checks for one plan
+
+Per-plan selection is a separate follow-on to installed-worker identity. Its
+implementation has focused local verification; do not treat these instructions
+as evidence of a reviewed merged release until the feature PR records that outcome.
+
+Checks are mandatory by default. An operator can assign stable catalogue IDs
+and explicitly mark a check optional when registering it:
+
+```sh
+graph-engine check-add --id lint toy-verify:local npm run lint
+graph-engine check-add --id unit --optional toy-verify:local npm test
+graph-engine check-add --id integration --optional toy-verify:local npm run integration
+```
+
+Put `--id` and `--optional` **before the image**. Everything after the image
+remains the command's arguments, including flags with the same names. IDs are
+case-sensitive, unique, and 1–80 characters: an ASCII letter or digit followed
+by letters, digits, `_` or `-`. They are operator-assigned names, not array
+positions, file paths or commands. `optional: true` requires an ID; an omitted
+or false `optional` field means mandatory.
+
+Select a complete set of checks with repeatable scalar `--check` options:
+
+```sh
+graph-engine plan "Update toy module" --accept "The module meets its contract" --check lint --check unit
+graph-engine plan --spec specs/toy/module.md --check lint --check integration
+```
+
+Omitting `--check` still selects **every** configured check, including optional
+ones. Explicit selection must name every mandatory check and may add any
+optional checks. An optional check that is selected becomes required for that
+plan's success; its failures are never ignored. Execution follows catalogue
+order, not argument order. Unknown IDs, duplicates, empty selections, omitted
+mandatory IDs and selection from a partly unnamed catalogue are refused.
+At most 1,000 IDs can be selected explicitly. A selection never changes the
+project catalogue, verification command, image, network boundary or working set.
+
+Existing unnamed checks remain valid for all-check planning, including
+duplicate unnamed descriptors. To adopt explicit selection, an operator adds
+reviewed unique IDs to **every** existing catalogue entry in
+`.graph/project.json`; do not register duplicate replacement commands merely
+to assign names. Mark only intentionally omittable checks optional. No migration
+or weakening of existing checks occurs automatically.
+
+Tool-neutral engine input, MCP `plan_create` and HTTP `POST /api/plans` accept
+the same optional `checkIds: string[]`. Omission means all; input `null` is
+invalid. These interfaces resolve IDs against operator-registered commands;
+they do not accept new command descriptors or catalogue changes from a model.
+MCP responses do not disclose the registered image/argument descriptors.
+
+Every new plan freezes its full resolved `verification` descriptors plus:
+
+```json
+{
+  "verificationSelection": {
+    "catalogueSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "checkIds": ["lint", "unit"]
+  }
+}
+```
+
+The hash above is illustrative. `checkIds: null` in a **stored binding** means
+the plan selected all checks; it is distinct from omitting the binding on a
+legacy plan. `catalogueSha256` covers the entire ordered catalogue, including
+unselected optional entries, ID/optional-field presence, images and exact argv
+order. Reordering JSON object keys alone does not change that identity.
+The engine exports `verificationCatalogueSha256(catalogue)`. Its exact
+canonical input is the strictly validated, parsed catalogue, without inserting
+ID or optional defaults:
+
+```js
+const canonical = JSON.stringify(
+  catalogue.map((check) => [
+    Object.hasOwn(check, "id"),
+    check.id ?? null,
+    Object.hasOwn(check, "optional"),
+    check.optional ?? null,
+    check.image,
+    check.argv,
+  ]),
+);
+// SHA-256 of canonical's UTF-8 bytes, lowercase hex, no appended newline.
+```
+
+The image field binds the configured image text; it is not itself container
+content attestation. The full plan retains the caller's `checkIds` order even
+though execution follows catalogue order. Local verification results include
+`checkId` for named checks; legacy unnamed results omit it. Like other check
+results, this identifies the observed check, not human acceptance.
+
+`plan-approve` shows both the binding and full resolved descriptors, and the
+existing full-plan SHA and approval cover them. Selection does not grant
+approval or alter publication policy.
+
+Start and acknowledged resume refuse changed catalogues or inconsistent
+retained descriptors, including changes to an unselected optional check.
+Create and review a fresh plan; neither resume nor reapproval rewrites the old
+binding. Legacy plans without `verificationSelection` keep their old all-check
+behavior only while both their retained checks and the current catalogue have
+no `id` or `optional` metadata. Adding metadata, even `optional: false`, requires
+a fresh plan. Required security/reviewer gates are independent of this selector
+and cannot be disabled by omitting an optional verification check.
+
+See the [verification-selection spec](../specs/quality/verification-selection.md)
+for acceptance criteria and verification status. Container provisioning and
+check execution keep the same requirements below; selection does not download
+dependencies or permit network access during verification.
+
 ## The reliable recipe: run the real check while building
 
 The Maven recipe below has been exercised end to end on a real repository;
