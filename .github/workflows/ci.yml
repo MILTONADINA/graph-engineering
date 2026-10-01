@@ -21,7 +21,9 @@ jobs:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # Linux x64 also runs the serial Docker/native/browser integration suites.
+    # Keep a bounded job budget without cutting off final browser provisioning.
+    timeout-minutes: ${{ matrix.os == 'ubuntu-24.04' && 45 || 30 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
