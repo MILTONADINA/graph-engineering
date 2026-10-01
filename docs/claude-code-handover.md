@@ -145,6 +145,33 @@ separate post-merge CI run. The runtime pin stays fixed when documentation
 follow-ups merge. The earlier `d22d69a…` pin remains the independent
 approval-only release; consumers do not need Dart or generators to adopt it.
 
+#### Post-release Windows fixture follow-up
+
+The later automatic push [run 36783841908](https://github.com/MILTONADINA/graph-engineering/actions/runs/36783841908)
+on documentation commit `d21761eeca1bd954a4db734caad73229ee5ebcc9` failed one
+Windows MCP privacy case; the other eight jobs passed. Job `110120379256`
+expected a missing-verification-image refusal but received
+`Command terminated (SIGTERM)`. Its log does not identify the terminated child,
+so the exact termination cause is not claimed. The required PR runs above
+remain successful historical evidence, not proof that this push run passed.
+
+The test relied on an extensionless Unix shell script in `PATH` to replace
+Docker. The [fixture correction](https://github.com/MILTONADINA/graph-engineering/commit/171630f0f2c72253ad112eb4a91f5a3430809f94)
+uses a platform-independent command double instead, asserts the exact image
+inspection arguments and unchanged 10-second limit for both MCP clients,
+and restores the double in `finally`. Git, the real service refusal path,
+cloud redaction, local pull hint and zero-created-run assertions remain in
+place. No production source, ABI, policy or runtime build identity changes.
+
+The selected local case and scoped review passed. Focused Windows
+[preflight 36799636801](https://github.com/MILTONADINA/graph-engineering/actions/runs/36799636801),
+job `110170850178`, ran that exact case on `171630f`: one test passed,
+not an all-skipped result. This proves the corrected fixture on Windows,
+not the unidentified cause of the older SIGTERM or native Docker execution.
+The follow-up branch is `fix/mcp-image-preflight-fixture`; consult its PR for
+the final required-check and merge outcome. The focused result does not replace
+any protected check or infer a later post-merge CI outcome.
+
 #### Feature validation history (historical)
 
 The diagnostic fixes below were developed on
