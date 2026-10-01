@@ -96,6 +96,11 @@ import {
 } from "./promotion-anchor-enrollment.js";
 import { PromotionAnchorRefusalError } from "./promotion-refusal-codes.js";
 import { discoverInstalledWorkers } from "./workers/installed.js";
+import {
+  assertInstalledIdentity,
+  inspectInstalledIdentity,
+  isInstalledProvider,
+} from "./workers/identity.js";
 import { backupProject, restoreProject } from "./operations.js";
 import {
   assertExpectedPlans,
@@ -1068,9 +1073,102 @@ cli.command("providers").action(async () => {
   print(await loadProviders(projectDataDir(project.projectId)));
 });
 cli
-  .command("capabilities")
-  .description("Probe installed coding clients without starting paid inference")
-  .action(async () => print(await discoverInstalledWorkers()));
+  .command("executable-identity <kind>")
+  .description(
+    "Inspect the installed native executable's canonical path and SHA-256 without executing it, configuring a provider, or approving a plan",
+  )
+  .action(async (kind) => {
+    print(
+      await inspectInstalledIdentity(
+        z.enum(["claude", "codex", "cursor"]).parse(kind),
+      ),
+    );
+  });
+cli
+  .command("provider-identity <id>")
+  .description(
+    "Store an operator-reviewed native executable identity after read-only validation; changed pins require a fresh plan and any required approval",
+  )
+  .option("--executable <path>", "Reviewed absolute canonical executable path")
+  .option(
+    "--sha256 <digest>",
+    "Reviewed lowercase SHA-256 of the native executable",
+  )
+  .option(
+    "--clear",
+    "Remove this provider's pin; never refreshes or approves existing plans",
+  )
+  .action(async (id, options) => {
+    if (
+      options.clear &&
+      (options.executable !== undefined || options.sha256 !== undefined)
+    )
+      throw new Error(
+        "--clear cannot be combined with --executable or --sha256",
+      );
+    if (!options.clear && (!options.executable || !options.sha256))
+      throw new Error(
+        "Give both --executable and --sha256, or explicitly use --clear",
+      );
+    const project = await loadProject(root());
+    const dataDir = projectDataDir(project.projectId);
+    const provider = (await loadProviders(dataDir)).find(
+      (entry) => entry.id === id,
+    );
+    if (!provider) throw new Error(`${id} is not a configured provider`);
+    if (!isInstalledProvider(provider))
+      throw new Error("Installed identities apply only to installed providers");
+    const updated = { ...provider };
+    if (options.clear) delete updated.installedIdentity;
+    else {
+      updated.installedIdentity = {
+        realpath: options.executable,
+        sha256: options.sha256,
+      };
+      await assertInstalledIdentity(updated, true);
+    }
+    await configureProvider(dataDir, updated);
+    print(updated);
+  });
+cli
+  .command("capabilities [providerId]")
+  .description(
+    "Probe installed coding clients without inference; configured pins and required identity are validated before any client probe",
+  )
+  .action(async (providerId?: string) => {
+    let project;
+    try {
+      project = await loadProject(root());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || providerId)
+        throw error;
+    }
+    if (project) {
+      const providers = await loadProviders(projectDataDir(project.projectId));
+      if (providerId) {
+        const provider = providers.find((entry) => entry.id === providerId);
+        if (!provider)
+          throw new Error(`${providerId} is not a configured provider`);
+        if (!isInstalledProvider(provider))
+          throw new Error(`${providerId} is not an installed provider`);
+        print(await discoverInstalledWorkers([provider], project.policy));
+        return;
+      }
+      if (
+        project.policy.requireInstalledWorkerIdentity ||
+        providers.some((entry) => entry.installedIdentity)
+      ) {
+        print(
+          await discoverInstalledWorkers(
+            providers.filter(isInstalledProvider),
+            project.policy,
+          ),
+        );
+        return;
+      }
+    }
+    print(await discoverInstalledWorkers());
+  });
 cli
   .command("plan [objective]")
   .description(
@@ -1161,6 +1259,7 @@ function shownPlan(plan: import("@graph-engineering/contracts").ExecutionPlan) {
     })),
     verification: plan.verification,
     generators: plan.generators ?? [],
+    installedWorkers: plan.installedWorkers ?? [],
     publication: plan.publication,
     routing: plan.routing ?? null,
     ...(plan.exportSide ? { exportSide: plan.exportSide } : {}),

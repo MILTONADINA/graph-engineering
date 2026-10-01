@@ -1,10 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { DEFAULT_POLICY } from "@graph-engineering/contracts";
 import { proposalJsonSchema, type WorkerInput } from "../src/workers/api.js";
+import {
+  bindInstalledWorker,
+  inspectInstalledIdentity,
+} from "../src/workers/identity.js";
 
 const mocks = vi.hoisted(() => ({ command: vi.fn(), spawn: vi.fn() }));
 vi.mock("../src/util.js", async (importOriginal) => ({
@@ -56,6 +69,30 @@ let unexpectedEventMethod = "item/commandExecution/outputDelta";
 let unexpectedEventParams: Record<string, unknown> = {};
 let nativeAuth: Record<string, unknown>;
 let nativeDoctor: string;
+const identityFixtures: string[] = [];
+
+async function strictInput(kind: "claude" | "codex" = "claude") {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), "graph-adapter-identity-"),
+  );
+  identityFixtures.push(directory);
+  const executable = path.join(
+    directory,
+    kind + (process.platform === "win32" ? ".exe" : ""),
+  );
+  // Synthetic native header only: command/spawn are mocked, never executed.
+  const bytes = Buffer.alloc(128);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1]);
+  bytes.writeUInt16LE(2, 16);
+  await writeFile(executable, bytes);
+  await chmod(executable, 0o755);
+  vi.stubEnv("PATH", directory);
+  const request = input(kind);
+  request.policy.requireInstalledWorkerIdentity = true;
+  request.provider.installedIdentity = await inspectInstalledIdentity(kind);
+  request.installedBinding = await bindInstalledWorker(request.provider, true);
+  return { request, directory, executable: await realpath(executable), bytes };
+}
 
 function input(kind: "claude" | "codex" | "cursor" = "claude"): WorkerInput {
   return {
@@ -175,18 +212,25 @@ beforeEach(() => {
         if (argv[0] === "--version")
           return {
             code: 0,
-            stdout:
-              executable === "claude" ? "2.1.278 (Claude Code)" : "0.155.1",
+            stdout: /^claude(?:\.exe|\.com)?$/.test(path.basename(executable))
+              ? "2.1.278 (Claude Code)"
+              : "0.155.1",
             stderr: "",
           };
         if (argv[0] === "--help") return { code: 0, stdout: flags, stderr: "" };
-        if (executable === "claude" && argv[0] === "auth")
+        if (
+          /^claude(?:\.exe|\.com)?$/.test(path.basename(executable)) &&
+          argv[0] === "auth"
+        )
           return {
             code: 0,
             stdout: JSON.stringify(nativeAuth),
             stderr: "",
           };
-        if (executable === "claude" && argv[0] === "doctor")
+        if (
+          /^claude(?:\.exe|\.com)?$/.test(path.basename(executable)) &&
+          argv[0] === "doctor"
+        )
           return {
             code: 0,
             stdout: nativeDoctor,
@@ -301,7 +345,7 @@ beforeEach(() => {
     );
   mocks.spawn
     .mockReset()
-    .mockImplementation((_executable: string, argv: string[], options: any) => {
+    .mockImplementation((executable: string, argv: string[], options: any) => {
       child = new EventEmitter();
       child.stdout = new PassThrough();
       child.stderr = new PassThrough();
@@ -540,13 +584,252 @@ beforeEach(() => {
           callback();
         },
       });
-      nativeCalls.push({ executable: "codex", argv, options });
+      nativeCalls.push({ executable, argv, options });
       return child;
     });
 });
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  for (const directory of identityFixtures.splice(0))
+    await rm(directory, { recursive: true, force: true });
+});
+
+describe("reviewed installed executable identity", () => {
+  it("uses the approved absolute Claude executable for every probe and dispatch", async () => {
+    const { request, executable } = await strictInput();
+    const observed = vi.fn();
+    request.onInstalledDispatch = observed;
+    const controller = new AbortController();
+    request.signal = controller.signal;
+    expect((await invokeInstalledWorker(request)).proposal).toEqual(proposal);
+    const workerCommands = mocks.command.mock.calls.filter(
+      ([name]) => !["profiles", "defaults"].includes(name),
+    );
+    expect(workerCommands.map(([name]) => name)).toEqual(
+      Array(workerCommands.length).fill(executable),
+    );
+    expect(workerCommands.map(([, argv]) => argv[0])).toEqual([
+      "--version",
+      "--help",
+      "auth",
+      "doctor",
+      "--bare",
+    ]);
+    expect(observed).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        version: "2.1.278",
+        identity: request.provider.installedIdentity,
+      }),
+    );
+    const run = nativeCalls[0];
+    expect(run.options).toMatchObject({
+      signal: controller.signal,
+      maxBytes: 2_000_000,
+    });
+    expect(run.argv).toContain("--restricted");
+    expect(run.argv).toContain("--safe-mode");
+    expect(run.options.env.DISABLE_AUTOUPDATER).toBe("1");
+    expect(run.options.env.ANTHROPIC_API_KEY).toBe("test-native-api-key");
+    expect(JSON.parse(run.options.input).task).toBe(request.objective);
+    expect(run.options.input).not.toContain("PRIVATE_CONTEXT_CANARY");
+    expect(run.options.input).not.toContain(executable);
+    expect(run.options.input).not.toContain(
+      request.provider.installedIdentity!.sha256,
+    );
+  });
+
+  it("refuses strict installed workers before any probe without an identity", async () => {
+    const request = input();
+    request.policy.requireInstalledWorkerIdentity = true;
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "identity is required",
+    );
+    expect(mocks.command).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    const capabilities = await discoverInstalledWorkers(
+      [request.provider],
+      request.policy,
+    );
+    expect(capabilities).toEqual([
+      expect.objectContaining({
+        providerId: "native",
+        available: false,
+        reason: expect.stringContaining("identity is required"),
+      }),
+    ]);
+    expect(mocks.command).not.toHaveBeenCalled();
+  });
+
+  it("refuses executable drift between capability probes", async () => {
+    const { request, executable, bytes } = await strictInput();
+    const original = mocks.command.getMockImplementation()!;
+    mocks.command.mockImplementation(async (name, argv, options) => {
+      const result = await original(name, argv, options);
+      if (argv[0] === "--version") {
+        bytes[100] = 1;
+        await writeFile(executable, bytes);
+      }
+      return result;
+    });
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "does not match",
+    );
+    expect(mocks.command).toHaveBeenCalledTimes(1);
+    expect(nativeCalls).toEqual([]);
+  });
+
+  it("refuses same-version executable drift before the first probe", async () => {
+    const { request, executable, bytes } = await strictInput();
+    bytes[100] = 2;
+    await writeFile(executable, bytes);
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "does not match",
+    );
+    expect(mocks.command).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it("refuses provider drift at the final dispatch boundary", async () => {
+    const { request } = await strictInput();
+    request.beforeInstalledCommand = async () => {
+      if (
+        mocks.command.mock.calls.some(([name, argv]) =>
+          process.platform === "darwin"
+            ? name === "defaults"
+            : argv[0] === "doctor",
+        )
+      )
+        request.provider.model = "unreviewed-model";
+    };
+    const observed = vi.fn();
+    request.onInstalledDispatch = observed;
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "provider profile changed",
+    );
+    expect(nativeCalls).toEqual([]);
+    expect(observed).not.toHaveBeenCalled();
+  });
+
+  it("uses the approved absolute Codex executable for schema probes and spawn", async () => {
+    const { request, executable } = await strictInput("codex");
+    const observed = vi.fn();
+    request.onInstalledDispatch = observed;
+    expect((await invokeInstalledWorker(request)).proposal).toEqual(proposal);
+    expect(mocks.command.mock.calls.map(([name]) => name)).toEqual([
+      executable,
+      executable,
+      executable,
+    ]);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      executable,
+      expect.arrayContaining(["app-server", "--stdio"]),
+      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
+    );
+    expect(observed).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        version: "0.155.1",
+        identity: request.provider.installedIdentity,
+      }),
+    );
+  });
+
+  it("does not swallow Codex identity drift as an unavailable capability", async () => {
+    const { request, executable, bytes } = await strictInput("codex");
+    const original = mocks.command.getMockImplementation()!;
+    mocks.command.mockImplementation(async (name, argv, options) => {
+      const result = await original(name, argv, options);
+      if (argv.includes("generate-json-schema")) {
+        bytes[100] = 3;
+        await writeFile(executable, bytes);
+      }
+      return result;
+    });
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "does not match",
+    );
+    expect(mocks.command).toHaveBeenCalledTimes(2);
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it("refuses Cursor SDK in strict identity mode before execution", async () => {
+    const request = input("cursor");
+    delete request.effort;
+    request.policy.requireInstalledWorkerIdentity = true;
+    request.provider.installedIdentity = {
+      realpath: process.execPath,
+      sha256: "a".repeat(64),
+    };
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "Cursor SDK is unsupported",
+    );
+    expect(mocks.command).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
+  });
+
+  it.runIf(process.platform === "darwin")(
+    "rechecks identity before each macOS managed-policy probe",
+    async () => {
+      for (const boundary of ["doctor", "profiles"]) {
+        const { request } = await strictInput();
+        mocks.command.mockClear();
+        request.beforeInstalledCommand = async () => {
+          if (
+            mocks.command.mock.calls.some(([name, argv]) =>
+              boundary === "doctor"
+                ? argv[0] === "doctor"
+                : name === "profiles",
+            )
+          )
+            request.provider.model = "unreviewed-model";
+        };
+        await expect(invokeInstalledWorker(request)).rejects.toThrow(
+          "provider profile changed",
+        );
+        expect(
+          mocks.command.mock.calls.some(([name]) => name === "defaults"),
+        ).toBe(false);
+        if (boundary === "doctor")
+          expect(
+            mocks.command.mock.calls.some(([name]) => name === "profiles"),
+          ).toBe(false);
+        expect(nativeCalls).toEqual([]);
+      }
+    },
+  );
+
+  it("withholds absolute executable paths from Claude launch errors", async () => {
+    const { request, executable } = await strictInput();
+    const original = mocks.command.getMockImplementation()!;
+    mocks.command.mockImplementation(async (name, argv, options) => {
+      if (argv.includes("--print"))
+        throw new Error(`spawn ${executable} ENOENT`);
+      return original(name, argv, options);
+    });
+    const error = await invokeInstalledWorker(request).catch((error) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe(
+      "Claude worker transport failed; native diagnostics are withheld",
+    );
+    expect(error.message).not.toContain(executable);
+    const last = mocks.command.mock.calls.at(-1)!;
+    await expect(access(last[2].cwd)).rejects.toThrow();
+  });
+
+  it("refuses identity drift after Codex startup before sending a model turn", async () => {
+    const { request } = await strictInput("codex");
+    request.beforeInstalledCommand = async () => {
+      if (rpcRequests.some((rpc) => rpc.method === "thread/start"))
+        request.provider.model = "unreviewed-model";
+    };
+    await expect(invokeInstalledWorker(request)).rejects.toThrow(
+      "provider profile changed",
+    );
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(rpcRequests.some((rpc) => rpc.method === "turn/start")).toBe(false);
+    expect(child.kill).toHaveBeenCalled();
+    await expect(access(nativeCalls[0].options.cwd)).rejects.toThrow();
+  });
 });
 
 describe("installed capability discovery", () => {

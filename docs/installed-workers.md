@@ -4,6 +4,129 @@ Installed clients return structured patch proposals. Graph Engineering applies a
 
 `discoverInstalledWorkers()` reports installed versions, availability, authentication, execution mode, and limitations. It runs version/help probes and generates temporary protocol schemas; it never logs in, installs a client, or requests model inference. Availability does not mean authentication or live inference was tested.
 
+## Reviewed executable identity (opt-in)
+
+Implemented locally with focused regression evidence; reviewed release and
+required exact-head CI are pending. The contract below is not yet a released
+consumer pin or a claim of live installed-client inference.
+
+The optional `policy.requireInstalledWorkerIdentity: true` requires every
+installed worker used by a new plan to have an operator-reviewed
+`ProviderConfig.installedIdentity`:
+
+```json
+{
+  "realpath": "/opt/toy/bin/claude",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
+```
+
+The path is the absolute canonical target, and the digest is the lowercase
+SHA-256 of its complete bytes. This example is synthetic, not a usable pin.
+The default policy has no new field: absence means false. An explicitly pinned
+provider still enforces its pin when the project-wide requirement is absent or
+false. A mixed plan can retain explicitly unpinned legacy worker steps under
+that opt-out policy; one provider's pin does not require every sibling to be
+pinned. With `requireInstalledWorkerIdentity: true`, every installed worker
+step requires its own binding. API/local providers cannot carry installed
+identity metadata.
+
+Strict identity currently supports native Claude Code and Codex executables.
+Scripts, npm/shell shims, and the Cursor SDK are refused rather than claiming
+that pinning their launcher pins their interpreted payload. Legacy unpinned
+behavior remains unchanged when identity is not required. Cursor's independent
+MCP-client support is unaffected.
+
+Use the tool-neutral local CLI in this order:
+
+```sh
+graph-engine executable-identity claude
+graph-engine provider-identity toy-claude --executable /opt/toy/bin/claude --sha256 <reviewed-sha256>
+graph-engine capabilities toy-claude
+```
+
+`executable-identity <claude|codex|cursor>` only reads filesystem metadata and
+hashes the executable selected by the current `PATH`; it does not execute the
+client, install it, change providers, or approve anything. `cursor` explicitly
+refuses because its SDK payload chain is outside this contract. The operator
+reviews the result before the separate `provider-identity` command. That
+command requires both supplied fields and validates them against the current
+selection without running it; it never silently substitutes a freshly observed
+digest. The reviewed canonical target must remain the target selected by
+`PATH`. Ambiguous relative or empty search entries are refused in strict mode.
+
+`capabilities [providerId]` remains bounded version/help/schema discovery with
+no inference. Supplying an ID inspects only that configured installed provider.
+Within a project that requires identity or contains a pinned provider, omitting
+the ID inspects only configured installed providers, reporting invalid/missing
+required identities as unavailable before any native client probe. Explicitly
+unpinned providers still use legacy discovery where policy permits it; a
+present but invalid pin never falls back to legacy. It does not fall
+back to an unreviewed blanket discovery. Legacy discovery outside a project,
+or an entirely unpinned opt-out project, remains available. Successful pinned
+capabilities include `providerId`, `identity`, and the reviewed absolute
+`executable`; these are host-local details, not public repository artifacts.
+
+Apply a complete reviewed policy with
+`graph-engine policy --file <policy.json>` to opt into
+`requireInstalledWorkerIdentity`, then create a fresh plan. Identity does not
+grant plan approval: use `requirePlanApproval: true` when approval is required,
+review with `plan-approve <id>`, and explicitly approve the exact full stored
+plan with `plan-approve <id> --yes --expect <planSha256>`. CLI approval display
+includes the complete frozen `installedWorkers` array:
+
+```json
+[
+  {
+    "providerId": "toy-claude",
+    "providerProfileSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "identity": {
+      "realpath": "/opt/toy/bin/claude",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+]
+```
+
+`providerProfileSha256` binds the complete JSON provider configuration with
+recursively sorted object keys, preserving array order and optional-field
+presence. It includes the identity, model, effort configuration, endpoint,
+price/limit settings, and credential-variable **name**, never the credential's
+value. Do not confuse it with `planSha256`, which remains
+`SHA256(JSON.stringify(JSON.parse(rawPlanStdout)))` for the complete retained
+plan in its original JSON property order. Approval/status and publication
+controls are unchanged; `approvedVia` is not a verified person's identity.
+
+The engine revalidates the frozen profile and executable before native
+probes, dispatch and resume, and launches the reviewed absolute target rather
+than the literal command name. A same-version byte replacement, a different
+`PATH` target, or profile drift is refused. Updating a provider's pin never
+refreshes an old plan or its approval: create and review a new plan. Supported
+version discovery remains dynamic; this feature does not freeze a version
+allowlist or bypass existing authentication, advertised control flags, native
+schema requirements, managed-policy checks, or budgets.
+An identity-bound plan cannot add an unbound installed fallback after approval.
+This restriction does not prevent the initially declared unpinned steps of a
+mixed opt-out plan from running in their explicit legacy mode.
+
+`run-receipt <runId>` retains the full plan and its frozen bindings. A
+`worker.identity_used` event retains the actual provider ID, provider-profile
+digest and executable identity selected for that dispatch, alongside existing
+run/worker evidence. It is evidence of the validated selection, not successful
+inference, accepted output, or a human approval. The local operator can remove
+a pin with `provider-identity <id> --clear`; that does not disable project
+enforcement or repair old plans. Mixing `--clear` with pin fields is refused.
+
+This is a trusted-filesystem drift check, **not atomic execution or a defense
+against privileged concurrent tampering**. Native image recognition is not an
+OS loader/signature audit, and dynamic libraries, native client internals,
+managed configuration and credential contents are not payload-chain pinned.
+Existing adapter guards, stdin/JSON-RPC input transport, cancellation and
+output limits remain required. No key, login, model download, provider call,
+consumer repository, or running Codex service is needed to configure pins.
+See the [identity spec](../specs/providers/installed-worker-identity.md) for
+the exact acceptance boundary and current verification status.
+
 ## Execution deadlines
 
 The optional project policy field `installedWorkerTimeoutSeconds` applies to

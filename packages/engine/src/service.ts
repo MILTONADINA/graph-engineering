@@ -15,6 +15,7 @@ import type {
   ExecutionPlan,
   ExecutionStep,
   GeneratorRegistration,
+  InstalledWorkerBinding,
   ProjectConfig,
   ProjectPolicy,
   ProviderConfig,
@@ -25,6 +26,7 @@ import type {
 } from "@graph-engineering/contracts";
 import {
   assertGeneratorRegistration,
+  assertInstalledWorkerBinding,
   sameGeneratorRegistration,
 } from "@graph-engineering/contracts";
 import { ContextEngine } from "./context/index.js";
@@ -64,6 +66,13 @@ import {
   invokeInstalledWorker,
   discoverInstalledWorkers,
 } from "./workers/installed.js";
+import {
+  assertInstalledIdentity,
+  bindInstalledWorker,
+  installedProviderProfileSha256,
+  InstalledIdentityError,
+  isInstalledProvider,
+} from "./workers/identity.js";
 import {
   applyProposal,
   assertVerificationPaths,
@@ -250,6 +259,131 @@ export class GraphEngine {
   async providers(): Promise<ProviderConfig[]> {
     return loadProviders(this.dataDir);
   }
+  /** Local provider settings are not part of policyHash: freeze only installed
+   * roles that opted into executable binding, and never silently rebind them. */
+  private async frozenInstalledWorkers(
+    steps: ExecutionStep[],
+  ): Promise<InstalledWorkerBinding[] | undefined> {
+    const providers = await this.providers();
+    const bindings: InstalledWorkerBinding[] = [];
+    for (const providerId of new Set(
+      steps
+        .filter((step) => step.kind === "worker")
+        .map((step) => step.providerId),
+    )) {
+      const provider = providers.find((entry) => entry.id === providerId);
+      if (!provider)
+        throw new Error("A planned worker is no longer configured");
+      const binding = await bindInstalledWorker(
+        provider,
+        this.config.policy.requireInstalledWorkerIdentity === true,
+      );
+      if (binding) bindings.push(binding);
+    }
+    return bindings.length || this.config.policy.requireInstalledWorkerIdentity
+      ? bindings
+      : undefined;
+  }
+  /** Validate using the retained plan, not a later stored plan with its ID.
+   * A removed identity, or a provider redefined as an API, cannot drop a pin. */
+  private plannedInstalledWorkers(
+    plan: ExecutionPlan,
+  ): InstalledWorkerBinding[] {
+    const ids = new Set(
+      plan.steps
+        .filter((step) => step.kind === "worker")
+        .map((step) => step.providerId),
+    );
+    const bindings =
+      plan.installedWorkers === undefined ? [] : plan.installedWorkers;
+    try {
+      if (!Array.isArray(bindings)) throw new Error("Invalid binding list");
+      bindings.forEach(assertInstalledWorkerBinding);
+      if (
+        new Set(bindings.map((entry) => entry.providerId)).size !==
+          bindings.length ||
+        bindings.some((entry) => !ids.has(entry.providerId))
+      )
+        throw new Error("Duplicate or unexpected binding");
+    } catch {
+      throw new InstalledIdentityError(
+        "The plan's installed-worker identity bindings are invalid; create a fresh plan",
+      );
+    }
+    return bindings;
+  }
+  private async assertPlanInstalledWorkers(plan: ExecutionPlan): Promise<void> {
+    const bindings = this.plannedInstalledWorkers(plan);
+    const providers = await this.providers();
+    const ids = new Set(
+      plan.steps
+        .filter((step) => step.kind === "worker")
+        .map((step) => step.providerId),
+    );
+    for (const providerId of ids) {
+      const provider = providers.find((entry) => entry.id === providerId);
+      const binding = bindings.find((entry) => entry.providerId === providerId);
+      if (!provider) {
+        if (binding || this.config.policy.requireInstalledWorkerIdentity)
+          throw new InstalledIdentityError(
+            "A reviewed installed-worker profile is no longer configured; create a fresh plan",
+          );
+        continue;
+      }
+      if (
+        binding ||
+        provider.installedIdentity ||
+        (isInstalledProvider(provider) &&
+          this.config.policy.requireInstalledWorkerIdentity)
+      ) {
+        if (!binding)
+          throw new InstalledIdentityError(
+            "The plan has no approved binding for an installed worker; create a fresh plan",
+          );
+        await assertInstalledIdentity(provider, true, binding);
+      }
+    }
+  }
+  /** Reload for every turn and every native subprocess, including discovery
+   * probes. A captured WorkerInput must not outlive its reviewed profile. */
+  private async assertDispatchIdentity(
+    plan: ExecutionPlan,
+    provider: ProviderConfig,
+  ): Promise<InstalledWorkerBinding | undefined> {
+    const binding = this.plannedInstalledWorkers(plan).find(
+      (entry) => entry.providerId === provider.id,
+    );
+    const current = (await this.providers()).find(
+      (entry) => entry.id === provider.id,
+    );
+    // A pin belongs to its provider, not every sibling in a mixed plan.
+    // Explicitly unpinned steps remain legacy when policy permits them;
+    // fallback selection separately excludes unreviewed installed additions.
+    const required = this.config.policy.requireInstalledWorkerIdentity === true;
+    if (
+      !binding &&
+      !provider.installedIdentity &&
+      !current?.installedIdentity &&
+      !(
+        required &&
+        (isInstalledProvider(provider) ||
+          (current && isInstalledProvider(current)))
+      )
+    )
+      return undefined;
+    if (
+      !binding ||
+      !current ||
+      installedProviderProfileSha256(provider) !==
+        binding.providerProfileSha256 ||
+      installedProviderProfileSha256(current) !== binding.providerProfileSha256
+    )
+      throw new InstalledIdentityError(
+        "An installed-worker profile changed or has no plan binding; create a fresh plan",
+      );
+    await assertInstalledIdentity(current, true, binding);
+    return binding;
+  }
   private decisionBudget(ownerId: string): DecisionBudget {
     return {
       reserve: async ({ callId, provider, amountUsd }) =>
@@ -408,7 +542,7 @@ export class GraphEngine {
     const installed = configured.some((p) =>
       ["codex", "claude", "cursor"].includes(p.kind),
     )
-      ? await discoverInstalledWorkers()
+      ? await discoverInstalledWorkers(configured, this.config.policy)
       : [];
     return configured.map((p) => {
       try {
@@ -427,7 +561,11 @@ export class GraphEngine {
       }
       if (
         ["codex", "claude", "cursor"].includes(p.kind) &&
-        !installed.some((c) => c.kind === p.kind && c.available)
+        !installed.some(
+          (c) =>
+            (c.providerId ? c.providerId === p.id : c.kind === p.kind) &&
+            c.available,
+        )
       )
         return {
           id: p.id,
@@ -451,7 +589,7 @@ export class GraphEngine {
     const installed = configured.some((p) =>
       ["codex", "claude", "cursor"].includes(p.kind),
     )
-      ? await discoverInstalledWorkers()
+      ? await discoverInstalledWorkers(configured, this.config.policy)
       : [];
     return configured.filter((p) => {
       try {
@@ -459,7 +597,10 @@ export class GraphEngine {
         return (
           !["codex", "claude", "cursor"].includes(p.kind) ||
           installed.some(
-            (capability) => capability.kind === p.kind && capability.available,
+            (capability) =>
+              (capability.providerId
+                ? capability.providerId === p.id
+                : capability.kind === p.kind) && capability.available,
           )
         );
       } catch {
@@ -698,9 +839,48 @@ export class GraphEngine {
   private async invokeWorker(
     input: WorkerInput,
     workspace: string,
-    ownerId: string,
+    run: RunRecord,
+    stepId: string,
     onReserved?: () => void,
   ): Promise<WorkerResult> {
+    const validateIdentity = async () => {
+      await this.refresh();
+      if (hash(this.config.policy) !== run.plan.policyHash)
+        throw new Error("Policy changed during execution; dispatch stopped");
+      return this.assertDispatchIdentity(run.plan, input.provider);
+    };
+    const installedBinding = await validateIdentity();
+    const beforeInstalledCommand = async () => {
+      await validateIdentity();
+    };
+    input = {
+      ...input,
+      ...(installedBinding ? { installedBinding } : {}),
+      beforeInstalledCommand,
+      onInstalledDispatch: (capability) => {
+        if (!installedBinding) return;
+        if (
+          !capability.identity ||
+          capability.identity.realpath !== installedBinding.identity.realpath ||
+          capability.identity.sha256 !== installedBinding.identity.sha256
+        )
+          throw new InstalledIdentityError(
+            "Installed-worker dispatch did not verify the plan's executable identity",
+          );
+        this.store.event(
+          run.id,
+          "worker.identity_used",
+          {
+            planSha256: planSha256(run.plan),
+            providerId: input.provider.id,
+            providerProfileSha256: installedBinding.providerProfileSha256,
+            identity: capability.identity,
+            version: capability.version,
+          },
+          stepId,
+        );
+      },
+    };
     // A run's packet is built once; consent withdrawn since then must stop
     // the next cloud turn, so authorization is read again at each dispatch.
     if (input.provider.kind !== "local")
@@ -722,8 +902,11 @@ export class GraphEngine {
     }
     try {
       if (input.signal?.aborted) throw new Error("Run cancelled");
+      // Slot acquisition can await another process. Refuse drift before the
+      // reservation, and again in the adapter immediately before each probe.
+      await beforeInstalledCommand();
       this.store.reserveCall(
-        ownerId,
+        run.plan.id,
         callId,
         input.provider.id,
         estimateRequestCost(
@@ -740,7 +923,12 @@ export class GraphEngine {
         : ["codex", "claude", "cursor"].includes(input.provider.kind)
           ? await invokeInstalledWorker(input, workspace)
           : await invokeApiWorker(input);
-      this.store.settleCall(ownerId, callId, input.provider.id, result.usage);
+      this.store.settleCall(
+        run.plan.id,
+        callId,
+        input.provider.id,
+        result.usage,
+      );
       return result;
     } finally {
       this.store.releaseWorker(callId);
@@ -1018,6 +1206,8 @@ export class GraphEngine {
           const side = await this.assertOneSideOfExport(plan);
           if (side) plan.exportSide = side;
         }
+        const installedWorkers = await this.frozenInstalledWorkers(plan.steps);
+        if (installedWorkers) plan.installedWorkers = installedWorkers;
         this.store.savePlan(plan);
         return plan;
       }
@@ -1159,6 +1349,8 @@ export class GraphEngine {
       const side = await this.assertOneSideOfExport(plan);
       if (side) plan.exportSide = side;
     }
+    const installedWorkers = await this.frozenInstalledWorkers(plan.steps);
+    if (installedWorkers) plan.installedWorkers = installedWorkers;
     this.store.savePlan(plan);
     return plan;
   }
@@ -1286,6 +1478,7 @@ export class GraphEngine {
     }
     if (policyChanged)
       throw new Error("Policy changed since planning; create a new plan");
+    await this.assertPlanInstalledWorkers(plan);
     this.assertLiveGenerators(plan);
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
@@ -1308,6 +1501,7 @@ export class GraphEngine {
     await this.refresh();
     if (plan.policyHash !== hash(this.config.policy))
       throw new Error("Policy changed since planning; create a new plan");
+    await this.assertPlanInstalledWorkers(plan);
     this.assertLiveGenerators(plan);
     this.assertOpen("started");
     const run: RunRecord = {
@@ -1713,6 +1907,7 @@ export class GraphEngine {
     await this.refresh();
     if (hash(this.config.policy) !== run.plan.policyHash)
       throw new Error("Policy changed; create a fresh plan");
+    await this.assertPlanInstalledWorkers(run.plan);
     const pendingGeneratorStepIds =
       await this.pendingGeneratorStepsForResume(run);
     this.assertLiveGenerators(run.plan, pendingGeneratorStepIds);
@@ -1763,6 +1958,7 @@ export class GraphEngine {
     await this.refresh();
     if (hash(this.config.policy) !== run.plan.policyHash)
       throw new Error("Policy changed; create a fresh plan");
+    await this.assertPlanInstalledWorkers(run.plan);
     this.assertLiveGenerators(run.plan, pendingGeneratorStepIds);
     this.assertOpen("resumed");
     const reserved = this.store.reserveResume(
@@ -2716,7 +2912,8 @@ export class GraphEngine {
               const result = await this.invokeWorker(
                 stepInput,
                 workspace,
-                run.plan.id,
+                run,
+                step.id,
               );
               run.usage = this.store.usage(run.plan.id);
               save("running");
@@ -3131,7 +3328,8 @@ export class GraphEngine {
             const result = await this.invokeWorker(
               input,
               workspace,
-              run.plan.id,
+              run,
+              step.id,
               () =>
                 this.store.event(
                   run.id,
@@ -3348,6 +3546,20 @@ export class GraphEngine {
               // local plan's step copied under an exported path.
               return (
                 candidate.id !== provider!.id &&
+                // An identity-reviewed plan never discovers a new installed
+                // fallback after approval, even when its current file is pinned.
+                (!(
+                  this.config.policy.requireInstalledWorkerIdentity ||
+                  run.plan.installedWorkers !== undefined ||
+                  candidate.installedIdentity
+                ) ||
+                  !isInstalledProvider(candidate) ||
+                  run.plan.installedWorkers?.some(
+                    (binding) =>
+                      binding.providerId === candidate.id &&
+                      binding.providerProfileSha256 ===
+                        installedProviderProfileSha256(candidate),
+                  )) &&
                 (step.id !== DAG_REPAIR_STEP ||
                   run.plan.steps.some(
                     (planned) => planned.providerId === candidate.id,

@@ -4,7 +4,13 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
-import type { ProviderKind, Usage } from "@graph-engineering/contracts";
+import type {
+  InstalledWorkerIdentity,
+  ProjectPolicy,
+  ProviderConfig,
+  ProviderKind,
+  Usage,
+} from "@graph-engineering/contracts";
 import {
   assertEndpoint,
   assertProvider,
@@ -20,11 +26,19 @@ import {
   type WorkerResult,
 } from "./api.js";
 import { installedWorkerTimeoutMs } from "./deadline.js";
+import {
+  assertInstalledIdentity,
+  installedProviderProfileSha256,
+  InstalledIdentityError,
+  isInstalledProvider,
+} from "./identity.js";
 
 type InstalledKind = Extract<ProviderKind, "codex" | "claude" | "cursor">;
 export interface InstalledWorkerCapability {
   kind: InstalledKind;
   executable: string;
+  providerId?: string;
+  identity?: InstalledWorkerIdentity;
   installed: boolean;
   version: string | null;
   available: boolean;
@@ -33,6 +47,64 @@ export interface InstalledWorkerCapability {
   mode: "proposal-only" | "restricted-read" | "unavailable";
   reason: string | null;
   limits: string[];
+}
+
+interface InstalledSelection {
+  executable: string;
+  providerId?: string;
+  identity?: InstalledWorkerIdentity;
+  beforeCommand?: () => Promise<void>;
+}
+
+async function selectInstalledWorker(
+  provider: ProviderConfig,
+  policy?: ProjectPolicy,
+  input?: WorkerInput,
+): Promise<InstalledSelection> {
+  const validate = async () => {
+    try {
+      input?.signal?.throwIfAborted();
+      await input?.beforeInstalledCommand?.();
+      input?.signal?.throwIfAborted();
+      return await assertInstalledIdentity(
+        provider,
+        policy?.requireInstalledWorkerIdentity === true,
+        input?.installedBinding,
+      );
+    } catch (error) {
+      if (error instanceof InstalledIdentityError) throw error;
+      // Probe discovery must never swallow a live authorization refusal as a
+      // normal unavailable-client result. Keep diagnostics path/secret-free.
+      throw new InstalledIdentityError(
+        "Installed-worker authorization validation failed before execution",
+      );
+    }
+  };
+  const identity = await validate();
+  const profileSha256 = installedProviderProfileSha256(provider);
+  return {
+    executable:
+      identity?.realpath ??
+      (provider.kind === "cursor" ? process.execPath : provider.kind),
+    providerId: provider.id,
+    ...(identity ? { identity } : {}),
+    beforeCommand: async () => {
+      const actual = await validate();
+      if (
+        identity &&
+        (actual?.realpath !== identity.realpath ||
+          actual.sha256 !== identity.sha256 ||
+          installedProviderProfileSha256(provider) !== profileSha256)
+      )
+        throw new InstalledIdentityError(
+          "Installed-worker identity or provider profile changed before execution",
+        );
+      if (input?.signal?.aborted)
+        throw new InstalledIdentityError(
+          "Installed-worker command cancelled before execution",
+        );
+    },
+  };
 }
 
 const CLAUDE_REQUIRED_FLAGS = [
@@ -160,7 +232,9 @@ async function probe(
   executable: string,
   argv: string[],
   environment?: NodeJS.ProcessEnv,
+  beforeCommand?: () => Promise<void>,
 ): Promise<string | null> {
+  await beforeCommand?.();
   try {
     const result = await command(executable, argv, {
       cwd: os.tmpdir(),
@@ -210,8 +284,14 @@ async function existsOrCannotInspect(target: string): Promise<boolean> {
 /** OAuth is permitted only when this host can rule out managed Claude policy. */
 async function claudeSubscriptionReady(
   environment: NodeJS.ProcessEnv,
+  selection: InstalledSelection,
 ): Promise<boolean> {
-  const rawAuth = await probe("claude", ["auth", "status"], environment);
+  const rawAuth = await probe(
+    selection.executable,
+    ["auth", "status"],
+    environment,
+    selection.beforeCommand,
+  );
   let auth: Record<string, unknown>;
   try {
     auth = JSON.parse(rawAuth ?? "");
@@ -228,7 +308,12 @@ async function claudeSubscriptionReady(
   // Safe mode still honors administrator-managed hooks. The doctor report is
   // intentionally treated as a version-specific allowlist, not a best-effort
   // warning: an unfamiliar or missing policy status fails closed.
-  const doctor = await probe("claude", ["doctor"], environment);
+  const doctor = await probe(
+    selection.executable,
+    ["doctor"],
+    environment,
+    selection.beforeCommand,
+  );
   if (
     !doctor?.includes(
       "Managed settings (remote): not fetched — requires an Enterprise or Team subscription",
@@ -258,12 +343,14 @@ async function claudeSubscriptionReady(
       "profiles",
       ["status", "-type", "enrollment"],
       environment,
+      selection.beforeCommand,
     );
     if (
       !enrollment?.includes("Enrolled via DEP: No") ||
       !enrollment.includes("MDM enrollment: No")
     )
       return false;
+    await selection.beforeCommand?.();
     try {
       const managedDomain = await command(
         "defaults",
@@ -292,8 +379,13 @@ async function claudeSubscriptionReady(
 async function inspect(
   kind: InstalledKind,
   claudeRunEnv?: NodeJS.ProcessEnv,
+  selection: InstalledSelection = {
+    executable: kind === "cursor" ? process.execPath : kind,
+  },
 ): Promise<InstalledWorkerCapability> {
-  const executable = kind === "cursor" ? process.execPath : kind;
+  const { executable, beforeCommand } = selection;
+  const probeEnv =
+    kind === "claude" ? (claudeRunEnv ?? claudeEnvironment(4000)) : undefined;
   const rawVersion =
     kind === "cursor"
       ? await (async () => {
@@ -312,11 +404,13 @@ async function inspect(
             return null;
           }
         })()
-      : await probe(executable, ["--version"]);
+      : await probe(executable, ["--version"], probeEnv, beforeCommand);
   const version = rawVersion?.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? null;
   const result: InstalledWorkerCapability = {
     kind,
     executable,
+    ...(selection.providerId ? { providerId: selection.providerId } : {}),
+    ...(selection.identity ? { identity: selection.identity } : {}),
     installed: rawVersion !== null,
     version,
     available: false,
@@ -333,7 +427,7 @@ async function inspect(
     result.reason =
       kind === "cursor"
         ? "Cursor SDK is not installed or its package metadata cannot be inspected"
-        : `${executable} is not installed or its read-only version probe failed`;
+        : `${kind} is not installed or its read-only version probe failed`;
     return result;
   }
   if (kind === "cursor") {
@@ -356,8 +450,9 @@ async function inspect(
       path.join(os.tmpdir(), "graph-codex-capabilities-"),
     );
     try {
+      await beforeCommand?.();
       const generated = await command(
-        "codex",
+        executable,
         [
           "app-server",
           "generate-json-schema",
@@ -384,7 +479,12 @@ async function inspect(
           "Installed Codex protocol does not declare restricted readOnly access/readableRoots. Ordinary read-only mode allows reads outside the scratch directory, so this worker is unavailable.";
         return result;
       }
-      const flags = await probe("codex", ["features", "list"]);
+      const flags = await probe(
+        executable,
+        ["features", "list"],
+        undefined,
+        beforeCommand,
+      );
       const missing = CODEX_DISABLED_FEATURES.filter(
         (feature) =>
           !flags?.split("\n").some((line) => line.startsWith(`${feature} `)),
@@ -401,7 +501,8 @@ async function inspect(
         "Restricted-read App Server worker: some internal tools can remain visible; execution permissions are enforced by Codex, not intercepted by Graph Engineering.",
         "Output/context limits are observed after usage events; no exact provider token cap is available.",
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof InstalledIdentityError) throw error;
       result.reason =
         "Cannot verify the installed Codex App Server restricted-read protocol";
     } finally {
@@ -420,7 +521,7 @@ async function inspect(
       "The restricted Claude adapter requires Claude Code 2.1.278 or later in the 2.1 series; other versions have not passed its capability gate";
     return result;
   }
-  const help = await probe(executable, ["--help"]);
+  const help = await probe(executable, ["--help"], probeEnv, beforeCommand);
   const missing = CLAUDE_REQUIRED_FLAGS.filter((flag) => !help?.includes(flag));
   if (missing.length) {
     result.reason = `Claude CLI lacks required capability flags: ${missing.join(", ")}`;
@@ -430,6 +531,7 @@ async function inspect(
   result.mode = "proposal-only";
   result.supportsSubscription = await claudeSubscriptionReady(
     claudeRunEnv ?? claudeEnvironment(4000),
+    selection,
   );
   result.authentication = result.supportsSubscription
     ? "native-login"
@@ -444,9 +546,37 @@ async function inspect(
 }
 
 /** Read-only probes only. Does not log in, install clients, or make model requests. */
-export async function discoverInstalledWorkers(): Promise<
-  InstalledWorkerCapability[]
-> {
+export async function discoverInstalledWorkers(
+  configured?: ProviderConfig[],
+  policy?: ProjectPolicy,
+): Promise<InstalledWorkerCapability[]> {
+  if (configured !== undefined)
+    return Promise.all(
+      configured.filter(isInstalledProvider).map(async (provider) => {
+        const kind = provider.kind as InstalledKind;
+        try {
+          const selection = await selectInstalledWorker(provider, policy);
+          return await inspect(kind, undefined, selection);
+        } catch (error) {
+          if (!(error instanceof InstalledIdentityError)) throw error;
+          return {
+            kind,
+            providerId: provider.id,
+            executable: kind === "cursor" ? process.execPath : kind,
+            installed: false,
+            version: null,
+            available: false,
+            authentication: "unavailable" as const,
+            supportsSubscription: false,
+            mode: "unavailable" as const,
+            reason: error.message,
+            limits: [
+              "No worker execution is authorized by identity discovery.",
+            ],
+          };
+        }
+      }),
+    );
   return Promise.all(
     (["codex", "claude", "cursor"] as const).map((kind) => inspect(kind)),
   );
@@ -514,6 +644,7 @@ class CodexConnection {
     cwd: string,
     timeoutMs: number | null,
     private signal?: AbortSignal,
+    executable = "codex",
   ) {
     const args = [
       "app-server",
@@ -542,7 +673,7 @@ class CodexConnection {
       ...baseEnvironment(),
       ...(process.env.CODEX_HOME ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
     };
-    this.child = spawn("codex", args, {
+    this.child = spawn(executable, args, {
       cwd,
       env,
       windowsHide: true,
@@ -659,7 +790,11 @@ class CodexConnection {
   }
 }
 
-async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
+async function invokeCodexWorker(
+  input: WorkerInput,
+  selection: InstalledSelection,
+  capability: InstalledWorkerCapability,
+): Promise<WorkerResult> {
   const { provider, policy, signal } = input;
   if (provider.endpoint)
     throw new Error(
@@ -695,12 +830,16 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
       "Installed-worker request exceeds configured context budget",
     );
   const temporary = await mkdtemp(path.join(os.tmpdir(), "graph-worker-"));
-  const rpc = new CodexConnection(
-    temporary,
-    installedWorkerTimeoutMs(policy),
-    signal,
-  );
+  let connection: CodexConnection | undefined;
   try {
+    await selection.beforeCommand?.();
+    input.onInstalledDispatch?.(capability);
+    const rpc = (connection = new CodexConnection(
+      temporary,
+      installedWorkerTimeoutMs(policy),
+      signal,
+      selection.executable,
+    ));
     await rpc.request("initialize", {
       clientInfo: { name: "graph_engineering", version: "0.1.0" },
       capabilities: { experimentalApi: true },
@@ -894,6 +1033,7 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
     };
     for (const event of rpc.takeStartupNotifications())
       rpc.onNotification(event.method, event.params);
+    await selection.beforeCommand?.();
     await rpc.request("turn/start", {
       threadId,
       cwd: temporary,
@@ -927,12 +1067,16 @@ async function invokeCodexWorker(input: WorkerInput): Promise<WorkerResult> {
       model: thread.model ?? provider.model,
     };
   } finally {
-    await rpc.dispose();
+    await connection?.dispose();
     await rm(temporary, { recursive: true, force: true });
   }
 }
 
-async function invokeCursorWorker(input: WorkerInput): Promise<WorkerResult> {
+async function invokeCursorWorker(
+  input: WorkerInput,
+  selection: InstalledSelection,
+  capability: InstalledWorkerCapability,
+): Promise<WorkerResult> {
   const { provider, policy, signal } = input;
   if (provider.endpoint)
     throw new Error(
@@ -988,6 +1132,8 @@ async function invokeCursorWorker(input: WorkerInput): Promise<WorkerResult> {
     delete environment.HOME;
     delete environment.USERPROFILE;
     delete environment.XDG_CONFIG_HOME;
+    await selection.beforeCommand?.();
+    input.onInstalledDispatch?.(capability);
     const native = await command(
       process.execPath,
       [fileURLToPath(new URL("./cursor-runner.js", import.meta.url))],
@@ -1061,11 +1207,17 @@ export async function invokeInstalledWorker(
   )
     throw new Error("Worker instructions contain a potential secret");
   if (provider.kind !== "claude") {
-    const capability = await inspect(provider.kind as InstalledKind);
+    const selection = await selectInstalledWorker(provider, policy, input);
+    const capability = await inspect(
+      provider.kind as InstalledKind,
+      undefined,
+      selection,
+    );
     if (!capability.available)
       throw new Error(capability.reason ?? "Installed worker is unavailable");
-    if (provider.kind === "codex") return invokeCodexWorker(input);
-    return invokeCursorWorker(input);
+    if (provider.kind === "codex")
+      return invokeCodexWorker(input, selection, capability);
+    return invokeCursorWorker(input, selection, capability);
   }
   const subscription = provider.apiKeyEnv === undefined;
   if (subscription && provider.endpoint)
@@ -1089,7 +1241,8 @@ export async function invokeInstalledWorker(
     subscription ? undefined : key,
     endpoint,
   );
-  const capability = await inspect("claude", env);
+  const selection = await selectInstalledWorker(provider, policy, input);
+  const capability = await inspect("claude", env, selection);
   if (!capability.available)
     throw new Error(capability.reason ?? "Installed worker is unavailable");
   if (subscription && !capability.supportsSubscription)
@@ -1157,14 +1310,36 @@ export async function invokeInstalledWorker(
       JSON.stringify(proposalJsonSchema),
       ...(input.effort ? ["--effort", input.effort] : []),
     ];
-    const response = await command(capability.executable, argv, {
-      cwd: temporary,
-      env,
-      input: prompt,
-      signal,
-      timeoutMs: installedWorkerTimeoutMs(policy),
-      maxBytes: 2_000_000,
-    });
+    await selection.beforeCommand?.();
+    input.onInstalledDispatch?.(capability);
+    let response: Awaited<ReturnType<typeof command>>;
+    try {
+      response = await command(capability.executable, argv, {
+        cwd: temporary,
+        env,
+        input: prompt,
+        signal,
+        timeoutMs: installedWorkerTimeoutMs(policy),
+        maxBytes: 2_000_000,
+      });
+    } catch (error) {
+      // Native spawn errors include absolute executable paths. Keep only
+      // the command helper's known path-free bounded-transport diagnoses.
+      /* eslint-disable preserve-caught-error -- Native causes can expose local paths through diagnostics. */
+      if (signal?.aborted) throw new Error("Claude worker cancelled");
+      if (
+        error instanceof Error &&
+        (error.message === "Command exceeded output limit" ||
+          /^Command terminated \((?:SIG[A-Z0-9]+|timeout or cancellation)\)$/.test(
+            error.message,
+          ))
+      )
+        throw new Error(error.message);
+      throw new Error(
+        "Claude worker transport failed; native diagnostics are withheld",
+      );
+      /* eslint-enable preserve-caught-error */
+    }
     if (response.code !== 0)
       throw new Error(
         `Claude worker exited with code ${response.code}; native error output is withheld because it can contain credentials or context`,

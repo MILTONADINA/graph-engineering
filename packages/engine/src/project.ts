@@ -4,6 +4,7 @@ import envPaths from "env-paths";
 import { z } from "zod";
 import {
   assertProjectConfig,
+  assertInstalledWorkerIdentity,
   DEFAULT_POLICY,
   SCHEMA_VERSION,
   type ProjectConfig,
@@ -83,11 +84,32 @@ const providerSchema = z
       })
       .strict()
       .optional(),
+    installedIdentity: z
+      .object({ realpath: z.string(), sha256: z.string() })
+      .strict()
+      .superRefine((identity, context) => {
+        try {
+          assertInstalledWorkerIdentity(identity);
+        } catch {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Installed identity needs an absolute path and lowercase SHA-256",
+          });
+        }
+      })
+      .optional(),
   })
   .strict()
   .refine(
     (provider) => !provider.localOptions || provider.kind === "local",
     "Local inference options apply only to local providers",
+  )
+  .refine(
+    (provider) =>
+      !provider.installedIdentity ||
+      ["claude", "codex", "cursor"].includes(provider.kind),
+    "Installed identities apply only to installed providers",
   );
 export async function loadProviders(
   dataDir: string,

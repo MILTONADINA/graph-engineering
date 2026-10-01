@@ -51,3 +51,10 @@ export {
   discoverInstalledWorkers,
   invokeInstalledWorker,
 } from "./workers/installed.js";
+export {
+  inspectInstalledIdentity,
+  assertInstalledIdentity,
+  bindInstalledWorker,
+  isInstalledProvider,
+  installedProviderProfileSha256,
+} from "./workers/identity.js";
