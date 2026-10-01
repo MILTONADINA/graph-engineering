@@ -69,7 +69,9 @@ worker-step deadlines; native clients/providers can retain their own limits.
 Process cancellation/termination, output and turn bounds, export controls,
 schema validation and installed-client capability checks stay in place.
 Worker-slot waits and capability probes remain bounded, as do API requests,
-templates, generators, verification and security scans. The setting does not change any
+templates, generators and security scans. Verification is unchanged by the
+installed-worker setting; its separate opt-in is specified in
+[verification deadlines](../quality/verification-deadlines.md). The setting does not change any
 write scope, credential, provider enablement or budget. Installed workers still
 refuse numeric monetary caps because they cannot enforce them. The operator
 applies a complete reviewed policy with `graph-engine policy --file <policy.json>`

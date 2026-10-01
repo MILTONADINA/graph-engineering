@@ -156,8 +156,10 @@ client-safety checks remain enforced. Only Graph's installed-call and eligible
 worker-step deadlines are removed; native clients and providers can still
 enforce their own limits. Fixed capability/version/authentication probes and
 worker-slot waits keep their existing bounds. API/local inference, templates,
-generators, verification and security scans keep their own finite limits; this field does
-not relax them. Installed clients still cannot enforce a numeric monetary cap
+generators and security scans keep their own finite limits. This field does not
+alter verification: its separate opt-in
+[`verificationTimeoutSeconds`](verification-images.md#execution-deadlines)
+controls check execution. Installed clients still cannot enforce a numeric monetary cap
 and remain refused under one. No cost, provider, credential or export setting
 is changed by selecting a deadline.
 

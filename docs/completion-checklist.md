@@ -11,10 +11,26 @@ The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
-## Active follow-on: per-plan verification selection
+## Active follow-on: completion-driven verification
+
+Scope is the built-in verifier's optional per-check deadline, not run-wide
+unlimited execution or any change to installed-worker controls. See the
+[current handover](claude-code-handover.md#completion-driven-verification--implementation-checkpoint)
+and [deadline spec](../specs/quality/verification-deadlines.md).
+
+- [x] Optional nullable verification timeout; existing defaults unchanged.
+- [x] Focused terminal/cancellation/failure, policy-binding and preservation evidence.
+- [x] Complete operator contract, limitations and scoped independent review.
+- [ ] All required exact-head CI checks and normal fork-dev PR merge.
+- [ ] Deliver actual reviewed merged pin and CI/build identities.
+
+The feature PR's final Verification record establishes the release outcome;
+implementation alone is not a released consumer pin.
+
+## Completed follow-on: per-plan verification selection
 
 This is separate from the completed identity release below. See the
-[current handover](claude-code-handover.md#per-plan-verification-selection--implementation-checkpoint)
+[current handover](claude-code-handover.md#per-plan-verification-selection--released)
 and [selection spec](../specs/quality/verification-selection.md).
 
 - [x] Operator-owned named catalogue and explicit optional selections, with
@@ -22,12 +38,15 @@ and [selection spec](../specs/quality/verification-selection.md).
 - [x] Full-plan catalogue/descriptor binding and start/resume/runtime drift
       refusals without weakening approval, tester or repair boundaries.
 - [x] CLI/MCP/HTTP contract, focused synthetic evidence and scoped review.
-- [ ] Required exact-head CI and reviewed merge into fork `dev`.
-- [ ] Exact merged pin and CI/build evidence delivered for consumer adoption.
+- [x] Required exact-head CI and reviewed merge into fork `dev`.
+- [x] Exact merged pin and CI/build evidence delivered for consumer adoption.
 
-The feature PR's final verification record establishes release outcomes. An
-unmerged head is not an adoption pin, and identity-release CI does not validate
-this follow-on. No live-inference or independent-promotion claim is made.
+[PR #123](https://github.com/MILTONADINA/graph-engineering/pull/123) merged at
+`104accacf0c4389699bfab3f32140095e13654fa` after all nine required checks in
+[CI run 36820953784](https://github.com/MILTONADINA/graph-engineering/actions/runs/36820953784),
+attempt 1. Its checked and merged commits have identical trees. The handover
+and PR Verification record hold exact source/build/job identities. Consumer
+activation remains separate; no live-inference or promotion claim is made.
 
 ## Completed follow-on: reviewed installed-worker identity
 
@@ -49,7 +68,7 @@ and [identity spec](../specs/providers/installed-worker-identity.md).
 [CI run 36816489588](https://github.com/MILTONADINA/graph-engineering/actions/runs/36816489588),
 attempt 1. Checked head and merge share the same Git tree; the handover and
 PR record the full identities. No live-inference or independent promotion
-claim is made. Per-plan selection remains a separate release requirement.
+claim is made. Per-plan selection has its separate completed release above.
 
 ## Current release checkpoint — 2026-09-30
 
