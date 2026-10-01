@@ -15,6 +15,32 @@ On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
+### Completion-driven decision calls — stacked implementation checkpoint
+
+The separate `feat/completion-driven-decisions` follow-on is stacked on
+verification PR #124. Optional `policy.decisionTimeoutSeconds` applies to each
+managed Laya/Jev HTTP request and response body: absence preserves the existing
+10-second deadline, integer `1..86400` selects a deadline, and `null` keeps caller
+cancellation without an elapsed timeout. It does not inherit `timeoutSeconds`
+or change verification/worker deadlines. Defaults, byte/export/cost limits,
+conservative settlement and promotion boundaries remain. Explicit cancellation
+keeps baselines and stops provider cascading. Public `assertProjectPolicy`
+validates against the existing exported schema; `decideBatch` validates its
+cloned policy before requests. See [decision-call deadlines](decisions.md#decision-call-deadlines)
+and [the spec](../specs/decisions/decision-deadlines.md).
+
+This added generic requirement is not part of released `104accac`.
+Implementation, 18 distinct new focused cases, 51 affected compatibility cases,
+typecheck, dependency/engine builds and scoped independent reviews are complete.
+Final source manifest:
+`074f05032abcdea629ab648c4a1bfc6e3c32f0c55cc23c1e86326af9ea557d22`
+over 123 files. Local tests used synthetic transports/streams/clocks, not live
+provider or promotion evidence. The top PR's final Verification record must
+establish exact-head required CI and actual reviewed merged pin/tree for both
+stacked changes. The consumer retains the prior merged pin until then.
+No new provider call, actual project policy, budget, credential, promotion,
+export authority or consumer repository change is authorized by this feature.
+
 ### Completion-driven verification — implementation checkpoint
 
 The separate `feat/completion-driven-verification` follow-on adds optional

@@ -1,6 +1,7 @@
-import type {
-  DecisionRecord,
-  ProjectPolicy,
+import {
+  assertProjectPolicy,
+  type DecisionRecord,
+  type ProjectPolicy,
 } from "@graph-engineering/contracts";
 import { z } from "zod";
 import {
@@ -117,24 +118,52 @@ function strings(value: unknown): string[] {
 }
 async function readDecisionResponse(
   response: Response,
+  signal?: AbortSignal,
 ): Promise<Record<string, any>> {
   if (!response.body)
     throw new Error("Decision provider returned an empty response");
   const reader = response.body.getReader(),
     chunks: Uint8Array[] = [];
   let bytes = 0;
+  let abortRead: (() => void) | undefined;
   try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      bytes += next.value.byteLength;
-      if (bytes > 1_000_000)
-        throw new Error("Decision response exceeds size limit");
-      chunks.push(next.value);
-    }
+    signal?.throwIfAborted();
+    const aborted = signal
+      ? new Promise<never>((_resolve, reject) => {
+          abortRead = () => reject(signal.reason);
+          signal.addEventListener("abort", abortRead, { once: true });
+          if (signal.aborted) abortRead();
+        })
+      : undefined;
+    const readBody = (async () => {
+      while (true) {
+        const next = await reader.read();
+        signal?.throwIfAborted();
+        if (next.done) break;
+        bytes += next.value.byteLength;
+        if (bytes > 1_000_000)
+          throw new Error("Decision response exceeds size limit");
+        chunks.push(next.value);
+      }
+    })();
+    // One race for the bounded body, not one retained abort reaction per
+    // chunk. This also handles streams that do not honor fetch's signal.
+    if (aborted) await Promise.race([readBody, aborted]);
+    else await readBody;
   } finally {
-    await reader.cancel();
-    reader.releaseLock();
+    if (abortRead) signal?.removeEventListener("abort", abortRead);
+    // Cancellation is best-effort local cleanup, not proof that remote work
+    // stopped. An arbitrary asynchronous cancel hook must not hold up abort.
+    try {
+      void reader.cancel().catch(() => {});
+    } catch {
+      // A stream may already have released or failed its reader.
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      // Cleanup failure must not replace the response or cancellation error.
+    }
   }
   const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -182,7 +211,17 @@ export async function decideBatch(
   // Record and enforce the dispatch policy, not a mutable caller object that
   // could change while reservation, inference, or accounting is awaited.
   const policy = structuredClone(options.policy);
+  assertProjectPolicy(policy);
   const policyVersion = hash(policy);
+  const timeoutMs =
+    policy.decisionTimeoutSeconds === null
+      ? null
+      : (policy.decisionTimeoutSeconds ?? 10) * 1000;
+  const callerSignal = options.signal;
+  const assertNotCancelled = () => {
+    if (callerSignal?.aborted)
+      throw new Error("Decision request cancelled; baseline retained");
+  };
   const questions = z
     .array(questionSchema)
     .min(1)
@@ -250,6 +289,7 @@ export async function decideBatch(
     let accountingFailure = false;
     let callUsage: DecisionCallUsage | undefined;
     try {
+      assertNotCancelled();
       if (!policy.providers.includes(provider.id))
         throw new Error(`Decision provider ${provider.id} is not permitted`);
       assertEndpoint(provider.endpoint, policy, provider.id === "laya");
@@ -343,6 +383,16 @@ export async function decideBatch(
         throw new Error(
           "Decision policy changed before dispatch; baseline retained",
         );
+      // A reservation may await durable storage. Cancellation during that
+      // await never dispatches a new request or invents a refund.
+      assertNotCancelled();
+      const requestSignal =
+        timeoutMs === null
+          ? callerSignal
+          : AbortSignal.any([
+              ...(callerSignal ? [callerSignal] : []),
+              AbortSignal.timeout(timeoutMs),
+            ]);
       dispatched = true;
       const response = await fetch(provider.endpoint, {
         method: "POST",
@@ -352,14 +402,13 @@ export async function decideBatch(
           ...(key ? { Authorization: `Bearer ${key}` } : {}),
         },
         body,
-        signal: AbortSignal.any([
-          options.signal ?? new AbortController().signal,
-          AbortSignal.timeout(10000),
-        ]),
+        signal: requestSignal,
       });
+      requestSignal?.throwIfAborted();
       if (!response.ok)
         throw new Error(`Decision provider HTTP ${response.status}`);
-      result = await readDecisionResponse(response);
+      result = await readDecisionResponse(response, requestSignal);
+      requestSignal?.throwIfAborted();
     } catch (error) {
       failure =
         error instanceof Error ? error.message : "Decision provider failed";
@@ -435,6 +484,8 @@ export async function decideBatch(
     let policyChanged = hash(options.policy) !== policyVersion;
     if (policyChanged)
       failure = "Decision policy changed during the request; baseline retained";
+    let cancelled = callerSignal?.aborted === true;
+    if (cancelled) failure = "Decision request cancelled; baseline retained";
     for (const question of pending) {
       const proof = evidence.find(
         (item) =>
@@ -457,6 +508,8 @@ export async function decideBatch(
           typeof result?.model === "string" ? result.model : null,
         );
       const eligible =
+        !failure &&
+        !cancelled &&
         !policyChanged &&
         promotedScope(question) &&
         routeVerdict?.admitted === true &&
@@ -471,7 +524,11 @@ export async function decideBatch(
         failure =
           "Decision policy changed during authorization; baseline retained";
       }
-      const promoted = eligible && !policyChanged;
+      if (callerSignal?.aborted) {
+        cancelled = true;
+        failure = "Decision request cancelled; baseline retained";
+      }
+      const promoted = eligible && !policyChanged && !cancelled;
       let selected: string | null,
         confidence: number | null = null,
         questionFailure = failure;
@@ -538,20 +595,23 @@ export async function decideBatch(
         },
       });
     }
-    if (policyChanged) {
+    if (policyChanged || cancelled) {
       for (const question of questions)
         selections[question.id] = question.baseline;
       resolved.clear();
       for (const record of records) {
-        if (record.mode !== "promoted") continue;
+        if (!cancelled && record.mode !== "promoted") continue;
         record.mode = "shadow";
         record.evidence.promotionAuthority = "unverified";
-        record.evidence.failure =
-          "Decision policy changed during authorization; baseline retained";
+        record.evidence.failure = cancelled
+          ? "Decision request cancelled; baseline retained"
+          : "Decision policy changed during authorization; baseline retained";
+        if (cancelled) record.selected = null;
       }
     }
-    // No cascading spend after a failed accounting write or exceeded price bound.
-    if (accountingFailure || policyChanged) break;
+    // No cascading spend after cancellation, a failed accounting write or
+    // exceeded price bound. Dispatched calls still use the existing ledger.
+    if (accountingFailure || policyChanged || cancelled) break;
   }
   return { records, selections, usage: usages };
 }

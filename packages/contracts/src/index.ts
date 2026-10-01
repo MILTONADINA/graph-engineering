@@ -89,6 +89,13 @@ export interface ProjectPolicy {
    * cleanup retain fixed bounds. Changing this field requires a fresh plan.
    */
   verificationTimeoutSeconds?: number | null;
+  /**
+   * Each typed decision provider request: absent preserves the independent
+   * ten-second limit; null waits for terminal completion or caller abort;
+   * an integer sets its wall-clock limit. Other execution limits, billing
+   * and promotion gates are unchanged. Changing it requires a fresh plan.
+   */
+  decisionTimeoutSeconds?: number | null;
   maxCostUsd: number | null;
   decisionMode: "shadow" | "promoted";
   promotedCategories: string[];
@@ -705,6 +712,12 @@ export const policySchema = {
         { type: "integer", minimum: 1, maximum: 86400 },
       ],
     },
+    decisionTimeoutSeconds: {
+      anyOf: [
+        { type: "null" },
+        { type: "integer", minimum: 1, maximum: 86400 },
+      ],
+    },
     maxCostUsd: {
       anyOf: [{ type: "null" }, { type: "number", minimum: 0 }],
     },
@@ -817,9 +830,19 @@ const Ajv = Ajv2020 as unknown as typeof import("ajv").default;
 const ajv = new Ajv({ allErrors: true, strict: false, strictNumbers: true });
 (addFormats as unknown as (a: typeof ajv) => void)(ajv);
 const validateProject = ajv.compile(projectSchema);
+const validatePolicy = ajv.compile(policySchema);
 const validateGenerator = ajv.compile(generatorSchema);
 const validateVerificationCatalogue = ajv.compile(verificationCatalogueSchema);
 const validateVerificationSelection = ajv.compile(verificationSelectionSchema);
+/** Validate a standalone policy at public interfaces without a fake project. */
+export function assertProjectPolicy(
+  value: unknown,
+): asserts value is ProjectPolicy {
+  if (!validatePolicy(value))
+    throw new Error(
+      `Invalid project policy: ${ajv.errorsText(validatePolicy.errors)}`,
+    );
+}
 export function assertVerificationCatalogue(
   value: unknown,
 ): asserts value is VerificationCheck[] {

@@ -11,6 +11,18 @@ The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
+## Active follow-on: completion-driven decision calls
+
+This is a separate generic opt-in stacked on verification PR #124. See the
+[current handover](claude-code-handover.md#completion-driven-decision-calls--stacked-implementation-checkpoint)
+and [decision-deadline spec](../specs/decisions/decision-deadlines.md).
+
+- [x] Optional validated per-provider-request timeout; existing 10-second default unchanged.
+- [x] Focused completion/cancellation, byte/cost/accounting and policy-binding evidence.
+- [x] Tool-neutral operator contract and independent scoped review.
+- [ ] Top-stack exact-head required CI, protected fork-dev merge and lower-PR closure.
+- [ ] Deliver reviewed merged pin and build/CI identities for both deadline settings.
+
 ## Active follow-on: completion-driven verification
 
 Scope is the built-in verifier's optional per-check deadline, not run-wide

@@ -37,6 +37,52 @@ descriptions, and state all need export review. The presence of a Jev provider
 does not grant permission to upload arbitrary local state. Oversized or
 secret-bearing requests abstain; no text is silently truncated at dispatch.
 
+## Decision-call deadlines
+
+The optional project policy field `decisionTimeoutSeconds` controls each
+managed Laya/Jev HTTP request through response-body completion:
+
+| Value              | Decision-call behavior                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| Absent             | Preserve the existing 10-second elapsed deadline. This does not inherit `timeoutSeconds`. |
+| Integer `1..86400` | Use that many seconds for each provider request.                                          |
+| `null`             | No fixed HTTP elapsed deadline; retain explicit caller cancellation and other guards.     |
+
+The field is absent from `DEFAULT_POLICY`. It is independent of verification,
+installed-worker and other tool deadlines, and is not a whole-plan timer or
+an inactivity watchdog. Provider-side limits and a caller signal's own deadline
+can still apply. A silent or hung request in completion-driven mode needs caller
+or managed-run cancellation.
+
+An operator adds `"decisionTimeoutSeconds": null` only when intended to a
+**complete reviewed policy document**, then uses the existing
+`graph-engine policy --file <policy.json>` command before fresh planning and
+any required approval. Do not pass a partial policy or change a monetary cap,
+export rule, provider allowlist or promotion setting to select a deadline.
+Adding, removing or changing the field changes the full-policy hash; an old
+plan or retained run cannot acquire the new setting through reapproval or
+resume. CLI/MCP/HTTP callers use that same operator-owned configuration.
+
+Exported `assertProjectPolicy(value)` validates the policy against
+`policySchema` without adding defaults. Public `decideBatch` validates its
+cloned dispatch policy before any request; malformed overrides are rejected,
+not converted into unbounded calls. The existing policy-drift checks remain.
+
+Explicit cancellation retains deterministic baselines and stops later provider
+dispatch; a late answer cannot revive a cancelled batch. A timeout or provider
+failure still uses the existing abstention and permitted-cascade behavior.
+Already-dispatched ambiguous failures keep conservative accounting: aborting
+HTTP does not prove the remote provider stopped work or did not bill. No
+unknown cost is changed to zero and no unconfirmed refund is inferred.
+
+Request/state/response byte limits, endpoint and export validation, cost
+reservations, usage settlement, promotion gates and all mandatory engineering
+checks remain independent. `null` does not authorize a provider or promote a
+decision, and does not remove unrelated authority, accounting or tool limits.
+See the [decision-deadline spec](../specs/decisions/decision-deadlines.md) for
+evidence and release status. The feature PR must record required exact-head
+CI and merge before this follow-on is adopted.
+
 ## Laya sidecar
 
 The included sidecar is a Python standard-library HTTP service around the
