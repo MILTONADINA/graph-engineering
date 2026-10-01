@@ -71,6 +71,20 @@ over 121 engine files. The [handover](claude-code-handover.md#dart-and-generator
 records all job identities. Documentation-only follow-ups do not change this
 runtime-release pin; `d22d69a…` remains the independent approval-only option.
 
+The subsequent automatic push [run 36783841908](https://github.com/MILTONADINA/graph-engineering/actions/runs/36783841908)
+on documentation commit `d21761e` failed the Windows missing-image MCP privacy
+fixture with a generic SIGTERM; eight jobs passed. The terminated child is
+not identified by that log. A test-only portability correction replaces its
+Unix `PATH` shim with an exact image-inspection command double, retaining the
+real privacy-handling code, all response assertions and production timeouts.
+The local case and scoped review passed, and Windows
+[preflight 36799636801](https://github.com/MILTONADINA/graph-engineering/actions/runs/36799636801)
+ran the exact case successfully on `171630f`, job `110170850178` (one passed,
+not all skipped). See the [handover follow-up](claude-code-handover.md#post-release-windows-fixture-follow-up).
+Consult the PR on `fix/mcp-image-preflight-fixture` for the final required-check
+and merge outcome; focused proof does not substitute for those gates.
+Runtime identity and the independent approval/repair pin remain unchanged.
+
 ### Feature validation history (historical)
 
 The first PR #119 exact-head run
