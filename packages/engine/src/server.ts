@@ -12,6 +12,10 @@ import type {
   RunEvent,
   RunRecord,
 } from "@graph-engineering/contracts";
+import {
+  MAX_VERIFICATION_SELECTION,
+  VERIFICATION_CHECK_ID_PATTERN,
+} from "@graph-engineering/contracts";
 import type { GraphEngine } from "./service.js";
 import { dockerAvailable } from "./execution/docker.js";
 import { listTemplates } from "./templates.js";
@@ -283,6 +287,11 @@ export function createServer(
           acceptance: z.array(z.string().min(1).max(4000)).min(1).max(50),
           providerId: z.string().optional(),
           effort: z.string().optional(),
+          checkIds: z
+            .array(z.string().regex(new RegExp(VERIFICATION_CHECK_ID_PATTERN)))
+            .min(1)
+            .max(MAX_VERIFICATION_SELECTION)
+            .optional(),
           steps: z
             .array(
               z

@@ -114,12 +114,26 @@ export const DEFAULT_POLICY: ProjectPolicy = {
   decisionMode: "shadow",
   promotedCategories: [],
 };
+/** An operator-registered verification command; omitted optional means mandatory. */
+export interface VerificationCheck {
+  image: string;
+  argv: string[];
+  /** Stable operator-assigned catalogue ID, never an array position. */
+  id?: string;
+  /** True allows omission by an explicit plan selection; selected checks must pass. */
+  optional?: boolean;
+}
+/** Frozen selection of a complete reviewed catalogue; null selects all checks. */
+export interface VerificationSelection {
+  catalogueSha256: string;
+  checkIds: string[] | null;
+}
 export interface ProjectConfig {
   version: typeof SCHEMA_VERSION;
   projectId: string;
   name: string;
   policy: ProjectPolicy;
-  verification: { argv: string[]; image: string }[];
+  verification: VerificationCheck[];
   /** Commands only a local operator can register for generator plan steps. */
   generators?: GeneratorRegistration[];
   github?: { repository: string; baseBranch: string; remote: string };
@@ -354,6 +368,8 @@ export interface ExecutionPlan {
   acceptance: string[];
   steps: ExecutionStep[];
   verification: ProjectConfig["verification"];
+  /** All new plans bind their complete catalogue; absent only on legacy plans. */
+  verificationSelection?: VerificationSelection;
   /** Frozen registrations for its generator steps; absent on older plans. */
   generators?: GeneratorRegistration[];
   /** Frozen installed-worker pins; absent on legacy, unpinned plans. */
@@ -469,6 +485,52 @@ export interface DecisionRecord {
 
 const nonempty = { type: "string", minLength: 1 };
 const strings = { type: "array", items: nonempty, uniqueItems: true };
+export const VERIFICATION_CHECK_ID_PATTERN =
+  "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$(?![\\s\\S])";
+export const MAX_VERIFICATION_SELECTION = 1000;
+const verificationCheckIdSchema = {
+  type: "string",
+  minLength: 1,
+  maxLength: 80,
+  pattern: VERIFICATION_CHECK_ID_PATTERN,
+};
+export const verificationCheckIdsSchema = {
+  type: "array",
+  minItems: 1,
+  maxItems: MAX_VERIFICATION_SELECTION,
+  uniqueItems: true,
+  items: verificationCheckIdSchema,
+};
+export const verificationCatalogueSchema = {
+  type: "array",
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["argv", "image"],
+    properties: {
+      argv: { type: "array", minItems: 1, items: nonempty },
+      image: nonempty,
+      id: verificationCheckIdSchema,
+      optional: { type: "boolean" },
+    },
+    if: { required: ["optional"], properties: { optional: { const: true } } },
+    then: { required: ["id"] },
+  },
+};
+export const verificationSelectionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["catalogueSha256", "checkIds"],
+  properties: {
+    catalogueSha256: {
+      type: "string",
+      minLength: 64,
+      maxLength: 64,
+      pattern: "^[a-f0-9]{64}$",
+    },
+    checkIds: { anyOf: [{ type: "null" }, verificationCheckIdsSchema] },
+  },
+};
 export const installedWorkerIdentitySchema = {
   type: "object",
   additionalProperties: false,
@@ -647,18 +709,7 @@ export const projectSchema = {
     projectId: { type: "string", pattern: "^[a-zA-Z0-9_-]{8,80}$" },
     name: nonempty,
     policy: policySchema,
-    verification: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["argv", "image"],
-        properties: {
-          argv: { type: "array", minItems: 1, items: nonempty },
-          image: nonempty,
-        },
-      },
-    },
+    verification: verificationCatalogueSchema,
     generators: {
       type: "array",
       maxItems: 100,
@@ -754,6 +805,29 @@ const ajv = new Ajv({ allErrors: true, strict: false, strictNumbers: true });
 (addFormats as unknown as (a: typeof ajv) => void)(ajv);
 const validateProject = ajv.compile(projectSchema);
 const validateGenerator = ajv.compile(generatorSchema);
+const validateVerificationCatalogue = ajv.compile(verificationCatalogueSchema);
+const validateVerificationSelection = ajv.compile(verificationSelectionSchema);
+export function assertVerificationCatalogue(
+  value: unknown,
+): asserts value is VerificationCheck[] {
+  if (!validateVerificationCatalogue(value))
+    throw new Error(
+      `Invalid verification catalogue: ${ajv.errorsText(validateVerificationCatalogue.errors)}`,
+    );
+  const ids = (value as VerificationCheck[])
+    .map((check) => check.id)
+    .filter((id): id is string => id !== undefined);
+  if (new Set(ids).size !== ids.length)
+    throw new Error("Invalid verification catalogue: duplicate check IDs");
+}
+export function assertVerificationSelection(
+  value: unknown,
+): asserts value is VerificationSelection {
+  if (!validateVerificationSelection(value))
+    throw new Error(
+      `Invalid verification selection: ${ajv.errorsText(validateVerificationSelection.errors)}`,
+    );
+}
 const validateInstalledWorkerIdentity = ajv.compile(
   installedWorkerIdentitySchema,
 );
@@ -889,6 +963,7 @@ export function assertProjectConfig(
       `Invalid project configuration: live target ${repeated} is declared twice`,
     );
   const project = value as unknown as ProjectConfig;
+  assertVerificationCatalogue(project.verification);
   const generators = project.generators ?? [];
   const generatorIds = generators.map((generator) => generator.id);
   const duplicateGenerator = generatorIds.find(

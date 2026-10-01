@@ -6,9 +6,11 @@ Installed clients return structured patch proposals. Graph Engineering applies a
 
 ## Reviewed executable identity (opt-in)
 
-Implemented locally with focused regression evidence; reviewed release and
-required exact-head CI are pending. The contract below is not yet a released
-consumer pin or a claim of live installed-client inference.
+Released in [PR #122](https://github.com/MILTONADINA/graph-engineering/pull/122)
+at fork `dev` pin `40cfd318d5c79830ab02b3c84d260061f873b627`, after all nine
+required exact-head CI checks and scoped source review. The PR records the
+checked/merged tree and build identities. This is not live-client inference
+proof or external human acceptance.
 
 The optional `policy.requireInstalledWorkerIdentity: true` requires every
 installed worker used by a new plan to have an operator-reviewed

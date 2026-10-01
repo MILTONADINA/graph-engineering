@@ -59,6 +59,8 @@ async function readRegularFile(file: string): Promise<Buffer> {
   }
 }
 export interface VerificationResult {
+  /** Operator-assigned catalogue identity, absent for legacy unnamed checks. */
+  checkId?: string;
   argv: string[];
   image: string;
   imageId?: string;
@@ -153,6 +155,7 @@ export async function verifyInContainer(
         );
         results.push({
           ...result,
+          ...(check.id !== undefined ? { checkId: check.id } : {}),
           argv: check.argv,
           image: check.image,
           imageId,

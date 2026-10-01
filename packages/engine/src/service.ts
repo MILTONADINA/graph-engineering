@@ -147,6 +147,10 @@ import {
 import { dagParallelism } from "./scale.js";
 import { passedChecksSnapshot, stoppedAtReview } from "./overview.js";
 import { TESTER_STEP_ID, testerStep } from "./tester.js";
+import {
+  assertPlanVerificationSelection,
+  resolveVerificationSelection,
+} from "./verification-selection.js";
 import { parseSpec, planFromSpec, SPECS_DIR } from "./specs.js";
 import {
   renderTemplateProposal,
@@ -523,13 +527,24 @@ export class GraphEngine {
   }
   // A plan keeps the verification configured when it was created, so adding
   // checks later never makes it runnable; say which of the two to do.
-  private assertPlanVerification(plan: Pick<ExecutionPlan, "verification">) {
-    if (plan.verification.length > 0) return;
-    throw new Error(
-      this.config.verification.length > 0
-        ? "This plan was created before any verification command was configured; create a new plan"
-        : "Configure verification commands with graph-engine check-add, then create a new plan: a plan keeps the commands configured when it was created",
-    );
+  private assertPlanVerification(
+    plan: Pick<ExecutionPlan, "verification" | "verificationSelection">,
+  ) {
+    if (plan.verification.length === 0)
+      throw new Error(
+        this.config.verification.length > 0
+          ? "This plan was created before any verification command was configured; create a new plan"
+          : "Configure verification commands with graph-engine check-add, then create a new plan: a plan keeps the commands configured when it was created",
+      );
+    assertPlanVerificationSelection(plan, this.config.verification);
+  }
+  private async assertCurrentPlanVerification(
+    plan: ExecutionPlan,
+  ): Promise<void> {
+    await this.refresh();
+    if (hash(this.config.policy) !== plan.policyHash)
+      throw new Error("Policy changed during execution; create a fresh plan");
+    this.assertPlanVerification(plan);
   }
   // Configured workers the policy permits and, for installed agents, that
   // are installed.
@@ -799,7 +814,8 @@ export class GraphEngine {
       : undefined;
   }
   // Reviews share the run's worker slots, turn budget and cost reservations.
-  private async invokeReviewer(input: ReviewInput, ownerId: string) {
+  private async invokeReviewer(input: ReviewInput, plan: ExecutionPlan) {
+    await this.assertCurrentPlanVerification(plan);
     const callId = `worker-review-${id()}`;
     const started = Date.now();
     while (
@@ -811,8 +827,9 @@ export class GraphEngine {
     }
     try {
       if (input.signal?.aborted) throw new Error("Run cancelled");
+      await this.assertCurrentPlanVerification(plan);
       this.store.reserveCall(
-        ownerId,
+        plan.id,
         callId,
         input.provider.id,
         estimateRequestCost(
@@ -824,7 +841,7 @@ export class GraphEngine {
         input.policy.maxTurns,
       );
       const result = await (this.deps.review ?? invokeReviewWorker)(input);
-      this.store.settleCall(ownerId, callId, input.provider.id, result.usage);
+      this.store.settleCall(plan.id, callId, input.provider.id, result.usage);
       return result;
     } finally {
       this.store.releaseWorker(callId);
@@ -847,6 +864,7 @@ export class GraphEngine {
       await this.refresh();
       if (hash(this.config.policy) !== run.plan.policyHash)
         throw new Error("Policy changed during execution; dispatch stopped");
+      this.assertPlanVerification(run.plan);
       return this.assertDispatchIdentity(run.plan, input.provider);
     };
     const installedBinding = await validateIdentity();
@@ -1131,6 +1149,7 @@ export class GraphEngine {
       providerId?: string;
       effort?: string;
       steps?: ExecutionStep[];
+      checkIds?: string[];
     } = {},
   ): Promise<ExecutionPlan> {
     await this.refresh();
@@ -1156,6 +1175,7 @@ export class GraphEngine {
     providerId?: string;
     effort?: string;
     steps?: ExecutionStep[];
+    checkIds?: string[];
     spec?: ExecutionPlan["spec"];
     /**
      * Written by a cloud-backed MCP client: its workers, the tester and the
@@ -1172,6 +1192,10 @@ export class GraphEngine {
       throw new Error(
         "An objective and explicit acceptance criteria are required",
       );
+    const verification = resolveVerificationSelection(
+      this.config.verification,
+      input.checkIds,
+    );
     const snapshot = await this.context.index({ semantic: false });
     const planId = id();
     if (input.steps) {
@@ -1195,7 +1219,7 @@ export class GraphEngine {
           acceptance: input.acceptance,
           steps: validated,
           ...(generators.length ? { generators } : {}),
-          verification: structuredClone(this.config.verification),
+          ...verification,
           publication: this.config.policy.publication,
           ...(input.spec ? { spec: input.spec } : {}),
           cloudAuthored: input.cloudAuthored === true,
@@ -1324,7 +1348,7 @@ export class GraphEngine {
           ...routing.records.map((record) => record.id),
         ],
       },
-      verification: structuredClone(this.config.verification),
+      ...verification,
       publication: this.config.policy.publication,
       ...(input.spec ? { spec: input.spec } : {}),
       cloudAuthored: input.cloudAuthored === true,
@@ -1478,11 +1502,11 @@ export class GraphEngine {
     }
     if (policyChanged)
       throw new Error("Policy changed since planning; create a new plan");
+    this.assertPlanVerification(plan);
     await this.assertPlanInstalledWorkers(plan);
     this.assertLiveGenerators(plan);
     if (this.active.size >= this.config.policy.maxWorkers)
       throw new Error("Project concurrency limit reached");
-    this.assertPlanVerification(plan);
     if (!(await (this.deps.dockerAvailable ?? dockerAvailable)()))
       throw new Error("A running Docker-compatible engine is required");
     await this.assertSecurityScanner();
@@ -1503,6 +1527,7 @@ export class GraphEngine {
       throw new Error("Policy changed since planning; create a new plan");
     await this.assertPlanInstalledWorkers(plan);
     this.assertLiveGenerators(plan);
+    await this.assertCurrentPlanVerification(plan);
     this.assertOpen("started");
     const run: RunRecord = {
       id: id(),
@@ -1867,6 +1892,7 @@ export class GraphEngine {
       throw new Error(
         "Policy changed since this run was planned; a review approval could not be applied",
       );
+    this.assertPlanVerification(run.plan);
     const events = this.store.events(runId);
     // The run's latest attempt must have stopped at review, on a snapshot
     // whose required checks passed; the project board offers this command
@@ -1887,6 +1913,7 @@ export class GraphEngine {
       throw new Error(
         "The retained workspace no longer matches the snapshot whose checks passed",
       );
+    await this.assertCurrentPlanVerification(run.plan);
     this.store.event(runId, "review.person_approved", {
       snapshotHash,
       note: redact(reason),
@@ -1907,6 +1934,7 @@ export class GraphEngine {
     await this.refresh();
     if (hash(this.config.policy) !== run.plan.policyHash)
       throw new Error("Policy changed; create a fresh plan");
+    this.assertPlanVerification(run.plan);
     await this.assertPlanInstalledWorkers(run.plan);
     const pendingGeneratorStepIds =
       await this.pendingGeneratorStepsForResume(run);
@@ -1960,6 +1988,7 @@ export class GraphEngine {
       throw new Error("Policy changed; create a fresh plan");
     await this.assertPlanInstalledWorkers(run.plan);
     this.assertLiveGenerators(run.plan, pendingGeneratorStepIds);
+    await this.assertCurrentPlanVerification(run.plan);
     this.assertOpen("resumed");
     const reserved = this.store.reserveResume(
       runId,
@@ -1984,6 +2013,7 @@ export class GraphEngine {
     // earlier attempt's unfinished publication was acknowledged on resume.
     let publishing = false;
     try {
+      await this.assertCurrentPlanVerification(run.plan);
       const priorEvents = this.store.events(run.id);
       delete run.error;
       // Checks, review and acceptance describe one attempt's result.
@@ -2436,7 +2466,7 @@ export class GraphEngine {
                 .join("\n"),
               signal,
             },
-            run.plan.id,
+            run.plan,
           );
         } catch (error) {
           if (signal.aborted) throw error;
@@ -2649,6 +2679,7 @@ export class GraphEngine {
       let unresolvedDispute: string | undefined;
       const verify = async (stepId: string) => {
         if (signal.aborted) throw new Error("Run cancelled");
+        await this.assertCurrentPlanVerification(run.plan);
         save("verifying");
         const proposedPaths = await runWrittenPaths();
         await assertVerificationPaths(
@@ -2660,6 +2691,7 @@ export class GraphEngine {
           workspace,
           this.config.policy,
         );
+        await this.assertCurrentPlanVerification(run.plan);
         this.store.event(
           run.id,
           "verification.started",
@@ -2673,6 +2705,7 @@ export class GraphEngine {
           before,
           signal,
         );
+        await this.assertCurrentPlanVerification(run.plan);
         const after = await workspaceFingerprint(workspace, this.config.policy);
         this.store.event(
           run.id,
@@ -2797,6 +2830,7 @@ export class GraphEngine {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
               throw new Error("Policy changed before DAG patch application");
+            this.assertPlanVerification(run.plan);
             // The wave-level call must include sibling generators: a revoked
             // sibling cannot let an earlier independent step apply first.
             this.assertLiveGenerators(
@@ -2809,6 +2843,7 @@ export class GraphEngine {
             await this.refresh();
             if (hash(this.config.policy) !== run.plan.policyHash)
               throw new Error("Policy changed during DAG execution");
+            this.assertPlanVerification(run.plan);
             if (step.kind === "generator") {
               this.assertLiveGenerators(run.plan, new Set([step.id]));
               const registration = this.plannedGenerators(run.plan).find(
@@ -3131,6 +3166,9 @@ export class GraphEngine {
             provider: provider.id,
             model: provider.model,
             verification: run.plan.verification,
+            ...(run.plan.verificationSelection
+              ? { verificationSelection: run.plan.verificationSelection }
+              : {}),
             policy: run.plan.policyHash,
             // A solution verified under a wider scope is not reused here.
             writes: step.writes ?? null,
@@ -3151,6 +3189,7 @@ export class GraphEngine {
             : undefined;
         let reusableProposal: WorkerResult["proposal"] | undefined;
         if (cached) {
+          await this.assertCurrentPlanVerification(run.plan);
           const proposal = cached;
           await applyWholePatch(
             workspace,
@@ -3610,6 +3649,7 @@ export class GraphEngine {
       await this.refresh();
       if (hash(this.config.policy) !== run.plan.policyHash)
         throw new Error("Policy changed before publication");
+      this.assertPlanVerification(run.plan);
       if (!verifiedHash)
         throw new Error(
           "No verified source snapshot is available for publication",
@@ -3693,6 +3733,7 @@ export class GraphEngine {
         throw new Error(
           "Automated checks passed; additional review is required before completing this managed run",
         );
+      await this.assertCurrentPlanVerification(run.plan);
       this.store.event(run.id, "publication.started", {
         mode: run.plan.publication,
         snapshotHash: verifiedHash,

@@ -1,5 +1,6 @@
 export * from "@graph-engineering/contracts";
 export { GraphEngine } from "./service.js";
+export { verificationCatalogueSha256 } from "./verification-selection.js";
 export { ContextEngine } from "./context/index.js";
 export {
   parseReviewedAssertions,

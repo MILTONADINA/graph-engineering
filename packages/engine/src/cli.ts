@@ -519,14 +519,24 @@ cli
   .description(
     "Register a verification command, run with network disabled in a provisioned image",
   )
+  .option("--id <id>", "Stable check catalogue ID; put before the image")
+  .option(
+    "--optional",
+    "Allow explicit plans to omit this named check; put before the image",
+  )
   // Everything after the image is the check's command, stored as typed.
   .passThroughOptions()
   .allowUnknownOption()
-  .action(async (image, argv: string[]) => {
+  .action(async (image, argv: string[], options) => {
     const project = await loadProject(root());
     // A leading -- only separates the command from check-add's own options.
     if (argv[0] === "--") argv = argv.slice(1);
-    project.verification.push({ image, argv });
+    project.verification.push({
+      image,
+      argv,
+      ...(options.id !== undefined ? { id: options.id } : {}),
+      ...(options.optional ? { optional: true } : {}),
+    });
     assertProjectConfig(project);
     await writeJson(path.join(root(), PROJECT_FILE), project);
     print(project.verification);
@@ -1182,6 +1192,14 @@ cli
   .option("--provider <id>")
   .option("--effort <effort>")
   .option(
+    "--check <id>",
+    "Select a registered check ID (repeatable); include every mandatory ID; omitted means all checks",
+    (value: string, previous: string[] | undefined) => [
+      ...(previous ?? []),
+      value,
+    ],
+  )
+  .option(
     "--steps <json>",
     "Reviewed dependency DAG steps with workers, templates or registered generators",
   )
@@ -1195,6 +1213,9 @@ cli
       const common = {
         providerId: options.provider,
         effort: options.effort,
+        ...(options.check !== undefined
+          ? { checkIds: options.check as string[] }
+          : {}),
         ...(steps ? { steps } : {}),
       };
       if (options.spec) {
@@ -1258,6 +1279,9 @@ function shownPlan(plan: import("@graph-engineering/contracts").ExecutionPlan) {
       writes: step.writes ?? null,
     })),
     verification: plan.verification,
+    ...(plan.verificationSelection
+      ? { verificationSelection: plan.verificationSelection }
+      : {}),
     generators: plan.generators ?? [],
     installedWorkers: plan.installedWorkers ?? [],
     publication: plan.publication,

@@ -1,4 +1,4 @@
-# Agent handover — 2026-09-30
+# Agent handover — 2026-10-01
 
 This is a continuation brief for the **Graph Engineering repository in this
 workspace only**. It records the owner's requirements, the implemented state,
@@ -9,21 +9,56 @@ permission beyond the recorded fork-only workflow, authorize metered calls
 without a session cap, activate autonomous decision promotion, or touch
 another project.
 
-## Start here — state on 2026-09-30
+## Start here — state on 2026-10-01
 
 On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
-### Installed-worker identity — implementation checkpoint
+### Per-plan verification selection — implementation checkpoint
 
-The follow-on `feat/installed-worker-identity` branch adds opt-in reviewed
-native executable identity. This is separate from the already released
-approval/repair controls below. Implementation and scoped local review are
-complete; the branch still needs its required exact-head CI and PR merge.
-Do not treat an unmerged feature head as an approved consumer pin. The feature
-PR's final verification section is the authority for its eventual merged SHA,
-source-build manifest and checked-head/merge-tree evidence.
+The separate `feat/plan-verification-selection` follow-on adds operator-owned
+check IDs and explicit optional-check selection. It is not part of the identity
+release below. Implementation, focused synthetic evidence and scoped source
+review are complete; CI and merge remain pending. Its complete contract is in
+[verification images](verification-images.md) and
+[the selection spec](../specs/quality/verification-selection.md). Until its own
+required CI, review and merge finish, do not use an unmerged head as a consumer
+pin. The feature PR's final verification record supplies its eventual checked
+head, merged SHA/tree and source-build/CI identities.
+
+Catalogue entries retain `image` and exact `argv`, with optional `id` and
+`optional` fields. Missing or false `optional` means mandatory. Explicit plan
+selection requires a fully named catalogue and every mandatory ID; unknown,
+duplicate and empty selections are refused. Omitted selection keeps every
+check. Registration is local-operator-only; CLI, MCP and HTTP selectors pass
+IDs, never new executable commands.
+
+Every new plan freezes `verificationSelection: { catalogueSha256,
+checkIds: null | string[] }` alongside its complete resolved `verification`
+descriptors. Null means all checks; array order in the catalogue determines
+execution. The full plan hash/approval covers both. Whole-catalogue drift,
+including an unselected optional check, requires a fresh plan. Legacy plans
+without a binding remain usable only while both retained and current checks
+have no `id` or `optional` fields; adopting named checks requires replanning.
+Selected optional checks are required for that run, never skipped by routing.
+Tester write scopes, repair constraints, plan approval, identity, cost/export
+controls and security/reviewer gates are separate and remain enforced.
+
+### Installed-worker identity — released
+
+[PR #122](https://github.com/MILTONADINA/graph-engineering/pull/122) released
+opt-in reviewed native executable identity into fork `dev` at
+`40cfd318d5c79830ab02b3c84d260061f873b627` on 2026-10-01 at 05:10:21 UTC.
+Its exact checked head `d4251b2e985ab7c7eeba9c411f1450610a9263e8` shares
+Git tree `0327de3ed99db95a08798f697ae33e657e2b5eae` with the merged commit.
+[CI run 36816489588](https://github.com/MILTONADINA/graph-engineering/actions/runs/36816489588),
+attempt 1, passed all nine required jobs. PR verification records every job ID.
+The engine source manifest is
+`0d61e07ddf6e8cf5bf576457fab2dbdb97f3e6d742a094db3a159e70e17ef6c2`
+over 122 files. Scoped independent review closed all findings. No new external
+human approval, separate post-merge CI success or live inference is claimed.
+The consumer session received the exact pin, contract and CI/build evidence.
 
 The complete interface and limits are in
 [installed workers](installed-workers.md#reviewed-executable-identity-opt-in)
@@ -58,11 +93,12 @@ providerProfileSha256, identity: { realpath, sha256 } }]`. The existing
 Focused local evidence is synthetic or mocked, not live-provider inference.
 Review corrected mixed pinned/legacy over-enforcement, missing macOS probe
 guards and path-bearing Claude launch errors; targeted regressions cover each.
-The earlier successful CI runs below do not validate this changed source.
+The successful exact-head identity CI above validates this release, not the
+later check-selection source changes.
 No provider calls, credentials, promotion keys, budgets, exports or consumer
 repositories were changed. CLI/MCP and Claude runtime use remain tool-neutral.
-Area-specific verification selection is a separate proposed follow-on, not
-part of this identity release or a currently supported contract.
+Area-specific verification selection is the separate follow-on above, not
+part of the identity-release pin.
 
 ### Narrow approval and worker-controls release
 
