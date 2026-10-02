@@ -11,33 +11,59 @@ The owner authorized review and merge of the implementation into
 `MILTONADINA/graph-engineering:dev`; synchronization with
 `NdahayoKevin25/graph-engineering` is a separate later step.
 
-## Active follow-on: completion-driven decision calls
+## Active follow-on: default-enabled automatic feedback
+
+The owner requested automatic reporting on by default, with notice and an
+opt-out. This replaces per-report consent for fixed-metadata automatic reports;
+manual free-text feedback stays separate. See the
+[current handover](claude-code-handover.md#default-enabled-automatic-feedback--implementation-checkpoint)
+and [feedback contract](feedback.md).
+
+- [x] Inspect existing feedback, privacy/policy boundaries and current fork state.
+- [x] Settle metadata-only transport, local opt-out, notice and attempt limits.
+- [x] Implement and inspect runtime/CLI plus sealed synthetic regressions.
+- [x] Focused evidence, compatibility/build/style/spec checks and scoped review.
+- [ ] Exact-head required CI and normal feature-PR merge into fork `dev`.
+- [ ] Deliver final release evidence and document limits without live-issue claims.
+
+This is the pre-publication checklist snapshot. Local evidence covers 29 new
+synthetic cases and eight affected existing cases; dependency/engine builds,
+typecheck, changed-source lint/format and spec-check passed. The feature PR's
+final Verification record, not this snapshot, determines the later exact-head
+CI, protected merge and delivery outcome. No real feedback issue was submitted.
+
+## Completed follow-on: completion-driven decision calls
 
 This is a separate generic opt-in stacked on verification PR #124. See the
-[current handover](claude-code-handover.md#completion-driven-decision-calls--stacked-implementation-checkpoint)
+[current handover](claude-code-handover.md#completion-driven-decision-calls--released)
 and [decision-deadline spec](../specs/decisions/decision-deadlines.md).
 
 - [x] Optional validated per-provider-request timeout; existing 10-second default unchanged.
 - [x] Focused completion/cancellation, byte/cost/accounting and policy-binding evidence.
 - [x] Tool-neutral operator contract and independent scoped review.
-- [ ] Top-stack exact-head required CI, protected fork-dev merge and lower-PR closure.
-- [ ] Deliver reviewed merged pin and build/CI identities for both deadline settings.
+- [x] Top-stack exact-head required CI, protected fork-dev merge and lower-PR closure.
+- [x] Deliver reviewed merged pin and build/CI identities for both deadline settings.
 
-## Active follow-on: completion-driven verification
+## Completed follow-on: completion-driven verification
 
 Scope is the built-in verifier's optional per-check deadline, not run-wide
 unlimited execution or any change to installed-worker controls. See the
-[current handover](claude-code-handover.md#completion-driven-verification--implementation-checkpoint)
+[current handover](claude-code-handover.md#completion-driven-verification--released)
 and [deadline spec](../specs/quality/verification-deadlines.md).
 
 - [x] Optional nullable verification timeout; existing defaults unchanged.
 - [x] Focused terminal/cancellation/failure, policy-binding and preservation evidence.
 - [x] Complete operator contract, limitations and scoped independent review.
-- [ ] All required exact-head CI checks and normal fork-dev PR merge.
-- [ ] Deliver actual reviewed merged pin and CI/build identities.
+- [x] All required exact-head CI checks and normal fork-dev PR merge.
+- [x] Deliver actual reviewed merged pin and CI/build identities.
 
-The feature PR's final Verification record establishes the release outcome;
-implementation alone is not a released consumer pin.
+Both settings released through
+[PR #125](https://github.com/MILTONADINA/graph-engineering/pull/125) at
+`5b88af9787f9da00e312268847aee27053be8555` after all nine required jobs passed
+in [CI run 36911129917](https://github.com/MILTONADINA/graph-engineering/actions/runs/36911129917),
+attempt 1. Checked head and merged commit share the same tree. The handover
+and PR record exact CI/build identities. Lower PR #124 is closed as included;
+consumer activation remains separate from this GE release.
 
 ## Completed follow-on: per-plan verification selection
 
