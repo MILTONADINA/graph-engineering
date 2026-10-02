@@ -42,20 +42,32 @@ permitting `api.github.com`; it cannot override offline/local-inference policy.
 It uses a fixed GitHub CLI POST with existing stored login only, a minimal
 environment, bounded execution/output, atomic local attempt reservations,
 rate/deduplication limits and no retries or backlog. No feedback MCP/HTTP tools
-are added. Native CI/test execution and `mcp`, `serve`, `watch` commands are
-excluded. Tests must use sealed fake transports and synthetic data; do not
+are added. Native CI/test execution, `mcp`, `serve`, `watch` commands and the
+entire `promotion` namespace are excluded. Tests must use sealed fake transports
+and synthetic data; do not
 create real issues to verify it. Do not change this repository's actual policy,
 credentials or budgets to make automatic reporting send.
 
-Local evidence: 29 new synthetic cases and eight affected existing feedback/CLI
+Local evidence: 32 new synthetic cases and eight affected existing feedback/CLI
 cases passed, alongside dependency and engine builds, engine typecheck,
 changed-source lint/format and all feature-spec links. The engine manifest is
-`9eaed0f8da9d9ce84b2433a08b3cd11a0ce8b4b4a109a785707b0844459395fe`
+`00692104a78356c2060b48dc239b63a2d174462e04da6accb4e4fa5bc748447d`
 over 124 source files. Source-first review added Node test-runner suppression,
 sealed child-process test transport and qualified the manual-note privacy
 wording before execution. Independent scoped source/fixture/doc review found
 no remaining blocker. No live GitHub issue, provider call, policy relaxation,
 new credentials or consumer-project change was used as evidence.
+
+The first PR #126 CI run, `36958430481` on `47aaa4c`, exposed two existing
+promotion stderr-contract failures: the new startup notice preceded a closed
+refusal line or JSON object. A bounded correction tracks the canonical
+top-level CLI command and excludes the whole promotion namespace before any
+notice/logging/submission. Three sealed regression cases cover exact refusal
+bytes and thrown-error handling without reading owner keys or anchors. All
+seven feedback CLI cases then passed, and the engine was rebuilt to the
+manifest above. Existing promotion assertions were not weakened. The original
+CI is not release evidence; the PR's final record identifies the corrected
+head's required CI and merge outcome.
 
 ### Completion-driven decision calls — released
 

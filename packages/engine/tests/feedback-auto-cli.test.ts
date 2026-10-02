@@ -10,6 +10,14 @@ import { writeJson } from "../src/util.js";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const SENTINEL = "toy-private-feedback-cli-sentinel";
+const PROMOTION_REFUSAL = {
+  outcome: "refused",
+  step: 1,
+  refusal: "trust-anchor-absent",
+  detail: "Synthetic anchor is absent",
+  signed: false,
+  promotionEligible: false,
+};
 const directories: string[] = [];
 afterEach(async () => {
   for (const directory of directories.splice(0))
@@ -27,7 +35,9 @@ interface RecordedTransport {
   };
 }
 
-async function fixture(options: { offline?: boolean; failure?: boolean } = {}) {
+async function fixture(
+  options: { offline?: boolean; failure?: boolean; promotion?: boolean } = {},
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "graph-feedback-cli-"));
   directories.push(directory);
   const root = path.join(directory, "project");
@@ -44,6 +54,29 @@ async function fixture(options: { offline?: boolean; failure?: boolean } = {}) {
   const callsFile = path.join(directory, "transport.jsonl");
   const mockFile = path.join(directory, "mock-util.mjs");
   const hookFile = path.join(directory, "sealed-hook.mjs");
+  const importerFile = path.join(directory, "mock-promotion-importer.mjs");
+  const enrollmentFile = path.join(directory, "mock-promotion-enrollment.mjs");
+  if (options.promotion) {
+    await writeFile(
+      importerFile,
+      `export async function preparePromotionGrantRequest(_root, bundle) {
+  if (bundle === "synthetic-throw") throw new Error("Synthetic promotion failure");
+  return ${JSON.stringify(PROMOTION_REFUSAL)};
+}
+`,
+    );
+    await writeFile(
+      enrollmentFile,
+      `export const OWNER_KEY_ROLES = [];
+export async function verifyInstalledPromotionTrustAnchor() {
+  return ${JSON.stringify(PROMOTION_REFUSAL)};
+}
+export function anchorFollowUpCommands() { throw new Error("Unexpected promotion operation"); }
+export async function preparePromotionTrustAnchor() { throw new Error("Unexpected promotion operation"); }
+export async function enrollPromotionTrustAnchor() { throw new Error("Unexpected promotion operation"); }
+`,
+    );
+  }
   // The replacement exists only for feedback-auto's command import. It never
   // launches gh. It runs on Windows as well as POSIX and needs no shell shim.
   await writeFile(
@@ -73,18 +106,54 @@ export async function command(executable, argv, options) {
     `import { registerHooks, syncBuiltinESMExports } from "node:module";
 import childProcess from "node:child_process";
 import path from "node:path";
+import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 const originalSpawn = childProcess.spawn;
 childProcess.spawn = function(executable, ...args) {
   const name = path.win32.basename(path.posix.basename(String(executable))).toLowerCase();
   if (name === "gh" || name === "gh.exe") throw new Error("Native GitHub transport forbidden in feedback CLI fixture");
   return originalSpawn.call(this, executable, ...args);
 };
+${
+  options.promotion
+    ? `// Even if a module hook stops matching, no real anchor or owner key may be read.
+const protectedAuthorityPath = (file) => {
+  const filename = path.win32.basename(path.posix.basename(String(file)));
+  return filename.endsWith(".pem") || filename === "promotion-keys" ||
+    (filename.startsWith("promotion-trust-anchor") && filename.endsWith(".json"));
+};
+for (const [api, names] of [
+  [fs, ["lstatSync", "statSync", "openSync", "readFileSync"]],
+  [fsPromises, ["lstat", "stat", "open", "readFile", "realpath"]],
+]) {
+  for (const name of names) {
+    const original = api[name];
+    api[name] = function(file, ...args) {
+      if (protectedAuthorityPath(file)) throw new Error("Authority reads forbidden in promotion CLI fixture");
+      return original.call(this, file, ...args);
+    };
+  }
+}
+`
+    : ""
+}
 syncBuiltinESMExports();
 globalThis.fetch = () => { throw new Error("Live fetch forbidden in feedback CLI fixture"); };
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "./util.js" && context.parentURL?.endsWith("/src/feedback-auto.ts"))
       return { url: ${JSON.stringify(pathToFileURL(mockFile).href)}, shortCircuit: true };
+${
+  options.promotion
+    ? `    if (context.parentURL?.endsWith("/src/cli.ts")) {
+      if (specifier === "./promotion-importer.js")
+        return { url: ${JSON.stringify(pathToFileURL(importerFile).href)}, shortCircuit: true };
+      if (specifier === "./promotion-anchor-enrollment.js")
+        return { url: ${JSON.stringify(pathToFileURL(enrollmentFile).href)}, shortCircuit: true };
+    }
+`
+    : ""
+}
     return nextResolve(specifier, context);
   }
 });
@@ -275,6 +344,66 @@ describe(
       ]);
       expect(repeated.code).toBe(1);
       expect(await test.calls()).toHaveLength(1);
+    });
+
+    it("keeps promotion anchor-verify's exact refusal protocol free of automatic feedback", async () => {
+      const test = await fixture({ promotion: true });
+      const result = await test.run(["promotion", "anchor-verify"]);
+      expect(result).toEqual({
+        code: 1,
+        stdout: "",
+        stderr: `${PROMOTION_REFUSAL.refusal}\n${PROMOTION_REFUSAL.detail}\n`,
+      });
+      expect(await test.calls()).toEqual([]);
+      await expect(
+        readFile(path.join(test.data, "feedback/automatic.sqlite")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        readFile(path.join(test.data, "feedback/difficulties.json")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("keeps promotion prepare-grant's exact JSON refusal free of automatic feedback", async () => {
+      const test = await fixture({ promotion: true });
+      const result = await test.run([
+        "promotion",
+        "prepare-grant",
+        "synthetic-bundle",
+      ]);
+      expect(result).toEqual({
+        code: 1,
+        stdout: "",
+        stderr: `${JSON.stringify(PROMOTION_REFUSAL, null, 2)}\n`,
+      });
+      expect(JSON.parse(result.stderr)).toEqual(PROMOTION_REFUSAL);
+      expect(await test.calls()).toEqual([]);
+      await expect(
+        readFile(path.join(test.data, "feedback/automatic.sqlite")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        readFile(path.join(test.data, "feedback/difficulties.json")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("excludes thrown promotion subcommand failures from automatic notices, logs and submission", async () => {
+      const test = await fixture({ promotion: true });
+      const result = await test.run([
+        "promotion",
+        "prepare-grant",
+        "synthetic-throw",
+      ]);
+      expect(result).toEqual({
+        code: 1,
+        stdout: "",
+        stderr: "Synthetic promotion failure\n",
+      });
+      expect(await test.calls()).toEqual([]);
+      await expect(
+        readFile(path.join(test.data, "feedback/automatic.sqlite")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(
+        readFile(path.join(test.data, "feedback/difficulties.json")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
     });
   },
 );
