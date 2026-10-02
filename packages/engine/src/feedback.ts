@@ -4,7 +4,7 @@ import path from "node:path";
 import envPaths from "env-paths";
 import { containsSecret } from "./policy.js";
 
-/** Where consented reports go: the maintainers' issue tracker. */
+/** Fixed public destination for automatic and separately reviewed reports. */
 export const FEEDBACK_REPOSITORY = "MILTONADINA/graph-engineering";
 
 /**
@@ -128,6 +128,8 @@ const PHASES: Record<string, string> = {
   serve: "dashboard",
   mcp: "mcp",
 };
+/** Fixed report identifiers; the CLI separately excludes service commands. */
+export const AUTOMATIC_FEEDBACK_COMMANDS = Object.freeze(Object.keys(PHASES));
 
 export interface FeedbackReport {
   engineVersion: string;
@@ -201,7 +203,7 @@ export function feedbackReportText(report: FeedbackReport): string {
       ? ["", "Note from the person sending it:", report.note]
       : []),
     "",
-    "This report holds no project name, path, file, code, prompt or error message.",
+    "Automatically populated fields hold no project name, path, file, code, prompt or error message. Any note above is supplied separately by its author and must be reviewed before submission.",
   ].join("\n");
 }
 
@@ -295,7 +297,8 @@ export async function offerFeedback(
     [
       "",
       "Graph Engineering hit a difficulty. You can help improve it by sending",
-      "this anonymous report to its maintainers. It contains exactly:",
+      "this public report to its maintainers. If you submit it, GitHub",
+      "attributes the issue to your account; it is not anonymous. It contains:",
       "",
       feedbackReportText(report),
       "",

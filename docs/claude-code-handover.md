@@ -15,9 +15,51 @@ On 2026-09-30 the owner moved this work from Claude Code to Codex. The
 sections after this one are the history up to that point. Where they
 disagree with this section, this section wins.
 
-### Completion-driven decision calls — stacked implementation checkpoint
+### Default-enabled automatic feedback — implementation checkpoint
 
-The separate `feat/completion-driven-decisions` follow-on is stacked on
+The owner explicitly requested automatic submission enabled by default, with
+a visible notice and opt-out. This supersedes the historical per-report-consent
+requirement for automatic metadata reports only. Work is on
+`feat/automatic-feedback`, based on released fork-dev
+`5b88af9787f9da00e312268847aee27053be8555`. This is the pre-publication
+checkpoint: implementation, local verification and scoped review are complete;
+the feature PR's final Verification record establishes exact-head CI and the
+reviewed merged pin. This snapshot does not claim a live issue submission.
+See [feedback](feedback.md) and its
+[spec](../specs/quality/feedback-reports.md).
+
+Automatic payloads contain only fixed difficulty kinds, allowlisted command
+and phase, engine version and runtime/platform metadata. Never include notes,
+source, paths, prompts, private memory, logs, raw errors or project/run IDs.
+Reports are public and attributed to the sender's existing GitHub CLI account,
+not anonymous. Use `feedback-config off` or `GRAPH_ENGINE_NO_FEEDBACK=1` to
+disable automatic reporting and local difficulty logging; the environment
+override wins. An unreadable preference/ledger fails closed. Manual notes stay
+in the separate reviewed browser flow, never the automatic transport.
+
+The automatic transport requires a valid freshly loaded project policy
+permitting `api.github.com`; it cannot override offline/local-inference policy.
+It uses a fixed GitHub CLI POST with existing stored login only, a minimal
+environment, bounded execution/output, atomic local attempt reservations,
+rate/deduplication limits and no retries or backlog. No feedback MCP/HTTP tools
+are added. Native CI/test execution and `mcp`, `serve`, `watch` commands are
+excluded. Tests must use sealed fake transports and synthetic data; do not
+create real issues to verify it. Do not change this repository's actual policy,
+credentials or budgets to make automatic reporting send.
+
+Local evidence: 29 new synthetic cases and eight affected existing feedback/CLI
+cases passed, alongside dependency and engine builds, engine typecheck,
+changed-source lint/format and all feature-spec links. The engine manifest is
+`9eaed0f8da9d9ce84b2433a08b3cd11a0ce8b4b4a109a785707b0844459395fe`
+over 124 source files. Source-first review added Node test-runner suppression,
+sealed child-process test transport and qualified the manual-note privacy
+wording before execution. Independent scoped source/fixture/doc review found
+no remaining blocker. No live GitHub issue, provider call, policy relaxation,
+new credentials or consumer-project change was used as evidence.
+
+### Completion-driven decision calls — released
+
+The separate `feat/completion-driven-decisions` follow-on was stacked on
 verification PR #124. Optional `policy.decisionTimeoutSeconds` applies to each
 managed Laya/Jev HTTP request and response body: absence preserves the existing
 10-second deadline, integer `1..86400` selects a deadline, and `null` keeps caller
@@ -29,19 +71,30 @@ validates against the existing exported schema; `decideBatch` validates its
 cloned policy before requests. See [decision-call deadlines](decisions.md#decision-call-deadlines)
 and [the spec](../specs/decisions/decision-deadlines.md).
 
-This added generic requirement is not part of released `104accac`.
+This added generic requirement is not part of the earlier `104accac` release.
 Implementation, 18 distinct new focused cases, 51 affected compatibility cases,
 typecheck, dependency/engine builds and scoped independent reviews are complete.
-Final source manifest:
+Release source manifest:
 `074f05032abcdea629ab648c4a1bfc6e3c32f0c55cc23c1e86326af9ea557d22`
 over 123 files. Local tests used synthetic transports/streams/clocks, not live
-provider or promotion evidence. The top PR's final Verification record must
-establish exact-head required CI and actual reviewed merged pin/tree for both
-stacked changes. The consumer retains the prior merged pin until then.
+provider or promotion evidence. Both deadline settings released through
+[PR #125](https://github.com/MILTONADINA/graph-engineering/pull/125) at
+`5b88af9787f9da00e312268847aee27053be8555` on 2026-10-01 at 19:30:15 UTC.
+Exact checked head `5e88db1ab7fbd3083e9a9094848a78f26781341d` and merged
+commit share tree `2dc4d731790e190e1c3fc0a7d18910eb60605c49`.
+[CI run 36911129917](https://github.com/MILTONADINA/graph-engineering/actions/runs/36911129917),
+attempt 1, passed all nine required jobs. PR #124 was closed as included.
+The exact pin and CI/build evidence were delivered for consumer-owned adoption,
+which is separate from the GE release. The PR's Verification record has job
+identities and limits; no live inference or separate post-merge CI is claimed.
+An earlier run hit the Linux job's total 30-minute budget during browser
+dependency setup, with no assertion failure. A bounded Linux-only workflow
+budget correction to 45 minutes preceded the successful run; other jobs and
+individual test deadlines remain unchanged.
 No new provider call, actual project policy, budget, credential, promotion,
 export authority or consumer repository change is authorized by this feature.
 
-### Completion-driven verification — implementation checkpoint
+### Completion-driven verification — released
 
 The separate `feat/completion-driven-verification` follow-on adds optional
 `policy.verificationTimeoutSeconds` for built-in verification only. Absence
@@ -53,17 +106,17 @@ fresh plan and any required approval. See
 [verification deadlines](verification-images.md#execution-deadlines) and its
 [spec](../specs/quality/verification-deadlines.md).
 
-This is not part of the released selector pin below. Implementation, 21 new
+This is not part of the earlier selector pin below. Implementation, 21 new
 focused cases, 12 affected compatibility cases, dependency/engine builds,
 typecheck and scoped independent reviews are complete. Build source manifest:
 `7b55e94f000d6406d684dd4ba9e49355bd26bd760e57edcbfbe19442d1d31cee`
 over 123 files. Shared-policy drift was addressed by capturing the effective
 deadline synchronously before any verifier awaits; regression evidence covers it.
 The focused checks are synthetic/mocked, not live Docker or provider execution.
-Exact-head CI and a normal fork-dev PR merge remain release gates. The feature
-PR's final verification record will establish the
-checked head, merged SHA/tree, build identity and all required checks. Do not
-adopt an unmerged head. Cancellation cleanup remains best-effort; this feature
+The completed stacked release through PR #125 above establishes the exact
+checked head, merged SHA/tree, final build identity and required checks for
+both settings. The manifest in this paragraph is an intermediate verification-only
+build, not the final combined release. Cancellation cleanup remains best-effort; this feature
 does not reattach dead-owner checks or prove orphan-container cleanup. No
 checked-in policy, provider, budget, export or consumer repository is changed.
 

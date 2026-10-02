@@ -16,7 +16,7 @@ Start with [working as an AI agile team](agile-team.md), then the
 | [Security scanning](security-scanning.md)             | Tool selection, offline scans, baselines and the run gate              |
 | [Verification images](verification-images.md)         | Building the offline check image for Maven, Gradle, Node.js and Python |
 | [Run outcomes](outcomes.md)                           | Recording acceptance and looking back at how runs ended                |
-| [Feedback reports](feedback.md)                       | Anonymous, consented reports of where the graph struggled              |
+| [Feedback reports](feedback.md)                       | Default-on metadata-only difficulty reports, notice and opt-out        |
 | [Knowledge packs](knowledge-packs.md)                 | Offline, cited documentation for workers                               |
 | [Memory assertions](memory-assertions.md)             | Typed memory claims and contradiction checks                           |
 | [Installed workers](installed-workers.md)             | Native AI clients as workers and their limits                          |

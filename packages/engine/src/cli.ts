@@ -30,6 +30,12 @@ import {
   type ErrorKind,
   type FeedbackIo,
 } from "./feedback.js";
+import {
+  automaticFeedbackNotice,
+  readAutomaticFeedbackSettings,
+  setAutomaticFeedbackEnabled,
+  submitAutomaticFeedback,
+} from "./feedback-auto.js";
 import { checkSpecs, specTemplate, SPECS_DIR } from "./specs.js";
 import {
   addKnowledgePack,
@@ -126,16 +132,27 @@ const cli = new Command()
   .enablePositionalOptions()
   .version("0.1.0")
   .option("-C, --project <path>", "Project root", process.cwd());
+let activeCommand: string | undefined;
 // Before any command runs, compare this dist with the source beside it. A cloud
 // MCP server refuses a stale build, which may lack newer export guards; other
 // commands warn. Output goes to stderr: stdout carries JSON and the MCP stream.
 cli.hook("preAction", (_program, action) => {
+  activeCommand = action.name();
   const freshness = checkDistFreshness();
   const cloudMcp = action.name() === "mcp" && action.opts().client === "cloud";
   const decision = distFreshnessAction(freshness, cloudMcp);
   if (decision === "refuse") throw new Error(distFreshnessMessage(freshness));
   if (decision === "warn")
     process.stderr.write(`warning: ${distFreshnessMessage(freshness)}\n`);
+});
+cli.hook("preAction", async (_program, action) => {
+  if (!automaticFeedbackCommand(action.name())) return;
+  try {
+    if ((await readAutomaticFeedbackSettings()).enabled)
+      notifyAutomaticFeedback(automaticFeedbackNotice());
+  } catch {
+    // A notice or unreadable preference never prevents the requested command.
+  }
 });
 const root = () => path.resolve(cli.opts().project);
 const print = (value: unknown): void => {
@@ -2001,7 +2018,7 @@ cli
 cli
   .command("feedback [note...]")
   .description(
-    "Show an anonymous report for the maintainers (version, command, difficulty kinds, platform, your note) and, if you agree, open it as a GitHub issue",
+    "Show a report for the maintainers (version, command, difficulty kinds, platform, your note) and, if you agree, open it as a public GitHub issue under your account",
   )
   .option("--log", "Include the difficulty kinds recorded on this machine")
   .action(async (note: string[], options) => {
@@ -2029,6 +2046,19 @@ cli
     await offerFeedback(report, io);
   });
 cli
+  .command("feedback-config [setting]")
+  .description(
+    "Show automatic feedback settings, or persist on/off locally; GRAPH_ENGINE_NO_FEEDBACK=1 always disables it",
+  )
+  .action(async (setting: string | undefined) => {
+    if (setting !== undefined) {
+      if (setting !== "on" && setting !== "off")
+        throw new Error("feedback-config setting must be on or off");
+      await setAutomaticFeedbackEnabled(setting === "on");
+    }
+    print(await readAutomaticFeedbackSettings());
+  });
+cli
   .command("feedback-log")
   .description(
     "Show the difficulty kinds recorded on this machine (kinds, counts and times only)",
@@ -2039,8 +2069,9 @@ cli
     print(await readDifficulties());
   });
 
-// Feedback: a run that failed, or a command that errored, is recorded as a
-// difficulty kind locally, and a person at a terminal is offered a report.
+// Feedback: a run that failed, or an ordinary command that errored, is recorded
+// as a difficulty kind locally when enabled. Automatic submission also requires
+// current project network policy and the transport's independent safety gates.
 // A command that waited for a run also exits with that run's code
 // (runExitCode): 0 only when it succeeded.
 let failedRunError: string | undefined;
@@ -2066,8 +2097,27 @@ function commandNames(): string[] {
   return cli.commands.map((command) => command.name());
 }
 function currentCommand(): string | undefined {
+  if (activeCommand) return activeCommand;
   const names = new Set(commandNames());
   return process.argv.slice(2).find((arg) => names.has(arg));
+}
+function automaticFeedbackCommand(command: string | undefined): boolean {
+  return ![
+    "feedback",
+    "feedback-config",
+    "feedback-log",
+    "mcp",
+    "serve",
+    "watch",
+  ].includes(command ?? "");
+}
+let automaticFeedbackNoticeShown = false;
+function notifyAutomaticFeedback(message: string): void {
+  if (message === automaticFeedbackNotice()) {
+    if (automaticFeedbackNoticeShown) return;
+    automaticFeedbackNoticeShown = true;
+  }
+  process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
 }
 function terminalIo(): FeedbackIo {
   return {
@@ -2109,23 +2159,28 @@ function terminalIo(): FeedbackIo {
 async function handleDifficulty(message: string): Promise<void> {
   const kind = classifyError(message);
   const command = currentCommand();
-  if (
-    command === "feedback" ||
-    command === "feedback-log" ||
-    process.env.GRAPH_ENGINE_NO_FEEDBACK === "1"
-  )
-    return;
+  if (!automaticFeedbackCommand(command)) return;
   try {
+    if (!(await readAutomaticFeedbackSettings()).enabled) return;
     await recordDifficulty(kind);
-    await offerFeedback(
-      buildFeedbackReport({
+    const controller = new AbortController();
+    const release = onStopSignal(() => controller.abort());
+    try {
+      const feedback = await submitAutomaticFeedback({
         engineVersion: ENGINE_VERSION,
         command,
-        commands: commandNames(),
-        kinds: [{ kind, count: 1 }],
-      }),
-      terminalIo(),
-    );
+        kind,
+        readPolicy: async () => (await loadProject(root())).policy,
+        notify: notifyAutomaticFeedback,
+        signal: controller.signal,
+      });
+      if (feedback.status === "submitted")
+        process.stderr.write(
+          `Automatic feedback submitted: ${feedback.issueUrl}\n`,
+        );
+    } finally {
+      release();
+    }
   } catch {
     // Feedback never changes a command's outcome.
   }
