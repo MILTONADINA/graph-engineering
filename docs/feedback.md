@@ -34,7 +34,8 @@ directory. `feedback-config on` cannot override the environment opt-out.
   may reject a submission; the original command's exit status is preserved.
 - Real submission is suppressed in detected CI/test environments. MCP, HTTP,
   dashboard and `mcp`, `serve`, `watch` commands have no automatic reporting
-  hooks. Feedback commands themselves do not recursively report failures.
+  hooks. The `promotion` namespace is excluded to preserve its machine-readable
+  refusal protocol. Feedback commands themselves do not recursively report failures.
 - Attempts are limited to three per rolling 24 hours per local data directory.
   An identical sanitized report is suppressed for 24 hours. The attempt is
   reserved durably before sending, even if GitHub times out or the result is

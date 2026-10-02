@@ -137,7 +137,7 @@ let activeCommand: string | undefined;
 // MCP server refuses a stale build, which may lack newer export guards; other
 // commands warn. Output goes to stderr: stdout carries JSON and the MCP stream.
 cli.hook("preAction", (_program, action) => {
-  activeCommand = action.name();
+  activeCommand = topLevelCommand(action);
   const freshness = checkDistFreshness();
   const cloudMcp = action.name() === "mcp" && action.opts().client === "cloud";
   const decision = distFreshnessAction(freshness, cloudMcp);
@@ -146,7 +146,7 @@ cli.hook("preAction", (_program, action) => {
     process.stderr.write(`warning: ${distFreshnessMessage(freshness)}\n`);
 });
 cli.hook("preAction", async (_program, action) => {
-  if (!automaticFeedbackCommand(action.name())) return;
+  if (!automaticFeedbackCommand(topLevelCommand(action))) return;
   try {
     if ((await readAutomaticFeedbackSettings()).enabled)
       notifyAutomaticFeedback(automaticFeedbackNotice());
@@ -2096,6 +2096,11 @@ const ENGINE_VERSION = (() => {
 function commandNames(): string[] {
   return cli.commands.map((command) => command.name());
 }
+function topLevelCommand(action: Command): string {
+  let command = action;
+  while (command.parent && command.parent !== cli) command = command.parent;
+  return command.name();
+}
 function currentCommand(): string | undefined {
   if (activeCommand) return activeCommand;
   const names = new Set(commandNames());
@@ -2109,6 +2114,9 @@ function automaticFeedbackCommand(command: string | undefined): boolean {
     "mcp",
     "serve",
     "watch",
+    // Promotion refusals have an exact machine-readable stderr protocol.
+    // Exclude the namespace, including future nested actions, before any notice.
+    "promotion",
   ].includes(command ?? "");
 }
 let automaticFeedbackNoticeShown = false;

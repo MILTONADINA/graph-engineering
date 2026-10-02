@@ -26,11 +26,14 @@ and [feedback contract](feedback.md).
 - [ ] Exact-head required CI and normal feature-PR merge into fork `dev`.
 - [ ] Deliver final release evidence and document limits without live-issue claims.
 
-This is the pre-publication checklist snapshot. Local evidence covers 29 new
+This is the pre-publication checklist snapshot. Local evidence covers 32 new
 synthetic cases and eight affected existing cases; dependency/engine builds,
 typecheck, changed-source lint/format and spec-check passed. The feature PR's
 final Verification record, not this snapshot, determines the later exact-head
 CI, protected merge and delivery outcome. No real feedback issue was submitted.
+The first CI run exposed promotion stderr pollution from the notice; the
+bounded namespace exclusion and three sealed regressions correct that failure
+without weakening existing assertions. Corrected-head CI remains required.
 
 ## Completed follow-on: completion-driven decision calls
 
